@@ -13,6 +13,7 @@ import { parse } from '@lumenize/structured-clone';
 import { MeshClient, type MeshClientConfig } from '../src/mesh-client';
 import { mesh } from '../src/mesh-decorator';
 import { connectClient, loginAt, loginOf, uniqueScope } from './support/login';
+import type { ClientHostDO } from './test-worker-and-dos';
 
 /** A Client whose push handler counts its runs. */
 class PingedClient extends MeshClient {
@@ -62,15 +63,30 @@ function droppingWebSocket(Base: typeof WebSocket): typeof WebSocket & { dropNex
   } as never;
 }
 
-/** A WebSocket that counts the sockets a Client opens with it. */
-function openingWebSocket(Base: typeof WebSocket): typeof WebSocket & { opened: number } {
+/** A WebSocket that counts the sockets a Client opens with it, and records each one's close code. */
+function openingWebSocket(Base: typeof WebSocket): typeof WebSocket & { opened: number; closed: number[] } {
   return class extends Base {
     static opened = 0;
+    static closed: number[] = [];
     constructor(url: string | URL, protocols?: string | string[]) {
       super(url, protocols);
       (this.constructor as unknown as { opened: number }).opened += 1;
     }
+    override dispatchEvent(event: Event): boolean {
+      const handled = super.dispatchEvent(event);
+      // Recorded after the Client's own handler has run.
+      if (event.type === 'close') (this.constructor as unknown as { closed: number[] }).closed.push((event as CloseEvent).code);
+      return handled;
+    }
   } as never;
+}
+
+/** Close every socket `scope`'s host holds for the Client `instanceName`, as its Gateway does. */
+async function closeFromHost(scope: string, instanceName: string, code: number, reason: string): Promise<void> {
+  const host = env.CLIENT_HOST_DO.getByName(scope);
+  await runInDurableObject(host, (_instance: unknown, ctx: DurableObjectState) => {
+    for (const ws of ctx.getWebSockets(`${scope}/${instanceName}`)) ws.close(code, reason);
+  });
 }
 
 describe('a push the host sends again across a token rotation', () => {
@@ -152,5 +168,44 @@ describe('a new token reaches the socket', () => {
     // MUTATION: compare the token with the one held before the request, and the request rotates a
     // second time, opening a third socket.
     expect(Opening.opened - before).toBe(1);
+  }, 20_000);
+});
+
+describe('a token that lapses while a rotation waits on its refresh', () => {
+  // In-lane rather than `/live`: the host's 4401 has to land while the rotation's refresh is out,
+  // and only a `refresh` the test supplies can hold one open. Under load it lands there by chance,
+  // which is how Nebula's `resubscribe-on-signal` lost its rotation's call.
+  it('opens one socket, and the call that started the rotation is answered', async () => {
+    const login = await loginAt(uniqueScope('h'));
+    const browser = new Browser();
+    const Opening = openingWebSocket(browser.WebSocket);
+    let held: Promise<void> = Promise.resolve();
+    let refreshes = 0;
+    using client = new FetchingClient({
+      instanceName: `${login.sub}.tab1`,
+      baseUrl: login.baseUrl,
+      refresh: (async () => { refreshes += 1; await held; return login.refresh(); }) as MeshClientConfig['refresh'],
+      fetch: browser.fetch,
+      WebSocket: Opening,
+    });
+    await vi.waitFor(() => expect(client.connectionState).toBe('connected'), { timeout: 10000 });
+    let release!: () => void;
+    held = new Promise((resolve) => { release = resolve; });
+    const [opened, refreshed] = [Opening.opened, refreshes];
+
+    // Every token here is born due, so the call is queued and the socket rotated, and the
+    // rotation's refresh is held.
+    const answered = client.lmz.callAsync(
+      'CLIENT_HOST_DO', login.scope, client.ctn<ClientHostDO>().echo('answered'), { timeoutMs: 10_000 });
+    await vi.waitFor(() => expect(refreshes).toBe(refreshed + 1));
+    // The host closes the old socket 4401, as its Gateway does when a frame arrives on a lapsed token.
+    await closeFromHost(login.scope, client.lmz.instanceName!, 4401, 'Token expired');
+    await vi.waitFor(() => expect(Opening.closed).toContain(4401));
+    release();
+
+    // MUTATION: let that close start its own refresh and reconnect, and a second socket opens
+    // beside the rotation's, onto which the queued call can be flushed before it is open and lost.
+    expect(await answered).toBe('answered');
+    expect(Opening.opened - opened).toBe(1);
   }, 20_000);
 });

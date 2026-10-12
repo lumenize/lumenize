@@ -1531,13 +1531,6 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
       return;
     }
 
-    if (code === 4401) {
-      // Token expired - try refresh
-      this.#accessToken = null;
-      this.#handleTokenExpired();
-      return;
-    }
-
     if (code === WS_CLOSE_GONE) {
       // The node hosting this Client was deleted. Reconnecting would build an empty object at the
       // deleted name, so the Client stops and says why.
@@ -1546,6 +1539,18 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
       this.#clearReconnectTimeout();
       this.#stop(error);
       this.#config.onHostDeleted?.(error);
+      return;
+    }
+
+    // A rotation under way is already refreshing and opening the socket that replaces this one, so
+    // the recovery below would open a second socket beside it, and the queue could be flushed onto
+    // whichever was not yet open and lost. The rotation reconnects on its own if it fails.
+    if (this.#rotating) return;
+
+    if (code === 4401) {
+      // Token expired - try refresh
+      this.#accessToken = null;
+      this.#handleTokenExpired();
       return;
     }
 
@@ -2154,7 +2159,9 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
    *
    * Order matters: the NEW socket is assigned before the old one is closed, so the old socket's
    * close event is the "stale close from superseded socket" the `onclose` guard already ignores —
-   * no competing reconnect, no clobbered `#ws`. `#connectInternal` refreshes on its own when the
+   * no competing reconnect, no clobbered `#ws`. A close that comes sooner, while the refresh is out
+   * — the host's 4401 to a frame sent on the lapsed token, say — starts no recovery either:
+   * `#handleClose` leaves it to the rotation. `#connectInternal` refreshes on its own when the
    * token is due, and `#ensureFreshToken` de-dupes, so the refresh happens exactly once.
    */
   #rotateSocketForFreshToken(): void {
