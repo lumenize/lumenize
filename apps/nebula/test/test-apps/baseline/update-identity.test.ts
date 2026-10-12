@@ -29,7 +29,7 @@ import { ROOT_NODE_ID } from '@lumenize/resources';
 import { CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { QueryDescriptor, TransactionResult } from '@lumenize/resources';
 import { adminClientAt, universeAdminClient, createInvitedClient, createSubject, uniqueStar, addressOfClient } from '../../test-helpers';
-import { NebulaClientTest } from './index';
+import { NebulaClientTest, StudioClientTest } from './index';
 import type { StarTest } from './index';
 
 const VERSION = 'v1';
@@ -145,8 +145,10 @@ describe('no subscription update carries the identity of the caller whose call c
     // ── Galaxy kind: a streaming chunk, caused by the admin's turn ────────────────────────────
     const scope = `ident-${uuid().slice(0, 8)}.app`;
     const resourcePair = { resourceHostBinding: 'GALAXY' } as const;
+    // Studio's class drives the turn: a build ends by pushing `handlePreviewReady` to whoever asked,
+    // and a NebulaClient has no member for it, so the push came back refused.
     const { client: gAdmin, accessToken: gToken } = await universeAdminClient(
-      NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
+      StudioClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
     const adminBrowser = new Browser();
     await createSubject(adminBrowser, scope, gToken, 'probe@example.com');
     const { client: gProbe, payload: gProbeP } = await createInvitedClient(
@@ -161,6 +163,10 @@ describe('no subscription update carries the identity of the caller whose call c
         { id: 'c1', type: 'function', function: { name: 'mark_complete', arguments: '{}' } }] } }] },
     ]);
     await vi.waitFor(() => expect(count(gProbe, 'handleStreamChunk')).toBeGreaterThanOrEqual(1));
+    // The whole turn, not only its first chunk, so the offenders check covers every push it made.
+    await vi.waitFor(() => expect(gAdmin.callCompleted).toBe(true), { timeout: 15000 });
+    expect(gAdmin.lastError).toBeUndefined();
+    await vi.waitFor(() => expect(gAdmin.previewReadyCount).toBe(1)); // the build reply, taken
     expect(offenders(gProbe, 'GALAXY')).toEqual([]);
   });
 });

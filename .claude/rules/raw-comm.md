@@ -71,7 +71,7 @@ It prints what it checked on every run, so a pass is never an empty line. A new 
 
 ## Raw Workers RPC
 Raw `stub.method()` is how non-mesh Workers and DOs talk to other DOs, WorkerEntrypoints, and RpcTargets. (Mesh code uses `this.lmz.call` instead — see [mesh.md](mesh.md).) Gotchas:
-- Synchronous DO methods become **async over RPC** — tests MUST use `await expect(...).rejects.toThrow()`, not `expect(() => ...).toThrow()`.
+- Synchronous DO methods become **async over RPC** — a test MUST assert a refusal with `await expect(Promise.resolve(stub.method())).rejects.toThrow()`, not `expect(() => ...).toThrow()`. The `Promise.resolve` is needed because an RPC promise is callable: bare, `.rejects` calls it, asserts on the pipelined call that returns, and leaves the original rejection unhandled (`testing.md` § *vitest "Errors N"*).
 - Private (`#`) methods silently return `undefined` over RPC stubs — communication MUST go through public methods or HTTP endpoints.
 - **`using` MUST NOT be applied to a DO stub** (nor a service/WorkerEntrypoint binding or facet stub) — it's a local pointer with no `Symbol.dispose`, so `using` throws `"Object is not disposable."` in every environment. Use a plain `const` + `await`; the pointer needs no disposal. `using` is only for a **method-returned RpcTarget session stub** (see [durable-objects.md](durable-objects.md) § Wall-clock billing; verified in `experiments/rpc-stub-disposability/FINDINGS.md`).
 

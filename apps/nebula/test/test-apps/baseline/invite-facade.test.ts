@@ -201,8 +201,10 @@ describe('invite facade — negatives, message-asserted and distinguishable', ()
   it('a direct RPC on the binding, which skips the mesh gate, still fails closed', async () => {
     // A direct entrypoint RPC carries no mesh envelope, so no claims and no `onBeforeCall`; the
     // method's first read of `callContext` is what refuses it. Only our own code holds the binding.
+    // `Promise.resolve` because an RPC promise is callable: `expect(rpc).rejects` would call it and
+    // assert on the pipelined call that returns, leaving this one's rejection unhandled.
     await expect(
-      (env as any).AUTH_FACADE.invite(uniqueStar(), [{ email: em('x') }]),
+      Promise.resolve((env as any).AUTH_FACADE.invite(uniqueStar(), [{ email: em('x') }])),
     ).rejects.toThrow('Cannot access callContext outside of a mesh call');
   });
 
