@@ -88,6 +88,13 @@ export default defineConfig({
           name: 'unit',
           include: ['test/**/*.test.ts'],
           exclude: ['test/test-apps/**', 'test/browser/**', 'test/chromium/**', 'test/frontend/**', 'test/ui-smoke/**', 'test/offline/**'],
+          // Every vitest-plugin project here sets this. With Vitest's console capture on, a log a
+          // Durable Object writes after a file's last message to Node is held back by the plugin
+          // and never sent, while Vitest waits for it before finishing the file, so the run never
+          // prints its summary (cloudflare/workers-sdk#15719). Off, logs print straight from
+          // workerd, without the test's name above them. `testing.md` § *A log written after a
+          // file's last message stalls the run*.
+          disableConsoleIntercept: true,
         },
       },
       // Offline project — plain Node, for what runs in the build container rather than a Worker:
@@ -147,6 +154,7 @@ export default defineConfig({
           // phase-0b real-Star precedent. Fast tests are unaffected (a timeout
           // only bites when exceeded). vi.waitFor stays at the setup.ts 5s default.
           testTimeout: 30000,
+          disableConsoleIntercept: true, // cloudflare/workers-sdk#15719; see the `unit` project
         },
       },
       // Secrets-facet spike project (tasks/spike-outside-world-secrets.md Stage 2):
@@ -170,6 +178,7 @@ export default defineConfig({
         test: {
           name: 'secrets-facet',
           include: ['test/test-apps/secrets-facet/**/*.test.ts'],
+          disableConsoleIntercept: true, // cloudflare/workers-sdk#15719; see the `unit` project
         },
       },
       // Egress-choke spike project (tasks/spike-outside-world-outbound.md): a
@@ -186,6 +195,7 @@ export default defineConfig({
         test: {
           name: 'egress-choke',
           include: ['test/test-apps/egress-choke/**/*.test.ts'],
+          disableConsoleIntercept: true, // cloudflare/workers-sdk#15719; see the `unit` project
         },
       },
       // The Galaxy's codegen project (named for DevStudio, which folded into Galaxy) — the
@@ -200,6 +210,7 @@ export default defineConfig({
         test: {
           name: 'dev-studio',
           include: ['test/test-apps/dev-studio/**/*.test.ts'],
+          disableConsoleIntercept: true, // cloudflare/workers-sdk#15719; see the `unit` project
         },
       },
       // Browser project — Node-side vitest tests using @lumenize/testing's

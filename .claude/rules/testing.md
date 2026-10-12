@@ -95,6 +95,21 @@ A green run (`failed: 0`) can still print `Errors N` / "Uncaught (in promise)". 
 
 So `Errors N` alone proves nothing — **it MUST be triaged, never dismissed:** `failed: 0` means no assertion broke; then ask (1) did the count *jump* between commits? (124→500 = investigate; a steady baseline of hundreds is fine), and (2) is any message *new* from the code under test? (grep the output for your error strings). An (A)-class rejection you can trace to your own code is worth fixing for hygiene even at `failed: 0`; a (B) artifact is not.
 
+## A log written after a file's last message stalls the run
+**A vitest-plugin project whose Durable Objects write to the console SHOULD set `disableConsoleIntercept: true` in its `test` block, and every one in `apps/nebula/vitest.config.js` does.** Without it, a run can print every test and then wait forever at 0% CPU, with no summary. The bug is in `@cloudflare/vitest-plugin` ([cloudflare/workers-sdk#15719](https://github.com/cloudflare/workers-sdk/issues/15719), fix proposed in PR #15565; both open on 2026-10-12, and the code is unchanged through 1.4.0 and `main`). It deadlocks in three steps:
+
+1. Vitest sends each log it captures to Node as an RPC call, and waits for every call it has made to be answered before it reports a file finished.
+2. The plugin cannot send from a Durable Object's I/O context, so it parks a log written there and sends it with the runner's next message.
+3. When that log comes after the file's last message, the next message is the one reporting the file finished, which Vitest holds until the log is answered. Neither side moves again.
+
+**Measured 2026-10-12 on `baseline`.** `source-chat-floor.test.ts` hung alone on every run, 4 of 4, and was the one file of 76 an instrumented full run never heard finish. The parked log was the Galaxy's `nebula.Resources.subscribers` `remove`, written when F5's `using` subscription was disposed at the end of the test, after `afterEach` had removed the debug sink that held every log before it. With the setting on, the file finishes in 10 s with F5's two Clients still open, so no open socket held it.
+
+- **What it costs:** logs print straight from workerd, without the `stdout | file > test` line above them, and files running at once interleave. A test asserting on a log reads the debug sink (§ *Asserting on `@lumenize/debug` log output*), which this does not touch.
+- **Turning `DEBUG` off is not the fix.** It silences only `@lumenize/debug`, so any other console write from a Durable Object can still park, and it takes away the logs a red test is read by.
+- **Finding the stuck file:** `--reporter=hanging-process` prints nothing, since it reports when the run ends, and the reporter prints the stuck file's results like any other file's. Run files alone instead: a file whose last log comes late hangs alone too.
+- **The `uncaught exception … broken.outputGateBroken; jsg.Error: scope-deleted` lines in the same output are not this.** workerd prints one when `ScopedMeshDO.teardown`'s `ctx.abort('scope-deleted')` resets an object, which every scope creation does, and they print in files that finish.
+- **When a plugin release carries the fix,** re-derive the setting rather than deleting it on sight (`calibration.md` §4).
+
 ## Asserting on `@lumenize/debug` log output
 You MUST use `setDebugSink((entry) => entries.push(entry))` in `beforeEach` + `clearDebugSink()` in `afterEach`; filter captured entries by `entry.namespace` / `level` / `message`. `vi.spyOn(console, 'warn')` catches nothing — `@lumenize/debug` routes **every** level through `console.debug` and gates on the `DEBUG` env var; an installed sink replaces default output and bypasses that filter ("sink installed implies capture everything"). Canonical: `apps/nebula/test/frontend/factory-v3-additions.test.ts` (client-side). The API is exported from `@lumenize/debug` but intentionally undocumented in website docs (internal testing primitive) — it MAY be used in our tests, and MUST NOT be recommended to end users in docs or PRs.
 
