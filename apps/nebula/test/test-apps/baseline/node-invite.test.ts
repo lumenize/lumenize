@@ -35,7 +35,7 @@ function em(tag: string): string { return `${tag}-${crypto.randomUUID().slice(0,
 function nodeInvite(client: NebulaClient, nodeId: string, invitees: unknown): Promise<NodeInviteAck> {
   return client.lmz.callAsync(
     'STAR', client.claims.aud,
-    client.ctn<Star>().resources.invite(nodeId, invitees as any),
+    client.ctn<Star>().resources.invite(ONTOLOGY_VERSION, nodeId, invitees as any),
   );
 }
 
@@ -167,23 +167,23 @@ describe('Star.resources.invite — scenario 5 end to end', () => {
 
 describe('Star.resources.invite — the first-touch gate (no ontology installed)', () => {
   // The pure half of the server-originated first-touch arm: a Star that has NEVER installed
-  // an ontology answers an invite with the same `installing` retry contract every data op
+  // an ontology answers an invite with the same `checking` retry contract every data op
   // carries, instead of the raw "No ontology cached" throw from deeper in the plane. The
-  // CONVERGENCE half (the pull-current actually installing the Galaxy's applied row and the
-  // retry succeeding) is the live tier's: `harness/scenarios/node-invite-roundtrip.ts` limb 1
-  // — in this lane the baseline Galaxy has no applied row, so converging is not constructible.
+  // CONVERGENCE half (the pull-current installing the `.dev` Star's landed row and the retry
+  // succeeding) is the live tier's: `harness/scenarios/node-invite-roundtrip.ts` limb 1 — this
+  // tenant Star's Galaxy answers it no row, so converging is not constructible here.
   // Mutation: comment the gate out of `Star.resources.invite` → the raw plane error (name `Error`)
   // replaces the typed signal → both assertions red.
-  it('an invite on a fresh Star answers the installing stale signal, never the raw plane throw', async () => {
+  it('an invite on a fresh Star answers the checking stale signal, never the raw plane throw', async () => {
     const star = uniqueStar();
     const browser = new Browser();
     const admin = await adminClientAt(NebulaClientTest, browser, star, star, em('fresh'));
     try {
       const err = await nodeInvite(admin.client, ROOT_NODE_ID, [{ email: em('inv'), tier: 'write' }])
         .then(() => { throw new Error('invite on an ontology-less Star must not succeed'); },
-          (e: unknown) => e as Error & { installing?: boolean });
+          (e: unknown) => e as Error & { checking?: boolean });
       expect(err.name).toBe('OntologyStaleError');
-      expect(err.installing).toBe(true);
+      expect(err.checking).toBe(true);
     } finally {
       admin.client.dispose();
     }

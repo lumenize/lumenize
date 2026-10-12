@@ -287,8 +287,8 @@ describe('the door derives the caller\'s own address — a trailing one is ignor
     const forged = [idB, 'NO_SUCH_BINDING'];
     const door = () => (a.ctn() as any).resources;
     await a.lmz.callAsync(host.binding, host.scope, door().subscribe(host.version, host.resourceType, rid, ...forged));
-    await a.lmz.callAsync(host.binding, host.scope, door().subscribeQuery(host.query, ...forged));
-    await a.lmz.callAsync(host.binding, host.scope, door().subscribeQuerySubscribers(host.query, ...forged));
+    await a.lmz.callAsync(host.binding, host.scope, door().subscribeQuery(host.version, host.query, ...forged));
+    await a.lmz.callAsync(host.binding, host.scope, door().subscribeQuerySubscribers(host.version, host.query, ...forged));
     await a.lmz.callAsync(host.binding, host.scope, door().subscribeTree(...forged));
 
     // Every kind's row carries the address A's server-side half stamped — never the forged one.

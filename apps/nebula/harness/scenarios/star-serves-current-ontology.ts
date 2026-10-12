@@ -21,7 +21,7 @@
  *  3. **A reverted ontology is served once it is built.** The `.dev` Star installs v1 and then v2;
  *     the source file is written back to v1's exact bytes, and the page still carries v2 until a
  *     build lands v1 again. A tab on v1 then commits. The failure this guards is a Star whose record
- *     of what is installed still says v2 after it installed v1, so the tab is answered `installing`
+ *     of what is installed still says v2 after it installed v1, so the tab is answered `checking`
  *     until it gives up.
  *
  * Each limb carries its own positive control, and every limb is RECORDED rather than asserted in
@@ -156,7 +156,7 @@ export async function run(stack: DevStack): Promise<void> {
 
   /**
    * Create one resource, retrying while the Star installs. The first op a Star sees for a version
-   * it lacks answers `installing` while its pull is in flight, and the client's own retries are
+   * it lacks answers `checking` while its pull is in flight, and the client's own retries are
    * shorter than a pull can take — so this waits, but only on that answer. A rejection or a
    * conflict is final and returns at once.
    */

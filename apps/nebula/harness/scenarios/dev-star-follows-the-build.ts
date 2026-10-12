@@ -26,6 +26,10 @@
  *  4. **Studio's Wipe button says what the Star answered.** A chat collaborator, who has no passage
  *     into `.dev` from Studio's page, clicks Wipe and is shown the refusal; the owner's click
  *     reports success. *Reds when the button logs success before the answer.*
+ *  5. **A version change on `.dev` counts the rows its validator refuses.** On the wiped Star, five
+ *     `Deal`s, two with a `stage`; a build adding an optional field counts 0 of 5, and a build
+ *     retyping `stage` counts exactly 2 of 5 (locally, from the Star's log line). *Reds when the
+ *     count covers every row or every type.*
  *
  * `needsContainer = true` — every build runs in the build container.
  */
@@ -75,6 +79,8 @@ export interface Deal {
   stage?: string;
 }
 `;
+const DEAL_OWNER = DEAL_STAGE.replace('  stage?: string;\n', '  stage?: string;\n  /** @title Owner */\n  owner?: string;\n');
+const DEAL_STAGE_NUMBER = DEAL_OWNER.replace('  stage?: string;', '  stage?: number;');
 const BROKEN = `\nexport interface Deal {\n  title: string\n`;
 const MARK = 'limb-two-visible-string';
 const APP_WITH_MARK = `<script setup lang="ts">
@@ -195,7 +201,7 @@ export async function run(stack: DevStack): Promise<void> {
         break;
       } catch (e) {
         studioAnswer = `${(e as Error).name}: ${(e as Error).message}`.slice(0, 160);
-        if (!((e as { installing?: boolean }).installing)) break;
+        if (!((e as { checking?: boolean }).checking)) break;
         await sleep(500);
       }
     }
@@ -270,7 +276,7 @@ export async function run(stack: DevStack): Promise<void> {
       });
       disposers.push(() => { try { inviter[Symbol.dispose](); } catch { /* already disposed */ } ctx.close(); });
       const ack = await inviter.lmz.callAsync('GALAXY', galaxy,
-        inviter.ctn<Galaxy>().resources.invite(CHAT_NODE_ID, [{ email: austenEmail, tier: 'write' }]), { timeoutMs: 30_000 }) as NodeInviteAck;
+        inviter.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, [{ email: austenEmail, tier: 'write' }]), { timeoutMs: 30_000 }) as NodeInviteAck;
       assert.deepEqual(ack, { accepted: 1, errors: [] }, `invite ack: ${JSON.stringify(ack)}`);
       inviteLink = extractMagicLink(await waiter.emailPromise);
     } finally {
@@ -310,6 +316,34 @@ export async function run(stack: DevStack): Promise<void> {
     record("limb 4 — the owner's Wipe reports success",
       ownerWipe.succeeded && ownerWipe.refused === null,
       `success line ${ownerWipe.succeeded ? 'shown' : 'absent'}; refusal ${JSON.stringify(ownerWipe.refused)}`);
+
+    // ── LIMB 5: a version change on `.dev` counts the rows its validator refuses ────────────
+    // The owner's Wipe left the Star empty, so these five are the only rows it holds.
+    const seeded = await openPage(dev, devToken, v3!);
+    for (const value of [
+      { title: 'a', stage: 'won' }, { title: 'b', stage: 'lost' }, { title: 'c' }, { title: 'd' }, { title: 'e' },
+    ]) assert.equal(await createDeal(seeded, value), 'committed', `seeding ${value.title} failed`);
+    /** Build `types`, open a page on the version it lands, and read the count its install logs. */
+    const countAfter = async (types: string): Promise<{ version: string; line: string }> => {
+      await write('src/ontology.d.ts', seed + types);
+      await build();
+      const version = (await servedOntologyVersion(stack, dev))!;
+      const reader = await openPage(dev, devToken, version);
+      // A read, so the op that makes the Star install adds no row to what the next count checks.
+      await reader.resources.read('Deal', crypto.randomUUID()).catch(() => null);
+      if (!observable) return { version, line: 'not observable on a deployed target' };
+      const lines = await waitForDebugLines(stack, (all) => all.some((l) =>
+        l.message === 'rows failing the new version' && l.data.instanceName === dev && l.data.version === version),
+      `the count for ${version}`).catch(() => debugLines(stack.logs?.() ?? ''));
+      const hit = lines.find((l) => l.message === 'rows failing the new version' && l.data.instanceName === dev && l.data.version === version);
+      return { version, line: hit ? `${hit.data.failing} of ${hit.data.checked}` : 'no count logged' };
+    };
+    const control = await countAfter(DEAL_OWNER);
+    const retyped = await countAfter(DEAL_STAGE_NUMBER);
+    await logHalf('limb 5 — an added optional field counts 0 of 5, and retyping stage counts 2 of 5', async () => [
+      control.line === '0 of 5' && retyped.line === '2 of 5',
+      `adding owner: ${control.line}; retyping stage: ${retyped.line}`,
+    ]);
 
     const open = results.filter((r) => !r.ok);
     assert.equal(open.length, 0,

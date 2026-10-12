@@ -17,7 +17,7 @@
  * subjects are derived from the stamped actingToken, never from the values.
  */
 import assert from 'node:assert/strict';
-import { DEFAULT_CHAT_ID, CHAT_NODE_ID } from '@lumenize/nebula/client';
+import { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { Snapshot, NodeInviteAck } from '@lumenize/resources';
 import { deriveKind, deriveParticipants, StudioClient } from '@lumenize/nebula/client';
@@ -107,7 +107,7 @@ export async function run(stack: DevStack): Promise<void> {
     let austenGalaxyToken: string; let austenDevToken: string;
     try {
       const ack = await owner.client.lmz.callAsync('GALAXY', SCOPE,
-        owner.client.ctn<Galaxy>().resources.invite(CHAT_NODE_ID, [{ email: austenEmail, tier: 'write' }])) as NodeInviteAck;
+        owner.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, [{ email: austenEmail, tier: 'write' }])) as NodeInviteAck;
       assert.deepEqual(ack, { accepted: 1, errors: [] }, `invite ack: ${JSON.stringify(ack)}`);
       const mail = await austenWaiter.emailPromise;
       const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(mail.html ?? '')?.[1];

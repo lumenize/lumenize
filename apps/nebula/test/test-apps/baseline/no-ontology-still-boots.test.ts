@@ -63,6 +63,24 @@ describe('a client with no ontology version', () => {
     client[Symbol.dispose]();
   });
 
+  // The three ops that took no version until the version rule covered every op on typed data.
+  // Mutation: drop `requireOntologyVersion` from any of the three in `client-resources.ts`.
+  it('refuses a list subscription, a roster subscription and a node invite BY NAME too', async () => {
+    const client = await versionlessClientAt(uniqueStar());
+    const query = { queryType: 'parentChild' as const, typeName: 'TestResource', field: 'parent', value: crypto.randomUUID() };
+    const caught = (fn: () => unknown): unknown => { try { fn(); return undefined; } catch (err) { return err; } };
+
+    const list = caught(() => client.resources.subscribeQuery(query));
+    const roster = caught(() => client.subscribeQuerySubscribers(query));
+    const invite = await client.resources.invite(ROOT_NODE_ID, [{ email: 'x@example.com', tier: 'read' }])
+      .then(() => undefined, (err: unknown) => err);
+    for (const [thrown, operation] of [[list, 'subscribeQuery'], [roster, 'subscribeQuerySubscribers'], [invite, 'invite']] as const) {
+      expect(isNoOntologyInstalledError(thrown), `expected NoOntologyInstalledError from ${operation}, got ${thrown}`).toBe(true);
+      expect((thrown as { operation: string }).operation).toBe(operation);
+    }
+    client[Symbol.dispose]();
+  });
+
   it('POSITIVE CONTROL: the same drive with a version subscribes normally', async () => {
     // Without this, the refusal above would pass just as well if the fixture could never subscribe.
     const star = uniqueStar();

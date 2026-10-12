@@ -168,7 +168,7 @@ describe('the .dev Star runs the last landed build\'s row; nothing else moves it
     const version = (await devRowVersion(galaxy))!;
     // A data op naming the landed version, from a plain MEMBER at the star — no `scopeAdmin`
     // anywhere in the claims. The pull is an upward call under these same claims, so it
-    // works for every member. The op itself answers `installing`-stale (a cross-node pull
+    // works for every member. The op itself answers `checking`-stale (a cross-node pull
     // cannot be awaited, ADR-003); the traveling handler installs, the durable effect here.
     await fire(env.STAR, 'STAR', star, ['resources', 'read'], [version, crypto.randomUUID()],
       { aud: star, access: { authScope: star } });

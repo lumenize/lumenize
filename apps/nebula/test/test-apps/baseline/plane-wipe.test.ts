@@ -131,8 +131,8 @@ describe('Studio\'s Wipe on the .dev Star', () => {
     const roster = await admin(galaxy, dev);
     const tree = await admin(galaxy, dev);
     await resource.lmz.callAsync('STAR', dev, door(resource).subscribe('v1', 'TestResource', rid));
-    await q.lmz.callAsync('STAR', dev, door(q).subscribeQuery(query));
-    await roster.lmz.callAsync('STAR', dev, door(roster).subscribeQuerySubscribers(query));
+    await q.lmz.callAsync('STAR', dev, door(q).subscribeQuery('v1', query));
+    await roster.lmz.callAsync('STAR', dev, door(roster).subscribeQuerySubscribers('v1', query));
     await tree.lmz.callAsync('STAR', dev, door(tree).subscribeTree());
 
     await resetDev(a, dev);
@@ -229,7 +229,7 @@ describe('a transaction or invite held at the validator across a wipe writes not
     const held = `held-${uuid().slice(0, 6)}`;
     await install(a, dev, { version: held, types: V1 }, HOLD_MS);
     const holder = await admin(galaxy, dev);
-    const pending = answer(holder.lmz.callAsync('STAR', dev, door(holder).invite(ROOT_NODE_ID, [{ email: 'held@example.com', tier: 'read' }]),
+    const pending = answer(holder.lmz.callAsync('STAR', dev, door(holder).invite(held, ROOT_NODE_ID, [{ email: 'held@example.com', tier: 'read' }]),
       { timeoutMs: 30_000 }));
     await vi.waitFor(() => expect(marks('nebula.Resources.ontology', 'facet cold load').some((e) => e.data?.version === held)).toBe(true));
     await resetDev(a, dev);
@@ -240,7 +240,7 @@ describe('a transaction or invite held at the validator across a wipe writes not
 });
 
 describe('Studio\'s Wipe records no ontology, so the next op installs once and wipes nothing', () => {
-  it('the index is empty, the next op is first told `installing`, it installs without a second wipe, and a tree row made after the reset survives', async () => {
+  it('the index is empty, the next op is first told `checking`, it installs without a second wipe, and a tree row made after the reset survives', async () => {
     const { galaxy, dev } = newDev();
     const owner = await admin(galaxy, galaxy, CHAT_MESSAGE_ONTOLOGY_VERSION, GALAXY_PAIR(galaxy));
     // A real build over the faked job lands V1 as the `.dev` Star's current row.
@@ -257,7 +257,7 @@ describe('Studio\'s Wipe records no ontology, so the next op installs once and w
     await watcher.lmz.callAsync('STAR', dev, door(watcher).subscribeTree());
 
     const first = await answer(a.lmz.callAsync('STAR', dev, door(a).read(version, uuid())));
-    expect((first as any)?.installing).toBe(true);
+    expect((first as any)?.checking).toBe(true);
     await vi.waitFor(async () => expect((await ontologyKv(a, dev)).index).toEqual([version]));
     expect(wipes(dev).map((e) => e.data!.cause)).toEqual(['reset']);
     const treeRows = await (runInDurableObject as any)((env as any).STAR.getByName(dev), (_i: any, c: any) =>

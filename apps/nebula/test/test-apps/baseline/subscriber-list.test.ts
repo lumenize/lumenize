@@ -20,7 +20,7 @@ import { Browser } from '@lumenize/testing';
 import { createTestToken } from '@lumenize/mesh/auth/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { canonicalQueryHash } from '@lumenize/resources';
-import { DEFAULT_CHAT_ID } from '@lumenize/nebula';
+import { DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { QueryDescriptor, OntologyVersionConfig } from '@lumenize/resources';
 import { NebulaClientTest } from './index';
 import { ORIGIN, pageOf, addressOfClient } from '../../test-helpers';
@@ -50,7 +50,9 @@ async function connect(opts: {
   const browser = new Browser();
   const ctx = browser.context(pageOf(opts.star));
   const client = new NebulaClientTest({
-    baseUrl: pageOf(opts.star), platformOrigin: ORIGIN, ontologyVersion: VERSION,
+    // A Galaxy runs the chat ontology, so a client on its host pins the chat version.
+    baseUrl: pageOf(opts.star), platformOrigin: ORIGIN,
+    ontologyVersion: opts.binding === 'GALAXY' ? CHAT_MESSAGE_ONTOLOGY_VERSION : VERSION,
     resourceHostBinding: opts.binding ?? 'STAR', accessToken: access_token,
     instanceName: `${sub}.${opts.tab ?? uuid().slice(0, 8)}`,
     fetch: ctx.fetch, WebSocket: ctx.WebSocket,

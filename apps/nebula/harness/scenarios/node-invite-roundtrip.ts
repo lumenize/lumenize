@@ -10,7 +10,7 @@
  * THIS tier adds is fixture-freedom + the real mail: the ontology arrives by the REAL path —
  * a build of the app in its build container, which lands the seed ontology as the `.dev` Star's
  * current row, and then the Star's server-originated FIRST-TOUCH pull-current, exercised by
- * inviting before anyone has ever used the app (the invite answers `installing` and the retry
+ * inviting before anyone has ever used the app (the invite answers `checking` and the retry
  * converges) — the letter is the one that actually arrived, and the login is a real click.
  *
  * It runs on the app's `.dev` Star because that is the one Star a build's row reaches before
@@ -86,18 +86,18 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── LIMB 1: the ack, via the first-touch install ──────────────────────────────────────────
     // The FIRST invite lands on a Star that has never seen a client op: the gate answers
-    // `installing` (structured-clone keeps name + props across the mesh) and fires the
-    // pull-current at the Galaxy; the retry converges once the row installs. A non-`installing`
+    // `checking` (structured-clone keeps name + props across the mesh) and fires the
+    // pull-current at the Galaxy; the retry converges once the row installs. A non-`checking`
     // error is a real failure and rethrows.
     let ack: NodeInviteAck | undefined;
     for (let attempt = 0; attempt < 20 && !ack; attempt++) {
       try {
         ack = await admin.client.lmz.callAsync(
           'STAR', star,
-          admin.client.ctn<Star>().resources.invite(ROOT_NODE_ID, [{ email: inviteeEmail, tier: 'write' }]),
+          admin.client.ctn<Star>().resources.invite(appended.version, ROOT_NODE_ID, [{ email: inviteeEmail, tier: 'write' }]),
         );
       } catch (e) {
-        const stale = (e as Error)?.name === 'OntologyStaleError' && (e as { installing?: boolean }).installing;
+        const stale = (e as Error)?.name === 'OntologyStaleError' && (e as { checking?: boolean }).checking;
         if (!stale) throw e;
         await new Promise((r) => setTimeout(r, 500));
       }

@@ -259,6 +259,27 @@ Each phase leaves `npm run type-check`, `npm test`, `drive.ts all --fast` and th
 
 **Close-out:** `security.md`'s source-entry list and the no-`@mesh()` reason are done here, so Phase 4's grep will find them already clean.
 
+### Phase 2, 2026-10-11
+
+**For Larry:** nothing needs a decision. What the build settled inside Phase 2's text:
+
+- **The ask memory is an in-memory ISO timestamp with a 10-second bound** (`ASK_BOUND_MS`). Every answer clears it, at the top of `#onOntologyPulled`, so a row, none, an Error and a refused install all end the ask. A source that answers at once never sets it, so the Galaxy's chat plane is unaffected.
+- **The count runs only on a replacing install on the `.dev` Star**, capped at 1,000 rows (`FAILING_ROW_CAP`). A first install, after a wipe, has no rows to check. It reads the rows through a new `Snapshots.liveValues`, which checks no permission and is reachable from nothing on the wire.
+- **The test seam that holds an answer sits at the Star's fire-back door** (`StarTest.holdOntologyAnswersForTest`), not at the Galaxy, because `getCurrentOntology` is synchronous; the Galaxy still logs every ask it answers, which is what the one-ask case counts.
+- **The type test passes `undefined` where the version goes.** The form Stage 2 described, a call that drops the version, cannot fail: its query lands in the version's slot, which fails to compile whether or not the version is required. Each of the three widenings to `string | undefined` reds exactly its own line.
+
+**What else changed:** the subscriber-list fixture gives a client on a Galaxy's host the chat version, and three raw test calls needed one. Before this phase the roster op carried no version, so a Galaxy-host client pinned to a Star's test version passed by accident.
+
+**Evidence:**
+
+- Vitest mutations, each caught by its named case: a missing version treated as current; the memory removed; the memory cleared only for a row, then only for a row or none; the age bound removed; every ask remembered (the second chat-seed bump reds); and each of the three Client ops sending without `requireOntologyVersion`.
+- `dev-star-follows-the-build` limbs 1–5 green, 85.7 s; limb 5 reads "0 of 5" for an added optional field and "2 of 5" for the retyped `stage`, and reds alone ("5 of 5") with the count covering every row.
+- `frontend` 237, `dev-studio` 115, `unit` 117, `packages/resources` 2; `baseline`'s three failures in the first run were the fixture versions above, and both files pass after (34 of 34). The full `baseline` run stalled at exit again, as in Phase 1.
+- The scenarios this phase touches pass: `node-invite-roundtrip` 11.1 s, `grant-reveals-denied` 10.4 s, `star-serves-current-ontology` 29.7 s, `passage-not-dominion` 5.5 s, `four-party-chat` 20.8 s. `drive.ts all --fast`: 55 of 55, one parked by design, 22.9 min.
+- The task-handle grep over the changed files finds nothing; `snapshots.ts`'s older `Child 2`, `D15` and `D8` went with this phase's edit there.
+
+**Retro:** the type test was the one Stage 2 called vacuous, rebuilt, and it was still vacuous in the shape Stage 2 proposed; reasoning about what the mutation leaves compiling, before running anything, is what caught it.
+
 ## Non-goals
 
 - **`publish()`, the order and storage of published versions, and migration.** Fast-follow Item 4.

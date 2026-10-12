@@ -488,7 +488,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
 
   /**
    * The Galaxy's chat-ontology source for its plane. It answers at once, so a Galaxy's op is never
-   * told `installing`. The loader `bundleId` derives from the version label (labels are
+   * told `checking`. The loader `bundleId` derives from the version label (labels are
    * append-only and duplicate-rejected), so a new version cannot reuse a warm bundle. Its
    * `{u}.{g}/chat/{label}` form has two slashes, so it collides neither with a Star's app bundle
    * `{u}.{g}/{label}` nor with the slash-less tool-args id.

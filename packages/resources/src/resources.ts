@@ -86,6 +86,10 @@ export interface NodeInviteAck { accepted: number; errors: InviteeError[] }
  * Each member derives what its caller may not state and applies the version rule before the op.
  * Built from closures over the plane, so no member and no property leads back to it: a
  * TypeScript `private` field would be walked like any other property.
+ *
+ * Every op on data the ontology types takes the version its page was built against, and runs only
+ * at that version (ADR-024). The org tree, `subscribeTree` and every `unsubscribe` take none,
+ * because nothing in them is typed by the ontology.
  */
 export interface ResourcesRequests {
   /** Returns a stale version's `OntologyStaleError` as a VALUE, as it always has. */
@@ -95,11 +99,14 @@ export interface ResourcesRequests {
   /** Pushes a stale version's `OntologyStaleError` on the resource channel. */
   subscribe(ontologyVersion: string, resourceType: string, resourceId: string): void;
   unsubscribe(resourceType: string, resourceId: string): void;
-  subscribeQuery(query: QueryDescriptor): void;
+  /** Pushes a stale version's `OntologyStaleError` on the query channel. */
+  subscribeQuery(ontologyVersion: string, query: QueryDescriptor): void;
   unsubscribeQuery(queryHash: string): void;
-  subscribeQuerySubscribers(query: QueryDescriptor): void;
+  /** Pushes a stale version's `OntologyStaleError` on the roster channel. */
+  subscribeQuerySubscribers(ontologyVersion: string, query: QueryDescriptor): void;
   unsubscribeQuerySubscribers(queryHash: string): void;
-  invite(nodeId: string, invitees: NodeInvitee[]): Promise<NodeInviteAck>;
+  /** Throws a stale version's `OntologyStaleError`. */
+  invite(ontologyVersion: string, nodeId: string, invitees: NodeInvitee[]): Promise<NodeInviteAck>;
   /** The org tree, whose own methods check each op; a getter, so the chain reads `resources.orgTree.setPermission(…)`. */
   readonly orgTree: OrgTree;
   subscribeTree(): void;
@@ -120,6 +127,17 @@ function isValidInviteEmail(email: unknown): email is string {
 
 /** The install history, with the installed version LAST, and one row per installed version. */
 const INDEX_KEY = 'ontology:_index';
+
+/**
+ * How long a host waits on an ask whose answer has not arrived before it asks again. A Star's
+ * Galaxy answers in tens of milliseconds, more when it starts cold, and a Client's retries span
+ * under two seconds, so an answer this late is taken as lost.
+ */
+const ASK_BOUND_MS = 10_000;
+
+/** How many live rows a version change on the `.dev` Star checks against the new validator. The
+ *  count is a diagnostic, so past this it reports the cap rather than walking everything. */
+const FAILING_ROW_CAP = 1_000;
 const rowKey = (version: string) => `ontology:${version}`;
 
 /**
@@ -189,6 +207,11 @@ export class Resources {
   // changed, so one paused at validation's `await` across a wipe writes nothing into the rebuilt
   // tables. In memory by design: a paused transaction and the wipe share one isolate.
   #generation = 0;
+  // When this host last asked its source what is current and was told the answer would come
+  // later (ISO 8601). While it is set and younger than ASK_BOUND_MS, an op that mismatches waits on
+  // that ask instead of asking again. Every answer clears it. In memory by design: an eviction
+  // mid-ask costs one extra ask.
+  #askedAt: string | undefined;
 
   /** The request-leg surface — see {@link ResourcesRequests}. A host's `@mesh() get resources`
    *  returns it; the host never returns the plane. */
@@ -289,16 +312,16 @@ export class Resources {
     return {
       transaction: (ontologyVersion, newETag, ops) => {
         const clientAddress = this.#caller();
-        return this.#gate(ontologyVersion) ?? this.#transaction(ontologyVersion, newETag, ops, clientAddress);
+        return this.#gateClientOp(ontologyVersion) ?? this.#transaction(ontologyVersion, newETag, ops, clientAddress);
       },
       read: (ontologyVersion, resourceId) => {
-        const stale = this.#gate(ontologyVersion);
+        const stale = this.#gateClientOp(ontologyVersion);
         if (stale) throw stale;
         return this.doRead(resourceId);
       },
       subscribe: (ontologyVersion, resourceType, resourceId) => {
         const address = this.#caller();
-        const stale = this.#gate(ontologyVersion);
+        const stale = this.#gateClientOp(ontologyVersion);
         if (stale) {
           this.#send(tab(address), this.#ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, stale),
             this.#ctn<ResourcesHost>().resourcesResults.onPushUndelivered('stale notice'));
@@ -310,9 +333,9 @@ export class Resources {
         void resourceType; // resource rows key on the id; the type lives on the snapshot
         this.removeSubscriber(resourceId, this.#caller());
       },
-      subscribeQuery: (query) => {
+      subscribeQuery: (ontologyVersion, query) => {
         const address = this.#caller();
-        const stale = this.#gate(undefined);
+        const stale = this.#gateClientOp(ontologyVersion);
         if (stale) {
           this.#sendQueryUpdate(tab(address), canonicalQueryHash(query), stale);
           return;
@@ -320,9 +343,9 @@ export class Resources {
         this.doSubscribeQuery(query, address);
       },
       unsubscribeQuery: (queryHash) => this.removeQuerySubscriber(queryHash, this.#caller()),
-      subscribeQuerySubscribers: (query) => {
+      subscribeQuerySubscribers: (ontologyVersion, query) => {
         const address = this.#caller();
-        const stale = this.#gate(undefined);
+        const stale = this.#gateClientOp(ontologyVersion);
         if (stale) {
           this.#sendRoster(tab(address), canonicalQueryHash(query), stale);
           return;
@@ -331,8 +354,8 @@ export class Resources {
       },
       unsubscribeQuerySubscribers: (queryHash) =>
         this.removeQuerySubscriberListWatcher(queryHash, this.#caller()),
-      invite: async (nodeId, invitees) => {
-        const stale = this.#gate(undefined);
+      invite: async (ontologyVersion, nodeId, invitees) => {
+        const stale = this.#gateClientOp(ontologyVersion);
         if (stale) throw stale;
         return this.invite(nodeId, invitees);
       },
@@ -397,12 +420,12 @@ export class Resources {
   /**
    * The installed ontology, for every op that validates and for the host's own probes. With
    * nothing installed it takes the version rule's path first, so a host whose source answers at
-   * once installs on first touch; one whose source answers later throws the `installing` stale,
+   * once installs on first touch; one whose source answers later throws the `checking` stale,
    * which its ops never reach because the rule answered it first.
    */
   installedOntology(): InstalledOntology {
     if (!this.#installedVersion()) {
-      const stale = this.#gate(undefined);
+      const stale = this.#gateServer();
       if (stale) throw stale;
     }
     const { row, facet } = this.#ensureFacet();
@@ -427,20 +450,42 @@ export class Resources {
   }
 
   /**
-   * The one version rule: `null` to proceed, or the error the op answers with. A client pinned to
-   * the installed version proceeds, as does an op that pins nothing once anything is installed.
-   * Otherwise — a mismatch, or nothing installed — the plane asks its source once. `null` means the
-   * row arrives by fire-back, answered `installing`. A row that differs from what is installed is
+   * The version rule for a Client's op (ADR-024): `null` to proceed, or the error the op answers
+   * with. The op runs only at the version its page was built against. A missing version is answered
+   * stale without asking: the parameter is required in TypeScript, but mesh arguments are typed and
+   * not checked on the wire, so a raw caller can still send none.
+   */
+  #gateClientOp(pinned: string): OntologyStaleError | null {
+    const installed = this.#installedVersion();
+    if (typeof pinned !== 'string' || pinned === '') return new OntologyStaleError('', installed);
+    if (pinned === installed) return null;
+    return this.#settle(pinned);
+  }
+
+  /** The version rule for the host's own work, which has no page: it runs at whatever is installed,
+   *  and asks the source only when nothing is. */
+  #gateServer(): OntologyStaleError | null {
+    if (this.#installedVersion()) return null;
+    return this.#settle(undefined);
+  }
+
+  /**
+   * A mismatch, or nothing installed: ask the source what is current, unless an ask is already
+   * waiting on its answer. `null` from the source means the row arrives by fire-back, so the op is
+   * answered `checking` and the ask is remembered; a row that differs from what is installed is
    * installed, and a refused install answers stale. The op then proceeds if it pinned that row or
    * nothing, and is told stale otherwise.
    */
-  #gate(pinned: string | undefined): OntologyStaleError | null {
+  #settle(pinned: string | undefined): OntologyStaleError | null {
     const installed = this.#installedVersion();
-    if (installed && (pinned === undefined || pinned === installed)) return null;
-    // One marker per ask, stamped with the host, so a test can count asks per op.
+    if (this.#askPending()) return new OntologyStaleError(pinned ?? '', installed, { checking: true });
+    // One marker per ask, stamped with the host, so a test can count asks.
     debug('nebula.Resources.source').debug('ask', { instanceName: this.#lmz().instanceName, pinned, installed });
     const row = this.#source.current();
-    if (row === null) return new OntologyStaleError(pinned ?? '', installed, { installing: true });
+    if (row === null) {
+      this.#askedAt = new Date().toISOString();
+      return new OntologyStaleError(pinned ?? '', installed, { checking: true });
+    }
     if (row.version !== installed) {
       try {
         this.#install(row);
@@ -453,6 +498,15 @@ export class Resources {
     }
     if (pinned === undefined || pinned === row.version) return null;
     return new OntologyStaleError(pinned, row.version);
+  }
+
+  /** Whether an ask is waiting on its answer. An ask older than {@link ASK_BOUND_MS} is forgotten,
+   *  so an answer that never arrives costs one wait rather than a Star that never asks again. */
+  #askPending(): boolean {
+    if (this.#askedAt === undefined) return false;
+    if (Date.parse(this.#askedAt) + ASK_BOUND_MS > Date.now()) return true;
+    this.#askedAt = undefined;
+    return false;
   }
 
   /**
@@ -480,17 +534,54 @@ export class Resources {
     debug('nebula.Resources.ontology').debug('installed', {
       instanceName: this.#lmz().instanceName, version: row.version, prior: installed,
     });
+    if (installed && this.#isDevStar()) this.#countFailingRows(row.version);
+  }
+
+  /**
+   * On the `.dev` Star, after a replacing install has committed, count the live rows the new
+   * validator refuses and log the count, so a turn spent debugging correct code against old test
+   * data can be diagnosed (installing never wipes). The validator is an RPC into the facet and the
+   * install is synchronous, so the check runs detached, handed to `ctx.waitUntil`; a failure only
+   * logs. Checks at most {@link FAILING_ROW_CAP} rows and says when it stopped there.
+   */
+  #countFailingRows(version: string): void {
+    const log = debug('nebula.Resources.ontology');
+    const instanceName = this.#lmz().instanceName;
+    try {
+      const rows = this.#snapshots.liveValues(FAILING_ROW_CAP + 1);
+      const capped = rows.length > FAILING_ROW_CAP;
+      const items = new Map(rows.slice(0, FAILING_ROW_CAP).map((r) => [r.resourceId, { value: r.value, typeName: r.typeName }]));
+      const { facet } = this.#ensureFacet();
+      this.#ctx.waitUntil(facet.parseBatch(items).then(
+        (results) => {
+          const failing = [...results.values()].filter((r) => !r.valid).length;
+          log.info('rows failing the new version', { instanceName, version, failing, checked: items.size, cap: FAILING_ROW_CAP, capped });
+        },
+        (err) => log.warn('counting rows that fail the new version failed', { instanceName, version, error: err instanceof Error ? err.message : String(err) }),
+      ));
+    } catch (err) {
+      log.warn('counting rows that fail the new version failed', { instanceName, version, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /** Whether this host is a Galaxy's `.dev` Star: three segments, the last `dev`. A Galaxy whose
+   *  slug is `dev` has two. */
+  #isDevStar(): boolean {
+    const segs = (this.#lmz().instanceName ?? '').split('.');
+    return segs.length === 3 && segs[2] === 'dev';
   }
 
   /**
    * Where a source's fire-back lands — a Star's `getCurrentOntology()` answer, through
    * `results.onOntologyPulled`. Installs the row unless it is installed already. `null` (no row for this host) and an
-   * Error install nothing, so a client's `installing` retries run out at the stale signal. Never
+   * Error install nothing, so a client's `checking` retries run out at the stale signal. Never
    * rethrows: a fire-back handler's throw vanishes.
    */
   #onOntologyPulled(result?: unknown): void {
     const log = debug('nebula.Resources.ontology');
     const instanceName = this.#lmz().instanceName;
+    // Every answer ends the ask it answers, whatever it says.
+    this.#askedAt = undefined;
     try {
       if (result instanceof Error) {
         log.warn('ontology pull failed', { instanceName, error: result.message });
@@ -526,8 +617,7 @@ export class Resources {
    */
   #wipe(): DroppedAddress[] {
     const host = this.#lmz().instanceName ?? '';
-    const segs = host.split('.');
-    if (!(segs.length === 3 && segs[2] === 'dev')) {
+    if (!this.#isDevStar()) {
       throw new Error('A wipe is only permitted on the .dev sandbox Star');
     }
     const claims = this.#lmz().callContext.originAuth?.claims as AuthClaims | undefined;

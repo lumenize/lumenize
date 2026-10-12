@@ -64,6 +64,7 @@ import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources';
 import { compileOntologyVersion } from '../../../src/ontology-compile';
 import { fakeBuildJob } from '../fake-build';
 import type { BuildFaults } from '../fake-build';
+import type { ResourcesResults } from '@lumenize/resources';
 import type { NebulaClientConfig, OrgTreeState, PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload, ResourceDenied } from '@lumenize/resources';
 import type { StudioClientConfig } from '@lumenize/nebula';
 import type { ChatMessage, ModelParams, BuildReport } from '../../../src/codegen-loop';
@@ -258,14 +259,43 @@ export class StarTest extends Star {
   @mesh(requireDominionHere)
   applyOntologyForTest(versionConfig: OntologyVersionConfig, holdParseMs?: number): void {
     const row = compileOntologyVersion(versionConfig);
-    this.resourcesResults.onOntologyPulled(holdParseMs ? holdingParse(row, holdParseMs) : row);
+    super.resourcesResults.onOntologyPulled(holdParseMs ? holdingParse(row, holdParseMs) : row);
+  }
+
+  /** The answers this Star's ontology asks got while held, in order; `undefined` when not holding. */
+  #heldOntologyAnswers: unknown[] | undefined;
+
+  /**
+   * Test-only: hold the answers this Star's ontology asks get, or release the held ones in order.
+   * While one ask's answer is outstanding, every op that mismatches should wait on it rather than
+   * ask again, and only a held answer keeps it outstanding long enough to count. The answer is held
+   * at this Star's fire-back door, so the Galaxy has already answered and logged the ask.
+   */
+  @mesh(requireDominionHere)
+  holdOntologyAnswersForTest(hold: boolean): void {
+    if (hold) { this.#heldOntologyAnswers ??= []; return; }
+    const held = this.#heldOntologyAnswers ?? [];
+    this.#heldOntologyAnswers = undefined;
+    for (const answer of held) super.resourcesResults.onOntologyPulled(answer);
+  }
+
+  override get resourcesResults(): ResourcesResults {
+    const results = super.resourcesResults;
+    return {
+      ...results,
+      onOntologyPulled: (result?: unknown) => {
+        if (this.#heldOntologyAnswers) this.#heldOntologyAnswers.push(result);
+        else results.onOntologyPulled(result);
+      },
+    };
   }
 
   /** Hand `resourcesResults.onOntologyPulled` an answer that is not a row — the Galaxy's `null`
-   *  (no row for this Star) or a delivered Error — the two shapes a real pull can come back as. */
+   *  (no row for this Star) or a delivered Error — the two shapes a real pull can come back as.
+   *  Delivered directly, past any hold {@link holdOntologyAnswersForTest} keeps. */
   @mesh(requireDominionHere)
   deliverOntologyAnswerForTest(answer: 'null' | 'error'): void {
-    this.resourcesResults.onOntologyPulled(answer === 'null' ? null : new Error('the pull failed'));
+    super.resourcesResults.onOntologyPulled(answer === 'null' ? null : new Error('the pull failed'));
   }
 
   /** Re-run `onStart` — a re-initialized DO, whose plane rebuilds every cache from storage. */
@@ -1016,7 +1046,7 @@ const withClientTestCaptures = <TBase extends new (...args: any[]) => NebulaClie
     this.lastQueryUpdate = undefined;
     this.lastQueryError = undefined;
     this.queryUpdateCount = 0;
-    this.lmz.call('STAR', starName, this.ctn<Star>().resources.subscribeQuery(query),
+    this.lmz.call('STAR', starName, this.ctn<Star>().resources.subscribeQuery(this.requireOntologyVersion('subscribeQuery'), query),
       this.ctn<this>().recordCallFailure(), { onErrorOnly: true });
   }
 

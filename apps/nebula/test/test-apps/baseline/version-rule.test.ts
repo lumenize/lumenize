@@ -1,19 +1,21 @@
 /**
- * One version rule for every host (the plane's `#gate`), and every op on an empty host takes the
- * same path.
+ * One version rule for every host (the plane's `#gateClientOp` and `#gateServer`), and every op on
+ * an empty host takes the same path.
  *
  * Each host keeps only where its ontology comes from. The Star asks its Galaxy and is answered by
- * fire-back, so an op on an empty Star is told `installing`; the Galaxy's source is the platform
- * seed, which answers at once. The rule is the plane's: ask the source only on a mismatch, install
- * a row that differs, and answer the op for what it pinned.
+ * fire-back, so an op on an empty Star is told `checking`; the Galaxy's source is the platform
+ * seed, which answers at once. The rule is the plane's: ask the source only on a mismatch, and only
+ * once while an answer is outstanding, install a row that differs, and answer the op for what it
+ * pinned.
  *
  *   - a Galaxy whose source answers a newer seed drains the old subscribers, then serves the client
  *     that pinned the new version — the Galaxy half, which nothing else exercises until the chat
- *     label is first bumped;
+ *     label is first bumped — and installs a second bump the same way;
  *   - what is installed survives a re-initialized DO, host × {upgrade, revert} — the rule's old
  *     failure was cold ("after eviction every operation threw index/row drift");
- *   - the source is asked once per mismatched op, and never for a matching one;
- *   - each op's FIRST answer on an empty Star is `installing`, and on an empty Galaxy it is not;
+ *   - the source is asked only on a mismatch, and an op with no version is answered stale;
+ *   - one ask per version change: every answer ends the ask, and an unanswered one expires;
+ *   - each op's FIRST answer on an empty Star is `checking`, and on an empty Galaxy it is not;
  *   - the client's retries land each kind of subscribe, and when they run out it ends at the stale
  *     signal.
  *
@@ -105,6 +107,22 @@ describe('a Galaxy serves a newer seed its source answers', () => {
     expect(oldRows).toBe(0);
     owner[Symbol.dispose](); old[Symbol.dispose]();
   });
+
+  // A source that answers at once leaves no ask outstanding, so a second bump is asked about and
+  // installed like the first. Mutation: remember every ask, not only one answered later.
+  it('installs a second newer seed too', async () => {
+    const scope = newGalaxy();
+    const owner = await galaxyOwner(scope);
+    for (const next of [CHAT_V2, { version: 'chat-v3', types: `${CHAT_V2.types}\ninterface More { n: number }` }]) {
+      await owner.lmz.callAsync('GALAXY', scope, owner.ctn<GalaxyTest>().setChatSourceForTest(next), { timeoutMs: COMPILE_TIMEOUT_MS });
+      const posted = await owner.lmz.callAsync('GALAXY', scope, door(owner).transaction(next.version, uuid(), {
+        [uuid()]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: `on ${next.version}` } },
+      }), { timeoutMs: COMPILE_TIMEOUT_MS }) as TransactionResult;
+      expect(posted.ok).toBe(true);
+      expect(await owner.lmz.callAsync('GALAXY', scope, owner.ctn<GalaxyTest>().installedChatVersionForTest())).toBe(next.version);
+    }
+    owner[Symbol.dispose]();
+  });
 });
 
 describe('what is installed survives a re-initialized DO', () => {
@@ -182,9 +200,106 @@ describe('the source is asked only on a mismatch', () => {
     expect(asks(star)).toBe(0);
     await answer(admin.lmz.callAsync('STAR', star, door(admin).read('v-other', uuid())));
     expect(asks(star)).toBe(1);
-    // Subscribes that pin nothing proceed once anything is installed: no ask either.
-    await admin.lmz.callAsync('STAR', star, door(admin).subscribeQuery({ queryType: 'parentChild', typeName: 'Child', field: 'parent', value: uuid() }));
+    // A subscribe pinned to the installed version proceeds: no ask either.
+    await admin.lmz.callAsync('STAR', star, door(admin).subscribeQuery('v1', { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: uuid() }));
     expect(asks(star)).toBe(1);
+    admin[Symbol.dispose]();
+  });
+
+  // The version is required in TypeScript, but mesh arguments are typed and not checked on the
+  // wire, so a raw caller can still send none. Mutation: let `#gateClientOp` treat a missing
+  // version as the installed one, as the old optional parameter did.
+  it('an op arriving with no version, on a Star with an ontology, is answered stale without asking', async () => {
+    const star = newStar();
+    const admin = await starAdmin(star);
+    await install(admin, star, 'v1', TYPES_V1);
+    sink = [];
+    const read = await answer(admin.lmz.callAsync('STAR', star, door(admin).read(undefined, uuid())));
+    const invite = await answer(admin.lmz.callAsync('STAR', star, door(admin).invite(undefined, ROOT_NODE_ID, [{ email: 'x@example.com', tier: 'read' }])));
+    for (const e of [read, invite]) {
+      expect(e?.name).toBe('OntologyStaleError');
+      expect((e as any).checking).toBeFalsy();
+    }
+    expect(asks(star)).toBe(0);
+    admin[Symbol.dispose]();
+  });
+});
+
+describe('the Star asks its Galaxy once per version change', () => {
+  // In the vitest-plugin lane because only here can an answer be held until every op has arrived:
+  // live, the Galaxy answers in tens of milliseconds and the count would depend on timing.
+  const holdAnswers = (c: NebulaClientTest, star: string, hold: boolean) =>
+    c.lmz.callAsync('STAR', star, c.ctn<StarTest>().holdOntologyAnswersForTest(hold));
+  const galaxyAsks = (star: string) => sink.filter((e) =>
+    e.namespace === 'nebula.Galaxy.ontology' && e.message === 'current asked' && e.data?.caller === star).length;
+
+  // Mutation: let `#settle` ask on every mismatch, as it did before the memory.
+  it('ten mismatched ops while an answer is outstanding make one ask of the Galaxy', async () => {
+    const galaxy = newGalaxy();
+    const owner = await galaxyOwner(galaxy);
+    const v1 = await build(owner, galaxy, TYPES_V1);
+    const dev = `${galaxy}.dev`;
+    const client = (await universeAdminClient(NebulaClientTest, new Browser(), galaxy, dev, 'admin@example.com', v1)).client;
+    try {
+      await holdAnswers(client, dev, true);
+      sink = [];
+      for (let i = 0; i < 10; i++) {
+        const e = await answer(client.lmz.callAsync('STAR', dev, door(client).read(v1, uuid())));
+        expect((e as any)?.checking).toBe(true);
+      }
+      expect(galaxyAsks(dev)).toBe(1);
+      expect(asks(dev)).toBe(1);
+      // Released, the one answer installs, and the next op runs.
+      await holdAnswers(client, dev, false);
+      expect(await answer(client.lmz.callAsync('STAR', dev, door(client).read(v1, uuid())))).toBeNull();
+    } finally { owner[Symbol.dispose](); client[Symbol.dispose](); }
+  }, 60_000);
+
+  // Mutation: clear the memory only when a row installs.
+  it('an answer of none ends the ask, so the next mismatched op asks again', async () => {
+    const star = newStar();
+    const admin = await starAdmin(star);
+    sink = [];
+    await answer(admin.lmz.callAsync('STAR', star, door(admin).read('v1', uuid())));
+    expect(asks(star)).toBe(1);
+    await vi.waitFor(() => expect(sink.some((e) => e.message === 'ontology pull returned no row' && e.data?.instanceName === star)).toBe(true));
+    await answer(admin.lmz.callAsync('STAR', star, door(admin).read('v1', uuid())));
+    expect(asks(star)).toBe(2);
+    admin[Symbol.dispose]();
+  });
+
+  // Mutation: clear the memory only for a row or none, never for an Error.
+  it('an Error answer ends the ask too', async () => {
+    const star = newStar();
+    const admin = await starAdmin(star);
+    await holdAnswers(admin, star, true);
+    sink = [];
+    await answer(admin.lmz.callAsync('STAR', star, door(admin).read('v1', uuid())));
+    await answer(admin.lmz.callAsync('STAR', star, door(admin).read('v1', uuid())));
+    expect(asks(star)).toBe(1); // the second op waited on the first ask
+    await admin.lmz.callAsync('STAR', star, admin.ctn<StarTest>().deliverOntologyAnswerForTest('error'));
+    await answer(admin.lmz.callAsync('STAR', star, door(admin).read('v1', uuid())));
+    expect(asks(star)).toBe(2);
+    await holdAnswers(admin, star, false);
+    admin[Symbol.dispose]();
+  });
+
+  // Mutation: drop the age check in `#askPending`.
+  it('an ask whose answer never comes is made again once it is too old', async () => {
+    const star = newStar();
+    const admin = await starAdmin(star);
+    await holdAnswers(admin, star, true);
+    sink = [];
+    await answer(admin.lmz.callAsync('STAR', star, door(admin).read('v1', uuid())));
+    await answer(admin.lmz.callAsync('STAR', star, door(admin).read('v1', uuid())));
+    expect(asks(star)).toBe(1);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.setSystemTime(Date.now() + 11_000);
+      await answer(admin.lmz.callAsync('STAR', star, door(admin).read('v1', uuid())));
+    } finally { vi.useRealTimers(); }
+    expect(asks(star)).toBe(2);
+    await holdAnswers(admin, star, false);
     admin[Symbol.dispose]();
   });
 });
@@ -192,48 +307,37 @@ describe('the source is asked only on a mismatch', () => {
 describe('every op on an empty host takes the same path', () => {
   // The FIRST answer of a raw op, because the client's own retry repairs the end state. The Star's
   // Galaxy answers a tenant Star no row until something is published, so the Star stays empty and
-  // every op keeps being told `installing`.
-  it('each op on an empty Star is first told `installing`', async () => {
+  // every op keeps being told `checking`. How many asks they cost is the describe above's.
+  it('each op on an empty Star is first told `checking`', async () => {
     const star = newStar();
     const admin = await starAdmin(star);
     const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: uuid() };
     const hash = canonicalQueryHash(query);
 
-    // Each op asks the source exactly once: the Galaxy's answer lands later, so nothing is
-    // installed between ops and every one of them takes the no-row path afresh.
-    let before = asks(star);
-    const oneAsk = () => { expect(asks(star)).toBe(before + 1); before = asks(star); };
-
     const txn = await answer(admin.lmz.callAsync('STAR', star, door(admin).transaction('v1', uuid(), {
       [uuid()]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'x' } },
     })));
-    oneAsk();
     const read = await answer(admin.lmz.callAsync('STAR', star, door(admin).read('v1', uuid())));
-    oneAsk();
-    const invite = await answer(admin.lmz.callAsync('STAR', star, door(admin).invite(ROOT_NODE_ID, [{ email: 'x@example.com', tier: 'read' }])));
-    oneAsk();
+    const invite = await answer(admin.lmz.callAsync('STAR', star, door(admin).invite('v1', ROOT_NODE_ID, [{ email: 'x@example.com', tier: 'read' }])));
     for (const e of [txn, read, invite]) {
       expect(e?.name).toBe('OntologyStaleError');
-      expect((e as any).installing).toBe(true);
+      expect((e as any).checking).toBe(true);
     }
 
     const rid = uuid();
     admin.callStarSubscribe(star, 'v1', 'TestResource', rid);
-    await vi.waitFor(() => expect((admin.lastErrorObject as any)?.installing).toBe(true));
-    oneAsk();
+    await vi.waitFor(() => expect((admin.lastErrorObject as any)?.checking).toBe(true));
     admin.callStarSubscribeQuery(star, query);
-    await vi.waitFor(() => expect((admin.lastQueryError as any)?.installing).toBe(true));
-    oneAsk();
-    await admin.lmz.callAsync('STAR', star, door(admin).subscribeQuerySubscribers(query));
+    await vi.waitFor(() => expect((admin.lastQueryError as any)?.checking).toBe(true));
+    await admin.lmz.callAsync('STAR', star, door(admin).subscribeQuerySubscribers('v1', query));
     await vi.waitFor(() => {
       expect(admin.lastQuerySubscribersUpdate?.queryHash).toBe(hash);
-      expect((admin.lastQuerySubscribersUpdate?.error as any)?.installing).toBe(true);
+      expect((admin.lastQuerySubscribersUpdate?.error as any)?.checking).toBe(true);
     });
-    oneAsk();
     admin[Symbol.dispose]();
   });
 
-  it('no op on an empty Galaxy is told `installing` — its source answers at once', async () => {
+  it('no op on an empty Galaxy is told `checking` — its source answers at once', async () => {
     const scope = newGalaxy();
     const owner = await galaxyOwner(scope);
     const txn = await owner.lmz.callAsync('GALAXY', scope, door(owner).transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, uuid(), {
@@ -250,7 +354,7 @@ describe('every op on an empty host takes the same path', () => {
 
 /**
  * A Galaxy whose build landed `types` when given, and its fresh, empty `.dev` Star, whose admin
- * pins that version — so the admin's first subscribe is told `installing` while the Star pulls.
+ * pins that version — so the admin's first subscribe is told `checking` while the Star pulls.
  * The `.dev` Star, because it is the one Star a build's row reaches before anything is published.
  */
 async function emptyStarUnderGalaxy(types?: string) {
@@ -280,18 +384,18 @@ const EMPTY_STAR_KINDS = [
 ] as const;
 
 describe('the client retries each kind of subscribe while its host installs', () => {
-  it.each(EMPTY_STAR_KINDS)('$kind: lands after `installing` without firing the refresh signal', async ({ land }) => {
+  it.each(EMPTY_STAR_KINDS)('$kind: lands after `checking` without firing the refresh signal', async ({ land }) => {
     const { owner, client, star, onShouldRefreshUI } = await emptyStarUnderGalaxy(TYPES_V1);
     try {
       sink = [];
       await land(client);
-      expect(asks(star)).toBeGreaterThanOrEqual(1); // the first answer WAS `installing`
+      expect(asks(star)).toBeGreaterThanOrEqual(1); // the first answer WAS `checking`
       expect(onShouldRefreshUI).not.toHaveBeenCalled();
     } finally { owner[Symbol.dispose](); client[Symbol.dispose](); }
   }, 30_000);
 
   it.each(EMPTY_STAR_KINDS)('$kind: when the retries run out it ends at the stale signal', async ({ land }) => {
-    // No build has landed, so every answer stays `installing`.
+    // No build has landed, so every answer stays `checking`.
     const { owner, client, onShouldRefreshUI } = await emptyStarUnderGalaxy();
     try {
       await expect(land(client)).rejects.toMatchObject({ name: 'OntologyStaleError' });
@@ -299,7 +403,7 @@ describe('the client retries each kind of subscribe while its host installs', ()
     } finally { owner[Symbol.dispose](); client[Symbol.dispose](); }
   }, 30_000);
 
-  // A resource subscribe needs a resource that exists, so its `installing` arises on an UPGRADE: the
+  // A resource subscribe needs a resource that exists, so its `checking` arises on an UPGRADE: the
   // Star serves V1 and holds a resource, a build lands V2, and a client pinned to V2 subscribes.
   async function starHoldingAResource() {
     const { galaxy, owner, client: v1Admin, star } = await emptyStarUnderGalaxy(TYPES_V1);
@@ -311,7 +415,7 @@ describe('the client retries each kind of subscribe while its host installs', ()
     return { galaxy, owner, v1Admin, star, rid };
   }
 
-  it('resource: lands after `installing` without firing the refresh signal', async () => {
+  it('resource: lands after `checking` without firing the refresh signal', async () => {
     const { galaxy, owner, v1Admin, star, rid } = await starHoldingAResource();
     const v2 = await build(owner, galaxy, TYPES_V2);
     const onShouldRefreshUI = vi.fn();

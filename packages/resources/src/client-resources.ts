@@ -227,15 +227,15 @@ export interface ReadOptions {
   ontologyVersion?: string;
 }
 
-/** Bounded retry for an `installing` OntologyStaleError — the host fired a registry
- *  lazy-pull inside the refused op's call context; the install typically lands within a
- *  round trip, so a few short retries cover it without masking a genuinely stale client. */
-const INSTALLING_RETRY_LIMIT = 4;
-const INSTALLING_RETRY_DELAY_MS = 400;
+/** Bounded retry for a `checking` OntologyStaleError — the host asked its source what is current
+ *  inside the refused op's call context; an install typically lands within a round trip, so a few
+ *  short retries cover it without masking a genuinely stale client. */
+const CHECKING_RETRY_LIMIT = 4;
+const CHECKING_RETRY_DELAY_MS = 400;
 
-/** True for the answer a host gives while it installs its ontology — a retry lands it. */
-function isInstalling(result: unknown): boolean {
-  return isOntologyStaleError(result) && result.installing === true;
+/** True for the answer a host gives while it asks what is current — a retry may land. */
+function isChecking(result: unknown): boolean {
+  return isOntologyStaleError(result) && result.checking === true;
 }
 
 type SubscribeKey = string; // `${resourceType}:${resourceId}`
@@ -331,8 +331,8 @@ export class ClientResources {
   /** Binding hosting this client's Resources (default 'STAR'; the resource pair). */
   #resourceHostBinding: string;
   /** Retries used per subscribe channel (`resource:`, `query:` or `roster:` plus its key) while a
-   *  host installs its ontology — see {@link #retryInstalling}. */
-  #installingAttempts = new Map<string, number>();
+   *  host installs its ontology — see {@link #retryChecking}. */
+  #checkingAttempts = new Map<string, number>();
   /** Ceiling on a subscribe's wait for its first push; Mesh's default when absent. */
   #subscribeTimeoutMs?: number;
   #onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
@@ -640,12 +640,12 @@ export class ClientResources {
       // Ontology-stale is a version-skew signal, not an infrastructure error, so it is answered
       // here rather than thrown on.
       if (isOntologyStaleError(result)) {
-        // `installing` = the host fired a registry lazy-pull of the CURRENT version inside our
-        // op's call context (an install it cannot await — ADR-003), so the op succeeds shortly
-        // if this version is current. Retry the replay-idempotent submission (same `newETag`) a few
+        // `checking` = the host asked its source for the CURRENT version inside our op's call
+        // context (an answer it cannot await — ADR-003), so the op succeeds shortly if this
+        // version is current. Retry the replay-idempotent submission (same `newETag`) a few
         // times before treating the version as genuinely stale.
-        if (result.installing && attempt < INSTALLING_RETRY_LIMIT) {
-          await new Promise((r) => setTimeout(r, INSTALLING_RETRY_DELAY_MS));
+        if (result.checking && attempt < CHECKING_RETRY_LIMIT) {
+          await new Promise((r) => setTimeout(r, CHECKING_RETRY_DELAY_MS));
           return this.#meshSubmit(subs, attempt + 1);
         }
         return { ontologyStale: { clientVersion: result.clientVersion, currentVersion: result.currentVersion } };
@@ -732,12 +732,12 @@ export class ClientResources {
     // (Profiles are NOT in this registry: they ride the Client's own channel, on the PROFILE binding,
     // which is what keeps a dev-user `Profile`-typed resource from being re-routed to the global
     // PROFILE DO — tasks/nebula-subscriber-lists.md.)
-    // ⚠️ The version gates THIS LOOP ONLY — never the method. The query and roster loops below need
-    // no ontology version, and an early return here silently stopped them, and the profiles the walk
-    // restored then, from re-firing on reconnect (caught by `first-app-built`, 2026-09-25). Reading it once and
-    // skipping the loop is right: without a version nothing can have subscribed, because every
-    // subscribe pins one, so the registry is empty and the loop is a no-op anyway — and a
-    // reconnect handler is the wrong place to throw.
+    // ⚠️ The version gates the RESOURCE, QUERY AND ROSTER LOOPS — never the method. Each of those
+    // subscribes pins the page's version, and without one nothing can have subscribed, so they are
+    // no-ops then. The org tree below is typed by no ontology and takes no version, and an early
+    // return here once silently stopped it, and the profiles the walk restored then, from re-firing
+    // on reconnect (caught by `first-app-built`, 2026-09-25). A reconnect handler is the wrong place
+    // to throw.
     const version = this.#ontologyVersion;
     if (version) {
       for (const { resourceType, resourceId } of this.#subscriptionRegistry.values()) {
@@ -745,20 +745,20 @@ export class ClientResources {
           this.#client.ctn<ResourcesHostNode>().resources.subscribe(version, resourceType, resourceId),
           this.#client.ctn<NebulaClient>().onResourceSubscribeRefused(resourceType, resourceId));
       }
-    }
-    // Re-fire every live query sub too, so a changed admin verdict is re-derived server-side and
-    // the stored `dominionOverHostAtSubscribe` is cleared. The window subs ride the single-resource
-    // loop above.
-    for (const [queryHash, entry] of this.#queryEntries) {
-      this.#hostCall(
-        this.#client.ctn<ResourcesHostNode>().resources.subscribeQuery(entry.query), this.#client.ctn<NebulaClient>().onQuerySubscribeRefused(queryHash));
-    }
-    // Re-fire every live STANDALONE subscriber-list watcher sub (the roster re-arrives via
-    // handleQuerySubscribersUpdate; the server's INSERT OR REPLACE makes the re-register idempotent).
-    for (const [queryHash, entry] of this.#querySubscriberEntries) {
-      this.#hostCall(
-        this.#client.ctn<ResourcesHostNode>().resources.subscribeQuerySubscribers(entry.query),
-        this.#client.ctn<NebulaClient>().onRosterSubscribeRefused(queryHash));
+      // Re-fire every live query sub too, so a changed admin verdict is re-derived server-side and
+      // the stored `dominionOverHostAtSubscribe` is cleared. The window subs ride the
+      // single-resource loop above.
+      for (const [queryHash, entry] of this.#queryEntries) {
+        this.#hostCall(
+          this.#client.ctn<ResourcesHostNode>().resources.subscribeQuery(version, entry.query), this.#client.ctn<NebulaClient>().onQuerySubscribeRefused(queryHash));
+      }
+      // Re-fire every live STANDALONE subscriber-list watcher sub (the roster re-arrives via
+      // handleQuerySubscribersUpdate; the server's INSERT OR REPLACE makes the re-register idempotent).
+      for (const [queryHash, entry] of this.#querySubscriberEntries) {
+        this.#hostCall(
+          this.#client.ctn<ResourcesHostNode>().resources.subscribeQuerySubscribers(version, entry.query),
+          this.#client.ctn<NebulaClient>().onRosterSubscribeRefused(queryHash));
+      }
     }
     // The org tree, gated on a registered listener so headless clients (admin scripts, tests) that
     // don't render it don't register or broadcast needlessly.
@@ -780,17 +780,17 @@ export class ClientResources {
           this.#client.ctn<ResourcesHostNode>().resources.subscribe(version, entry.resourceType, entry.resourceId),
           this.#client.ctn<NebulaClient>().onResourceSubscribeRefused(entry.resourceType, entry.resourceId));
       }
-    }
-    for (const [queryHash, entry] of this.#queryEntries) {
-      if (entry.ready.settled) continue;
-      this.#hostCall(
-        this.#client.ctn<ResourcesHostNode>().resources.subscribeQuery(entry.query), this.#client.ctn<NebulaClient>().onQuerySubscribeRefused(queryHash));
-    }
-    for (const [queryHash, entry] of this.#querySubscriberEntries) {
-      if (entry.ready.settled) continue;
-      this.#hostCall(
-        this.#client.ctn<ResourcesHostNode>().resources.subscribeQuerySubscribers(entry.query),
-        this.#client.ctn<NebulaClient>().onRosterSubscribeRefused(queryHash));
+      for (const [queryHash, entry] of this.#queryEntries) {
+        if (entry.ready.settled) continue;
+        this.#hostCall(
+          this.#client.ctn<ResourcesHostNode>().resources.subscribeQuery(version, entry.query), this.#client.ctn<NebulaClient>().onQuerySubscribeRefused(queryHash));
+      }
+      for (const [queryHash, entry] of this.#querySubscriberEntries) {
+        if (entry.ready.settled) continue;
+        this.#hostCall(
+          this.#client.ctn<ResourcesHostNode>().resources.subscribeQuerySubscribers(version, entry.query),
+          this.#client.ctn<NebulaClient>().onRosterSubscribeRefused(queryHash));
+      }
     }
     if (this.#treeSnapshotAwaited && this.#orgTreeListener) this.#subscribeTree();
   }
@@ -979,6 +979,7 @@ export class ClientResources {
      * Refcounted: `[Symbol.dispose]()` releases `unsubscribeQuery` on the last handle.
      */
     subscribeQuery: (query: QueryDescriptor, options?: SubscribeQueryOptions): QuerySubscription => {
+      const version = this.requireOntologyVersion('subscribeQuery');
       const queryHash = canonicalQueryHash(query);
       let entry = this.#queryEntries.get(queryHash);
       if (!entry) {
@@ -997,7 +998,7 @@ export class ClientResources {
           listeners: new Set(),
         };
         this.#queryEntries.set(queryHash, entry);
-        this.#hostCall(this.#client.ctn<ResourcesHostNode>().resources.subscribeQuery(query), this.#client.ctn<NebulaClient>().onQuerySubscribeRefused(queryHash));
+        this.#hostCall(this.#client.ctn<ResourcesHostNode>().resources.subscribeQuery(version, query), this.#client.ctn<NebulaClient>().onQuerySubscribeRefused(queryHash));
       }
       entry.refcount++;
       const e = entry;
@@ -1034,10 +1035,10 @@ export class ClientResources {
   async #inviteToNode(nodeId: string, invitees: NodeInvitee[], attempt = 0): Promise<NodeInviteAck> {
     try {
       return await this.#hostCallAsync(
-        this.#client.ctn<ResourcesHostNode>().resources.invite(nodeId, invitees));
+        this.#client.ctn<ResourcesHostNode>().resources.invite(this.requireOntologyVersion('invite'), nodeId, invitees));
     } catch (err) {
-      if (isInstalling(err) && attempt < INSTALLING_RETRY_LIMIT) {
-        await new Promise((r) => setTimeout(r, INSTALLING_RETRY_DELAY_MS));
+      if (isChecking(err) && attempt < CHECKING_RETRY_LIMIT) {
+        await new Promise((r) => setTimeout(r, CHECKING_RETRY_DELAY_MS));
         return this.#inviteToNode(nodeId, invitees, attempt + 1);
       }
       if (isOntologyStaleError(err)) this.#dispatchOntologyStale(err.clientVersion, err.currentVersion);
@@ -1224,6 +1225,7 @@ export class ClientResources {
    * the active-scope host (Star/Galaxy). tasks/nebula-subscriber-lists.md.
    */
   subscribeQuerySubscribers(query: QueryDescriptor): SubscriberListSubscription {
+    const version = this.requireOntologyVersion('subscribeQuerySubscribers');
     const queryHash = canonicalQueryHash(query);
     let entry = this.#querySubscriberEntries.get(queryHash);
     if (!entry) {
@@ -1233,7 +1235,7 @@ export class ClientResources {
       entry = { query, refcount: 0, ready: { promise, resolve, reject, settled: false } };
       this.#querySubscriberEntries.set(queryHash, entry);
       this.#hostCall(
-        this.#client.ctn<ResourcesHostNode>().resources.subscribeQuerySubscribers(query),
+        this.#client.ctn<ResourcesHostNode>().resources.subscribeQuerySubscribers(version, query),
         this.#client.ctn<NebulaClient>().onRosterSubscribeRefused(queryHash));
     }
     entry.refcount++;
@@ -1269,8 +1271,9 @@ export class ClientResources {
    * `<div id="app"></div>` with a mount-time throw as the only trace.
    *
    * ⚠️ Studio's own client is never the one that trips this — it is constructed with
-   * {@link CHAT_MESSAGE_ONTOLOGY_VERSION}, a platform constant rather than an applied version. Only
-   * a generated app's client, whose version comes from the Galaxy's applied head, can be without one.
+   * {@link CHAT_MESSAGE_ONTOLOGY_VERSION}, a platform constant rather than a built one. Only a
+   * generated app's client, whose version comes from the last build that landed an ontology, can
+   * be without one.
    */
   requireOntologyVersion(operation: string): string {
     if (!this.#ontologyVersion) throw new NoOntologyInstalledError(operation);
@@ -1292,16 +1295,16 @@ export class ClientResources {
     // reconnect/freeze, bounded by the default timeout. Concurrent reads are correlated by the
     // primitive's `callId`. On a stale version `Star.resources.read` throws `OntologyStaleError` → the reject
     // path fires `onShouldRefreshUI` (relocated from the old push handler) before re-rejecting —
-    // except an `installing` stale (the host is mid-lazy-pull), which retries the idempotent read.
-    const attempt = (options as { installingAttempt?: number } | undefined)?.installingAttempt ?? 0;
+    // except a `checking` stale (the host is asking what is current), which retries the idempotent read.
+    const attempt = (options as { checkingAttempt?: number } | undefined)?.checkingAttempt ?? 0;
     return this.#hostCallAsync<Snapshot | null>(
       this.#client.ctn<ResourcesHostNode>().resources.read(version, resourceId),
     ).catch(async (err) => {
       if (isOntologyStaleError(err)) {
-        if (err.installing && attempt < INSTALLING_RETRY_LIMIT) {
-          await new Promise((r) => setTimeout(r, INSTALLING_RETRY_DELAY_MS));
+        if (err.checking && attempt < CHECKING_RETRY_LIMIT) {
+          await new Promise((r) => setTimeout(r, CHECKING_RETRY_DELAY_MS));
           return this.#readResource(resourceType, resourceId,
-            { ...(options ?? {}), installingAttempt: attempt + 1 } as ReadOptions);
+            { ...(options ?? {}), checkingAttempt: attempt + 1 } as ReadOptions);
         }
         this.#dispatchOntologyStale(err.clientVersion, err.currentVersion);
       }
@@ -1311,19 +1314,19 @@ export class ClientResources {
 
 
   /**
-   * Schedule one more subscribe after an `installing` answer, and say whether one was scheduled.
+   * Schedule one more subscribe after a `checking` answer, and say whether one was scheduled.
    * `false` once a channel has used its retries, so the caller ends at the stale signal the way
    * `transaction` and `read` do. Keyed per channel and cleared by that channel's next real
    * answer, so a later install starts a fresh count.
    */
-  #retryInstalling(channel: string, resend: () => void): boolean {
-    const attempt = this.#installingAttempts.get(channel) ?? 0;
-    if (attempt >= INSTALLING_RETRY_LIMIT) {
-      this.#installingAttempts.delete(channel);
+  #retryChecking(channel: string, resend: () => void): boolean {
+    const attempt = this.#checkingAttempts.get(channel) ?? 0;
+    if (attempt >= CHECKING_RETRY_LIMIT) {
+      this.#checkingAttempts.delete(channel);
       return false;
     }
-    this.#installingAttempts.set(channel, attempt + 1);
-    setTimeout(resend, INSTALLING_RETRY_DELAY_MS);
+    this.#checkingAttempts.set(channel, attempt + 1);
+    setTimeout(resend, CHECKING_RETRY_DELAY_MS);
     return true;
   }
 
@@ -1393,10 +1396,10 @@ export class ClientResources {
     const pending = this.#pendingSubscribes.get(key);
 
     if (result instanceof Error) {
-      // The host is installing its ontology: ask again, and answer nothing yet. A subscribe no
+      // The host is asking what is current: ask again, and answer nothing yet. A subscribe no
       // handle holds any more is not retried.
-      if (isInstalling(result) && this.#subscriptionRegistry.has(key)
-        && this.#retryInstalling(`resource:${key}`, () => {
+      if (isChecking(result) && this.#subscriptionRegistry.has(key)
+        && this.#retryChecking(`resource:${key}`, () => {
           const version = this.#ontologyVersion;
           const registered = this.#subscriptionRegistry.get(key);
           if (!version || !registered) return;
@@ -1423,7 +1426,7 @@ export class ClientResources {
     }
 
     if (isResourceDenied(result)) {
-      this.#installingAttempts.delete(`resource:${key}`);
+      this.#checkingAttempts.delete(`resource:${key}`);
       this.#applyAccess(resourceType, resourceId, result.deniedNodes);
       if (pending) {
         this.#pendingSubscribes.delete(key);
@@ -1432,7 +1435,7 @@ export class ClientResources {
       return;
     }
 
-    this.#installingAttempts.delete(`resource:${key}`);
+    this.#checkingAttempts.delete(`resource:${key}`);
     // Write-through via the engine (hold-pending-fanouts). `null` (never-created)
     // writes nothing — the slot stays undefined until a real snapshot arrives.
     if (result !== null) {
@@ -1500,20 +1503,19 @@ export class ClientResources {
    */
   #askAgain(): void {
     const version = this.#ontologyVersion;
-    if (version) {
-      for (const [key, access] of this.#resourceAccess) {
-        if (access.deniedNodes.length === 0) continue;
-        const registered = this.#subscriptionRegistry.get(key);
-        if (!registered) continue;
-        this.#hostCall(
-          this.#client.ctn<ResourcesHostNode>().resources.subscribe(version, registered.resourceType, registered.resourceId),
-          this.#client.ctn<NebulaClient>().onResourceSubscribeRefused(registered.resourceType, registered.resourceId));
-      }
+    if (!version) return; // nothing could have subscribed without one
+    for (const [key, access] of this.#resourceAccess) {
+      if (access.deniedNodes.length === 0) continue;
+      const registered = this.#subscriptionRegistry.get(key);
+      if (!registered) continue;
+      this.#hostCall(
+        this.#client.ctn<ResourcesHostNode>().resources.subscribe(version, registered.resourceType, registered.resourceId),
+        this.#client.ctn<NebulaClient>().onResourceSubscribeRefused(registered.resourceType, registered.resourceId));
     }
     for (const [queryHash, entry] of this.#queryEntries) {
       if (entry.deniedNodes.length === 0) continue;
       this.#hostCall(
-        this.#client.ctn<ResourcesHostNode>().resources.subscribeQuery(entry.query), this.#client.ctn<NebulaClient>().onQuerySubscribeRefused(queryHash));
+        this.#client.ctn<ResourcesHostNode>().resources.subscribeQuery(version, entry.query), this.#client.ctn<NebulaClient>().onQuerySubscribeRefused(queryHash));
     }
   }
 
@@ -1534,15 +1536,16 @@ export class ClientResources {
     const entry = this.#queryEntries.get(queryHash);
     if (!entry) return;
     if (result instanceof Error) {
-      if (isInstalling(result) && this.#retryInstalling(`query:${queryHash}`, () => {
+      if (isChecking(result) && this.#retryChecking(`query:${queryHash}`, () => {
         const live = this.#queryEntries.get(queryHash);
-        if (live) this.#hostCall(this.#client.ctn<ResourcesHostNode>().resources.subscribeQuery(live.query), this.#client.ctn<NebulaClient>().onQuerySubscribeRefused(queryHash));
+        const version = this.#ontologyVersion;
+        if (live && version) this.#hostCall(this.#client.ctn<ResourcesHostNode>().resources.subscribeQuery(version, live.query), this.#client.ctn<NebulaClient>().onQuerySubscribeRefused(queryHash));
       })) return;
       if (isOntologyStaleError(result)) this.#dispatchOntologyStale(result.clientVersion, result.currentVersion);
       if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.reject(result); }
       return;
     }
-    this.#installingAttempts.delete(`query:${queryHash}`);
+    this.#checkingAttempts.delete(`query:${queryHash}`);
     entry.resourceIds = result.resourceIds ?? [];
     entry.deniedNodes = result.deniedNodes ?? [];
     this.#reconcileQueryWindow(entry);
@@ -1565,10 +1568,11 @@ export class ClientResources {
     const entry = this.#querySubscriberEntries.get(queryHash);
     if (!entry) return;
     if (result instanceof Error) {
-      if (isInstalling(result) && this.#retryInstalling(`roster:${queryHash}`, () => {
+      if (isChecking(result) && this.#retryChecking(`roster:${queryHash}`, () => {
         const live = this.#querySubscriberEntries.get(queryHash);
-        if (live) {
-          this.#hostCall(this.#client.ctn<ResourcesHostNode>().resources.subscribeQuerySubscribers(live.query),
+        const version = this.#ontologyVersion;
+        if (live && version) {
+          this.#hostCall(this.#client.ctn<ResourcesHostNode>().resources.subscribeQuerySubscribers(version, live.query),
             this.#client.ctn<NebulaClient>().onRosterSubscribeRefused(queryHash));
         }
       })) return;
@@ -1576,7 +1580,7 @@ export class ClientResources {
       if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.reject(result); }
       return;
     }
-    this.#installingAttempts.delete(`roster:${queryHash}`);
+    this.#checkingAttempts.delete(`roster:${queryHash}`);
     this.#querySubscribersListener?.({ queryHash, query: entry.query, roster: result });
     if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.resolve(); }
   }

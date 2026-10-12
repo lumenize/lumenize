@@ -346,6 +346,20 @@ export class Snapshots {
   }
 
   /**
+   * Up to `limit` live resources, each with its type and value, with NO permission check — what a
+   * version change checks against the new validator on the `.dev` Star. Nothing reaches it from
+   * the wire.
+   */
+  liveValues(limit: number): Array<{ resourceId: string; typeName: string; value: unknown }> {
+    return this.#ctx.storage.sql.exec(
+      `SELECT resourceId, typeName, value FROM Snapshots WHERE validTo = ? AND deleted = 0 LIMIT ?`,
+      END_OF_TIME, limit,
+    ).toArray().map((row) => ({
+      resourceId: row.resourceId as string, typeName: row.typeName as string, value: parse(row.value as string),
+    }));
+  }
+
+  /**
    * The current type name of a resource, or `undefined` if it has no live snapshot — with NO
    * permission check and nothing else from the snapshot. A resource subscribe denied on the node
    * uses it to refuse a subscriber who named the wrong type without saying what the right one
@@ -361,10 +375,10 @@ export class Snapshots {
 
   /**
    * Enumerate the CURRENT resources of `typeName` whose to-one relationship
-   * `field` equals `fieldValue` — the v1 `parentChild` query primitive (Child 2,
-   * M1). Returns `{ resourceId, nodeId, validFrom }` ordered by
-   * `(validFrom, resourceId)` (D15 — `validFrom` is server-stamped/chronological,
-   * `resourceId` the deterministic tiebreaker for co-created rows).
+   * `field` equals `fieldValue` — the v1 `parentChild` query primitive. Returns
+   * `{ resourceId, nodeId, validFrom }` ordered by `(validFrom, resourceId)`: `validFrom` is
+   * server-stamped and chronological, and `resourceId` the deterministic tiebreaker for co-created
+   * rows.
    *
    * **No permission check here** — membership authorization happens at delivery
    * (the per-target `evaluatePermissions` in the membership-delivery routine);
@@ -373,7 +387,7 @@ export class Snapshots {
    * The FK is extracted in **JS from the structured-clone value at scan time**,
    * never `json_extract` over the blob — the query layer keys off the ontology
    * semantic model, not the storage serialization. This is a full scan of the
-   * type's current snapshots (the deferred D8 index swaps the WHERE/source here,
+   * type's current snapshots (a deferred index would swap the WHERE/source here,
    * same signature); deleted + superseded rows are excluded.
    */
   enumerateCurrentByField(

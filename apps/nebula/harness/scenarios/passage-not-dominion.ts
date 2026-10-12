@@ -65,7 +65,7 @@ interface GalaxyMethods {
   resources: {
     transaction(ontologyVersion: string, newETag: string, ops: Record<string, unknown>): unknown;
     subscribeTree(): void;
-    subscribeQuerySubscribers(query: unknown): void;
+    subscribeQuerySubscribers(ontologyVersion: string, query: unknown): void;
     orgTree: { createNode(nodeId: string, parentNodeId: string, slug: string, label: string): string };
   };
 }
@@ -208,7 +208,7 @@ export async function run(stack: DevStack): Promise<void> {
     (capture as any)[Symbol.for('lumenize.mesh.callable')] = true;
     (member.client as any).handleQuerySubscribersUpdate = capture;
     const rosterRefusal = await refusal(member.client.lmz.callAsync('GALAXY', galaxy,
-      member.client.ctn<GalaxyMethods>().resources.subscribeQuerySubscribers(
+      member.client.ctn<GalaxyMethods>().resources.subscribeQuerySubscribers(CHAT_MESSAGE_ONTOLOGY_VERSION,
         { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID })));
     assert.equal(rosterRefusal, null, `a Star member was refused the Galaxy's roster watch: ${rosterRefusal}`);
     const rosterDeadline = Date.now() + 15_000;

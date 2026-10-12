@@ -34,7 +34,7 @@ export class Star extends ScopedMeshDO implements ResourcesHost {
   /**
    * The Star's ontology source: its parent Galaxy's CURRENT row for this Star, asked by a call
    * whose answer lands at `resourcesResults.onOntologyPulled`, so `current()` answers `null` and
-   * the op is told `installing`. The call rides the asking op's context — an upward call every
+   * the op is told `checking`. The call rides the asking op's context — an upward call every
    * member has passage for — and asks for CURRENT, never for the version the op pinned: a Star
    * serves the version its Galaxy chooses for it (ADR-024), so a tab on an older bundle is told to
    * refresh rather than installed back onto.

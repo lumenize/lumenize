@@ -36,14 +36,14 @@ import { acceptInviteAndLogin } from '../../test/lib/email-login';
 
 export const needsContainer = true;
 
-/** Retry an op the Star answers `installing` while its first-touch pull of the ontology lands —
+/** Retry an op the Star answers `checking` while its first-touch pull of the ontology lands —
  *  returned as a value by `transaction`, thrown by other entries, so both are read. */
 async function whileInstalling<T>(op: () => Promise<T>): Promise<T> {
   for (let attempt = 0; attempt < 20; attempt++) {
     let outcome: unknown;
     try { outcome = await op(); } catch (e) { outcome = e; }
-    const installing = (outcome as Error)?.name === 'OntologyStaleError' && (outcome as { installing?: boolean }).installing;
-    if (!installing) {
+    const checking = (outcome as Error)?.name === 'OntologyStaleError' && (outcome as { checking?: boolean }).checking;
+    if (!checking) {
       if (outcome instanceof Error) throw outcome;
       return outcome as T;
     }
@@ -93,7 +93,7 @@ export async function run(stack: DevStack): Promise<void> {
 
     // The member is invited to `pub` only — a sibling of `priv`, so no grant reaches it.
     const ack = await admin.client.lmz.callAsync(
-      'STAR', star, admin.client.ctn<Star>().resources.invite(pub, [{ email: memberEmail, tier: 'read' }]),
+      'STAR', star, admin.client.ctn<Star>().resources.invite(version, pub, [{ email: memberEmail, tier: 'read' }]),
     ) as NodeInviteAck;
     assert.deepEqual(ack, { accepted: 1, errors: [] }, `node invite ack: ${JSON.stringify(ack)}`);
     const mail = await waiter.emailPromise;
