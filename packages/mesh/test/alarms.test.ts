@@ -5,7 +5,7 @@
  * Uses triggerAlarms() instead of flaky testing package alarm simulation.
  */
 import { describe, test, expect, vi } from 'vitest';
-import { env } from 'cloudflare:test';
+import { env, runInDurableObject, runDurableObjectAlarm } from 'cloudflare:test';
 import type { DelayedAlarm, CronAlarm, Schedule } from '../src/alarms';
 
 describe('Alarms', () => {
@@ -352,6 +352,21 @@ describe('Alarms', () => {
         expect(executed.map((a) => a.payload.task)).toEqual([label]);
       }, { timeout: 15_000, interval: 200 });
     }, 20_000);
+
+    // Cloudflare promises an alarm runs when its time comes, not that it never comes early, and a job
+    // is due once the clock reaches its whole second: an alarm delivered a millisecond short of that
+    // second finds nothing due. `runDurableObjectAlarm` delivers the alarm now, a minute early.
+    test('an alarm delivered before its job is due runs nothing, and stays armed for the job', async () => {
+      const stub = env.ALARM_TEST_DO.getByName('early_delivery_test');
+      await stub.clearExecutedAlarms();
+      const schedule = await stub.scheduleDelayedAlarm(60, { task: 'not yet' });
+      expect(await runDurableObjectAlarm(stub)).toBe(true);
+      expect(await stub.getExecutedAlarms()).toEqual([]);
+      expect((await stub.getSchedule(schedule.id))?.id).toBe(schedule.id);
+      // MUTATION: arm the next alarm only after running a due job, and nothing is armed for it.
+      const armedAt = await (runInDurableObject as any)(stub, (_i: unknown, ctx: DurableObjectState) => ctx.storage.getAlarm());
+      expect(armedAt).toBe(schedule.time * 1000);
+    });
 
     test('handles very large delay', async () => {
       const stub = env.ALARM_TEST_DO.getByName('large_delay_test');

@@ -352,14 +352,15 @@ export class Alarms {
     return executedIds;
   }
 
-  /** Alarm handler - called by MeshDO's alarm() lifecycle method */
+  /**
+   * Alarm handler, called by MeshDO's `alarm()` lifecycle method: runs every job already due, then
+   * points the alarm at the earliest job left, whether or not one ran. Cloudflare promises an alarm
+   * runs when its time comes, not that it never runs early, and a job is due once the clock reaches
+   * its whole second, so one delivered a millisecond short of that second finds nothing due. Left
+   * unarmed then, the job would wait for some later `schedule()` to arm the alarm again.
+   */
   readonly alarm = async (alarmInfo?: AlarmInvocationInfo): Promise<void> => {
-    const now = Math.floor(Date.now() / 1000);
-    const overdueResult = this.#sql`SELECT COUNT(*) as count FROM __lmz_alarms WHERE time <= ${now}`;
-    const overdueCount = overdueResult[0]?.count || 0;
-    if (overdueCount > 0) {
-      await this.triggerAlarms(overdueCount);
-    }
+    await this.triggerAlarms();
   };
 
   /**
