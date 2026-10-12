@@ -132,7 +132,6 @@ export interface ConflictOutcomeEngineConfig {
   applyOptimistic?: (rt: string, rid: string, value: unknown, eTag: string) => void;
   /** Default flash class application (DOM classes in v4; captured in the harness). */
   flash: (rt: string, rid: string, cssClass: string) => void;
-  onShouldRefreshUI?: (info: { clientVersion: string; currentVersion: string; reason: 'ontology-stale' }) => void;
   quietMs?: number;
   maxWaitMs?: number;
   timeoutMs?: number;
@@ -222,8 +221,8 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
     if (typeof outcome === 'object' && outcome !== null && 'ontologyStale' in outcome) {
       const info = (outcome as { ontologyStale: { clientVersion: string; currentVersion: string } })
         .ontologyStale;
-      // No rollback — "client stale, reload" signal, not a per-write rejection.
-      config.onShouldRefreshUI?.({ ...info, reason: 'ontology-stale' });
+      // No rollback — "client stale, reload" signal, not a per-write rejection. The Client has
+      // already decided whether to reload (ClientResources' one stale handler).
       setTransactionWide(ctx, { kind: 'ontology-stale', retryable: false, ...info });
       api.fail();
       conclude(ctx, s, undefined, 'drop-held'); // reload re-syncs; don't clobber the kept paint

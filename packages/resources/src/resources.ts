@@ -303,6 +303,16 @@ export class Resources {
   }
 
   /**
+   * One line per Client subscribe that reaches the host, refused or not, so a reader of the logs can
+   * count how often a subscribe was sent and place it against the `installed` line.
+   */
+  #subscribeArrived(kind: 'resource' | 'query' | 'roster', topic: string, clientAddress: string, stale: OntologyStaleError | null): void {
+    debug('nebula.Resources.subscribe').debug('arrived', {
+      instanceName: this.#lmz().instanceName, kind, topic, clientAddress, stale: stale !== null,
+    });
+  }
+
+  /**
    * Build {@link Resources.requests}: one closure per member, each over the plane's private
    * methods, so the object's only properties are its members.
    */
@@ -322,6 +332,7 @@ export class Resources {
       subscribe: (ontologyVersion, resourceType, resourceId) => {
         const address = this.#caller();
         const stale = this.#gateClientOp(ontologyVersion);
+        this.#subscribeArrived('resource', resourceId, address, stale);
         if (stale) {
           this.#send(tab(address), this.#ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, stale),
             this.#ctn<ResourcesHost>().resourcesResults.onPushUndelivered('stale notice'));
@@ -336,6 +347,7 @@ export class Resources {
       subscribeQuery: (ontologyVersion, query) => {
         const address = this.#caller();
         const stale = this.#gateClientOp(ontologyVersion);
+        this.#subscribeArrived('query', canonicalQueryHash(query), address, stale);
         if (stale) {
           this.#sendQueryUpdate(tab(address), canonicalQueryHash(query), stale);
           return;
@@ -346,6 +358,7 @@ export class Resources {
       subscribeQuerySubscribers: (ontologyVersion, query) => {
         const address = this.#caller();
         const stale = this.#gateClientOp(ontologyVersion);
+        this.#subscribeArrived('roster', canonicalQueryHash(query), address, stale);
         if (stale) {
           this.#sendRoster(tab(address), canonicalQueryHash(query), stale);
           return;
@@ -643,7 +656,7 @@ export class Resources {
   #notifyStale(targets: DroppedAddress[], currentVersion: string): void {
     this.#send(
       targets.map((d) => (splitAddress(d.clientAddress))),
-      this.#ctn<NebulaClient>().handleResourceUpdate('', '', new OntologyStaleError('', currentVersion)),
+      this.#ctn<NebulaClient>().handleResourceUpdate('', '', new OntologyStaleError('', currentVersion, { notice: true })),
       this.#ctn<ResourcesHost>().resourcesResults.onPushUndelivered('stale notice'),
     );
   }

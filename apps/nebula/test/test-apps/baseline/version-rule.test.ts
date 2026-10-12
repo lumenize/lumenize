@@ -17,7 +17,7 @@
  *   - one ask per version change: every answer ends the ask, and an unanswered one expires;
  *   - each op's FIRST answer on an empty Star is `checking`, and on an empty Galaxy it is not;
  *   - the client's retries land each kind of subscribe, and when they run out it ends at the stale
- *     signal.
+ *     signal and reloads nothing, since the Star names no version.
  *
  * In-lane rather than `/live`: the source-ask count is a DO-internal marker, the first answer of a
  * raw op is hidden by the client's own retry, and a re-initialized DO is a state no client can make.
@@ -394,12 +394,14 @@ describe('the client retries each kind of subscribe while its host installs', ()
     } finally { owner[Symbol.dispose](); client[Symbol.dispose](); }
   }, 30_000);
 
-  it.each(EMPTY_STAR_KINDS)('$kind: when the retries run out it ends at the stale signal', async ({ land }) => {
-    // No build has landed, so every answer stays `checking`.
+  // Mutation: let a refusal naming no version reload (`decideStale`), and the hook is called.
+  it.each(EMPTY_STAR_KINDS)('$kind: when the retries run out it ends at the stale signal, and reloads nothing', async ({ land }) => {
+    // No build has landed, so every answer stays `checking` and names no version: a reload would
+    // serve the same page, so the op ends stale and the hook is never called.
     const { owner, client, onShouldRefreshUI } = await emptyStarUnderGalaxy();
     try {
-      await expect(land(client)).rejects.toMatchObject({ name: 'OntologyStaleError' });
-      expect(onShouldRefreshUI).toHaveBeenCalled();
+      await expect(land(client)).rejects.toMatchObject({ name: 'OntologyStaleError', currentVersion: '' });
+      expect(onShouldRefreshUI).not.toHaveBeenCalled();
     } finally { owner[Symbol.dispose](); client[Symbol.dispose](); }
   }, 30_000);
 

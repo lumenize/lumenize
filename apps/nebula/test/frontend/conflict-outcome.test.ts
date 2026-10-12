@@ -39,7 +39,6 @@ type Responder = (subs: QueueSubmission[]) => Promise<ServerBatchResponse>;
 function makeHarness(opts: { quietMs?: number } = {}) {
   const store = new Map<string, { value: unknown; eTag?: string }>();
   const flashes: Array<{ key: string; cls: string }> = [];
-  const refreshes: unknown[] = [];
   const submitted: QueueSubmission[] = [];
   let etagCounter = 0;
   let newETagCounter = 0;
@@ -68,7 +67,6 @@ function makeHarness(opts: { quietMs?: number } = {}) {
     },
     applyOptimistic: (rt, rid, value, eTag) => store.set(keyOf(rt, rid), { value, eTag }),
     flash: (rt, rid, cls) => flashes.push({ key: keyOf(rt, rid), cls }),
-    onShouldRefreshUI: (info) => refreshes.push(info),
     quietMs: opts.quietMs ?? 0,
     timeoutMs: 10_000,
     newETag: () => `ne-${++newETagCounter}`,
@@ -92,7 +90,6 @@ function makeHarness(opts: { quietMs?: number } = {}) {
     engine,
     store,
     flashes,
-    refreshes,
     submitted,
     seed,
     type,
@@ -627,7 +624,7 @@ describe('transaction-wide failures', () => {
     expect(h.valueOf('doc', 'r1')).toEqual({ v: 'attempt' }); // rolled back to the committed baseline value
   });
 
-  it("'ontology-stale': resolves with versions (retryable false), fires onShouldRefreshUI, does NOT roll back", async () => {
+  it("'ontology-stale': resolves with versions (retryable false), does NOT roll back", async () => {
     const h = makeHarness();
     h.seed('doc', 'r1', { v: 'orig' }, 'e1');
     h.type('doc', 'r1', { v: 'painted' });
@@ -639,7 +636,6 @@ describe('transaction-wide failures', () => {
       clientVersion: '1.0',
       currentVersion: '2.0',
     });
-    expect(h.refreshes).toEqual([{ clientVersion: '1.0', currentVersion: '2.0', reason: 'ontology-stale' }]);
     expect(h.valueOf('doc', 'r1')).toEqual({ v: 'painted' }); // paint kept — reload is the remedy
   });
 });

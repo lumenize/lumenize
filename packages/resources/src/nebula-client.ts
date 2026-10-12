@@ -42,23 +42,24 @@ export interface NebulaClientConfig extends Omit<MeshClientConfig, 'refresh' | '
    */
   platformOrigin: string;
   /**
-   * App version this client was built against (lock-step with the server's ontology version).
-   * Auto-attached to every `client.resources.*` call. The serving layer injects it, from the
-   * version the Galaxy has APPLIED.
+   * App version this client was built against, which every op on typed data carries; the Star runs
+   * an op only at the version it has installed (ADR-024). The Galaxy writes it into the page's
+   * `nebula-scope` meta as it serves the page.
    *
-   * **Optional, because an app with no resources is a first-class app.** Until an Apply runs there
-   * is no version to pin, and a client without one still connects, authenticates, chats and reads
+   * **Optional, because an app with no resources is a first-class app.** Until a build lands an
+   * ontology there is no version to pin, and a client without one still connects, authenticates, chats and reads
    * profiles — only the resource plane is unavailable, and it refuses per operation with
    * `NoOntologyInstalledError` rather than refusing to construct. Requiring it here is what used to
    * blank a freshly generated app's preview at mount.
    */
   ontologyVersion?: string;
   /**
-   * Optional hook invoked when the server signals the client's ontology
-   * version is stale (deploys happened since this client started). Typical
-   * implementation: `() => window.location.reload()`. No default — undefined
-   * means opted-out, in which case the staleness signal still surfaces via
-   * the originating Promise's `{ resolution: 'ontology-stale' }` outcome.
+   * Called when the host names a version other than this page's, so the page is on an old build.
+   * Typical implementation: `() => window.location.reload()`. The Client calls it at most once per
+   * version in a tab, behind a guard that records the version in the tab's `sessionStorage` (the
+   * same one the tab id lives in), so a reload that lands on the same old version does not loop. No
+   * default here (`createNebulaClient` supplies the reload); without one the op still ends
+   * `{ resolution: 'ontology-stale' }`.
    */
   onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
   /**
@@ -122,6 +123,7 @@ export class NebulaClient extends MeshClient<AuthClaims> {
       resourceHostBinding,
       subscribeTimeoutMs: config.subscribeTimeoutMs,
       onShouldRefreshUI,
+      sessionStorage: config.sessionStorage,
     });
   }
 

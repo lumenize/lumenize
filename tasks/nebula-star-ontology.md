@@ -280,6 +280,39 @@ Each phase leaves `npm run type-check`, `npm test`, `drive.ts all --fast` and th
 
 **Retro:** the type test was the one Stage 2 called vacuous, rebuilt, and it was still vacuous in the shape Stage 2 proposed; reasoning about what the mutation leaves compiling, before running anything, is what caught it.
 
+### Phase 3, 2026-10-11
+
+**For Larry:** nothing needs a decision. What the build settled inside Phase 3's text:
+
+- **The guard lives in the `sessionStorage` the Client already took for its tab id.** `MeshClient` has a `sessionStorage` option, and the guard reads and writes the same storage under `lmz.ontology-reloaded-for`, so the page after a reload finds what the page before it recorded. No new option.
+- **The org tree's restore never waits behind the gate.** The tree is typed by no ontology, and waiting would lose its restore whenever the gate opens stale. Only the resource, query and roster subscribes wait.
+- **The conflict-outcome engine's `onShouldRefreshUI` option is gone.** `ClientResources` was its one production caller and now decides every stale answer itself, so only the engine's unit test still supplied it.
+- **The default `onShouldRefreshUI` is a plain reload.** Its set-once flag, and the jsdom test that pinned the flag, are gone; the Client's guard replaces both.
+- **Two version-rule cases flipped.** They expected the refresh hook when a subscribe's retries run out on a Star with nothing installed. That answer names no version, so a reload would serve the same page; the op now ends stale and the hook is not called.
+- **Limb 8's `App.vue` imports `{ client }` only.** It holds the list subscription through the client, and `store` would be an unused import.
+
+**What else landed beside the phase's text:**
+
+- Each subscribe that reaches a host logs one `nebula.Resources.subscribe` `arrived` line, with its kind, topic, client and whether it was refused. Limbs 6 and 9 and the gate test read them.
+- The Client logs `version gate closed` and `version gate opened` with its instance name. Limbs 6 and 9 wait on the first, read in the harness's own process, so they wait the same way deployed.
+- The scenario's pages wait for their first connection before any op, as an app waits on the factory's `ready`. Sent sooner, each subscribe went out twice, once queued and once in the first connection's restore, and the second copy answered every subscribe the gate held.
+
+**Close-out notes for Phase 4:** the docs still teach the old reload, in `website/docs/nebula/api-reference.md` (the `onShouldRefreshUI` row and the outcome table), `resources.md`'s `ontology-stale` comment, `coding-your-ui.md` on a new app version, and `ontology.md`'s lock-step bullet. Phase 4's grep will find them; they are listed here as a floor.
+
+**Evidence:**
+
+- Vitest, the decision table: 15 rows. Five mutations each red exactly their own rows: a refusal naming none restores; the page's own version taken as another; a notice retried; the guard ignored; a set-once guard.
+- Vitest, `stale-guard-and-gate.test.ts`: the guard case reds with the guard ignored, kept per Client in memory, or set once; the gate case reds when the Client's resends skip the gate and when a subscribe is sent at once while it is closed.
+- `dev-star-follows-the-build` limbs 1–9 green, 191.1 s after the last scenario edit. Each new limb reds under its own live mutation, every other limb staying green:
+  - limb 6, when the gate's opening sends nothing (the held rows never acknowledged) and when the Star does not check a list subscription's version (the list is refused at the old version, admitted before the install);
+  - limb 7, when a notice naming no version takes the reload path (one `onShouldRefreshUI` call at the first wipe, and the second wipe's list never answered);
+  - limb 8, with a set-once guard (one reload line for two builds), which also showed the build image vendors the Client under test;
+  - limb 9, when the gate stays closed after the retries run out (the read never answered) and when a refusal naming none restores (9 asks in the six seconds after, against 0).
+- Suites: `packages/resources` 17 (2 before, plus the 15 rows); `apps/nebula` unit 117, offline 2, frontend 236 (the reload-flag test deleted), dev-studio 115, browser 4 with 2 skipped. `baseline` reported every test of its 76 files, 564 passed and none failed, then stalled at exit before printing its summary, the hang Phases 1 and 2 met. A first full run stalled and failed eleven tests: version-rule's two flipped cases, and nine that pass alone, `plane-wipe` beside version-rule and the other eight files 56 of 56.
+- `drive.ts all --fast`: 55 of 55, one parked by design, 24.7 min. The two container scenarios whose pages run a client through reloads are green too: `dev-tab-frame` 20.3 s, which asserts the dev tab takes a change as a push and never a reload, and `first-app-built` 72.6 s.
+
+**Retro:** the gate's flush survived its first live mutation, because the scenario subscribed before its page connected and the first connection's restore re-sent everything. A real app subscribes after `ready`. The same runs showed timing deciding which ops the Star refused, so limb 6 now sends its list subscription, waits for the Client's own `version gate closed` line, and only then sends the rows. The vacuity here was in a limb's premise, not its assertion, and first-run green was the only sign.
+
 ## Non-goals
 
 - **`publish()`, the order and storage of published versions, and migration.** Fast-follow Item 4.

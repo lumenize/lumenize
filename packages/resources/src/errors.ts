@@ -26,15 +26,22 @@ export class OntologyStaleError extends Error {
    * as a successful retry rather than as this op's own result.
    */
   public readonly checking?: boolean;
+  /**
+   * Set on the notice a host pushes when an install or a wipe dropped this client's subscriptions,
+   * and unset on the refusal of one of the page's own ops. A refused subscribe arrives on the same
+   * push channel as a notice, so the kind rides the error rather than the channel it came on.
+   */
+  public readonly notice?: boolean;
   constructor(
     public readonly clientVersion: string,
     public readonly currentVersion: string,
-    opts: { checking?: boolean } = {},
+    opts: { checking?: boolean; notice?: boolean } = {},
   ) {
     super(
       `Ontology version mismatch: client sent '${clientVersion}' but latest is '${currentVersion}'. Refresh your schema.`,
     );
     if (opts.checking) this.checking = true;
+    if (opts.notice) this.notice = true;
   }
 }
 

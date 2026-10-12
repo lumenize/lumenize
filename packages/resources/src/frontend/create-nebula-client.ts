@@ -806,25 +806,12 @@ export interface FactoryResult<C extends NebulaClient = NebulaClient> {
   dispose(): Promise<void>;
 }
 
-const RELOAD_STORM_SENTINEL = 'lmz.ontology-stale-reloaded';
-
 /**
- * Default `onShouldRefreshUI`: fetch the new bundle via a full reload, guarded
- * by a `sessionStorage` sentinel so an immediate re-stale right after the reload
- * doesn't loop. (Set-once per session: a much-later staleness across the same
- * long-lived tab won't auto-reload — accepted; the app can pass a custom
- * handler. See tasks/nebula-frontend.md.)
+ * Default `onShouldRefreshUI`: a full reload, which fetches the build the host named. The Client
+ * calls it at most once per version in a tab, so it needs no guard of its own.
  */
 function defaultOnShouldRefreshUI(_info: OntologyStaleInfo): void {
-  try {
-    if (typeof sessionStorage !== 'undefined') {
-      if (sessionStorage.getItem(RELOAD_STORM_SENTINEL)) return; // already reloaded once for staleness
-      sessionStorage.setItem(RELOAD_STORM_SENTINEL, '1');
-    }
-    if (typeof window !== 'undefined') window.location.reload();
-  } catch {
-    // non-browser / storage blocked — nothing to reload.
-  }
+  if (typeof window !== 'undefined') window.location.reload();
 }
 
 /** The `parentOrigin` the serving layer put in a built app's `nebula-scope` meta, if any. */

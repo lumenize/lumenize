@@ -30,12 +30,32 @@
  *     `Deal`s, two with a `stage`; a build adding an optional field counts 0 of 5, and a build
  *     retyping `stage` counts exactly 2 of 5 (locally, from the Star's log line). *Reds when the
  *     count covers every row or every type.*
+ *  6. **A page current at the new version waits out the change without reloading.** A build adds
+ *     `Pipeline`; the first page on the new version sends a list subscription while the Star still
+ *     holds the old one, and two row subscriptions behind the gate its answer closes. It never
+ *     calls `onShouldRefreshUI` and sees a `Deal` another client writes afterwards; locally the
+ *     Star admits none of its subscribes before its `installed` line and never hears the held two
+ *     until then. *Reds when the gate's opening sends nothing, or when a list subscription
+ *     carries no version.*
+ *  7. **A wipe drops the page's subscriptions, and the page takes them again.** Two wipes; after
+ *     each, the same page calls no `onShouldRefreshUI` and its list sees a `Deal` written
+ *     afterwards. *Reds when a notice naming no version takes the reload path.*
+ *  8. **A top-level page on the `.dev` host reloads once per build.** The app's own `nebula.ts`
+ *     logs a console line from `onShouldRefreshUI` and reloads; the page is neither framed in
+ *     Studio nor the build's requester. After each of two builds a second client sends one op, so
+ *     the Star installs, and the page logs one line and reloads, once per build. *Reds with a
+ *     guard that records that it reloaded rather than for which version.*
+ *  9. **On a tenant Star the wait ends, and nothing keeps asking.** A transaction ends
+ *     `ontology-stale` within the retry window, a read sent while it waited ends the same way, and
+ *     locally the tenant logs no `ask` in the six seconds after both end. *Reds when the gate stays
+ *     closed after the retries run out, or when a refusal naming no version restores.*
  *
  * `needsContainer = true` — every build runs in the build container.
  */
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { uniqueTestEmail, waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
+import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources/client';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, StudioClient } from '@lumenize/nebula/client';
 import type { Galaxy, Star } from '@lumenize/nebula';
@@ -43,13 +63,13 @@ import type { NodeInviteAck } from '@lumenize/resources';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf, waitForHost } from '../lib/harness';
 import { servedOntologyVersion } from '../lib/own-app';
-import { debugLines, waitForDebugLines } from '../lib/stdio';
+import { clientIdIn, debugLines, waitForDebugLines } from '../lib/stdio';
 import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
 import { foundTenantStar, refreshAccessToken } from '../../test/lib/email-login';
 
 export const needsContainer = true;
-export const bootVars = { DEBUG: 'nebula.Resources.ontology,nebula.Resources.source,nebula.Galaxy.ontology' };
+export const bootVars = { DEBUG: 'nebula.Resources.ontology,nebula.Resources.source,nebula.Resources.subscribe,nebula.Galaxy.ontology' };
 
 const BUILD_TIMEOUT_MS = 240_000;
 const DEAL = `
@@ -81,6 +101,50 @@ export interface Deal {
 `;
 const DEAL_OWNER = DEAL_STAGE.replace('  stage?: string;\n', '  stage?: string;\n  /** @title Owner */\n  owner?: string;\n');
 const DEAL_STAGE_NUMBER = DEAL_OWNER.replace('  stage?: string;', '  stage?: number;');
+const DEAL_PIPELINE = `${DEAL_OWNER.replace('  owner?: string;\n', '  owner?: string;\n  /** @title Pipeline */\n  pipeline?: Pipeline;\n')}
+/** @title Pipeline */
+export interface Pipeline {
+  /** @title Name */
+  name: string;
+}
+`;
+const DEAL_PIPELINE_B = DEAL_PIPELINE.replace('  pipeline?: Pipeline;\n', '  pipeline?: Pipeline;\n  /** @title Probability */\n  probability?: number;\n');
+const DEAL_PIPELINE_C = DEAL_PIPELINE_B.replace('  probability?: number;\n', '  probability?: number;\n  /** @title Region */\n  region?: string;\n');
+/** Limb 8's console line, written by the app's own `onShouldRefreshUI` before it reloads. */
+const RELOAD_LINE = 'limb-eight-reload';
+const NEBULA_TS_LOGGING_RELOADS = `// The scaffold's bootstrap, with an onShouldRefreshUI that says when it reloads.
+// @ts-expect-error — vendored at image build, as in the scaffold.
+import { createNebulaClient } from '@lumenize/resources/frontend';
+
+const content = document.querySelector('meta[name="nebula-scope"]')?.getAttribute('content') ?? '{}';
+const { ontologyVersion } = JSON.parse(content) as { ontologyVersion?: string };
+
+export const { client, store, ready } = createNebulaClient({
+  ontologyVersion,
+  onShouldRefreshUI: (info: { currentVersion: string }) => {
+    console.log(\`${RELOAD_LINE} \${info.currentVersion}\`);
+    location.reload();
+  },
+});
+
+await ready.catch(() => { /* the factory has already acted on it */ });
+`;
+/** An app whose page holds a list subscription, so the built page runs a client. */
+const appListing = (pipelineId: string) => `<script setup lang="ts">
+import { onMounted, ref } from 'vue';
+import { client } from './nebula';
+
+const deals = ref(-1);
+onMounted(() => {
+  const list = client.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Deal', field: 'pipeline', value: '${pipelineId}' });
+  list.onChange(() => { deals.value = list.resourceIds.length; });
+});
+</script>
+
+<template>
+  <main class="p-8"><p data-testid="limb-eight-deals">{{ deals }}</p></main>
+</template>
+`;
 const BROKEN = `\nexport interface Deal {\n  title: string\n`;
 const MARK = 'limb-two-visible-string';
 const APP_WITH_MARK = `<script setup lang="ts">
@@ -92,6 +156,29 @@ const APP_WITH_MARK = `<script setup lang="ts">
 `;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Whether `check` holds within `ms`, polled. */
+const until = async (ms: number, check: () => boolean): Promise<boolean> => {
+  const deadline = Date.now() + ms;
+  while (!check()) {
+    if (Date.now() > deadline) return false;
+    await sleep(100);
+  }
+  return true;
+};
+/** `'ok'` when `p` settles in time, else what went wrong, so a limb reports rather than hangs. */
+const within = async (ms: number, p: Promise<unknown>): Promise<string> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      p.then(() => 'ok', (e: Error) => `${e.name}: ${e.message}`.slice(0, 160)),
+      new Promise<string>((r) => { timer = setTimeout(() => r(`no answer in ${ms / 1000} s`), ms); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+/** How an op that should be refused for its version ended. */
+const staleOrNot = (e: unknown) => (e as Error).name === 'OntologyStaleError' ? 'ontology-stale' : `${(e as Error).name}: ${(e as Error).message}`.slice(0, 160);
 
 type BuildReportLike = {
   ontology: { ran: boolean; ok?: boolean; tail?: string };
@@ -121,6 +208,13 @@ export async function run(stack: DevStack): Promise<void> {
   const browser = await launchChromium();
   const vite = await bootStudioVite(stack.baseUrl);
   const disposers: Array<() => void> = [];
+  // The pages' own Clients run in this process, so their gate lines are read here in either venue.
+  const gateClosedFor = new Set<string>();
+  setDebugSink((e) => {
+    if (e.namespace === 'lumenize.nebula-client' && e.message === 'version gate closed') {
+      gateClosedFor.add(String((e.data as { client?: unknown } | undefined)?.client));
+    }
+  });
   try {
     // ── The app: claimed through the rendered sign-up, so the owner's session is a browser's ──
     const owner = await instrumentedPage(browser);
@@ -147,7 +241,8 @@ export async function run(stack: DevStack): Promise<void> {
     };
 
     /** A page on `scope`'s host pinned to `version`, as the app's own client is built against it. */
-    const openPage = async (scope: string, token: { accessToken: string; sub: string }, version: string) => {
+    const openPage = async (scope: string, token: { accessToken: string; sub: string }, version: string,
+      onShouldRefreshUI?: () => void) => {
       await waitForHost(scopeUrlOf(stack, scope));
       const ctx = new Browser().context(scopeUrlOf(stack, scope));
       const client = new NebulaClient({
@@ -160,10 +255,16 @@ export async function run(stack: DevStack): Promise<void> {
         fetch: ctx.fetch,
         sessionStorage: ctx.sessionStorage,
         BroadcastChannel: ctx.BroadcastChannel,
+        onShouldRefreshUI,
       });
       disposers.push(() => { try { client[Symbol.dispose](); } catch { /* already disposed */ } ctx.close(); });
+      // As a page's app waits on the factory's `ready` before any component subscribes; an op sent
+      // sooner is sent again by the first connection's restore, which hides what the gate does.
+      assert.ok(await until(30_000, () => client.connectionState === 'connected'), `a page on ${scope} never connected`);
       return client;
     };
+    /** Every `Deal` a page created, in order, so a later limb can subscribe to rows that exist. */
+    const createdDeals: string[] = [];
     /** Create one `Deal`, waiting out the Star's first-touch install; a final answer returns at once. */
     const createDeal = async (client: NebulaClient, value: Record<string, unknown>, waitMs = 30_000): Promise<string> => {
       const deadline = Date.now() + waitMs;
@@ -172,6 +273,7 @@ export async function run(stack: DevStack): Promise<void> {
       while (Date.now() < deadline) {
         const outcome = await client.resources.transaction({ [id]: { op: 'create', typeName: 'Deal', nodeId: ROOT_NODE_ID, value } });
         last = outcome.kind;
+        if (last === 'committed') createdDeals.push(id);
         if (last === 'committed' || last === 'rejected' || last === 'conflict') return last;
         await sleep(500);
       }
@@ -345,10 +447,150 @@ export async function run(stack: DevStack): Promise<void> {
       `adding owner: ${control.line}; retyping stage: ${retyped.line}`,
     ]);
 
+    // ── LIMB 6: a page current at the new version waits out the change without reloading ─────
+    const pipelineId = crypto.randomUUID();
+    const pipelineQuery = { queryType: 'parentChild' as const, typeName: 'Deal', field: 'pipeline', value: pipelineId };
+    /** A `Pipeline` at `pipelineId` and one `Deal` in it, from `client`; returns the Deal's id and outcome. */
+    const writePiped = async (client: NebulaClient): Promise<[string, string]> => {
+      const deal = crypto.randomUUID();
+      const outcome = await client.resources.transaction({
+        [pipelineId]: { op: 'create', typeName: 'Pipeline', nodeId: ROOT_NODE_ID, value: { name: 'Sales' } },
+        [deal]: { op: 'create', typeName: 'Deal', nodeId: ROOT_NODE_ID, value: { title: 'piped', pipeline: pipelineId } },
+      });
+      return [deal, outcome.kind];
+    };
+    await write('src/ontology.d.ts', seed + DEAL_PIPELINE);
+    await build();
+    const vP = (await servedOntologyVersion(stack, dev))!;
+    let refreshes = 0;
+    const current = await openPage(dev, devToken, vP, () => { refreshes++; });
+    // The list subscription is the first op the `.dev` Star hears since the build, so it still
+    // holds the old version: its answer closes the page's gate, and the two row subscriptions sent
+    // after it wait there, unsent.
+    const list = current.resources.subscribeQuery(pipelineQuery);
+    const listAnswer = within(45_000, list.ready); // observed from the start, so a refusal is reported
+    const closed = await until(15_000, () => gateClosedFor.has(current.lmz.instanceName));
+    const rows = createdDeals.slice(-2).map((id) => current.resources.subscribe('Deal', id));
+    const rowsAnswer = within(30_000, Promise.all(rows.map((r) => r.snapshot)));
+    const [listTaken, rowsTaken] = [await listAnswer, await rowsAnswer];
+    const taken = !closed ? `the gate never closed (the list: ${listTaken})`
+      : listTaken !== 'ok' ? `the list: ${listTaken}` : rowsTaken !== 'ok' ? `the rows: ${rowsTaken}` : 'ok';
+    const writer = await openPage(dev, devToken, vP);
+    const [piped, wrotePiped] = await writePiped(writer);
+    const sawPiped = await until(15_000, () => list.resourceIds.includes(piped));
+    record('limb 6 — a page on the new version takes its subscriptions, with no reload',
+      taken === 'ok' && wrotePiped === 'committed' && sawPiped && refreshes === 0,
+      `its subscriptions ${taken}; another client's Deal ${wrotePiped}, ${sawPiped ? 'seen' : 'NOT seen'} on its list; ` +
+      `onShouldRefreshUI calls ${refreshes}`);
+    await logHalf("limb 6 — every subscribe the Star admitted from the page came after its install", async () => {
+      const id = current.lmz.instanceName;
+      const mine = (all: ReturnType<typeof debugLines>) => all.filter((l) =>
+        l.namespace === 'nebula.Resources.subscribe' && l.message === 'arrived' && clientIdIn(l.data) === id);
+      const lines = await waitForDebugLines(stack, (all) => mine(all).filter((l) => l.data.stale === false).length >= 3,
+        "the page's three admitted subscribes").catch(() => debugLines(stack.logs?.() ?? ''));
+      const install = lines.find((l) => l.message === 'installed' && l.data.instanceName === dev && l.data.version === vP);
+      const admitted = mine(lines).filter((l) => l.data.stale === false);
+      const refused = mine(lines).filter((l) => l.data.stale === true);
+      const heldRefused = refused.filter((l) => l.data.kind === 'resource').length;
+      const after = install !== undefined && admitted.every((l) => l.idx > install.idx);
+      return [install !== undefined && admitted.length >= 3 && refused.length >= 1 && heldRefused === 0 && after,
+        `installed ${install ? 'logged' : 'NOT logged'}; the list subscription refused ${refused.length - heldRefused}×, ` +
+        `the held rows ${heldRefused}×; ${admitted.length} admitted, ${after ? 'all after the install' : 'SOME BEFORE the install'}`];
+    });
+    for (const r of rows) r[Symbol.dispose]();
+
+    // ── LIMB 7: a wipe drops the page's subscriptions, and the page takes them again ─────────
+    for (const round of [1, 2]) {
+      await studio.client.lmz.callAsync('STAR', dev, studio.client.ctn<Star>().resetDevData(), { timeoutMs: 30_000 });
+      // The wipe left no Deals, so an empty list is the page's subscription answered again.
+      const retaken = await until(30_000, () => list.resourceIds.length === 0);
+      const [deal, wrote] = await writePiped(writer);
+      const saw = await until(30_000, () => list.resourceIds.includes(deal));
+      record(`limb 7 — after wipe ${round}, the page's list sees a Deal written afterwards, with no reload`,
+        retaken && wrote === 'committed' && saw && refreshes === 0,
+        `list ${retaken ? 'answered again' : 'NOT answered again'}; the Deal ${wrote}, ${saw ? 'seen' : 'NOT seen'}; ` +
+        `onShouldRefreshUI calls ${refreshes}`);
+    }
+
+    // ── LIMB 8: a top-level page on the `.dev` host reloads once per build ───────────────────
+    await write('src/nebula.ts', NEBULA_TS_LOGGING_RELOADS);
+    await write('src/App.vue', appListing(pipelineId));
+    const appBuild = await build();
+    assert.ok(appBuild.bundle.ok, `the listing app should bundle: ${JSON.stringify(appBuild).slice(0, 600)}`);
+    // In the owner's browser, beside Studio's page and not framed by it.
+    const top = await owner.page.context().newPage();
+    const reloadLines: string[] = [];
+    let loads = 0;
+    top.on('console', (m) => { if (m.text().startsWith(`${RELOAD_LINE} `)) reloadLines.push(m.text().slice(RELOAD_LINE.length + 1)); });
+    top.on('load', () => { loads++; });
+    const deals = top.getByTestId('limb-eight-deals');
+    await top.goto(`${vite.scopeUrl(dev)}/`, { waitUntil: 'domcontentloaded' });
+    await deals.filter({ hasText: /^\d+$/ }).waitFor({ state: 'visible', timeout: 60_000 });
+    const builtFor8: string[] = [];
+    for (const types of [DEAL_PIPELINE_B, DEAL_PIPELINE_C]) {
+      const loadsBefore = loads;
+      await write('src/ontology.d.ts', seed + types);
+      await build();
+      const version = (await servedOntologyVersion(stack, dev))!;
+      builtFor8.push(version);
+      // A second client on the new version, so the Star installs it and tells the page.
+      const nudge = await openPage(dev, devToken, version);
+      await nudge.resources.read('Deal', crypto.randomUUID()).catch(() => null);
+      await until(30_000, () => reloadLines.includes(version) && loads > loadsBefore);
+      await deals.filter({ hasText: /^\d+$/ }).waitFor({ state: 'visible', timeout: 60_000 }).catch(() => { /* reported below */ });
+    }
+    await sleep(3_000); // a second reload for the same version would arrive within this
+    record('limb 8 — a top-level page on the .dev host reloads once per build',
+      JSON.stringify(reloadLines) === JSON.stringify(builtFor8) && loads === 1 + builtFor8.length,
+      `reload lines ${JSON.stringify(reloadLines)} for builds ${JSON.stringify(builtFor8)}; ${loads} loads`);
+    await top.close();
+
+    // ── LIMB 9: on a tenant Star the wait ends, and nothing keeps asking ────────────────────
+    const quiet = await openPage(tenant, tenantToken, builtFor8.at(-1)!);
+    /** A subscribe with no version: the tenant logs its arrival and asks nobody, so it fences the log. */
+    const fence = () => {
+      const topic = crypto.randomUUID();
+      quiet.lmz.call('STAR', tenant, quiet.ctn<Star>().resources.subscribe('', 'Deal', topic),
+        quiet.ctn().logRefusal('fence'), { onErrorOnly: true });
+      return topic;
+    };
+    const fences = [fence()];
+    const started = Date.now();
+    // Registered, so a refusal that restored would send it again.
+    const tenantList = quiet.resources.subscribeQuery(pipelineQuery).ready.then(() => 'answered', staleOrNot);
+    const tenantWrite = quiet.resources.transaction({
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Deal', nodeId: ROOT_NODE_ID, value: { title: 'never lands' } },
+    }).then((o) => o.kind, staleOrNot);
+    const waited = await until(10_000, () => gateClosedFor.has(quiet.lmz.instanceName));
+    const tenantRead = quiet.resources.read('Deal', crypto.randomUUID()).then(() => 'read', staleOrNot);
+    const ended: string[] = [];
+    const settled9 = await within(20_000, Promise.all([tenantWrite, tenantRead, tenantList]).then((all) => { ended.push(...all); }));
+    const took = Date.now() - started;
+    record('limb 9 — on a tenant Star an op, and one sent while it waited, end ontology-stale',
+      waited && settled9 === 'ok' && ended.every((k) => k === 'ontology-stale') && took < 12_000,
+      `the read was sent ${waited ? 'behind the closed gate' : 'with NO gate closed'}; ` +
+      `${settled9 === 'ok' ? `the write, the read and the list ended ${JSON.stringify(ended)}` : settled9}, in ${took} ms`);
+    fences.push(fence());
+    await sleep(6_000);
+    fences.push(fence());
+    await logHalf('limb 9 — the tenant asked while the ops waited, and not once in the six seconds after', async () => {
+      const at = (all: ReturnType<typeof debugLines>, topic: string) => all.find((l) =>
+        l.namespace === 'nebula.Resources.subscribe' && l.message === 'arrived' && l.data.topic === topic)?.idx;
+      const lines = await waitForDebugLines(stack, (all) => at(all, fences[2]!) !== undefined, 'the last fence')
+        .catch(() => debugLines(stack.logs?.() ?? ''));
+      const [f0, f1, f2] = fences.map((t) => at(lines, t));
+      if (f0 === undefined || f1 === undefined || f2 === undefined) return [false, `fences logged at ${JSON.stringify([f0, f1, f2])}`];
+      const asks = lines.filter((l) => l.namespace === 'nebula.Resources.source' && l.message === 'ask' && l.data.instanceName === tenant);
+      const during = asks.filter((l) => l.idx > f0 && l.idx < f1).length;
+      const after = asks.filter((l) => l.idx > f1 && l.idx < f2).length;
+      return [during >= 1 && after === 0, `${during} asks while the ops waited, ${after} in the six seconds after`];
+    });
+
     const open = results.filter((r) => !r.ok);
     assert.equal(open.length, 0,
       `${open.length} of ${results.length} properties do not hold:\n` + open.map((r) => `  - ${r.name}: ${r.detail}`).join('\n'));
   } finally {
+    clearDebugSink();
     for (const d of disposers) { try { d(); } catch { /* already released */ } }
     await browser.close();
     await vite.close();

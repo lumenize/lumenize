@@ -4,11 +4,8 @@
  * (construct → connect → `ready`) is a real-Star/browser integration probe
  * (§5.3.8 / P10); `ready`'s first-connect terminal-reject pairs with P9.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { resolveNebulaClientConfig, defaultOnLoginRequired } from '../../../../packages/resources/src/frontend/create-nebula-client';
-import type { OntologyStaleInfo } from '../../../../packages/resources/src/nebula-client';
-
-const STALE: OntologyStaleInfo = { reason: 'ontology-stale', clientVersion: 'v1', currentVersion: 'v2' };
 
 describe('resolveNebulaClientConfig', () => {
   const PLATFORM = 'https://platform.lumenize.dev';
@@ -114,28 +111,5 @@ describe('default onLoginRequired — a framed page posts once, to the origin it
       post.mockRestore();
       top.mockRestore();
     }
-  });
-});
-
-describe('default onShouldRefreshUI — reload-storm guard', () => {
-  beforeEach(() => {
-    sessionStorage.clear();
-  });
-
-  it('a second immediate stale is suppressed by the session sentinel (no double-reload)', () => {
-    // jsdom's window.location.reload is non-configurable (can't spy on it) and is
-    // a no-op anyway, so we observe the guard's actual mechanism: the
-    // sessionStorage sentinel that gates the reload. First stale arms it (and
-    // reaches reload); the second short-circuits on it before reloading.
-    const setItem = vi.spyOn(Storage.prototype, 'setItem');
-    const { onShouldRefreshUI } = resolveNebulaClientConfig({ ontologyVersion: 'v1', platformOrigin: 'https://platform.lumenize.dev' });
-
-    onShouldRefreshUI(STALE);
-    onShouldRefreshUI(STALE);
-
-    const sentinelWrites = setItem.mock.calls.filter(([k]) => k === 'lmz.ontology-stale-reloaded');
-    expect(sentinelWrites).toHaveLength(1); // armed once; second call returned before re-arming/reloading
-    expect(sessionStorage.getItem('lmz.ontology-stale-reloaded')).toBe('1');
-    setItem.mockRestore();
   });
 });
