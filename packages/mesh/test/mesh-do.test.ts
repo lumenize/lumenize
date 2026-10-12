@@ -90,7 +90,7 @@ describe('@lumenize/mesh - onStart() Lifecycle Hook', () => {
 
   it('propagates errors from onStart()', async () => {
     const stub = env.ONSTART_ERROR_DO.getByName('onstart_error_1');
-    await expect(stub.getValue()).rejects.toThrow('Intentional onStart error for testing');
+    await expect(Promise.resolve(stub.getValue())).rejects.toThrow('Intentional onStart error for testing');
   });
 
   it('runs onStart() before any other operations', async () => {
@@ -184,7 +184,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       
       // Try to access a service that doesn't exist
       await expect(
-        stub.accessNonExistentService()
+        Promise.resolve(stub.accessNonExistentService())
       ).rejects.toThrow(/Service 'nonExistent' not found.*import '@lumenize\/nonExistent'/);
     });
   });
@@ -354,7 +354,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         await stub.testLmzApiInit({ bindingName: 'USER_DO' });
 
         await expect(
-          stub.testLmzApiInit({ bindingName: 'OTHER_DO' })
+          Promise.resolve(stub.testLmzApiInit({ bindingName: 'OTHER_DO' }))
         ).rejects.toThrow(/DO binding name mismatch: stored 'USER_DO' but received 'OTHER_DO'/);
       });
     });
@@ -385,7 +385,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         await stub.testLmzApiInit({ instanceName: 'user_123' });
 
         await expect(
-          stub.testLmzApiInit({ instanceName: 'user_456' })
+          Promise.resolve(stub.testLmzApiInit({ instanceName: 'user_456' }))
         ).rejects.toThrow(/DO instance name mismatch: stored 'user_123' but received 'user_456'/);
       });
     });
@@ -714,7 +714,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         const caller = env.TEST_DO.getByName('call_validation_1');
         
         // Add a test method that tries to call without bindingName
-        await expect(caller.testLmzCallWithoutBinding()).rejects.toThrow(
+        await expect(Promise.resolve(caller.testLmzCallWithoutBinding())).rejects.toThrow(
           /Cannot use call\(\) from a DO that doesn't know its own binding name/
         );
       });
@@ -725,7 +725,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         await caller.testLmzApiInit({ bindingName: 'CALLER_DO' });
         
         // Test method that passes invalid remote continuation
-        await expect(caller.testLmzCallWithInvalidRemote()).rejects.toThrow(
+        await expect(Promise.resolve(caller.testLmzCallWithInvalidRemote())).rejects.toThrow(
           /Invalid remoteContinuation/
         );
       });
@@ -736,7 +736,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         await caller.testLmzApiInit({ bindingName: 'CALLER_DO' });
 
         // Test method that passes invalid handler continuation
-        await expect(caller.testLmzCallWithInvalidHandler()).rejects.toThrow(
+        await expect(Promise.resolve(caller.testLmzCallWithInvalidHandler())).rejects.toThrow(
           /Invalid handlerContinuation/
         );
       });
@@ -744,7 +744,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       it('throws if handlerContinuation does not end in a call', async () => {
         const caller = env.TEST_DO.getByName('call_validation_4');
         await caller.testLmzApiInit({ bindingName: 'CALLER_DO' });
-        await expect(caller.testLmzCallWithPropertyHandler()).rejects.toThrow(
+        await expect(Promise.resolve(caller.testLmzCallWithPropertyHandler())).rejects.toThrow(
           /it must end in a call, which its answer is filled into/
         );
       });

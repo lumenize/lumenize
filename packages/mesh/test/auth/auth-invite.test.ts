@@ -454,7 +454,7 @@ describe('Invite Flow (per-invitee primitive)', () => {
       const victim = em('victim');
       // Reds against removing the re-assert. Raw RPC: sync-looking DO methods reject async.
       await expect(
-        getRegistry().issueInvites(u, [{ email: victim, scopeAdmin: true }], 'http://localhost', nonDominionClaims),
+        Promise.resolve(getRegistry().issueInvites(u, [{ email: victim, scopeAdmin: true }], 'http://localhost', nonDominionClaims)),
       ).rejects.toThrow(/invariant breach/);
       // And nothing was minted for the batch — the throw precedes every write.
       const disc = await membershipsOf(getRegistry(), victim);

@@ -139,10 +139,10 @@ describe('AuthRegistry', () => {
     it('rejects duplicate / reserved / invalid slug / invalid email', async () => {
       const r = freshRegistry();
       await r.claimUniverse('taken-univ', 'first', 'first@example.com', 'http://localhost');
-      await expect(r.claimUniverse('taken-univ', 'first', 'second@example.com', 'http://localhost')).rejects.toThrow(/already claimed/);
-      await expect(r.claimUniverse('platform', 'first', 'h@example.com', 'http://localhost')).rejects.toThrow(/reserved/);
-      await expect(r.claimUniverse('INVALID SLUG!', 'first', 'x@example.com', 'http://localhost')).rejects.toThrow(/Invalid/);
-      await expect(r.claimUniverse('email-val', 'first', 'not-an-email', 'http://localhost')).rejects.toThrow(/invalid.*email/i);
+      await expect(Promise.resolve(r.claimUniverse('taken-univ', 'first', 'second@example.com', 'http://localhost'))).rejects.toThrow(/already claimed/);
+      await expect(Promise.resolve(r.claimUniverse('platform', 'first', 'h@example.com', 'http://localhost'))).rejects.toThrow(/reserved/);
+      await expect(Promise.resolve(r.claimUniverse('INVALID SLUG!', 'first', 'x@example.com', 'http://localhost'))).rejects.toThrow(/Invalid/);
+      await expect(Promise.resolve(r.claimUniverse('email-val', 'first', 'not-an-email', 'http://localhost'))).rejects.toThrow(/invalid.*email/i);
     });
   });
 
@@ -171,12 +171,12 @@ describe('AuthRegistry', () => {
     it('rejects non-admin / nonexistent-parent / non-galaxy tier / wrong-scope / duplicate', async () => {
       const r = freshRegistry();
       const founder = await founded(r, 'gu', 'x@example.com');
-      await expect(r.createGalaxy('gu.g', CLAIMS({ authScope: 'gu', scopeAdmin: false }))).rejects.toThrow(/admin access/);
-      await expect(r.createGalaxy('nonexistent.g', CLAIMS(ADMIN_OVER('nonexistent')))).rejects.toThrow(/does not exist/);
-      await expect(r.createGalaxy('just-a-universe', CLAIMS({ authScope: '_platform', scopeAdmin: true }))).rejects.toThrow(/2-segment/);
-      await expect(r.createGalaxy('gu.g', CLAIMS({ authScope: 'other', scopeAdmin: true }))).rejects.toThrow(/admin access/);
+      await expect(Promise.resolve(r.createGalaxy('gu.g', CLAIMS({ authScope: 'gu', scopeAdmin: false })))).rejects.toThrow(/admin access/);
+      await expect(Promise.resolve(r.createGalaxy('nonexistent.g', CLAIMS(ADMIN_OVER('nonexistent'))))).rejects.toThrow(/does not exist/);
+      await expect(Promise.resolve(r.createGalaxy('just-a-universe', CLAIMS({ authScope: '_platform', scopeAdmin: true })))).rejects.toThrow(/2-segment/);
+      await expect(Promise.resolve(r.createGalaxy('gu.g', CLAIMS({ authScope: 'other', scopeAdmin: true })))).rejects.toThrow(/admin access/);
       await r.createGalaxy('gu.g', ACTING(founder, 'gu'));
-      await expect(r.createGalaxy('gu.g', ACTING(founder, 'gu'))).rejects.toThrow(/already claimed/);
+      await expect(Promise.resolve(r.createGalaxy('gu.g', ACTING(founder, 'gu')))).rejects.toThrow(/already claimed/);
     });
   });
 
@@ -440,9 +440,9 @@ describe('AuthRegistry', () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
       await seed(r, ['d8.app.dev'], [{ sub: owner, scope: 'd8.app.dev', email: 'o@x.com', scopeAdmin: true }]);
-      await expect(r.planScopeDeletion('d8.app.dev', CLAIMS({ authScope: 'd8', scopeAdmin: false }, owner))).rejects.toThrow(/not an admin/);
-      await expect(r.planScopeDeletion('d8.app.dev', CLAIMS({ authScope: 'other', scopeAdmin: true }, owner))).rejects.toThrow(/not an admin/);
-      await expect(r.planScopeDeletion('_platform', CLAIMS({ authScope: '_platform', scopeAdmin: true }, owner))).rejects.toThrow(/cannot be deleted/);
+      await expect(Promise.resolve(r.planScopeDeletion('d8.app.dev', CLAIMS({ authScope: 'd8', scopeAdmin: false }, owner)))).rejects.toThrow(/not an admin/);
+      await expect(Promise.resolve(r.planScopeDeletion('d8.app.dev', CLAIMS({ authScope: 'other', scopeAdmin: true }, owner)))).rejects.toThrow(/not an admin/);
+      await expect(Promise.resolve(r.planScopeDeletion('_platform', CLAIMS({ authScope: '_platform', scopeAdmin: true }, owner)))).rejects.toThrow(/cannot be deleted/);
     });
 
     // Retitled: the prune-up is gone, so "does not prune" now holds for EVERY caller and would be a
@@ -462,7 +462,7 @@ describe('AuthRegistry', () => {
       const r = freshRegistry();
       await seed(r, ['d10.app.dev'], [{ sub: crypto.randomUUID(), scope: 'd10.app.dev', email: 'o@x.com', scopeAdmin: true }]);
       await expect(
-        r.planScopeDeletion('d10.app.dev', CLAIMS(ADMIN_OVER('d10'), 'ghost-sub')),
+        Promise.resolve(r.planScopeDeletion('d10.app.dev', CLAIMS(ADMIN_OVER('d10'), 'ghost-sub'))),
       ).rejects.toThrow(/not found|forbidden/i);
     });
   });

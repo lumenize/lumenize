@@ -24,15 +24,15 @@ describe('@rawRpc() and rawRpcStub', () => {
   });
 
   it('refuses a method @rawRpc() did not decorate', async () => {
-    await expect(rawRpcStub('TEST_DO', name('plain')).notRawRpc())
+    await expect(Promise.resolve(rawRpcStub('TEST_DO', name('plain')).notRawRpc()))
       .rejects.toThrow(`'notRawRpc' is not @rawRpc()-decorated`);
   });
 
   it('refuses a getter and a dotted path, looking up one name', async () => {
     const instance = name('path');
-    await expect(entry(instance).__rawRpc('TEST_DO', instance, 'lmz', []))
+    await expect(Promise.resolve(entry(instance).__rawRpc('TEST_DO', instance, 'lmz', [])))
       .rejects.toThrow(`'lmz' is not @rawRpc()-decorated`);
-    await expect(entry(instance).__rawRpc('TEST_DO', instance, 'lmz.call', []))
+    await expect(Promise.resolve(entry(instance).__rawRpc('TEST_DO', instance, 'lmz.call', [])))
       .rejects.toThrow(`'lmz.call' is not @rawRpc()-decorated`);
   });
 
@@ -40,9 +40,9 @@ describe('@rawRpc() and rawRpcStub', () => {
   // that address this object, measured here.
   it('refuses a pair that does not name this object: another instance, or another binding', async () => {
     const instance = name('pair');
-    await expect(entry(instance).__rawRpc('TEST_DO', `${instance}-other`, 'rawRpcEcho', ['x']))
+    await expect(Promise.resolve(entry(instance).__rawRpc('TEST_DO', `${instance}-other`, 'rawRpcEcho', ['x'])))
       .rejects.toThrow(`TEST_DO/${instance}-other does not name this Durable Object`);
-    await expect(entry(instance).__rawRpc('ECHO_DO', instance, 'rawRpcEcho', ['x']))
+    await expect(Promise.resolve(entry(instance).__rawRpc('ECHO_DO', instance, 'rawRpcEcho', ['x'])))
       .rejects.toThrow(`ECHO_DO/${instance} does not name this Durable Object`);
     // Positive control: the right pair, through the same entry.
     expect(await entry(instance).__rawRpc('TEST_DO', instance, 'rawRpcEcho', ['x']))

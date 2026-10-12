@@ -15,7 +15,7 @@ describe('@lumenize/mesh - call target validation', () => {
     const caller = env.TEST_DO.getByName('ctv_worker_instance');
     await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'ctv_worker_instance' });
     await expect(
-      caller.testCallWithContinuations('TEST_WORKER', 'some-label', 'hi')
+      Promise.resolve(caller.testCallWithContinuations('TEST_WORKER', 'some-label', 'hi'))
     ).rejects.toThrow(/Worker\/service binding .* instance name/);
   });
 
@@ -23,7 +23,7 @@ describe('@lumenize/mesh - call target validation', () => {
     const caller = env.TEST_DO.getByName('ctv_do_noinstance');
     await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'ctv_do_noinstance' });
     await expect(
-      caller.testCallWithContinuations('TEST_DO', undefined, 'hi')
+      Promise.resolve(caller.testCallWithContinuations('TEST_DO', undefined, 'hi'))
     ).rejects.toThrow(/Durable Object namespace .* requires an instance name/);
   });
 
@@ -31,7 +31,7 @@ describe('@lumenize/mesh - call target validation', () => {
     const caller = env.TEST_DO.getByName('ctv_unknown');
     await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'ctv_unknown' });
     await expect(
-      caller.testCallWithContinuations('NOPE_BINDING', 'x', 'hi')
+      Promise.resolve(caller.testCallWithContinuations('NOPE_BINDING', 'x', 'hi'))
     ).rejects.toThrow(/no binding named 'NOPE_BINDING'/);
   });
 

@@ -182,7 +182,7 @@ describe('MeshWorker - call() Fire-and-Forget with Result Handlers', () => {
 
   test('throws if caller has no bindingName', async () => {
     await expect(
-      env.TEST_WORKER.testCallWithoutBindingName()
+      Promise.resolve(env.TEST_WORKER.testCallWithoutBindingName())
     ).rejects.toThrow(/Cannot use call\(\) from a Worker that doesn't know its own binding name/);
   });
 

@@ -458,7 +458,7 @@ describe('scope deletion — sub-first, fail-closed (M2)', () => {
     // A caller `sub` with no membership row → the caller-exclusion in `affectedUsers` can't be
     // computed, so the warning would silently under-count → refuse rather than return a lying plan.
     await expect(
-      registry.executeScopeDeletion(uni, { ...admin.parsed, sub: 'ghost-sub-with-no-identity' }),
+      Promise.resolve(registry.executeScopeDeletion(uni, { ...admin.parsed, sub: 'ghost-sub-with-no-identity' })),
     ).rejects.toThrow(/not found|forbidden/i);
   });
 

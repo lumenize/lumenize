@@ -287,7 +287,7 @@ describe('Alarms', () => {
       const stub = env.ALARM_TEST_DO.getByName('invalid_type_test');
 
       await expect(
-        stub.scheduleAlarmWithInvalidType({ not: 'valid' }, { task: 'test' })
+        Promise.resolve(stub.scheduleAlarmWithInvalidType({ not: 'valid' }, { task: 'test' }))
       ).rejects.toThrow('Invalid schedule type');
     });
 
@@ -312,7 +312,7 @@ describe('Alarms', () => {
       const stub = env.ALARM_TEST_DO.getByName('invalid_cron_test');
 
       await expect(
-        stub.scheduleCronAlarm('not a valid cron', { task: 'invalid' })
+        Promise.resolve(stub.scheduleCronAlarm('not a valid cron', { task: 'invalid' }))
       ).rejects.toThrow();
     });
   });

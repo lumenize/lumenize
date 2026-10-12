@@ -143,7 +143,7 @@ describe('an unscoped node refuses a scope-shaped name at the identity stamp', {
   // The `@rawRpc()` entry runs no `onBeforeCall` at all, so only the stamp can refuse it.
   // MUTATION: the same move, and the first touch through `rawRpcStub` names the object `room-1`.
   it('refuses a first touch through rawRpcStub, and runs one under a UUID', async () => {
-    await expect(rawRpcStub('ROOM_DO', 'room-1').rawWhoAmI()).rejects.toThrow(refusal);
+    await expect(Promise.resolve(rawRpcStub('ROOM_DO', 'room-1').rawWhoAmI())).rejects.toThrow(refusal);
 
     const id = crypto.randomUUID();
     expect(await rawRpcStub('ROOM_DO', id).rawWhoAmI()).toBe(id);
