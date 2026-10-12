@@ -57,6 +57,12 @@ different lines, so a test for both on one line is false on every tree. Bit 2026
 whatever happened; only its positive control, which found no start where there plainly was one,
 showed the match could not fire.
 
+## Timing a limb against the code it drives
+
+**A limb's page MUST act only after its connection is up, as an app waits on the factory's `ready`.** A page that acts sooner has its first ops sent twice, once queued and once by the first connection's restore, and the second copy can answer what the code under test was holding. Bit 2026-10-11: a gate's resend survived its mutation for exactly that reason.
+
+**A limb's wait MUST sit well inside any bound the code under test has.** A backstop that fires within the limb's wait rescues the mutation it exists to catch. Bit 2026-10-12: a version gate's 30 s bound reopened a stranded gate inside a 30 s wait, so a real wedge passed; the wait is now 15 s, and the correct path answers in about half a second.
+
 ## What the harness constructs, and what each limb proves
 
 **Check what the harness CONSTRUCTS, not only what a scenario asserts.** A helper that builds

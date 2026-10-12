@@ -79,7 +79,9 @@ rest into a shell comment. **Zero stdout, zero stderr, exit 0**, so it reported 
 whatever the tree contained; the `[/]` character class tried next is equally dead, because a glob
 cannot match `/` at all. ⚠️ **The failure mode is silence, so "I ran it and it printed nothing" is
 NOT confirmation** — for a grep whose expected output is empty, first make it print something (drop
-a filter, or point it at a known hit) and only then narrow it. A documented instrument nobody has
+a filter, or point it at a known hit) and only then narrow it. Two traps of this kind (2026-10-12):
+`git grep -E` has no `\b`, so a pattern using it matches nothing; and `-w` matches a word's exact
+form, so `-w Apply` misses *Applying*. A documented instrument nobody has
 run is decoration that reads as evidence. ⚠️ **Run it where its runner runs it, too.**
 `scripts/check-mesh-graph.mjs` failed under every mutation from the repo root and could fail under
 none from `packages/mesh`, where Mesh's `test` script runs it: esbuild keys its graph relative to
@@ -198,10 +200,11 @@ vitest-plugin tests can make real external `fetch()` calls and `new WebSocket()`
 
 **Every `waitForEmail` call MUST pass `to`, or say in a comment why it cannot** — `npm run audit:email-isolation` is the proof, and it is the whole reason this rule is checkable rather than remembered. The escape hatch is a sentence, not a flag: `// email-isolation: <why a recipient filter is wrong or impossible here>`.
 
-The deployed `email-test` Worker is **one mailbox for the whole repo**, and its socket pushes every arriving message to every open listener. An undiscriminated waiter therefore resolves with whatever lands first. Both failure modes report as something other than what they are, which is what makes them expensive:
+The deployed `email-test` Worker is **one mailbox for the whole repo**, and its socket pushes every arriving message to every open listener. An undiscriminated waiter therefore resolves with whatever lands first. Each failure mode reports as something other than what it is, which is what makes them expensive:
 
 - **Two waiters race**, and the loser gets the winner's mail. On a magic-link flow it then clicks a **single-use** link the winner already consumed, and dies several steps later on a `401 No refresh token provided`. Reads as flake, gets retried. (2026-09-25: two `packages/mesh` browser tests sharing one pinned address.)
 - **A waiter armed on a tag that a LATER branch decides can never match**, so it waits out its full timeout and reports *"No email received"* — a delivery symptom for a filter bug. (2026-09-01: a helper claiming a scope but falling back to the scope-less login on a 409; cost two sessions and three wrong theories about the email provider.)
+- **A waiter armed before a step whose length differs by venue**, so its timeout runs out before the send happens. A waiter MUST be armed just before the send it waits for. (2026-10-12: two scenarios armed a 60 s waiter before a build that deployed outlasts it; Resend's own events showed each invite delivered within a second, while the waiter blamed the send.)
 
 **With `to`, a waiter also hears what Resend reported about its send.** The `email-test` Worker takes Resend's webhook (2026-10-08) and pushes each delivery event to waiters by recipient: a bounce, a failure or a suppression rejects the wait at once with Resend's reason, and a timeout says what Resend last reported — nothing at all (the send never reached Resend), or `delivered` (lost after delivery, in Cloudflare's routing or the Worker). `/events?to=` lists them afterwards. Read that suffix before blaming the mail.
 

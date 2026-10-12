@@ -405,6 +405,40 @@ Four read-only verifiers, one per phase. Phase 2 conformed; Phases 1, 3 and 4 di
 - Limb 7's mutation note named "the guard records an empty version". The mutation run was the one that produces that: a notice naming no version taking the reload path.
 - The identifier grep finds 16 hits, not 15. The two left out of the count are `workflow.md`'s *installing any npm package* and an RPC comment; all are kept.
 
+## Phase Retro
+
+Written 2026-10-12, before the archive move; Larry reads it first.
+
+1. **What did we learn?**
+   - **A limb's premise can be vacuous when its assertion is not.** Twice a live limb went green under a mutation for reasons in its setup, not its check:
+     - Pages that subscribed before connecting had every subscribe re-sent by the first connection's restore, which answered the subscribes the gate was holding.
+     - Timing decided which ops the Star refused.
+     - The fix both times was to wait on the Client's own line (`version gate closed`) before acting, the way a real app waits on `ready`.
+   - **A backstop can rescue a mutation.** The gate's 30 s bound opened a stranded gate inside limb 7's 30 s wait, so a real wedge passed. A limb's wait has to sit well inside any bound the code has.
+   - **The panel found what the builder's mutations could not:** a scenario that let go of its row subscriptions before wiping, which is the safe shape of the very path the gate failed on.
+2. **What did we struggle with?**
+   - The full `baseline` run stalls at exit, and sometimes before printing its summary, so its totals have to be counted from `✓`/`×` lines.
+   - `wrangler tail` lost 60–97 s windows with two scenarios running, exactly when a silent turn needed explaining.
+   - Instruments that read as clean while blind: `git grep -w Apply` cannot see *Applying*, and git grep's ERE has no `\b`, so the first widened grep printed nothing at all.
+3. **Did any tests fail unexpectedly?**
+   - **The gate wedge.** Only the probe could open the gate, and a probe can end without a stale answer: refused *not found*, let go, or never answered. Each now ends the wait.
+   - **Owed resends.** The gate's opening resent only first subscribes, so established ones refused behind it were lost.
+   - **The deployed invite waits.** Each waiter was armed before a build longer than its 60 s. Resend's own events showed the mail delivered within a second.
+   - **Load timeouts** in `set-union-merge`, and earlier in `resubscribe-on-signal`. They pass alone; a separate session is on them.
+4. **Impact on follow-on work?**
+   - **ADR-024 gained a build identity** (option 4, 2026-10-12). Its `.dev` half becomes a small task file, *a page knows which build it runs*, drafted once Larry finishes reviewing ADR-024. It absorbs fast-follow Item 8, and personas will consume it. Its published half becomes a paragraph in fast-follow Items 4 and 5.
+   - Personas can now hand its `.dev` Star a landed row (this task's goal 3).
+5. **Process changes**, made in the close-out commit:
+   - `testing.md` § *An email waiter MUST name whose mail it is waiting for*: a third shape, a waiter armed before a step whose length differs by venue. Arm it just before the send.
+   - `testing.md` § *An INSTRUMENT is an assertion too*: `git grep`'s ERE has no `\b`, and `-w` matches a stem's exact form only.
+   - `live-scenarios.md`: a limb's page acts only after its connection, as an app waits on `ready`; and a limb's wait sits well inside any bound the code under test has.
+
+**Close-out, still to do:**
+- Archive this file once Larry has read the retro.
+- Repoint its links in `backlog.md`, `nebula-pre-alpha.md`, `nebula-pre-alpha-fast-follow.md` and `nebula-testing-with-personas.md`, with their statuses: the personas task now waits on one sibling, not two.
+- Leave `nebula-agent-posts-as-itself.md` to its own session, and ADR-024's link to Larry's round; tell that session the path moved.
+- `backlog.md` line 281 already says this task settled its item; check the rest of the `.dev`-ontology rows there for anything this task closed.
+
 ## Non-goals
 
 - **`publish()`, the order and storage of published versions, and migration.** Fast-follow Item 4.
