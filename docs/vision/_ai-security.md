@@ -394,7 +394,7 @@ The edge argument below describes the design. Today two gaps sit at the center, 
 Two other outcomes at the center are permanent, and we accept them rather than engineer them away:
 
 - **A disclosure cannot be taken back.** Authorization caps it at what the asker could already read, and sharing beyond that is a permission holder's decision in the consent loop (§ *A worked scenario*). A wrong disclosure inside those bounds is moderately bad, and we live with it.
-- **A data migration on a tenant Star cannot be undone.** [ADR-024](../adr/024-an-app-moves-one-version-at-a-time.md) moves a published app only forward. When a migration gets something wrong, the recovery is to roll forward: publish a version that fixes it.
+- **A data migration on a tenant Star cannot be undone.** [ADR-024](../adr/024-two-versions-keep-an-app-in-step.md) moves a published app only forward. When a migration gets something wrong, the recovery is to roll forward: publish a version that fixes it.
 
 #### Where reversibility stops — and why the gap is at the edge rather than the center
 
