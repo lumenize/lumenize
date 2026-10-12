@@ -32,33 +32,32 @@
  *     count covers every row or every type.*
  *  6. **A page current at the new version waits out the change without reloading.** A build adds
  *     `Pipeline`; the first page on the new version sends a list subscription while the Star still
- *     holds the old one, and two row subscriptions behind the gate its answer closes. It never
- *     calls `onShouldRefreshUI` and sees a `Deal` another client writes afterwards; locally the
- *     Star admits none of its subscribes before its `installed` line and never hears the held two
- *     until then. *Reds when the gate's opening sends nothing, or when a list subscription
- *     carries no version.*
+ *     holds the old one, then two row subscriptions. Each answered `checking` is sent again until
+ *     the Star installs. The page never calls `onShouldRefreshUI` and sees a `Deal` another client
+ *     writes afterwards; locally the Star refuses the list at least once and admits none of the
+ *     page's subscribes before its `installed` line. *Reds when a subscription answered `checking`
+ *     is not sent again, or when a list subscription carries no version.*
  *  7. **A wipe drops the page's subscriptions, and the page takes them again.** The page holds
  *     two rows and two lists. Two wipes; after each, it calls no `onShouldRefreshUI` and both
- *     lists see `Deal`s written afterwards. The restore's first row is refused as missing once the
- *     Star installs, and the lists are refused behind the gate its answer closed. *Reds when a
- *     notice naming no version takes the reload path, when a probe refused for another reason
- *     keeps the gate closed, and when the gate's opening resends only first subscribes.*
+ *     lists see `Deal`s written afterwards. The restore's rows are refused as missing once the Star
+ *     installs, and the established lists are answered `checking` and sent again. *Reds when a
+ *     notice naming no version takes the reload path, and when an established list answered
+ *     `checking` is not sent again.*
  *  8. **A top-level page on the `.dev` host reloads once per build.** The app's own `nebula.ts`
  *     logs a console line from `onShouldRefreshUI` and reloads; the page is neither framed in
  *     Studio nor the build's requester. After each of two builds a second client sends one op, so
  *     the Star installs, and the page logs one line and reloads, once per build. *Reds with a
  *     guard that records that it reloaded rather than for which version.*
- *  9. **On a tenant Star the wait ends, and nothing keeps asking.** A transaction ends
- *     `ontology-stale` within the retry window, a read sent while it waited ends the same way, and
- *     locally the tenant logs no `ask` in the six seconds after both end. *Reds when the gate stays
- *     closed after the retries run out, or when a refusal naming no version restores.*
+ *  9. **On a tenant Star the wait ends, and nothing keeps asking.** A transaction, a read and a
+ *     list subscription each end `ontology-stale` within the retry window, and locally the tenant
+ *     logs no `ask` in the six seconds after they end. *Reds when an op keeps retrying after its
+ *     retries run out, or when a refusal naming no version restores.*
  *
  * `needsContainer = true` — every build runs in the build container.
  */
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { uniqueTestEmail, waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
-import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources/client';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, StudioClient } from '@lumenize/nebula/client';
 import type { Galaxy, Star } from '@lumenize/nebula';
@@ -211,13 +210,6 @@ export async function run(stack: DevStack): Promise<void> {
   const browser = await launchChromium();
   const vite = await bootStudioVite(stack.baseUrl);
   const disposers: Array<() => void> = [];
-  // The pages' own Clients run in this process, so their gate lines are read here in either venue.
-  const gateClosedFor = new Set<string>();
-  setDebugSink((e) => {
-    if (e.namespace === 'lumenize.nebula-client' && e.message === 'version gate closed') {
-      gateClosedFor.add(String((e.data as { client?: unknown } | undefined)?.client));
-    }
-  });
   try {
     // ── The app: claimed through the rendered sign-up, so the owner's session is a browser's ──
     const owner = await instrumentedPage(browser);
@@ -263,7 +255,7 @@ export async function run(stack: DevStack): Promise<void> {
       });
       disposers.push(() => { try { client[Symbol.dispose](); } catch { /* already disposed */ } ctx.close(); });
       // As a page's app waits on the factory's `ready` before any component subscribes; an op sent
-      // sooner is sent again by the first connection's restore, which hides what the gate does.
+      // sooner is sent again by the first connection's restore, which hides whether a retry sent it.
       assert.ok(await until(30_000, () => client.connectionState === 'connected'), `a page on ${scope} never connected`);
       return client;
     };
@@ -468,16 +460,14 @@ export async function run(stack: DevStack): Promise<void> {
     let refreshes = 0;
     const current = await openPage(dev, vP, () => { refreshes++; });
     // The list subscription is the first op the `.dev` Star hears since the build, so it still
-    // holds the old version: its answer closes the page's gate, and the two row subscriptions sent
-    // after it wait there, unsent.
+    // holds the old version: the list is answered `checking` and the page sends it again. The two
+    // row subscriptions follow it, and each answered `checking` is sent again the same way.
     const list = current.resources.subscribeQuery(pipelineQuery);
     const listAnswer = within(45_000, list.ready); // observed from the start, so a refusal is reported
-    const closed = await until(15_000, () => gateClosedFor.has(current.lmz.instanceName));
     const rows = createdDeals.slice(-2).map((id) => current.resources.subscribe('Deal', id));
     const rowsAnswer = within(30_000, Promise.all(rows.map((r) => r.snapshot)));
     const [listTaken, rowsTaken] = [await listAnswer, await rowsAnswer];
-    const taken = !closed ? `the gate never closed (the list: ${listTaken})`
-      : listTaken !== 'ok' ? `the list: ${listTaken}` : rowsTaken !== 'ok' ? `the rows: ${rowsTaken}` : 'ok';
+    const taken = listTaken !== 'ok' ? `the list: ${listTaken}` : rowsTaken !== 'ok' ? `the rows: ${rowsTaken}` : 'ok';
     const writer = await openPage(dev, vP);
     const [piped, wrotePiped] = await writePiped(writer);
     const sawPiped = await until(15_000, () => list.resourceIds.includes(piped));
@@ -485,7 +475,7 @@ export async function run(stack: DevStack): Promise<void> {
       taken === 'ok' && wrotePiped === 'committed' && sawPiped && refreshes === 0,
       `its subscriptions ${taken}; another client's Deal ${wrotePiped}, ${sawPiped ? 'seen' : 'NOT seen'} on its list; ` +
       `onShouldRefreshUI calls ${refreshes}`);
-    await logHalf("limb 6 — every subscribe the Star admitted from the page came after its install", async () => {
+    await logHalf("limb 6 — the Star refused the list until its install, and admitted every subscribe after it", async () => {
       const id = current.lmz.instanceName;
       const mine = (all: ReturnType<typeof debugLines>) => all.filter((l) =>
         l.namespace === 'nebula.Resources.subscribe' && l.message === 'arrived' && clientIdIn(l.data) === id);
@@ -494,16 +484,16 @@ export async function run(stack: DevStack): Promise<void> {
       const install = lines.find((l) => l.message === 'installed' && l.data.instanceName === dev && l.data.version === vP);
       const admitted = mine(lines).filter((l) => l.data.stale === false);
       const refused = mine(lines).filter((l) => l.data.stale === true);
-      const heldRefused = refused.filter((l) => l.data.kind === 'resource').length;
+      const rowsRefused = refused.filter((l) => l.data.kind === 'resource').length;
       const after = install !== undefined && admitted.every((l) => l.idx > install.idx);
-      return [install !== undefined && admitted.length >= 3 && refused.length >= 1 && heldRefused === 0 && after,
-        `installed ${install ? 'logged' : 'NOT logged'}; the list subscription refused ${refused.length - heldRefused}×, ` +
-        `the held rows ${heldRefused}×; ${admitted.length} admitted, ${after ? 'all after the install' : 'SOME BEFORE the install'}`];
+      return [install !== undefined && admitted.length >= 3 && refused.length - rowsRefused >= 1 && after,
+        `installed ${install ? 'logged' : 'NOT logged'}; the list subscription refused ${refused.length - rowsRefused}×, ` +
+        `the rows ${rowsRefused}×; ${admitted.length} admitted, ${after ? 'all after the install' : 'SOME BEFORE the install'}`];
     });
     // ── LIMB 7: a wipe drops the page's subscriptions, and the page takes them again ─────────
     // The page holds the two rows from limb 6, its list, and a second list with a Deal in it, so a
-    // wipe's restore sends a row first, which the wiped Star refuses as missing once it installs,
-    // and the established lists wait behind the gate that row's answer closed.
+    // wipe's restore sends the rows, which the wiped Star refuses as missing once it installs, and
+    // the established lists, which are answered `checking` until then and sent again.
     const pipeline2 = crypto.randomUUID();
     const list2 = current.resources.subscribeQuery({ ...pipelineQuery, value: pipeline2 });
     const [first2] = await writePiped(writer, pipeline2);
@@ -512,8 +502,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.ok(list2Ready === 'ok' && list2Saw, `the second list never took its first Deal (${list2Ready})`);
     for (const round of [1, 2]) {
       await studio.client.lmz.callAsync('STAR', dev, studio.client.ctn<Star>().resetDevData(), { timeoutMs: 30_000 });
-      // The wipe left no Deals, so an empty list is that list answered again. Within 15 s, well
-      // inside the gate's 30 s bound, so a gate let go only at its bound reds here.
+      // The wipe left no Deals, so an empty list is that list answered again.
       const wiped = Date.now();
       const retaken = await until(15_000, () => list.resourceIds.length === 0 && list2.resourceIds.length === 0);
       const retakenMs = Date.now() - wiped;
@@ -575,19 +564,17 @@ export async function run(stack: DevStack): Promise<void> {
     const tenantWrite = quiet.resources.transaction({
       [crypto.randomUUID()]: { op: 'create', typeName: 'Deal', nodeId: ROOT_NODE_ID, value: { title: 'never lands' } },
     }).then((o) => o.kind, staleOrNot);
-    const waited = await until(10_000, () => gateClosedFor.has(quiet.lmz.instanceName));
     const tenantRead = quiet.resources.read('Deal', crypto.randomUUID()).then(() => 'read', staleOrNot);
     const ended: string[] = [];
     const settled9 = await within(20_000, Promise.all([tenantWrite, tenantRead, tenantList]).then((all) => { ended.push(...all); }));
     const took = Date.now() - started;
-    record('limb 9 — on a tenant Star an op, and one sent while it waited, end ontology-stale',
-      waited && settled9 === 'ok' && ended.every((k) => k === 'ontology-stale') && took < 12_000,
-      `the read was sent ${waited ? 'behind the closed gate' : 'with NO gate closed'}; ` +
+    record('limb 9 — on a tenant Star a write, a read and a list end ontology-stale within the retry window',
+      settled9 === 'ok' && ended.every((k) => k === 'ontology-stale') && took < 12_000,
       `${settled9 === 'ok' ? `the write, the read and the list ended ${JSON.stringify(ended)}` : settled9}, in ${took} ms`);
     fences.push(fence());
     await sleep(6_000);
     fences.push(fence());
-    await logHalf('limb 9 — the tenant asked while the ops waited, and not once in the six seconds after', async () => {
+    await logHalf('limb 9 — the tenant asked while the ops retried, and not once in the six seconds after', async () => {
       const at = (all: ReturnType<typeof debugLines>, topic: string) => all.find((l) =>
         l.namespace === 'nebula.Resources.subscribe' && l.message === 'arrived' && l.data.topic === topic)?.idx;
       const lines = await waitForDebugLines(stack, (all) => at(all, fences[2]!) !== undefined, 'the last fence')
@@ -597,14 +584,13 @@ export async function run(stack: DevStack): Promise<void> {
       const asks = lines.filter((l) => l.namespace === 'nebula.Resources.source' && l.message === 'ask' && l.data.instanceName === tenant);
       const during = asks.filter((l) => l.idx > f0 && l.idx < f1).length;
       const after = asks.filter((l) => l.idx > f1 && l.idx < f2).length;
-      return [during >= 1 && after === 0, `${during} asks while the ops waited, ${after} in the six seconds after`];
+      return [during >= 1 && after === 0, `${during} asks while the ops retried, ${after} in the six seconds after`];
     });
 
     const open = results.filter((r) => !r.ok);
     assert.equal(open.length, 0,
       `${open.length} of ${results.length} properties do not hold:\n` + open.map((r) => `  - ${r.name}: ${r.detail}`).join('\n'));
   } finally {
-    clearDebugSink();
     for (const d of disposers) { try { d(); } catch { /* already released */ } }
     await browser.close();
     await vite.close();
