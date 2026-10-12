@@ -63,7 +63,9 @@ export async function run(stack: DevStack): Promise<void> {
   let admin: Driver | undefined;
   let member: ReturnType<typeof createNebulaClient> | undefined;
   const memberBrowser = new Browser();
-  const waiter = waitForEmail({ testToken, instance: star, to: memberEmail, timeout: 60_000 });
+  // Armed just before the invite: its 60 s must not run while the build does, which deployed
+  // takes longer than that.
+  let waiter: ReturnType<typeof waitForEmail> | undefined;
   try {
     admin = await connectDriver(stack, {
       scope: star,
@@ -92,6 +94,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(created.ok, true, `the admin's create of the Item failed: ${JSON.stringify(created)}`);
 
     // The member is invited to `pub` only — a sibling of `priv`, so no grant reaches it.
+    waiter = waitForEmail({ testToken, instance: star, to: memberEmail, timeout: 60_000 });
     const ack = await admin.client.lmz.callAsync(
       'STAR', star, admin.client.ctn<Star>().resources.invite(version, pub, [{ email: memberEmail, tier: 'read' }]),
     ) as NodeInviteAck;
@@ -139,7 +142,7 @@ export async function run(stack: DevStack): Promise<void> {
     console.error('  ✓ limb 2 — the grant alone revealed the Item: the store gained it and deniedNodes emptied');
     handle[Symbol.dispose]();
   } finally {
-    waiter.cleanup(); // a leaked waiter's WebSocket keeps Node's event loop alive past the verdict
+    waiter?.cleanup(); // a leaked waiter's WebSocket keeps Node's event loop alive past the verdict
     try { await member?.dispose(); } catch { /* already disposed */ }
     try { member?.client[Symbol.dispose](); } catch { /* already disposed */ }
     admin?.dispose();

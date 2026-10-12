@@ -282,6 +282,8 @@ Each phase leaves `npm run type-check`, `npm test`, `drive.ts all --fast` and th
 
 ### Phase 3, 2026-10-11
 
+**The verifier panel later found two defects in this phase's gate**, a wait that could last forever and established subscriptions it never resent; § *The verifier panel, 2026-10-12* has both and their fixes.
+
 **For Larry:** nothing needs a decision. What the build settled inside Phase 3's text:
 
 - **The guard lives in the `sessionStorage` the Client already took for its tab id.** `MeshClient` has a `sessionStorage` option, and the guard reads and writes the same storage under `lmz.ontology-reloaded-for`, so the page after a reload finds what the page before it recorded. No new option.
@@ -346,6 +348,25 @@ Each phase leaves `npm run type-check`, `npm test`, `drive.ts all --fast` and th
 **Evidence:** `gen-scaffold.mjs --check` and `gen-platform.mjs --check` pass after regenerating; `check-examples` 176 of 176; unit 117 and dev-studio 115; the task-handle grep over the changed source finds nothing, and `codegen-loop.ts`'s header no longer names `compileAndInstallOntology` or a task-file phase. `studio-guidance-loop` 125.4 s and `four-party-chat` 78.8 s are green. `first-app-built` went green on its fourth run, 245.0 s, after three failures with three different causes: a WebSocket timeout on the first boot after the image rebuilt for the new scaffold; a build turn whose model made no tool calls in three rounds; and a login mail that never reached Resend, while the next scenario's mail arrived. None traces to the edited guidance, but the no-tool-calls turn is one sample against one pass, so it is noted here rather than recorded as a finding in `nebula-pre-alpha.md` § *Data-bound generation*.
 
 **Retro:** the prose grep the task wrote, `-w` on `Apply|applied`, cannot see *Applying*, the very word in the step-6 sentence it existed to find; the list named that site, which is the only reason it was caught. A first widened grep using `\b` printed nothing, because git grep's ERE has no `\b`; checking it against the known step-6 hit is what showed it was blind.
+
+### Phase 5, 2026-10-12
+
+**For Larry:** nothing needs a decision. The deployed pass found one real defect, in the harness: the two scenarios Phase 1 moved to `.dev` armed their 60 s email waiter before a build, which deployed takes longer than that.
+
+**Evidence:**
+
+- **Local, `drive.ts all`.**
+  - The first sweep was 63 of 65. `studio-overlays-by-url` timed out on its first page load, and `first-app-built`'s model returned a Workers AI 400. Both passed alone.
+  - After the verifier fixes: 65 of 65, one parked by design, 35.1 min.
+- **Deployed-only branches.** Checked before deploying, as `live.md` asks. Only two read an answer this task changed, and both read `getCurrentOntology`. `session-survives-token-lapse` takes any answer, and `client-routes`' deployed branches are log halves.
+- **The deployed list, derived.** 20 scenarios: the 8 the task's diff touches, joined with the 19 that call `getCurrentOntology` or load a served page. That covers all eight the phase names.
+- **First deploy, at `7dedb1f`:** 17 of 20.
+  - `grant-reveals-denied` and `node-invite-roundtrip` timed out waiting for their invite mail. Resend's webhook shows each invite sent and delivered within a second, and the email-test Worker received it with the right instance tag. The waiter had simply expired: both scenarios armed it before their build, and since Phase 1 that build runs first. This also explains Phase 1's one-off local *never reached Resend*. Each now arms its waiter just before its invite.
+  - `four-party-chat` waited 240 s for a reply that never came. The tail capture dropped 60–97 s windows exactly then, so it says nothing more; the scenario passed on the next deploy.
+- **Second deploy, at `04a33a1`, with the verifier fixes:** 18 of 20, then 20 of 20 once the invite scenarios armed their waiters late. The two pass in 169.7 s and 230.2 s, and locally in 11.1 s and 9.1 s. Deployed, limb 7's lists answer again in 614 and 507 ms.
+- **A `wrangler tail --format json` capture ran beside both deploys.** Under the load of two scenarios at once it reconnected and lost windows, which is why the silent turn stays unexplained.
+
+**Retro:** a waiter armed early is the email-waiter rule's second shape, a filter that cannot match, in a new costume: a deadline that cannot be met. Every local tier was green because the local build is fast. Only the deployed venue's slower build exposed it, and the waiter's own message, *"Resend reported nothing"*, pointed at the mail. Resend's events said otherwise within a minute of asking.
 
 ### The verifier panel, 2026-10-12
 

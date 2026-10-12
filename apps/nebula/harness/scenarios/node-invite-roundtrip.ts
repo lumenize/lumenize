@@ -58,7 +58,9 @@ export async function run(stack: DevStack): Promise<void> {
   let admin: Driver | undefined;
   let invitee: NebulaClient | undefined;
   const inviteeBrowser = new Browser();
-  const waiter = waitForEmail({ testToken, instance: star, to: inviteeEmail, timeout: 60_000 });
+  // Armed just before the invite: its 60 s must not run while the build does, which deployed
+  // takes longer than that.
+  let waiter: ReturnType<typeof waitForEmail> | undefined;
   try {
     admin = await connectDriver(stack, {
       scope: star,
@@ -90,6 +92,7 @@ export async function run(stack: DevStack): Promise<void> {
     // pull-current at the Galaxy; the retry converges once the row installs. A non-`checking`
     // error is a real failure and rethrows.
     let ack: NodeInviteAck | undefined;
+    waiter = waitForEmail({ testToken, instance: star, to: inviteeEmail, timeout: 60_000 });
     for (let attempt = 0; attempt < 20 && !ack; attempt++) {
       try {
         ack = await admin.client.lmz.callAsync(
@@ -213,7 +216,7 @@ export async function run(stack: DevStack): Promise<void> {
       octx.close();
     }
   } finally {
-    waiter.cleanup(); // a leaked waiter's WebSocket keeps Node's event loop alive past the verdict
+    waiter?.cleanup(); // a leaked waiter's WebSocket keeps Node's event loop alive past the verdict
     try { invitee?.[Symbol.dispose](); } catch { /* already disposed */ }
     admin?.dispose();
   }
