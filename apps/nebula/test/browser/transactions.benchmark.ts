@@ -273,8 +273,8 @@ describe('transactions latency (decomposed)', () => {
       }
 
       // Install the ontology on the Stars this bench drives and pre-warm the bundle.
-      // (The Galaxy registry write is workspace-only now — the test-install path is
-      // deleted — so each Star gets its row directly via applyOntologyForTest; the
+      // (A tenant Star installs nothing until something is published, so each Star
+      // gets its row directly via applyOntologyForTest; the
       // Worker Loader cache is keyed per bundle, so the warmup transaction still
       // saves cold-block iteration 1 the ~262 ms one-time bundle load.)
       console.log('[transactions-bench] installing ontology + pre-warming bundle');
@@ -303,8 +303,8 @@ describe('transactions latency (decomposed)', () => {
       // Cold block: each Star gets its ontology installed up front (the install is
       // what CREATES the DO now, so "cold" measures a fresh Star's first data
       // transaction — the plane's installed-ontology read + facet mount — with no Galaxy
-      // hop: the lazy-pull path needs a workspace-published registry row, which a
-      // bench can no longer seed).
+      // hop: the lazy-pull answers a tenant Star with nothing until something is
+      // published).
       console.log(`[transactions-bench] cold block (${COLD_ITERATIONS} iterations, fresh Star per iter)`);
       const coldStars = Array.from({ length: COLD_ITERATIONS },
         () => `${galaxyScope}.tenant-cold-${crypto.randomUUID().slice(0, 8)}`);

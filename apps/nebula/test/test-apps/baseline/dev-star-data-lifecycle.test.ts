@@ -352,7 +352,7 @@ describe('resetDevData capability surface (Star.prototype)', () => {
     // `@mesh()`. `ScopedMeshDO.teardown` carries `@rawRpc()` instead, so it is absent: restoring its
     // `@mesh()` reds this. A new entry, a dropped guard, or
     // `@mesh()` on the undecorated `resourcesResults` changes a list here. Installs arrive only by
-    // lazy-pull from the Galaxy registry, landing at `resourcesResults.onOntologyPulled` behind that
+    // lazy-pull of the Galaxy's current row, landing at `resourcesResults.onOntologyPulled` behind that
     // undecorated gate; the eager push's remote `installOntology` / `setOntology` are gone.
     const tier = (guard: unknown) => (guard === requireDominionHere ? 'dominion' : guard === undefined ? 'bare' : 'other');
     const byTier: Record<string, string[]> = {};

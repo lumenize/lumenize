@@ -82,7 +82,7 @@ export async function run(stack: DevStack): Promise<void> {
     }
     const version = await servedOntologyVersion(stack, star);
     assert.ok(version, 'the `.dev` page should carry the version the build landed');
-    const appended = { version };
+    const landed = { version };
 
     // ── LIMB 1: the ack, via the first-touch install ──────────────────────────────────────────
     // The FIRST invite lands on a Star that has never seen a client op: the gate answers
@@ -94,7 +94,7 @@ export async function run(stack: DevStack): Promise<void> {
       try {
         ack = await admin.client.lmz.callAsync(
           'STAR', star,
-          admin.client.ctn<Star>().resources.invite(appended.version, ROOT_NODE_ID, [{ email: inviteeEmail, tier: 'write' }]),
+          admin.client.ctn<Star>().resources.invite(landed.version, ROOT_NODE_ID, [{ email: inviteeEmail, tier: 'write' }]),
         );
       } catch (e) {
         const stale = (e as Error)?.name === 'OntologyStaleError' && (e as { checking?: boolean }).checking;
@@ -129,7 +129,7 @@ export async function run(stack: DevStack): Promise<void> {
     invitee = new NebulaClient({
       baseUrl: scopeUrlOf(stack, star),
       platformOrigin: stack.baseUrl,
-      ontologyVersion: appended.version,
+      ontologyVersion: landed.version,
       accessToken: inviteeSession.accessToken,
       instanceName: `${inviteeSession.sub}.${crypto.randomUUID().slice(0, 8)}`,
       fetch: ctx.fetch,
@@ -190,7 +190,7 @@ export async function run(stack: DevStack): Promise<void> {
     const outsider = new NebulaClient({
       baseUrl: scopeUrlOf(stack, star),
       platformOrigin: stack.baseUrl,
-      ontologyVersion: appended.version,
+      ontologyVersion: landed.version,
       accessToken: outsiderSession.accessToken,
       instanceName: `${outsiderSession.sub}.${crypto.randomUUID().slice(0, 8)}`,
       fetch: octx.fetch,

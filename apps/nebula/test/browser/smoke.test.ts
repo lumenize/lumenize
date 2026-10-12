@@ -10,7 +10,7 @@
  *      → Browser cookie jar → the platform host's refresh, from the scope's page.
  *   3. round-trip — NebulaClient → Gateway → Star → result callback. Uses the
  *      real magic-link flow, then installs an ontology version directly on the
- *      Star (the post-Phase-4 dev apply path) and fires a transaction on Star.
+ *      Star (`StarTest.applyOntologyForTest`, the test door) and fires a transaction on Star.
  *
  * Why split: when a failure happens, the per-`it` boundary tells you whether
  * the bundle, auth, or mesh path broke without reading the stack trace.
@@ -144,10 +144,9 @@ describe('browser harness', () => {
         expect(client.connectionState).toBe('connected');
       });
 
-      // 4. Install an ontology version directly on the Star. A Star gets its
-      //    ontology by pulling from its Galaxy's registry, and this test registers
-      //    nothing there, so without this step the transaction below answers
-      //    `ontology-stale`. `StarTest.applyOntologyForTest` takes the SOURCE and
+      // 4. Install an ontology version directly on the Star. A tenant Star installs
+      //    nothing until something is published, so without this step the
+      //    transaction below answers `ontology-stale`. `StarTest.applyOntologyForTest` takes the SOURCE and
       //    compiles it inside the test Worker; its JSDoc says why the compile is
       //    server-side. The Star's own admin satisfies the requireDominionHere gate.
       client.callStarInstallOntology(scope, { version: ONTOLOGY_VERSION, types: TEST_TYPES });

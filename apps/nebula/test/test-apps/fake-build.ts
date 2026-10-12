@@ -22,6 +22,13 @@ export interface BuildFaults {
   /** Report the compile as succeeded without writing its row, as a lost pull would leave the
    *  mount: ROW_PATH keeps whatever an earlier build wrote there. */
   loseRow?: boolean;
+  /** Fields laid over the row file after the compile, as the build's own `vite.config.ts` could:
+   *  the types still hash to the version, while the label and extra keys say otherwise. */
+  dressRow?: Record<string, unknown>;
+  /** Called once the compile has written its row, so a test can act while this build runs. */
+  onCompiled?: () => void;
+  /** Then wait this long before the bundle, so a second build can be asked for meanwhile. */
+  holdMs?: number;
 }
 
 async function sha256Hex(text: string): Promise<string> {
@@ -41,13 +48,15 @@ export async function fakeBuildJob(
       const row = compileOntologyVersion({ version: opts.ontology.version, types });
       if (!faults.loseRow) {
         await fs.mkdir(wsPath('.nebula'), { recursive: true });
-        await fs.writeFile(wsPath(ROW_PATH), JSON.stringify(row));
+        await fs.writeFile(wsPath(ROW_PATH), JSON.stringify({ ...row, ...faults.dressRow }));
       }
       ontology = { ran: true, ok: true, rowPath: ROW_PATH };
     } catch (e) {
       ontology = { ran: true, ok: false, tail: e instanceof Error ? e.message : String(e) };
     }
   }
+  faults.onCompiled?.();
+  if (faults.holdMs) await new Promise((r) => setTimeout(r, faults.holdMs));
   const typeCheck = { ran: true, checked: ['src/App.vue'], findings: [] };
   let bundle: BuildReport['bundle'];
   if (ontology.ran && ontology.ok === false) {

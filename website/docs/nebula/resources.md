@@ -391,7 +391,7 @@ switch (outcome.kind) {
     break;
 
   case 'ontology-stale':
-    // The op did not run at this page's version. If the host named a newer one,
+    // The op did not run at this page's version. If the host named another one,
     // onShouldRefreshUI has fired (page reload). Optimistic state untouched.
     break;
 }

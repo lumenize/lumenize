@@ -207,8 +207,9 @@ describe('the source is asked only on a mismatch', () => {
   });
 
   // The version is required in TypeScript, but mesh arguments are typed and not checked on the
-  // wire, so a raw caller can still send none. Mutation: let `#gateClientOp` treat a missing
-  // version as the installed one, as the old optional parameter did.
+  // wire, so a raw caller can still send none. Mutations: let `#gateClientOp` treat a missing
+  // version as the installed one, as the old optional parameter did; or check a list or roster
+  // subscription through `#gateServer`, which runs it at whatever is installed.
   it('an op arriving with no version, on a Star with an ontology, is answered stale without asking', async () => {
     const star = newStar();
     const admin = await starAdmin(star);
@@ -220,6 +221,15 @@ describe('the source is asked only on a mismatch', () => {
       expect(e?.name).toBe('OntologyStaleError');
       expect((e as any).checking).toBeFalsy();
     }
+    // The two subscriptions answer by push, so the Star's own line says whether it refused them.
+    const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: uuid() };
+    await admin.lmz.callAsync('STAR', star, door(admin).subscribeQuery(undefined, query));
+    await admin.lmz.callAsync('STAR', star, door(admin).subscribeQuerySubscribers(undefined, query));
+    const arrived = (kind: string) => sink.filter((e) =>
+      e.namespace === 'nebula.Resources.subscribe' && e.message === 'arrived'
+      && e.data?.instanceName === star && e.data?.kind === kind).map((e) => e.data?.stale);
+    expect(arrived('query')).toEqual([true]);
+    expect(arrived('roster')).toEqual([true]);
     expect(asks(star)).toBe(0);
     admin[Symbol.dispose]();
   });

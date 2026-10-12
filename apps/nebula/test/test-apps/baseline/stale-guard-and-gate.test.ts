@@ -6,7 +6,9 @@
  *     Clients sharing one tab's storage call the app's handler once for a version, and again for
  *     the next one.
  *   - **The version gate**: the first `checking` answer holds every other op, the Client's own
- *     resends included, so a reconnect while it is closed sends each subscribe once.
+ *     resends included, so a reconnect while it is closed sends each subscribe once. Its wait always
+ *     ends: a probe let go opens it, one whose answers stop opens it at the bound, and established
+ *     subscriptions refused while it was closed are sent again when it opens.
  *
  * In-lane rather than `/live`: two Clients on one injected storage, and a reconnect at a chosen
  * moment while the Star's ask is held outstanding, are states no page can produce on demand.
@@ -92,6 +94,30 @@ describe('the version gate', () => {
     && e.data?.instanceName === star && e.data?.topic === topic).length;
   const gateClosed = () => sink.some((e) =>
     e.namespace === 'lumenize.nebula-client' && e.message === 'version gate closed');
+  const gateLine = (client: NebulaClientTest, message: string) => sink.some((e) =>
+    e.namespace === 'lumenize.nebula-client' && e.message === message && e.data?.client === client.lmz.instanceName);
+  const admitted = (star: string, topic: string) => sink.filter((e) =>
+    e.namespace === 'nebula.Resources.subscribe' && e.message === 'arrived'
+    && e.data?.instanceName === star && e.data?.topic === topic && e.data?.stale === false).length;
+
+  /** A client pinned to v1 on a Star holding two rows written at v1, which then moves to v0 with
+   *  its Galaxy's answer held, so every op the client sends is answered `checking`. */
+  async function starAtAnotherVersion(subscribeFirst = false) {
+    const star = uniqueStar();
+    const calls: OntologyStaleInfo[] = [];
+    const client = (await adminClientAt(NebulaClientTest, new Browser(), star, star, EMAIL, 'v1',
+      { onShouldRefreshUI: (info: OntologyStaleInfo) => { calls.push(info); } })).client;
+    await install(client, star, 'v1');
+    const ids = [crypto.randomUUID(), crypto.randomUUID()] as const;
+    committed(await client.resources.transaction({
+      [ids[0]]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'a' } },
+      [ids[1]]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'b' } },
+    }));
+    if (subscribeFirst) for (const id of ids) await client.resources.subscribe('TestResource', id).snapshot;
+    await install(client, star, 'v0');
+    await holdAnswers(client, star, true);
+    return { star, client, ids, calls };
+  }
 
   // Mutations: let `#resendVersioned` send while the gate is closed (the reconnect sends the held
   // subscribe, and the opening sends it again); let `#gatedSend` send at once (likewise).
@@ -116,7 +142,8 @@ describe('the version gate', () => {
     client.disconnect();
     client.connect();
     await vi.waitFor(() => expect(client.connectionState).toBe('connected'));
-    // The reconnect's walk runs on a microtask after `connected`; nothing has reached the Star.
+    // An early look, which caught both mutations when they were run; the count after the gate
+    // opens is the check no timing can pass.
     await Promise.resolve();
     expect(arrivals(star, held)).toBe(0);
 
@@ -126,6 +153,71 @@ describe('the version gate', () => {
     expect((await waiting)?.value).toEqual({ title: 'held' });
     expect(arrivals(star, held)).toBe(1);
 
+    client[Symbol.dispose]();
+  });
+  // Mutation: decide a `checking` answer on a channel nothing holds as any other stale answer;
+  // it names v0, the version being replaced, so the page reloads.
+  it('a `checking` answer on a subscription let go reloads nothing', async () => {
+    const { star, client, ids, calls } = await starAtAnotherVersion();
+    const letGo = client.resources.subscribe('TestResource', ids[0]);
+    letGo.snapshot.catch(() => { /* abandoned with its handle */ });
+    letGo[Symbol.dispose]();
+    // Sent after, so answered after: once it closes the gate, the first answer has been read.
+    client.resources.subscribe('TestResource', ids[1]).snapshot.catch(() => { /* not awaited */ });
+    await vi.waitFor(() => expect(gateLine(client, 'version gate closed')).toBe(true));
+    expect(arrivals(star, ids[0])).toBe(1);
+    expect(calls).toEqual([]);
+    client[Symbol.dispose]();
+  });
+
+  // Mutation: retry a probe without looking at whether anything still holds it.
+  it('a probe let go opens the gate', async () => {
+    const { client, ids } = await starAtAnotherVersion();
+    const probe = client.resources.subscribe('TestResource', ids[0]);
+    probe.snapshot.catch(() => { /* abandoned with its handle */ });
+    await vi.waitFor(() => expect(gateLine(client, 'version gate closed')).toBe(true));
+    probe[Symbol.dispose]();
+    await vi.waitFor(() => expect(gateLine(client, 'version gate opened')).toBe(true));
+    client[Symbol.dispose]();
+  });
+
+  // Mutation: end a push channel refused for some other reason without letting its probe go.
+  // The shape a wipe makes: the row a restore asks for again no longer exists.
+  it('a probe refused for another reason opens the gate', async () => {
+    const { star, client } = await starAtAnotherVersion();
+    const missing = client.resources.subscribe('TestResource', crypto.randomUUID()).snapshot;
+    const refused = missing.then(() => 'answered', (e: Error) => e.message);
+    await vi.waitFor(() => expect(gateLine(client, 'version gate closed')).toBe(true));
+    await install(client, star, 'v1');
+    expect(await refused).toMatch(/not found/);
+    await vi.waitFor(() => expect(gateLine(client, 'version gate opened')).toBe(true));
+    client[Symbol.dispose]();
+  });
+
+  // Mutation: drop the deadline's opening. A real lapse, not a fake clock: the probe's answers
+  // stop because its socket is gone, which is how one goes missing in a tab. The probe is an
+  // established subscription a restore sent; a first subscribe would instead be abandoned when the
+  // socket goes, which ends its probe at once.
+  it('a probe whose answers stop opens the gate at the bound', async () => {
+    const { client } = await starAtAnotherVersion(true);
+    client._restoreSubscriptionsForTest();
+    await vi.waitFor(() => expect(gateLine(client, 'version gate closed')).toBe(true));
+    client.disconnect();
+    await vi.waitFor(() => expect(gateLine(client, 'version gate timed out')).toBe(true), { timeout: 40_000, interval: 500 });
+    expect(gateLine(client, 'version gate opened')).toBe(true);
+    client[Symbol.dispose]();
+  }, 60_000);
+
+  // Mutation: resend only the subscribes still awaiting a first answer when the gate opens, as the
+  // gate first did; the established one a restore sent is then never sent again.
+  it('established subscriptions refused while it was closed are sent again when it opens', async () => {
+    const { star, client, ids } = await starAtAnotherVersion(true);
+    // Both were admitted at v1 before the Star moved. A restore sends both again: the first
+    // answer closes the gate, and the second is refused behind it.
+    client._restoreSubscriptionsForTest();
+    await vi.waitFor(() => expect(arrivals(star, ids[1])).toBe(2));
+    await install(client, star, 'v1');
+    await vi.waitFor(() => expect(admitted(star, ids[1])).toBe(2));
     client[Symbol.dispose]();
   });
 });

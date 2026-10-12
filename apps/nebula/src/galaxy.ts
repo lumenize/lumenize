@@ -409,6 +409,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   // (never `blockConcurrencyWhile`, which would deafen the hub for the probe's
   // seconds — containers.md). In-memory coordination state, not business data.
   #buildChain: Promise<unknown> = Promise.resolve();
+  // The same latch one level up, around the whole build-and-land, so each build compares the file
+  // with the row only after the build before it has landed.
+  #landChain: Promise<unknown> = Promise.resolve();
   // Turn single-flight (in-memory BY DESIGN: eviction clearing it is exactly the
   // post-deadline reset semantics — see `chat`).
   #turnInFlight = false;
@@ -754,10 +757,19 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * ({@link decideLanding}). So the `.dev` Star runs what was just built, and nothing a build
    * compiles reaches any other Star.
    *
+   * Queued whole: a build compared before the one ahead of it landed would read the old row, so a
+   * file reverted between two builds would leave the newer row current over the older source.
+   *
    * ⚠️ Deliberately ABOVE {@link build}, which is the test seam. Putting the push inside
    * `build()` made every faked build silently stop announcing — the suite caught it.
    */
-  async #buildAndAnnounce(opts: { preview?: boolean } = {}): Promise<BuildReport> {
+  #buildAndAnnounce(opts: { preview?: boolean } = {}): Promise<BuildReport> {
+    const run = this.#landChain.then(() => this.#buildAndLand(opts));
+    this.#landChain = run.catch(() => { /* the next build starts clean */ });
+    return run;
+  }
+
+  async #buildAndLand(opts: { preview?: boolean }): Promise<BuildReport> {
     const jobOpts: BuildJobOpts = { ontology: await this.#pendingOntology() };
     // Marker: the cycle's start — "the warm precedes the build" is asserted on the order
     // of this marker and the warm's, within one Galaxy (`instanceName` is the discriminator

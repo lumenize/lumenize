@@ -6,7 +6,7 @@
  * {@link Resources} plane (ADR-007 — composition, not reimplementation), which the
  * Galaxy composes the same way. The plane owns the op, the ontology it validates
  * against and the one version rule; the Star keeps only where its ontology comes from
- * (its parent Galaxy's registry, asked by fire-back), its configuration, and the
+ * (its parent Galaxy's current row for it, asked by fire-back), its configuration, and the
  * `.dev` reset that runs the plane's wipe.
  *
  * **One door.** `@mesh() get resources` returns the plane's request surface, whose

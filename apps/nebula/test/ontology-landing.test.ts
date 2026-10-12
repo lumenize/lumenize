@@ -23,7 +23,7 @@ const report = (over: Partial<BuildReport> = {}): BuildReport => ({
 
 describe('decideLanding', () => {
   // Mutations: drop the bundle conjunct, the arrival conjunct, or the compile conjunct; each reds
-  // exactly its own row.
+  // its own rows, on `lands` as well as on `why`.
   it.each([
     { name: 'a failed compile, whose bundle the job skipped',
       r: report({ ontology: { ran: true, ok: false, tail: 'x' }, bundle: { ran: false, why: SKIPPED_FOR_ONTOLOGY } }),
@@ -37,6 +37,10 @@ describe('decideLanding', () => {
     { name: 'a failed bundle',
       r: report({ bundle: { ran: true, ok: false, tail: 'rolldown died' } }),
       arrived: false, version: 'v', lands: false, why: 'the bundle did not succeed' },
+    // Its one caller never passes this pairing; the row pins that the bundle check decides alone.
+    { name: 'a failed bundle counted as arrived',
+      r: report({ bundle: { ran: true, ok: false, tail: 'rolldown died' } }),
+      arrived: true, version: 'v', lands: false, why: 'the bundle did not succeed' },
     { name: 'a bundle that did not arrive',
       r: report(), arrived: false, version: 'v', lands: false, why: 'the built dist did not arrive' },
     { name: 'a bundle that arrived, with its ontology',

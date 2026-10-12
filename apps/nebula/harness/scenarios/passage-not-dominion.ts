@@ -135,8 +135,8 @@ export async function run(stack: DevStack): Promise<void> {
 
   try {
     // ── LIMB 1a: upward PASSAGE — the bare `@mesh()` method RETURNS ─────────────────────────────
-    // A Star member calling its parent Galaxy. `getCurrentOntology` returns `null` when no
-    // ontology has been appended, which is a RETURN, not a refusal — the distinction this limb is
+    // A Star member calling its parent Galaxy. `getCurrentOntology` returns `null` to any caller but
+    // the `.dev` Star, which is a RETURN, not a refusal — the distinction this limb is
     // about. Asserting "did not throw" is therefore the correct assertion, and asserting a
     // particular value would make it about the ontology instead of about passage.
     const read = member.client.lmz.callAsync(

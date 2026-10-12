@@ -347,6 +347,43 @@ Each phase leaves `npm run type-check`, `npm test`, `drive.ts all --fast` and th
 
 **Retro:** the prose grep the task wrote, `-w` on `Apply|applied`, cannot see *Applying*, the very word in the step-6 sentence it existed to find; the list named that site, which is the only reason it was caught. A first widened grep using `\b` printed nothing, because git grep's ERE has no `\b`; checking it against the known step-6 hit is what showed it was blind.
 
+### The verifier panel, 2026-10-12
+
+Four read-only verifiers, one per phase. Phase 2 conformed; Phases 1, 3 and 4 did not. Every finding is fixed or recorded below.
+
+**For Larry:** nothing needs a decision. Two findings were real defects in Phase 3, and the panel caught them because the scenario's fixture was the safe shape:
+
+- **The gate could stay closed forever.** Only the probing op opened it. After a wipe, the restore's first row subscription became the probe, and once the Star installed, its retry was refused *not found*, because the wipe had deleted the row. That is not a stale answer, so nothing opened the gate and every op on the page waited forever. Limb 7 missed it because the scenario let go of its row subscriptions before the wipes. Now a probe that ends any way at all opens the gate: answered, refused for another reason, or let go. As a backstop, a gate still closed after 30 s opens anyway (`GATE_BOUND_MS`), which covers a probe whose answer was lost with its socket.
+- **The gate's opening resent only first subscribes.** A subscription a restore had re-sent, refused `checking` while another op probed, was never sent again, so the page silently stopped hearing it. The gate now keeps each such channel's resend and sends it when it opens.
+- **Smaller, in the same code:** a `checking` refusal on a subscription the page had already let go named the version being replaced, and reloaded a current page; it is now dropped.
+
+**Fixed, with the evidence:**
+
+- `stale-guard-and-gate.test.ts` gains five cases, each red under its own mutation and green otherwise:
+  - a `checking` answer on a let-go subscription reloads nothing;
+  - a probe let go opens the gate;
+  - a probe refused for another reason opens it;
+  - a probe whose answers stop opens it at the bound, on a real 30 s wait;
+  - established subscriptions refused behind the gate are sent again.
+- Limb 7 now holds two rows and two lists across both wipes, and requires both lists answered within 15 s, well inside the bound. Clean, both lists answer in about 505 ms. Live, it reds alone under a probe refused for another reason that keeps the gate closed, and under an opening that resends only first subscribes.
+- *Rejected on the way:* opening the gate on any admitted answer, not only the prober's, saved at most one 400 ms retry, and no mutation could red it, so it was removed.
+- **Phase 1:** the landing's named-field rule had no test. The fake build can now dress the row file with another label and an extra key, and spreading the file into the stored row reds that case. A `decideLanding` row with a failed bundle counted as arrived now pins the bundle check on `lands` itself.
+- **Phase 1, the race:** two overlapping builds with a revert between them could leave the newer row current over the older source, since the second build compared the file with the row before the first had landed. `#buildAndAnnounce` now queues the whole build-and-land. The case holds the first build after its compile and reverts the file meanwhile; dropping the queue reds it.
+- **Phase 2:** nothing checked a roster or list subscription's version on the Star. The no-version case now asserts the Star's own `arrived` line refused both, and running either through `#gateServer` reds it. The every-type half of limb 5's mutation note is struck: the count already validates each row against its own type, and limb 5 holds only `Deal`s.
+- **Stale prose of the deleted registry**, which no grep for *Apply* could see, is rewritten in `star.ts`'s header, `build-box.ts`, `passage-not-dominion.ts`, `smoke.test.ts`, two benchmark comments, `dev-star-data-lifecycle.test.ts` and `path-guard.test.ts`. `node-invite-roundtrip.ts`'s `appended` became `landed`, and `ontology.md`'s three *deploy time* lines now say a build compiles the file.
+- `conflict-outcome.test.ts`'s `D16/D17` handle is gone, and `chat-ontology.ts` no longer reads as a contradiction.
+- The no-tool-calls build turn, and one model error, are logged in `nebula-pre-alpha.md` § *Data-bound generation*, as `studio-guidance.md` requires.
+- The scenario's pages each mint a fresh token, so a deployed run past one access token's 15 minutes cannot strand them.
+
+**Suites on the final tree:** `packages/resources` 17; `apps/nebula` unit 118 and dev-studio 116, each up by its new case; offline 2, frontend 236, browser 4 with 2 skipped. `baseline` ran all 569, the 564 before plus the 5 new cases: 568 passed, and `set-union-merge` timed out at 30 s under the load and passes alone twice. The run then stalled at exit, as before. `drive.ts all`, container scenarios included: 65 of 65, one parked by design, 35.1 min.
+
+**Recorded, not changed:**
+
+- `star-serves-current-ontology`'s stale tab is the owner's own old tab, not a collaborator's. The Star treats both alike.
+- `source-chat-floor.test.ts`'s F2 reads the compiled row through `readSource` rather than the served meta. It is a direct check, and it reds with the path rule off.
+- Limb 7's mutation note named "the guard records an empty version". The mutation run was the one that produces that: a notice naming no version taking the reload path.
+- The identifier grep finds 16 hits, not 15. The two left out of the count are `workflow.md`'s *installing any npm package* and an RPC comment; all are kept.
+
 ## Non-goals
 
 - **`publish()`, the order and storage of published versions, and migration.** Fast-follow Item 4.

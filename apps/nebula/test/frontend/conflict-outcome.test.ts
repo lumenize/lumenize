@@ -663,7 +663,7 @@ describe('connection-gated rollback (invariant 10, Mn8)', () => {
 
       h.engine.setConnectionState('connected');
       await flushMicrotasks();
-      // (A): the in-flight `callAsync` re-resolves on its own (D16/D17) — the queue does NOT re-fire a
+      // (A): the in-flight `callAsync` re-resolves on its own — the queue does NOT re-fire a
       // fresh mesh call. The ORIGINAL submit's Promise settles this attempt when the RESULT re-resolves
       // on the new socket. Capable-of-failing: revert to re-submit-on-reconnect → this becomes length 2.
       expect(h.submitted).toHaveLength(1);

@@ -116,8 +116,8 @@ describe('the .dev Star runs the last landed build\'s row; nothing else moves it
     expect(await devRowVersion(galaxy)).toBe(v1);
   });
 
-  // Mutations: drop the hash check in `#land` (the mislabeled and stale cases red), or skip the
-  // store (every case reds). `decideLanding`'s own conjuncts are mutated in its table
+  // Mutations: drop the hash check in `#land` (the mislabeled and stale cases red), skip the
+  // store (every case reds), or store the file by spreading it (the dressed case reds). `decideLanding`'s own conjuncts are mutated in its table
   // (`test/ontology-landing.test.ts`), since arrival here also requires the bundle.
   it('a build that does not land leaves the row where it was, and the next good build lands', async () => {
     const galaxy = uniqueGalaxyScope();
@@ -156,8 +156,34 @@ describe('the .dev Star runs the last landed build\'s row; nothing else moves it
     await build(galaxy, { loseRow: true });
     expect(await devRowVersion(galaxy)).toBe(v2);
 
-    await build(galaxy, {});
-    expect(await devRowVersion(galaxy)).toBe(v3);
+    // A row file the build dressed: its types hash to the version, but it carries another label
+    // and a key of its own. The stored row is the hash and the four fields, nothing more.
+    await build(galaxy, { dressRow: { version: 'planted', planted: true } });
+    const stored = await inDO(env.GALAXY, galaxy, (s) => s.ctx.storage.kv.get(DEV_ROW_KEY)) as Record<string, unknown>;
+    expect(stored.version).toBe(v3);
+    expect(Object.keys(stored).sort()).toEqual(['relationships', 'types', 'validatorBundle', 'version']);
+  });
+
+  // Mutation: compare the file with the row before the build ahead has landed (drop the queue
+  // around `#buildAndLand`); the second build is then passed no version and the newer row stays.
+  it('a file reverted between two overlapping builds leaves the reverted row current', async () => {
+    const galaxy = uniqueGalaxyScope();
+    const v1 = await versionOf(TODO_V1);
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V1));
+    await build(galaxy);
+    expect(await devRowVersion(galaxy)).toBe(v1);
+    await inDO(env.GALAXY, galaxy, async (s) => {
+      let compiled!: () => void;
+      const firstCompiled = new Promise<void>((r) => { compiled = r; });
+      s.setBuildFaultsForTest({ onCompiled: () => compiled(), holdMs: 300 });
+      await s.writeSource(ONTOLOGY_PATH, TODO_V2);
+      const first = s.buildNow({});
+      await firstCompiled; // the first build compiled v2 and has yet to land it
+      s.setBuildFaultsForTest({});
+      await s.writeSource(ONTOLOGY_PATH, TODO_V1); // the revert, while the first build runs
+      await Promise.all([first, s.buildNow({})]);
+    });
+    expect(await devRowVersion(galaxy)).toBe(v1);
   });
 
   it('LAZY-PULL: a data op on the .dev Star, under NON-ADMIN claims, installs the landed row', async () => {

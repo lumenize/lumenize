@@ -16,7 +16,7 @@ The **ontology** is the single declaration of what resource types exist in your 
 - A `.d.ts`-style TypeScript file (one file per app, or one per type with a barrel — open question, see below).
 - Defines resource types via standard TypeScript `interface` / `type` declarations.
 - Annotated with JSDoc-style tags (`@title`, `@description`, `@inverse`, etc.) that Studio's LLM and the runtime parser-validator both consume.
-- Compiled at deploy time by [typia](https://typia.io) into a runtime parser-validator (see [@lumenize/ts-runtime-parser-validator](../ts-runtime-parser-validator/index.md) for the compilation pipeline).
+- Compiled by [typia](https://typia.io), when a build changes the file, into a runtime parser-validator (see [@lumenize/ts-runtime-parser-validator](../ts-runtime-parser-validator/index.md) for the compilation pipeline).
 - The single source of truth: the server validates every transaction against it; the client uses it for typed `store.resources.<type>` access (typed access is a planned addition — currently `Record<string, any>`).
 
 > **Open**: file layout. Single `ontology.d.ts` per app vs. per-type files (`Todo.d.ts`, `TodoList.d.ts`, ...) with a barrel `ontology/index.d.ts`. The single-file form is simpler for small apps and easier for the LLM to consult; per-type files scale better for large apps and co-locate the type with its resolver. Probably let Studio pick based on app size; document both shapes.
@@ -166,11 +166,11 @@ Will cover:
 
 Will cover briefly (link out for depth):
 
-- typia compiles the .d.ts at deploy time into a runtime parser-validator.
+- typia compiles the .d.ts into a runtime parser-validator when a build changes it, and the `.dev` Star runs it once that build lands.
 - The validator runs on every transaction (server-side, before write).
 - Validation failures surface per-resource as `{ kind: 'validation-failed', errors }` in the `TransactionResourceResolution` (see [Resources § Per-resource behavior](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler)).
 - Detailed pipeline + the typia tag vocabulary live in [@lumenize/ts-runtime-parser-validator](../ts-runtime-parser-validator/index.md).
-- The validator bundle ships alongside the deployed app (lock-step with `ontologyVersion`); old clients hitting a new server get `{ kind: 'ontology-stale' }` and reload.
+- The validator bundle moves with the app's page (lock-step with `ontologyVersion`); a page on an old build gets `{ kind: 'ontology-stale' }` and reloads.
 
 ## When to evolve the ontology
 

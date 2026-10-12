@@ -101,8 +101,8 @@ export async function run(stack: DevStack): Promise<void> {
     assertCycleReport('overlap B', o2);
 
     // ── The job's own steps against the served mount ──
-    // The first cycle on this fresh Galaxy carried the seed ontology (not yet in the
-    // registry), so the ontology step ran and wrote the row into the mount; typeCheck
+    // The first cycle on this fresh Galaxy carried the seed ontology (not yet the `.dev`
+    // Star's current row), so the ontology step ran and wrote the row into the mount; typeCheck
     // names what tsc actually looked at.
     assert.ok(b1.typeCheck.ran, 'typeCheck must run');
     assert.ok(b1.typeCheck.checked.includes('src/App.vue'),

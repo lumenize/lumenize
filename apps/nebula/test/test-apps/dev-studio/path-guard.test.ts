@@ -53,8 +53,8 @@ describe('the entries\' path rule (assertModelPath)', () => {
   });
 
   // Negative 3: the reserved prefixes — every leading-dot FIRST segment on a write, except
-  // `.agents`. Each is its own case because each guards a different thing: a registry row
-  // `#registryRows()` would parse, a platform doc a user app could shadow, the Universe
+  // `.agents`. Each is its own case because each guards a different thing: the build's compiled
+  // row and anything else machine-owned, a platform doc a user app could shadow, the Universe
   // mount, git's own tree, a secret's file. Mutation-check: deleting the dot-prefix branch
   // lets every one of these through → RED; special-casing `.nebula` alone leaves the rest.
   it.each([

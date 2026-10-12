@@ -37,9 +37,12 @@
  *     Star admits none of its subscribes before its `installed` line and never hears the held two
  *     until then. *Reds when the gate's opening sends nothing, or when a list subscription
  *     carries no version.*
- *  7. **A wipe drops the page's subscriptions, and the page takes them again.** Two wipes; after
- *     each, the same page calls no `onShouldRefreshUI` and its list sees a `Deal` written
- *     afterwards. *Reds when a notice naming no version takes the reload path.*
+ *  7. **A wipe drops the page's subscriptions, and the page takes them again.** The page holds
+ *     two rows and two lists. Two wipes; after each, it calls no `onShouldRefreshUI` and both
+ *     lists see `Deal`s written afterwards. The restore's first row is refused as missing once the
+ *     Star installs, and the lists are refused behind the gate its answer closed. *Reds when a
+ *     notice naming no version takes the reload path, when a probe refused for another reason
+ *     keeps the gate closed, and when the gate's opening resends only first subscribes.*
  *  8. **A top-level page on the `.dev` host reloads once per build.** The app's own `nebula.ts`
  *     logs a console line from `onShouldRefreshUI` and reloads; the page is neither framed in
  *     Studio nor the build's requester. After each of two builds a second client sends one op, so
@@ -225,7 +228,6 @@ export async function run(stack: DevStack): Promise<void> {
     assert.ok(cookie, "the owner's sign-up set no refresh cookie for the account");
     const session = { refreshToken: cookie.value, authScope: universe };
     const studioToken = await refreshAccessToken(stack.baseUrl, session, galaxy);
-    const devToken = await refreshAccessToken(stack.baseUrl, session, dev);
     // Studio's own client class, which hears the preview-ready push a build sends its requester.
     const studio: Driver = await connectDriver(stack, { scope: galaxy, session: studioToken, Client: StudioClient });
     disposers.push(() => studio.dispose());
@@ -240,10 +242,12 @@ export async function run(stack: DevStack): Promise<void> {
       return asset ? (await fetch(`${scopeUrlOf(stack, dev)}/${asset}`)).text() : '';
     };
 
-    /** A page on `scope`'s host pinned to `version`, as the app's own client is built against it. */
-    const openPage = async (scope: string, token: { accessToken: string; sub: string }, version: string,
-      onShouldRefreshUI?: () => void) => {
+    /** A page on `scope`'s host pinned to `version`, as the app's own client is built against it.
+     *  Each takes a fresh token from the session, as a page loaded now would: deployed, this run
+     *  outlasts one access token. */
+    const openPage = async (scope: string, version: string, onShouldRefreshUI?: () => void) => {
       await waitForHost(scopeUrlOf(stack, scope));
+      const token = await refreshAccessToken(stack.baseUrl, session, scope);
       const ctx = new Browser().context(scopeUrlOf(stack, scope));
       const client = new NebulaClient({
         baseUrl: scopeUrlOf(stack, scope),
@@ -307,7 +311,7 @@ export async function run(stack: DevStack): Promise<void> {
         await sleep(500);
       }
     }
-    const page = await openPage(dev, devToken, v2);
+    const page = await openPage(dev, v2);
     const withDue = await createDeal(page, { title: 'Renewal', dueDate: '2026-11-01' });
     record('limb 1 — a page loaded after the build writes a Deal with a due date',
       studioAnswer === 'ran' && withDue === 'committed',
@@ -345,8 +349,7 @@ export async function run(stack: DevStack): Promise<void> {
     // ── LIMB 3: a tenant Star installs nothing a build compiled ─────────────────────────────
     const founded = await foundTenantStar({ baseUrl: stack.baseUrl, star: tenant, testToken });
     assert.ok(founded, `${tenant} could not be founded`);
-    const tenantToken = await refreshAccessToken(stack.baseUrl, session, tenant);
-    const tenantPage = await openPage(tenant, tenantToken, v3!);
+    const tenantPage = await openPage(tenant, v3!);
     const tenantOutcome = (await tenantPage.resources.transaction({
       [crypto.randomUUID()]: { op: 'create', typeName: 'Deal', nodeId: ROOT_NODE_ID, value: { title: 'never lands' } },
     })).kind;
@@ -421,7 +424,7 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── LIMB 5: a version change on `.dev` counts the rows its validator refuses ────────────
     // The owner's Wipe left the Star empty, so these five are the only rows it holds.
-    const seeded = await openPage(dev, devToken, v3!);
+    const seeded = await openPage(dev, v3!);
     for (const value of [
       { title: 'a', stage: 'won' }, { title: 'b', stage: 'lost' }, { title: 'c' }, { title: 'd' }, { title: 'e' },
     ]) assert.equal(await createDeal(seeded, value), 'committed', `seeding ${value.title} failed`);
@@ -430,7 +433,7 @@ export async function run(stack: DevStack): Promise<void> {
       await write('src/ontology.d.ts', seed + types);
       await build();
       const version = (await servedOntologyVersion(stack, dev))!;
-      const reader = await openPage(dev, devToken, version);
+      const reader = await openPage(dev, version);
       // A read, so the op that makes the Star install adds no row to what the next count checks.
       await reader.resources.read('Deal', crypto.randomUUID()).catch(() => null);
       if (!observable) return { version, line: 'not observable on a deployed target' };
@@ -450,12 +453,12 @@ export async function run(stack: DevStack): Promise<void> {
     // ── LIMB 6: a page current at the new version waits out the change without reloading ─────
     const pipelineId = crypto.randomUUID();
     const pipelineQuery = { queryType: 'parentChild' as const, typeName: 'Deal', field: 'pipeline', value: pipelineId };
-    /** A `Pipeline` at `pipelineId` and one `Deal` in it, from `client`; returns the Deal's id and outcome. */
-    const writePiped = async (client: NebulaClient): Promise<[string, string]> => {
+    /** A `Pipeline` at `pipeline` and one `Deal` in it, from `client`; returns the Deal's id and outcome. */
+    const writePiped = async (client: NebulaClient, pipeline = pipelineId): Promise<[string, string]> => {
       const deal = crypto.randomUUID();
       const outcome = await client.resources.transaction({
-        [pipelineId]: { op: 'create', typeName: 'Pipeline', nodeId: ROOT_NODE_ID, value: { name: 'Sales' } },
-        [deal]: { op: 'create', typeName: 'Deal', nodeId: ROOT_NODE_ID, value: { title: 'piped', pipeline: pipelineId } },
+        [pipeline]: { op: 'create', typeName: 'Pipeline', nodeId: ROOT_NODE_ID, value: { name: 'Sales' } },
+        [deal]: { op: 'create', typeName: 'Deal', nodeId: ROOT_NODE_ID, value: { title: 'piped', pipeline } },
       });
       return [deal, outcome.kind];
     };
@@ -463,7 +466,7 @@ export async function run(stack: DevStack): Promise<void> {
     await build();
     const vP = (await servedOntologyVersion(stack, dev))!;
     let refreshes = 0;
-    const current = await openPage(dev, devToken, vP, () => { refreshes++; });
+    const current = await openPage(dev, vP, () => { refreshes++; });
     // The list subscription is the first op the `.dev` Star hears since the build, so it still
     // holds the old version: its answer closes the page's gate, and the two row subscriptions sent
     // after it wait there, unsent.
@@ -475,7 +478,7 @@ export async function run(stack: DevStack): Promise<void> {
     const [listTaken, rowsTaken] = [await listAnswer, await rowsAnswer];
     const taken = !closed ? `the gate never closed (the list: ${listTaken})`
       : listTaken !== 'ok' ? `the list: ${listTaken}` : rowsTaken !== 'ok' ? `the rows: ${rowsTaken}` : 'ok';
-    const writer = await openPage(dev, devToken, vP);
+    const writer = await openPage(dev, vP);
     const [piped, wrotePiped] = await writePiped(writer);
     const sawPiped = await until(15_000, () => list.resourceIds.includes(piped));
     record('limb 6 — a page on the new version takes its subscriptions, with no reload',
@@ -497,19 +500,30 @@ export async function run(stack: DevStack): Promise<void> {
         `installed ${install ? 'logged' : 'NOT logged'}; the list subscription refused ${refused.length - heldRefused}×, ` +
         `the held rows ${heldRefused}×; ${admitted.length} admitted, ${after ? 'all after the install' : 'SOME BEFORE the install'}`];
     });
-    for (const r of rows) r[Symbol.dispose]();
-
     // ── LIMB 7: a wipe drops the page's subscriptions, and the page takes them again ─────────
+    // The page holds the two rows from limb 6, its list, and a second list with a Deal in it, so a
+    // wipe's restore sends a row first, which the wiped Star refuses as missing once it installs,
+    // and the established lists wait behind the gate that row's answer closed.
+    const pipeline2 = crypto.randomUUID();
+    const list2 = current.resources.subscribeQuery({ ...pipelineQuery, value: pipeline2 });
+    const [first2] = await writePiped(writer, pipeline2);
+    const list2Ready = await within(30_000, list2.ready);
+    const list2Saw = await until(15_000, () => list2.resourceIds.includes(first2));
+    assert.ok(list2Ready === 'ok' && list2Saw, `the second list never took its first Deal (${list2Ready})`);
     for (const round of [1, 2]) {
       await studio.client.lmz.callAsync('STAR', dev, studio.client.ctn<Star>().resetDevData(), { timeoutMs: 30_000 });
-      // The wipe left no Deals, so an empty list is the page's subscription answered again.
-      const retaken = await until(30_000, () => list.resourceIds.length === 0);
+      // The wipe left no Deals, so an empty list is that list answered again. Within 15 s, well
+      // inside the gate's 30 s bound, so a gate let go only at its bound reds here.
+      const wiped = Date.now();
+      const retaken = await until(15_000, () => list.resourceIds.length === 0 && list2.resourceIds.length === 0);
+      const retakenMs = Date.now() - wiped;
       const [deal, wrote] = await writePiped(writer);
-      const saw = await until(30_000, () => list.resourceIds.includes(deal));
-      record(`limb 7 — after wipe ${round}, the page's list sees a Deal written afterwards, with no reload`,
-        retaken && wrote === 'committed' && saw && refreshes === 0,
-        `list ${retaken ? 'answered again' : 'NOT answered again'}; the Deal ${wrote}, ${saw ? 'seen' : 'NOT seen'}; ` +
-        `onShouldRefreshUI calls ${refreshes}`);
+      const [deal2, wrote2] = await writePiped(writer, pipeline2);
+      const saw = await until(30_000, () => list.resourceIds.includes(deal) && list2.resourceIds.includes(deal2));
+      record(`limb 7 — after wipe ${round}, both of the page's lists see Deals written afterwards, with no reload`,
+        retaken && wrote === 'committed' && wrote2 === 'committed' && saw && refreshes === 0,
+        `lists ${retaken ? `answered again in ${retakenMs} ms` : `NOT answered again within 15 s (${list.resourceIds.length}, ${list2.resourceIds.length} ids)`}; ` +
+        `Deals ${wrote}/${wrote2}, ${saw ? 'seen' : 'NOT seen'}; onShouldRefreshUI calls ${refreshes}`);
     }
 
     // ── LIMB 8: a top-level page on the `.dev` host reloads once per build ───────────────────
@@ -534,7 +548,7 @@ export async function run(stack: DevStack): Promise<void> {
       const version = (await servedOntologyVersion(stack, dev))!;
       builtFor8.push(version);
       // A second client on the new version, so the Star installs it and tells the page.
-      const nudge = await openPage(dev, devToken, version);
+      const nudge = await openPage(dev, version);
       await nudge.resources.read('Deal', crypto.randomUUID()).catch(() => null);
       await until(30_000, () => reloadLines.includes(version) && loads > loadsBefore);
       await deals.filter({ hasText: /^\d+$/ }).waitFor({ state: 'visible', timeout: 60_000 }).catch(() => { /* reported below */ });
@@ -546,7 +560,7 @@ export async function run(stack: DevStack): Promise<void> {
     await top.close();
 
     // ── LIMB 9: on a tenant Star the wait ends, and nothing keeps asking ────────────────────
-    const quiet = await openPage(tenant, tenantToken, builtFor8.at(-1)!);
+    const quiet = await openPage(tenant, builtFor8.at(-1)!);
     /** A subscribe with no version: the tenant logs its arrival and asks nobody, so it fences the log. */
     const fence = () => {
       const topic = crypto.randomUUID();

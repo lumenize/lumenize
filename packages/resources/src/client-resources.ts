@@ -235,6 +235,9 @@ export interface ReadOptions {
  *  short retries cover it without masking a genuinely stale client. */
 const CHECKING_RETRY_LIMIT = 4;
 const CHECKING_RETRY_DELAY_MS = 400;
+/** How long the version gate may stay closed before it opens anyway, so a probe whose answer was
+ *  lost with a dropped socket never strands the page. Its probe ends long before this otherwise. */
+const GATE_BOUND_MS = 30_000;
 
 type SubscribeKey = string; // `${resourceType}:${resourceId}`
 
@@ -333,9 +336,12 @@ function pageSessionStorage(): Storage | undefined {
 
 /**
  * Closed by the first `checking` answer, while that one op — the prober — retries: every other op,
- * the Client's own resends included, waits behind it. It opens on the prober's real answer, or
- * with the stale error when the prober's retries run out, and then held ops are sent, or resolve
- * `ontology-stale`. Kept in memory: a page that reloads starts open.
+ * the Client's own resends included, waits behind it. It opens when the prober is admitted, which
+ * proves the version current; when the prober ends any other way; with the stale error when the
+ * prober's retries run out; or, failing all of those, at {@link GATE_BOUND_MS}. Then held ops are
+ * sent, or resolve `ontology-stale`. A restore that waited is dropped when it opens stale: the host
+ * refused this page's version, so it would refuse the restore too. Kept in memory: a page that
+ * reloads starts open.
  */
 interface StaleGate {
   /** The op that closed it: a push channel's key (`resource:Deal:…`), or a request's name. */
@@ -343,11 +349,16 @@ interface StaleGate {
   /** Resolves when it opens: `undefined` when the version proved current, the stale error if not. */
   opened: Promise<OntologyStaleError | undefined>;
   resolve(stale: OntologyStaleError | undefined): void;
-  /** What its opening owes the subscriptions that waited: resend the pending ones, restore all,
+  /** The push channels answered `checking` while it was closed, each with what sends it again —
+   *  established subscriptions a restore had sent included, which no pending list holds. */
+  owed: Map<string, () => boolean>;
+  /** What else its opening owes: resend the subscribes still awaiting a first answer, restore all,
    *  or ask again for what was denied. */
   flush: boolean;
   restore: boolean;
   askAgain: boolean;
+  /** Opens it at {@link GATE_BOUND_MS} if nothing has by then. */
+  deadline: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -681,30 +692,31 @@ export class ClientResources {
    * decided in {@link #handleStale}, so a page on an old build reloads, once per version.
    */
   async #versioned<T>(name: string, send: () => Promise<T>): Promise<{ value: T } | { stale: OntologyStaleError }> {
-    let probing = false;
+    let mine: StaleGate | undefined; // the gate this op closed, while it probes
     for (let attempt = 0; ; attempt++) {
-      if (!probing && this.#gate) {
+      if (!mine && this.#gate) {
         const stale = await this.#gate.opened;
         if (stale) return { stale };
       }
       let result: unknown;
       try { result = await send(); } catch (e) { result = e; }
       if (!isOntologyStaleError(result)) {
-        if (probing) this.#openGate(undefined);
+        // Admitted, or refused for some other reason: either way the probe is over.
+        if (mine && this.#gate === mine) this.#openGate(undefined);
         if (result instanceof Error) throw result;
         return { value: result as T };
       }
       const retriesLeft = attempt < CHECKING_RETRY_LIMIT;
-      if (result.checking && !probing) {
+      if (result.checking && !mine) {
         if (this.#gate) continue; // sent just before it closed: wait for it, then send again
-        if (retriesLeft) { this.#closeGate(name); probing = true; }
+        if (retriesLeft) { this.#closeGate(name); mine = this.#gate; }
       }
       const action = this.#handleStale(result, retriesLeft);
       if (action === 'retry') {
         await new Promise((r) => setTimeout(r, CHECKING_RETRY_DELAY_MS));
         continue;
       }
-      if (probing) this.#openGate(result);
+      if (mine && this.#gate === mine) this.#openGate(result);
       return { stale: result };
     }
   }
@@ -806,7 +818,7 @@ export class ClientResources {
    * the version gate is closed this only records what the gate's opening owes (StaleGate), so a
    * reconnect while it is closed sends each subscribe once, when it opens.
    */
-  #resendVersioned(which: 'all' | 'pending'): void {
+  #resendVersioned(which: 'all' | 'pending', skip: ReadonlySet<string> = new Set()): void {
     if (this.#gate) {
       if (which === 'all') this.#gate.restore = true; else this.#gate.flush = true;
       return;
@@ -817,7 +829,7 @@ export class ClientResources {
     // Every registry entry is a resource on this page's host. Profiles are not in it: they ride the
     // Client's own channel, on the PROFILE binding, and `MeshClient.onSubscriptionRequired` restores them.
     for (const [key, entry] of this.#subscriptionRegistry) {
-      if (!all && !this.#pendingSubscribes.has(key)) continue;
+      if (skip.has(`resource:${key}`) || (!all && !this.#pendingSubscribes.has(key))) continue;
       this.#hostCall(
         this.#client.ctn<ResourcesHostNode>().resources.subscribe(version, entry.resourceType, entry.resourceId),
         this.#client.ctn<NebulaClient>().onResourceSubscribeRefused(entry.resourceType, entry.resourceId));
@@ -825,13 +837,13 @@ export class ClientResources {
     // Every live query too, so a changed admin verdict is re-derived server-side and the stored
     // `dominionOverHostAtSubscribe` is cleared. The window subs ride the resource loop above.
     for (const [queryHash, entry] of this.#queryEntries) {
-      if (!all && entry.ready.settled) continue;
+      if (skip.has(`query:${queryHash}`) || (!all && entry.ready.settled)) continue;
       this.#hostCall(
         this.#client.ctn<ResourcesHostNode>().resources.subscribeQuery(version, entry.query), this.#client.ctn<NebulaClient>().onQuerySubscribeRefused(queryHash));
     }
     // The standalone subscriber-list watchers; the roster re-arrives via handleQuerySubscribersUpdate.
     for (const [queryHash, entry] of this.#querySubscriberEntries) {
-      if (!all && entry.ready.settled) continue;
+      if (skip.has(`roster:${queryHash}`) || (!all && entry.ready.settled)) continue;
       this.#hostCall(
         this.#client.ctn<ResourcesHostNode>().resources.subscribeQuerySubscribers(version, entry.query),
         this.#client.ctn<NebulaClient>().onRosterSubscribeRefused(queryHash));
@@ -1377,19 +1389,31 @@ export class ClientResources {
     if (this.#gate) return;
     let resolve!: (stale: OntologyStaleError | undefined) => void;
     const opened = new Promise<OntologyStaleError | undefined>((r) => { resolve = r; });
-    this.#gate = { prober, opened, resolve, flush: false, restore: false, askAgain: false };
+    const gate: StaleGate = {
+      prober, opened, resolve, owed: new Map(), flush: false, restore: false, askAgain: false,
+      deadline: setTimeout(() => {
+        if (this.#gate !== gate) return;
+        log.warn('version gate timed out', { client: this.#client.lmz.instanceName, prober });
+        this.#openGate(undefined);
+      }, GATE_BOUND_MS),
+    };
+    // Node only: a page about to exit is not kept alive by a gate it will never open.
+    (gate.deadline as { unref?: () => void }).unref?.();
+    this.#gate = gate;
     log.debug('version gate closed', { client: this.#client.lmz.instanceName, prober });
   }
 
   /**
-   * Open the gate: with no error when the prober's version proved current, so the subscriptions
-   * that waited are sent; with the stale error when it did not, so every subscribe still waiting on
-   * its first answer resolves with it, as the waiting requests do through {@link #versioned}.
+   * Open the gate: with no error when the version proved current, or the probe ended without
+   * deciding, so the subscriptions that waited are sent; with the stale error when it did not, so
+   * every subscribe still waiting on its first answer resolves with it, as the waiting requests do
+   * through {@link #versioned}.
    */
   #openGate(stale: OntologyStaleError | undefined): void {
     const gate = this.#gate;
     if (!gate) return;
     this.#gate = undefined;
+    clearTimeout(gate.deadline);
     log.debug('version gate opened', { client: this.#client.lmz.instanceName, prober: gate.prober, stale: stale !== undefined });
     gate.resolve(stale);
     if (stale) {
@@ -1403,8 +1427,12 @@ export class ClientResources {
       }
       return;
     }
-    if (gate.restore) this.#resendVersioned('all');
-    else if (gate.flush) this.#resendVersioned('pending');
+    if (gate.restore) {
+      this.#resendVersioned('all');
+    } else {
+      for (const resend of gate.owed.values()) resend();
+      if (gate.flush) this.#resendVersioned('pending', new Set(gate.owed.keys()));
+    }
     if (gate.askAgain) this.#askAgain();
   }
 
@@ -1417,21 +1445,28 @@ export class ClientResources {
 
   /**
    * A stale answer on a push channel. A `checking` refusal with no gate closed makes this channel
-   * the prober: it closes the gate and resends on its own until its retries run out. One sent just
-   * before another channel closed the gate waits for the opening, which resends or settles it.
-   * Anything else is decided in {@link #handleStale}, and `settle` ends the channel's pending op.
-   * A channel nothing holds (`canResend` false) never probes, since nothing would answer its probe.
+   * the prober: it closes the gate and resends on its own until its retries run out, and if it can
+   * no longer resend, because nothing holds it now, the gate opens. One answered `checking` while
+   * another channel probes is owed a resend when the gate opens. A `checking` refusal on a channel
+   * nothing holds is dropped: it names the version the host is replacing, which says nothing about
+   * this page. Anything else is decided in {@link #handleStale}, and `settle` ends the channel's
+   * pending op.
    */
-  #onPushStale(channel: string, err: OntologyStaleError, canResend: boolean, resend: () => void, settle: () => void): void {
-    if (err.checking && !err.notice && canResend) {
+  #onPushStale(channel: string, err: OntologyStaleError, canResend: boolean, resend: () => boolean, settle: () => void): void {
+    if (err.checking && !err.notice) {
+      if (!canResend) {
+        settle();
+        this.#onPushEnded(channel);
+        return;
+      }
       const gate = this.#gate;
-      if (gate && gate.prober !== channel) { gate.flush = true; return; }
+      if (gate && gate.prober !== channel) { gate.owed.set(channel, resend); return; }
       const attempt = this.#checkingAttempts.get(channel) ?? 0;
       const retriesLeft = attempt < CHECKING_RETRY_LIMIT;
       if (!gate && retriesLeft) this.#closeGate(channel);
       if (this.#handleStale(err, retriesLeft) === 'retry') {
         this.#checkingAttempts.set(channel, attempt + 1);
-        setTimeout(resend, CHECKING_RETRY_DELAY_MS);
+        setTimeout(() => { if (!resend()) this.#onPushEnded(channel); }, CHECKING_RETRY_DELAY_MS);
         return;
       }
       this.#checkingAttempts.delete(channel);
@@ -1443,8 +1478,16 @@ export class ClientResources {
     settle();
   }
 
-  /** A real answer on a push channel: its retries reset, and if it was the prober, the gate opens. */
+  /** A push channel admitted by its host: its retries reset, and if it was probing, the gate
+   *  opens, since the host just ran an op at this page's version. */
   #onPushAnswered(channel: string): void {
+    this.#checkingAttempts.delete(channel);
+    if (this.#gate?.prober === channel) this.#openGate(undefined);
+  }
+
+  /** A push channel whose op ended without proving the version either way — refused for some other
+   *  reason, abandoned, or let go. If it was probing, the gate opens and the rest try for themselves. */
+  #onPushEnded(channel: string): void {
     this.#checkingAttempts.delete(channel);
     if (this.#gate?.prober === channel) this.#openGate(undefined);
   }
@@ -1521,16 +1564,18 @@ export class ClientResources {
         this.#onPushStale(`resource:${key}`, result, this.#subscriptionRegistry.has(key), () => {
           const version = this.#ontologyVersion;
           const registered = this.#subscriptionRegistry.get(key);
-          if (!version || !registered) return;
+          if (!version || !registered) return false;
           this.#hostCall(
             this.#client.ctn<ResourcesHostNode>().resources.subscribe(version, registered.resourceType, registered.resourceId),
             this.#client.ctn<NebulaClient>().onResourceSubscribeRefused(registered.resourceType, registered.resourceId));
+          return true;
         }, () => this.#rejectPendingSubscribe(key, result));
         return;
       }
       // Any other Error: reject the pending Promise (if any) and drop the registry entry. No
-      // state write-through on error.
+      // state write-through on error. A resource a wipe deleted ends a probe this way.
       this.#rejectPendingSubscribe(key, result);
+      this.#onPushEnded(`resource:${key}`);
       return;
     }
 
@@ -1661,11 +1706,14 @@ export class ClientResources {
         this.#onPushStale(`query:${queryHash}`, result, true, () => {
           const live = this.#queryEntries.get(queryHash);
           const version = this.#ontologyVersion;
-          if (live && version) this.#hostCall(this.#client.ctn<ResourcesHostNode>().resources.subscribeQuery(version, live.query), this.#client.ctn<NebulaClient>().onQuerySubscribeRefused(queryHash));
+          if (!live || !version) return false;
+          this.#hostCall(this.#client.ctn<ResourcesHostNode>().resources.subscribeQuery(version, live.query), this.#client.ctn<NebulaClient>().onQuerySubscribeRefused(queryHash));
+          return true;
         }, settle);
         return;
       }
       settle();
+      this.#onPushEnded(`query:${queryHash}`);
       return;
     }
     entry.resourceIds = result.resourceIds ?? [];
@@ -1696,14 +1744,15 @@ export class ClientResources {
         this.#onPushStale(`roster:${queryHash}`, result, true, () => {
           const live = this.#querySubscriberEntries.get(queryHash);
           const version = this.#ontologyVersion;
-          if (live && version) {
-            this.#hostCall(this.#client.ctn<ResourcesHostNode>().resources.subscribeQuerySubscribers(version, live.query),
-              this.#client.ctn<NebulaClient>().onRosterSubscribeRefused(queryHash));
-          }
+          if (!live || !version) return false;
+          this.#hostCall(this.#client.ctn<ResourcesHostNode>().resources.subscribeQuerySubscribers(version, live.query),
+            this.#client.ctn<NebulaClient>().onRosterSubscribeRefused(queryHash));
+          return true;
         }, settle);
         return;
       }
       settle();
+      this.#onPushEnded(`roster:${queryHash}`);
       return;
     }
     this.#querySubscribersListener?.({ queryHash, query: entry.query, roster: result });

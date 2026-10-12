@@ -238,6 +238,8 @@ One line per observation, appended, never edited: `date · limb · pass|fail · 
 - 2026-09-06 · (a) · asked · pass 1 under the new skill: the wishlist prompt names fields, and the model asked about the shape instead of building — the judgment the skill describes, so the limb now reports "asked" rather than fail; pass 2 built `App.vue` through the store
 - 2026-09-06 · (c) · pass · pass 2 under the new skill: the reply named `AGENTS.md`; pass 1 did not — still variance, one of two
 - 2026-09-25 · (g) · fail · the SCENARIO fails, for a non-model reason and a new one: making `ontologyVersion` optional let the preview app boot for the first time (2 WS upgrades against 0 before), and the newly-live client draws `subscribeTree` refused at the GALAXY — which `NebulaClientConfig`'s own JSDoc says does not host it, and which `constructionPairs` routes there for any galaxy-tier driver — plus four `refresh-token` 401s and a container `exit code: 137` that is not explained. Proven by stash: green without the change at 60.5 s, red with it at 152 s, twice on a cleaned Docker. Backlog row carries it; the limb itself was never reached
+- 2026-10-11 · (g) · fail · after `define-ontology`'s step 6 was rewritten to ask for a reset rather than an Apply, one `first-app-built` build turn wrote nothing (stop=no-tool-calls, rounds=3); the next runs wrote the ontology and the page and built twice. One sample against three passes, the 09-05 variance shape, not traced to the edit
+- 2026-10-11 · (g) · fail · one sweep run's build turn ended on a Workers AI REST 400 from the model after it wrote `src/ontology.d.ts`; the rerun passed. Provider-side, not a guidance outcome
 
 
 ## ADR hand-review
