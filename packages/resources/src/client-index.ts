@@ -50,5 +50,5 @@ export type {
   EdgeKey as OrgTreeEdgeKey,
 } from './org-ops';
 
-// Ontology config types — the shape contract for a test lane's Star apply initiators.
+// Ontology config types — the shape contract for a test lane's Star install initiators.
 export type { OntologyVersionConfig, OntologyVersionRow } from './ontology-version';

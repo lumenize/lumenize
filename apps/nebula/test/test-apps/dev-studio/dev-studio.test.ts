@@ -1,5 +1,5 @@
 /**
- * Galaxy source-of-truth + compile-and-apply (the `dev-studio` project — its name
+ * Galaxy source-of-truth + compile-and-land (the `dev-studio` project — its name
  * predates the collapse of DevStudio into Galaxy).
  *
  * Driven via `__executeOperation` envelopes (no client/JWT), so the real receive seam

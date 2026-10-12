@@ -90,7 +90,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     // A revert: v1 is current again after v2. Left in place in the install history, v1's row was
     // installed while every reader still named v2 — a v1 op was answered stale until it gave up,
     // and the next cold start found no row at all. The `star-serves-current-ontology` scenario
-    // drives the same revert through a real Apply; this pins the install half where CI runs it.
+    // drives the same revert through a real build; this pins the install half where CI runs it.
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client } = await devAdminClient(galaxy, dev);
     await installOntology(client, dev, 'v1', TODO_V1);

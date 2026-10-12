@@ -8,7 +8,8 @@
  *
  * **It owns the ontology a host serves, and one version rule for every host.** A host injects
  * only where the ontology comes from ({@link OntologySource}); the check, the install, the drains
- * and each op's answer to a mismatch live here (`#gate`). So does the `.dev` sandbox's wipe, which
+ * and each op's answer to a mismatch live here (`#gateClientOp` for a Client's op, `#gateServer`
+ * for the host's own work). So does the `.dev` sandbox's wipe, which
  * erases what the plane owns and rebuilds it.
  *
  * **It hands the wire one surface, {@link Resources.requests}, and never itself.** A host's one

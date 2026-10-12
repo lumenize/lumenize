@@ -32,7 +32,7 @@ import type { ParseResult } from '@lumenize/ts-runtime-parser-validator/runtime'
  * transcript handed to the model each round so a test can assert the error-tail
  * round-trips into the next round's user layer.
  *
- * It IS-A Galaxy, so the source-of-truth / compile-and-apply tests run against it
+ * It IS-A Galaxy, so the source-of-truth / compile-and-land tests run against it
  * unchanged (all real methods inherited).
  */
 export class GalaxyLoopProbe extends Galaxy {

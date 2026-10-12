@@ -127,7 +127,7 @@ Studio's LLM, when generating the ontology, picks annotations from a small rule 
 
 ### How annotations reach the runtime
 
-The compiler (typia or our extension) reads the .d.ts at deploy time and emits a config map alongside the validator bundle. The factory loads the bundle at startup and applies the per-field debounce config to its synced-state middleware automatically. For runtime overrides (rare — A/B testing, dynamic config), [`client.resources.transactionDebounce(rt, opts)`](./api-reference.md#resourcestransactiondebounce) is the override surface.
+The compiler (typia or our extension) reads the .d.ts when a build compiles it and emits a config map alongside the validator bundle. The factory loads the bundle at startup and applies the per-field debounce config to its synced-state middleware automatically. For runtime overrides (rare — A/B testing, dynamic config), [`client.resources.transactionDebounce(rt, opts)`](./api-reference.md#resourcestransactiondebounce) is the override surface.
 
 *(Status: the per-field debounce-config emission is post-demo. The initial release ships the global framework defaults — 500 ms quiet / 2000 ms maxWait — for every field, with `transactionDebounce` as the per-type override; per-field annotations take effect once the emission lands, the global defaults remaining the fallback for unannotated fields. `@longform` registers no conflict resolver yet either, so a type with a long-form field registers its own text-merge handler — see [Resources § Text fields specifically](./resources.md#text-fields-specifically--dont-leave-the-default). Its `<textarea>` effect is Studio's to apply, and applies now.)*
 
@@ -177,8 +177,8 @@ Will cover briefly (link out for depth):
 Will cover:
 
 - **Backward-compatible changes** — adding optional fields, adding new types, adding non-required references. Old clients keep working; new clients use the new fields.
-- **Breaking changes** — removing fields, renaming, making optional fields required, changing field types. These require a coordinated `ontologyVersion` bump.
-- The `ontologyVersion` ↔ ontology version lock-step model: server enforces that incoming transactions match its current ontology; mismatch yields `{ kind: 'ontology-stale' }` and the client reloads via `onShouldRefreshUI` (see [API reference § createNebulaClient](./api-reference.md#createnebulaclient)).
+- **Breaking changes** — removing fields, renaming, making optional fields required, changing field types. On the `.dev` Star the existing test data needs a reset; ask the user-developer for one.
+- The version lock-step model: the version is the hash of `src/ontology.d.ts`, so it moves whenever the types do, and every page carries the version it was built against. The host runs an op only at the version it has installed; a mismatch yields `{ kind: 'ontology-stale' }`, and a page on an old build reloads via `onShouldRefreshUI` (see [API reference § createNebulaClient](./api-reference.md#createnebulaclient)).
 - Migrations: link to wherever the migration story ultimately lives (`tasks/on-hold/nebula-lazy-schema-migrations.md` references this; the user-facing doc TBD).
 
 ## Authoring with Studio

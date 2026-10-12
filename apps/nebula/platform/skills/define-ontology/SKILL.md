@@ -26,7 +26,7 @@ Read `.platform/docs/ontology.md` — in particular *References between types*: 
 3. **Decide each relationship.** For every field that points at another kind, state it as a reference (`list: Wishlist` — an id on the wire) and say which side owns the list of ids (a container holding `items: string[]` is how a list renders). Ask only when two shapes are both plausible.
 4. **Propose the shape.** With `@title` on each interface and `?` on every field that may be absent. When the prompt carried no hints, write it and state the interfaces in your reply so a correction is one sentence away. When it carried hints, or the user-developer prefers to be asked, show the interfaces in prose and wait — their yes is the write's trigger.
 5. **Write the file.** `write_file` the complete `src/ontology.d.ts` (it is a deliberate rewrite of one file, so `write_file`, not `edit_file`), then `build` — the ontology step of the report compiles it and reports errors by line. Fix and build again until the ontology step is clean.
-6. **Say what changed and what comes next.** One sentence naming the types added or changed. Applying the ontology to the running app is the user-developer's step outside this chat; say that it is ready to apply. If the change removes or retypes a field that existing data uses, say that applying it will need a data wipe, so they decide with eyes open.
+6. **Say what changed and what comes next.** One sentence naming the types added or changed. Once the build lands, the preview runs the new types; there is no further step. If the change removes or retypes a field that existing data uses, say so plainly: the existing test data will need a reset, and ask the user-developer for one.
 
 ## What not to do
 

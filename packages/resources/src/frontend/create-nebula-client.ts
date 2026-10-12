@@ -784,8 +784,9 @@ export type CreateNebulaClientConfig<TConfig extends NebulaClientConfig = Nebula
     platformOrigin?: string;
     /** Defaults, in a frame only, to the `parentOrigin` the serving layer put in `nebula-scope`. */
     parentOrigin?: string;
-    /** Called on `ontology-stale`. `undefined`/`null` → default once-guarded
-     *  `window.location.reload()`; pass an explicit `() => {}` to opt out. */
+    /** Called when the host names a version other than this page's, at most once per version in a
+     *  tab (the Client's guard). `undefined`/`null` → the default `window.location.reload()`;
+     *  pass an explicit `() => {}` to opt out. */
     onShouldRefreshUI?: ((info: OntologyStaleInfo) => void) | null;
     /** Grace before auto-unsubscribe after the binding refcount hits zero (default 2000ms). */
     unsubscribeGraceMs?: number;
@@ -835,12 +836,12 @@ function inFrame(): boolean {
  * Pure config resolution (auto-detect + defaults), split out so it's unit-testable without opening
  * a connection. Throws when no platform origin is configured and the page names no deployment.
  *
- * ⚠️ **A missing `ontologyVersion` is NOT an error here.** An app with no applied ontology has no
- * version to pin, and it is still an app — it connects, authenticates and renders. The resource
- * plane refuses per operation with `NoOntologyInstalledError` instead, which is the difference
- * between a counter app that works and a blank page. Requiring it here is what blanked a freshly
- * generated Studio preview until 2026-09-25: the serving layer injects the Galaxy's APPLIED
- * version, and before the first Apply there is none.
+ * ⚠️ **A missing `ontologyVersion` is NOT an error here.** An app no build has landed an ontology
+ * for has no version to pin, and it is still an app — it connects, authenticates and renders. The
+ * resource plane refuses per operation with `NoOntologyInstalledError` instead, which is the
+ * difference between a counter app that works and a blank page. Requiring it here is what blanked
+ * a freshly generated Studio preview until 2026-09-25: the serving layer injects the version the
+ * page was built against, and before a build lands an ontology there is none.
  */
 export function resolveNebulaClientConfig(config: CreateNebulaClientConfig): {
   baseUrl?: string;

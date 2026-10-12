@@ -1,7 +1,7 @@
 /**
- * The self-correcting codegen loop driver (tasks/archive/nebula-codegen-loop.md Phases
- * 2–3; per-write compiling removed by tasks/archive/nebula-move-compilers-out-of-the-worker.md;
- * `read_file` + `edit_file` and the `preview` rename by tasks/nebula-guidance-file-tree.md).
+ * The self-correcting codegen loop driver (tasks/archive/nebula-codegen-loop.md; per-write
+ * compiling removed by tasks/archive/nebula-move-compilers-out-of-the-worker.md; `read_file` +
+ * `edit_file` and the `preview` rename by tasks/archive/nebula-guidance-file-tree.md).
  * The model emits `tool_calls`, this driver runs them, and repeats until
  * `mark_complete` or a bound trips. A `write_file` is a PURE WRITE — every build-like
  * step (ontology compile, SFC type check, `vite build`) runs in the container when the
@@ -12,12 +12,13 @@
  * model and no AI binding (vitest-plugin), and so the offline prompt harness can
  * drive it too. The driver imports nothing from the Galaxy: the entries a tool reaches
  * arrive as {@link CodegenLoopDeps.tools}, built by the Galaxy from its `LOOP_TOOL_ENTRIES`
- * table, and it holds **no reference** to the `.dev` Star binding or the install/wipe
- * methods (`compileAndInstallOntology` / `resetDevData` / `onOntologyPulled`) — that absence is
- * the secure-by-default guarantee (an autonomous tool can read, write and build but
- * never install or wipe; install/wipe stays the human-gated apply step fired AFTER the
- * loop). Path safety is the ENTRY's rule (`assertModelPath`, in `galaxy.ts`), so a refused
- * path reaches the loop as a thrown tool dep and is captured like any other tool error.
+ * table, and it holds **no reference** to the `.dev` Star binding, the wipe (`resetDevData`) or
+ * the ontology pull's answer (`onOntologyPulled`). That absence is the secure-by-default line:
+ * an autonomous tool reads, writes and builds. A build that lands changes the types the `.dev`
+ * Star runs, which touches only test data. Only a person wipes. Nothing a build compiles reaches
+ * a Star with real users (ADR-024). Path safety is the ENTRY's rule (`assertModelPath`, in
+ * `galaxy.ts`), so a refused path reaches the loop as a thrown tool dep and is captured like any
+ * other tool error.
  *
  * @see tasks/archive/nebula-codegen-loop.md
  */

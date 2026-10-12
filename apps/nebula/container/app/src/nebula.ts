@@ -21,7 +21,7 @@
 import { createNebulaClient } from '@lumenize/resources/frontend';
 
 interface NebulaScope {
-  // ABSENT until an ontology is applied. An app with no resources never needs one and boots
+  // ABSENT until a build lands an ontology. An app with no resources never needs one and boots
   // without it; the resource plane refuses per op with NoOntologyInstalledError.
   ontologyVersion?: string;
 }

@@ -19,8 +19,8 @@ describe('resolveNebulaClientConfig', () => {
 
   it('RESOLVES without an ontologyVersion — an app with no resources is still an app', () => {
     // This asserted the opposite until 2026-09-25, and the old rule is what blanked a freshly
-    // generated Studio preview: the serving layer injects the Galaxy's APPLIED ontology version,
-    // and before anyone runs Apply there is none, so the scaffold threw at mount and the page
+    // generated Studio preview: the serving layer injects the version the page was built against,
+    // and before a build lands an ontology there is none, so the scaffold threw at mount and the page
     // stayed `<div id="app"></div>`. Refusal moved to the resource ops, which are the only things
     // that actually need a version.
     const resolved = resolveNebulaClientConfig({ platformOrigin: PLATFORM });

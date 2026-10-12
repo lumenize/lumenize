@@ -391,8 +391,8 @@ switch (outcome.kind) {
     break;
 
   case 'ontology-stale':
-    // The client's app version is stale; onShouldRefreshUI usually fires (page reload).
-    // Optimistic state untouched. Nothing extra to do here.
+    // The op did not run at this page's version. If the host named a newer one,
+    // onShouldRefreshUI has fired (page reload). Optimistic state untouched.
     break;
 }
 ```

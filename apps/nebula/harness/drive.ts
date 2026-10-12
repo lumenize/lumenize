@@ -175,8 +175,8 @@ const SCENARIOS: Record<string, Scenario> = {
   'gateway-stamps-the-chain': gatewayStampsTheChain,        // a tab's appended hop reaches no subscriber row and no co-member's guard (no Docker)
   'display-names-reach-subscribers': displayNamesReachSubscribers, // consent's nickname lands at a first accept and reaches a live subscriber at a later one (no Docker)
   // ── a Star converges on its Galaxy's CURRENT ontology, never on the asking tab's ──────────
-  'star-serves-current-ontology': starServesCurrentOntology, // a stale tab cannot move a Star; a reverted ontology is served (Docker — two real Applies)
-  'grant-reveals-denied': grantRevealsDenied, // a grant with no write reveals what a real member was denied (Docker — one real Apply)
+  'star-serves-current-ontology': starServesCurrentOntology, // a stale tab cannot move a Star; a reverted ontology is served (Docker — three real builds)
+  'grant-reveals-denied': grantRevealsDenied, // a grant with no write reveals what a real member was denied (Docker — one real build)
   // ── a call from another tab reaches the receiving Client, which refuses it ─────────────────
   'client-sender-passage': clientSenderPassage, // a tab's call to another tab is refused by the receiving Client, before it decodes the chain (no Docker)
   'node-chain-passage': nodeChainPassage, // every real profile id answers, NEBULA_SUB's included, though none is a UUID (no Docker)

@@ -19,7 +19,7 @@ const client = new NebulaClient({
 });
 ```
 
-Browser apps don't construct `NebulaClient` directly — they use [`createNebulaClient`](./api-reference.md#createnebulaclient), where `baseUrl`, `platformOrigin` and `onShouldRefreshUI` come from the page. `ontologyVersion` is injected by the serving layer and is absent until an Apply has run — a resource-free app boots without it, and only `resources.*` refuses (`NoOntologyInstalledError`).
+Browser apps don't construct `NebulaClient` directly — they use [`createNebulaClient`](./api-reference.md#createnebulaclient), where `baseUrl`, `platformOrigin` and `onShouldRefreshUI` come from the page. `ontologyVersion` is injected by the serving layer and is absent until a build lands an ontology — a resource-free app boots without it, and only `resources.*` refuses (`NoOntologyInstalledError`).
 
 Moving to another scope means opening its host. The page there has its own client, and the cookies on the platform host cover it wherever a membership does.
 

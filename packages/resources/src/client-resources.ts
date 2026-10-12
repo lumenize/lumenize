@@ -308,7 +308,7 @@ function createInMemoryStoreAdapter(): NebulaStoreAdapter {
 
 /** What a {@link ClientResources} is built with: the parts of `NebulaClientConfig` that are its own. */
 export interface ClientResourcesOptions {
-  /** The app version every resource op pins; absent until an ontology is applied. */
+  /** The app version every resource op pins; absent until a build lands an ontology. */
   ontologyVersion?: string;
   /** The binding hosting this Client's Resources, `STAR` by default. */
   resourceHostBinding?: string;
@@ -356,7 +356,7 @@ interface StaleGate {
  */
 export class ClientResources {
   readonly #client: NebulaClient;
-  /** Absent when no ontology has been applied — see `NebulaClientConfig.ontologyVersion`. */
+  /** Absent until a build lands an ontology — see `NebulaClientConfig.ontologyVersion`. */
   #ontologyVersion?: string;
   /** Binding hosting this client's Resources (default 'STAR'; the resource pair). */
   #resourceHostBinding: string;
@@ -497,7 +497,7 @@ export class ClientResources {
     return this.#resourceHostBinding;
   }
 
-  /** The app version every resource op pins, or `undefined` before an ontology is applied. */
+  /** The app version every resource op pins, or `undefined` before a build lands an ontology. */
   get ontologyVersion(): string | undefined {
     return this.#ontologyVersion;
   }

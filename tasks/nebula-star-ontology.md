@@ -313,6 +313,40 @@ Each phase leaves `npm run type-check`, `npm test`, `drive.ts all --fast` and th
 
 **Retro:** the gate's flush survived its first live mutation, because the scenario subscribed before its page connected and the first connection's restore re-sent everything. A real app subscribes after `ready`. The same runs showed timing deciding which ops the Star refused, so limb 6 now sends its list subscription, waits for the Client's own `version gate closed` line, and only then sends the rows. The vacuity here was in a limb's premise, not its assertion, and first-run green was the only sign.
 
+### Phase 4, 2026-10-11
+
+**For Larry — ADR-024 is not edited.** Your pen round is open in it (two `[bracket]` notes, saved 17:12), and a write from here could clobber an unsaved edit. The verdicts the phase asks for, each checked against the code, ready to apply or to hand back:
+
+- *"The Galaxy answers every Star with the same row…"* — false since Phase 1; it answers by kind, and the version moves only when a build lands. Delete.
+- *"Rows live in a folder only `applyOntology` writes…"* — false since Phase 1; both are gone. Delete.
+- *"A list subscription, a roster subscription and a node invite carry no version."* — false since Phase 2. Delete.
+- *"The Stars of one Galaxy share a validator cache entry per version."* — half true. Rewrite: *The tenant Stars of one Galaxy share a validator cache entry per version; the `.dev` Star keys its own.*
+- *"A tab reloads for staleness only once per session."* — false since Phase 3; it reloads once per version. Delete.
+- *"Nothing is published, and no migration exists."* — true. Keep.
+- **Evidence:** `Resources.#gate` becomes `Resources.#gateClientOp`, and the reload moves from `create-nebula-client.ts`'s `defaultOnShouldRefreshUI` to `client-resources.ts`'s `#handleStale`, which decides through `stale-decision.ts`'s `decideStale` and keeps the reload guard.
+
+**The grep's verdicts.** The identifier half finds 15 hits, every one the verb *installing* (a Dockerfile package install, scenario and test comments, benchmark logs); none names the retired flag, so all are kept. The prose half, widened to *applying* and *apply* beside an ontology word, since `-w Apply` misses the step-6 sentence's own *Applying*:
+
+- **Changed:**
+  - `define-ontology`'s step 6, which now asks for a reset of test data without naming how.
+  - The docs: `api-reference.md`'s `ontologyVersion` and `onShouldRefreshUI` rows, its `nebula.ts` example comment and its `ontology-stale` outcome row; `resources.md`'s `ontology-stale` case; `coding-your-ui.md`'s new-version sentence; `ontology.md`'s lock-step and breaking-change bullets and its *deploy time*; `nebula-client.md`; `using-vue.md`.
+  - The scaffold's `nebula.ts` comment and `ontology.d.ts` header, regenerated.
+  - Source: `codegen-loop.ts`'s header; `galaxy.ts`'s `assertModelPath`, `#chatOntologySource` and `#readOntology`; `chat-ontology.ts`'s header; `star.ts`'s `galaxyId`; `resources.ts`'s header; three `client-resources.ts` JSDocs; `create-nebula-client.ts`'s two; `client-index.ts`.
+  - `drive.ts`'s two scenario comments, and five test comments and headers.
+- **Kept on purpose:** `dev-star-data-lifecycle.test.ts`'s six *apply* comments and one in `nebula-client-ontology-stale.test.ts` name the test door `applyOntologyForTest`, which the task keeps; `devstudio-resources-e2e.test.ts`'s *no apply step* is true; every other *apply* means something else, such as a migration, a codegen write or a merge patch.
+- **Already current**, from Phase 1: `galaxy.ts`'s header, `getCurrentOntology`, `#buildAndAnnounce` and `requireChatWrite`; `star.ts`'s `#ontologySource`; `resources.ts`'s `#install`; `security.md`; and the no-`@mesh()` reason in `mesh.md` and the `resourcesResults` JSDoc, which cites only the validator. `REGISTRY_DIR` is gone.
+
+**Found beside the list:**
+
+- `assertModelPath` defended `.nebula/` with a registry row `#registryRows()` parses, both gone since Phase 1. The rule stands for another reason, which it now gives: the build writes its compiled row there.
+- `#chatOntologySource` and `chat-ontology.ts` said chat version labels are *duplicate-rejected*. That was the deleted registry; `gen-validator-seeds.ts`'s header is right that the label is bumped by hand.
+- `resources.ts`'s header pointed at `#gate`, split in Phase 2.
+- `create-nebula-client.ts`'s config JSDoc still called the default reload *once-guarded*, which Phase 3's diff walk missed.
+
+**Evidence:** `gen-scaffold.mjs --check` and `gen-platform.mjs --check` pass after regenerating; `check-examples` 176 of 176; unit 117 and dev-studio 115; the task-handle grep over the changed source finds nothing, and `codegen-loop.ts`'s header no longer names `compileAndInstallOntology` or a task-file phase. `studio-guidance-loop` 125.4 s and `four-party-chat` 78.8 s are green. `first-app-built` went green on its fourth run, 245.0 s, after three failures with three different causes: a WebSocket timeout on the first boot after the image rebuilt for the new scaffold; a build turn whose model made no tool calls in three rounds; and a login mail that never reached Resend, while the next scenario's mail arrived. None traces to the edited guidance, but the no-tool-calls turn is one sample against one pass, so it is noted here rather than recorded as a finding in `nebula-pre-alpha.md` § *Data-bound generation*.
+
+**Retro:** the prose grep the task wrote, `-w` on `Apply|applied`, cannot see *Applying*, the very word in the step-6 sentence it existed to find; the list named that site, which is the only reason it was caught. A first widened grep using `\b` printed nothing, because git grep's ERE has no `\b`; checking it against the known step-6 hit is what showed it was blind.
+
 ## Non-goals
 
 - **`publish()`, the order and storage of published versions, and migration.** Fast-follow Item 4.

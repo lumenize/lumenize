@@ -66,8 +66,8 @@ export class Star extends ScopedMeshDO implements ResourcesHost {
    * together form a globally unique galaxy address: the leading segment is
    * the universe, the second is the galaxy slug, and identical galaxy slugs
    * in different universes produce different identifiers. Used as the
-   * Galaxy DO instance name AND as the namespace prefix on the per-Worker
-   * Worker Loader cache (`bundleId = "<universe.galaxy>/<version>"`).
+   * Galaxy DO instance name AND as the prefix of a tenant Star's Worker Loader
+   * `bundleId` (`<universe.galaxy>/<version>`); the `.dev` Star keys on its own name.
    *
    * `protected` (historically so a subclass could reach it; the `DevStar` subclass
    * is gone now, so it's effectively Star-internal). A pure accessor over

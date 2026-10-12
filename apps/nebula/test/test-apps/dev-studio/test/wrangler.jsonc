@@ -1,7 +1,7 @@
 {
   // Galaxy codegen test (the `dev-studio` project — its name predates the collapse).
   // GalaxyLoopProbe (the @cloudflare/computer Workspace + host-side git + the codegen
-  // loop with a scripted model) + DevStarOntologyProbe (the `{u}.{g}.dev` apply target)
+  // loop with a scripted model) + DevStarOntologyProbe (the `{u}.{g}.dev` Star a landed build's row reaches)
   // + LOADER (the validator facet). nodejs_compat is REQUIRED: @cloudflare/computer +
   // isomorphic-git touch node: builtins. Run with `npx vitest run --project dev-studio`.
   "name": "nebula-dev-studio-test",

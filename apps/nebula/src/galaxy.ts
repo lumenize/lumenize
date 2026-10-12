@@ -308,8 +308,8 @@ export function requireChatWrite(instance: Galaxy): void {
  * (`readSource` / `writeSource`) so a direct call and a loop tool agree. Normalises a
  * leading `./`, then refuses an absolute path and any `..` segment; for a WRITE, also
  * refuses every path whose first segment starts with `.` other than `.agents` —
- * `.platform/` and `.universe/` are mounts, `.nebula/` is machine-owned (a write there
- * would plant a registry row `#registryRows()` parses), `.git/` is git's, `.env` is where
+ * `.platform/` and `.universe/` are mounts, `.nebula/` is machine-owned (the build writes its
+ * compiled row there), `.git/` is git's, `.env` is where
  * a secret would go. Reads of a dot path stay allowed (the build box reads `.git/index`
  * and the compiled row). Returns the normalised relative path. Pure; throws on reject.
  */
@@ -488,10 +488,11 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
 
   /**
    * The Galaxy's chat-ontology source for its plane. It answers at once, so a Galaxy's op is never
-   * told `checking`. The loader `bundleId` derives from the version label (labels are
-   * append-only and duplicate-rejected), so a new version cannot reuse a warm bundle. Its
-   * `{u}.{g}/chat/{label}` form has two slashes, so it collides neither with a Star's app bundle
-   * `{u}.{g}/{label}` nor with the slash-less tool-args id.
+   * told `checking`. The loader `bundleId` embeds the version label, which is bumped by hand
+   * whenever the seed row changes (`scripts/gen-validator-seeds.ts` says so), so a new version
+   * never reuses a warm bundle. Its `{u}.{g}/chat/{label}` form has two slashes, so it collides
+   * neither with a Star's app bundle (`{u}.{g}/{version}`, or `{u}.{g}.dev/{version}` on `.dev`)
+   * nor with the slash-less tool-args id.
    */
   #chatOntologySource(): OntologySource {
     return {
@@ -616,7 +617,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   }
 
   /** Read the ontology source + its content-addressed version (`hashBlob` of the
-   *  `.d.ts`). The SINGLE source of the version label for the dev apply path, so a
+   *  `.d.ts`). The SINGLE source of the version a build lands with, so a
    *  Star's lazy-pull and the client's pinned version agree by construction. */
   async #readOntology(): Promise<{ types: string; version: string }> {
     const types = await (await this.#workspace()).fs.readFile(wsPath(ONTOLOGY_PATH), 'utf8');

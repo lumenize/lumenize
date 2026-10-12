@@ -7,9 +7,10 @@
  * enforcement, all in `Resources`. This module supplies the Galaxy's ontology SOURCE:
  * {@link chatOntologySeedRow} returns the COMMITTED precompiled row (`./validator-seeds`,
  * emitted by `scripts/gen-validator-seeds.ts`) — the input is a platform constant, so no Worker
- * ever runs the compiler for it. There is no per-boot re-compile and no hand-bumped bundle id —
- * staleness is solved by DERIVATION (the loader `bundleId` embeds the installed version label, and
- * labels are append-only + duplicate-rejected), exactly as on a Star.
+ * ever runs the compiler for it. There is no per-boot re-compile and no hand-bumped bundle id: the
+ * loader `bundleId` embeds the installed version label, and the label is bumped by hand whenever
+ * the seed row changes (`scripts/gen-validator-seeds.ts` says so). A Star needs no such bump, since
+ * its version is the hash of its types.
  *
  * ⚠️ Keep it out of `client-index.ts` — the row embeds a ~30 KB validator module no
  * browser needs; clients take the version label from `./chat-constants`.
