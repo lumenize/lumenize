@@ -99,6 +99,9 @@ because it was deliberately made false.** What is actually present:
 - **Docker-free boots** — a scenario declaring `needsContainer = false` skips the image build entirely,
   so auth / impersonation / profile / resource work needs no Docker at all.
 - **A scenario registry** in `apps/nebula/harness/drive.ts` — adding one is an import plus a line.
+- **What failed deployed, readable afterward.** `CLOUDFLARE_NOTIFICATIONS_AND_OBSERVABILITY_TOKEN` in
+  `.dev.vars` reads Workers Issues for any Worker with Issues on — `GET /accounts/{account}/workers/observability/issues`,
+  and each issue's `/occurrences` with its stack — and queries Workers Logs through `…/telemetry/query`.
 
 ⇒ Before writing *"this can't be tested live"*, run the check that would falsify it. Bit 2026-08-04
 three separate times in one session: the harness's default login path was already rung 1, `.dev.vars`
