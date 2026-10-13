@@ -99,9 +99,10 @@ because it was deliberately made false.** What is actually present:
 - **Docker-free boots** — a scenario declaring `needsContainer = false` skips the image build entirely,
   so auth / impersonation / profile / resource work needs no Docker at all.
 - **A scenario registry** in `apps/nebula/harness/drive.ts` — adding one is an import plus a line.
-- **What failed deployed, readable afterward.** `CLOUDFLARE_NOTIFICATIONS_AND_OBSERVABILITY_TOKEN` in
-  `.dev.vars` reads Workers Issues for any Worker with Issues on — `GET /accounts/{account}/workers/observability/issues`,
-  and each issue's `/occurrences` with its stack — and queries Workers Logs through `…/telemetry/query`.
+- **What failed deployed, readable afterward.** `node scripts/issues.mjs --worker <name> --since <time>`
+  lists the Workers Issues a Worker raised, each with its latest Error and stack, using
+  `CLOUDFLARE_NOTIFICATIONS_AND_OBSERVABILITY_TOKEN` from `.dev.vars`. The same token queries Workers
+  Logs through `POST …/workers/observability/telemetry/query`.
 
 ⇒ Before writing *"this can't be tested live"*, run the check that would falsify it. Bit 2026-08-04
 three separate times in one session: the harness's default login path was already rung 1, `.dev.vars`
@@ -155,9 +156,9 @@ when run alone and stayed unexplained.
 **A deployed pass SHOULD end by reading its target's Workers Issues since the pass began, and a new
 issue is a finding even when every scenario passed.** `apps/nebula/wrangler.jsonc` turns Issues on for
 every deploy of either target (production from its first deploy after 2026-10-13), and it keeps every
-error-level line and uncaught exception. Read them
-with the token in the inventory above, `GET …/workers/observability/issues?service=<worker>&orderBy=lastObserved&order=desc`,
-taking `type` `log` or `exception`; `unknown` is scanner traffic. Two are standing: `scope-deleted`
+error-level line and uncaught exception. Read them with `node scripts/issues.mjs --worker <worker>
+--since <the pass's start>`, which shows the `log` and `exception` issues and hides `unknown`, the
+scanner traffic. Two are standing: `scope-deleted`
 is every teardown's ordered abort, and the vulnerability-scan issues are bots probing public hosts.
 This adds nothing to when a pass runs, which stays the call above.
 
