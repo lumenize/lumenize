@@ -60,9 +60,8 @@ jobs:
         # steps can't drift. --lightningcss adds the vite binding this lane needs (it spawns
         # vite against nebula-studio-ui); --chromium installs the real browser the Playwright
         # driver uses; --bundle builds the ts-runtime-parser-validator dist. --dev-vars writes
-        # .dev.vars from secrets — and passes the job-env CLOUDFLARE_ACCOUNT_ID through
-        # (ci-write-dev-vars.mjs), which flips the lane's HAS_CF_CREDS/HAS_AI_PATH gate true,
-        # so no separate "append CLOUDFLARE_ACCOUNT_ID" step is needed.
+        # .dev.vars from secrets. The model rides the env.AI binding, which wrangler
+        # authenticates with the job-env CLOUDFLARE_API_TOKEN, never from .dev.vars.
         run: ./scripts/ci-install.sh --cache-clean --dev-vars --lightningcss --chromium --bundle
 
       - name: Run the ui-smoke lane (container + AI + login)

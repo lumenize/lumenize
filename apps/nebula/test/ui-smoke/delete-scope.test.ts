@@ -16,8 +16,8 @@
  * membership at U.
  * **P** is invited into that app as a plain member, so its delete has someone to warn about.
  *
- * Gated `describe.runIf(HAS_DOCKER)` — deliberately not `&& HAS_AI_PATH`: nothing here touches a
- * model. Run it with `npx vitest run --project ui-smoke`. It provisions its own accounts, so it never
+ * Gated `describe.runIf(HAS_DOCKER)`, the lane's one gate; nothing here touches a model. Run it with
+ * `npx vitest run --project ui-smoke`. It provisions its own accounts, so it never
  * touches the workspace the codegen smoke depends on.
  */
 import { describe, it, expect, beforeAll, afterAll, inject } from 'vitest';

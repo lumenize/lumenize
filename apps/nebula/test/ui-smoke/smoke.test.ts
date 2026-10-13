@@ -5,9 +5,10 @@
  * The layer above ①'s routing-contract test and the API-level `smoke.test.ts`: it
  * confirms the Studio actually works end-to-end through the UI before F&F invites.
  *
- * Gated `describe.runIf(HAS_DOCKER && HAS_AI_PATH)` — skips cleanly with no failure
- * when the real infra is absent (default `npm test` doesn't even enumerate this
- * project; run it with `npx vitest run --project ui-smoke`).
+ * Gated `describe.runIf(HAS_DOCKER)` — skips cleanly with no failure when Docker is
+ * absent (default `npm test` doesn't even enumerate this project; run it with
+ * `npx vitest run --project ui-smoke`). A lane without a model is NOT skipped: its first
+ * turn fails with the provider's reason (`gates.ts` says why).
  *
  * Login uses the REAL email magic-link loop (never test-mode), so the same test body
  * runs identically local + (later) prod. Playwright follows the emailed link as sent, to the
@@ -24,7 +25,7 @@ import { describe, it, expect, beforeAll, afterAll, inject } from 'vitest';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import { uniqueTestEmail } from '@lumenize/email-test/client';
 import { provisionAndLogin, scopeOriginFrom } from '../lib/email-login';
-import { HAS_DOCKER, HAS_AI_PATH } from './gates';
+import { HAS_DOCKER } from './gates';
 import { launchChromium, loginToStudio } from './helpers';
 
 /** Dedicated test scope — `test-` prefix is the reaper's auto-reap marker. Must pass
@@ -37,7 +38,7 @@ const TEST_UNIVERSE = TEST_SCOPE.split('.')[0];
 /** Fresh per run, so no other lane's mail can answer this lane's waiter (`testing.md`). */
 const ADMIN_EMAIL = uniqueTestEmail('ui-smoke');
 
-describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docker)', () => {
+describe.runIf(HAS_DOCKER)('Studio UI smoke (wrangler dev + Docker)', () => {
   let browser: Browser;
   let viteBaseUrl: string;
   let workerBaseUrl: string;

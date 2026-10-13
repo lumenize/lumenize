@@ -44,17 +44,15 @@ const lines = [
   `JWT_PUBLIC_KEY_GREEN="${green.pub}"`,
 ];
 
-// Optional: the apps/nebula ui-smoke lane's Workers-AI REST path. Passed through
-// only when present in the environment, so the package lane (ci.yml — neither var
-// set) is unaffected. The lane's gate (apps/nebula/test/ui-smoke/gates.ts) greps
-// .dev.vars for WORKERS_AI_TOKEN / CLOUDFLARE_*, and DevStudio.#callModelRest reads
-// BOTH off env (the token authenticates the request; the account id builds the REST
-// URL) — so a token without the account id would flip the gate true but then throw
-// at call time. Add them together. CLOUDFLARE_ACCOUNT_ID is a non-secret identifier;
-// WORKERS_AI_TOKEN is a scoped Workers-AI secret (never logged — security.md). The
-// GHA ui-smoke workflow appends CLOUDFLARE_ACCOUNT_ID in a separate step and relies
-// on the env.AI binding for auth; the hosted lane has no binding, so it needs the
-// token in .dev.vars too — which only this passthrough provides.
+// Optional: the Workers-AI REST path, for the hosted lane, which has no binding
+// credential. Each is passed through only when present in the environment.
+// `Galaxy#callModelRest` reads BOTH off env (the token authenticates the request; the
+// account id builds the REST URL), so a token without the account id throws at call
+// time: add them together. CLOUDFLARE_ACCOUNT_ID is a non-secret identifier, and
+// ci.yml's and ui-smoke.yml's job env set it, which changes nothing there: with no
+// token the Galaxy takes the env.AI binding, authenticated by the job-env
+// CLOUDFLARE_API_TOKEN. WORKERS_AI_TOKEN is a scoped Workers-AI secret (never logged
+// — critical.md).
 const optional = (name) => {
   const v = process.env[name];
   if (v) lines.push(`${name}=${v}`);

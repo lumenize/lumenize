@@ -71,10 +71,7 @@ let wranglerCleanup: (() => Promise<void>) | null = null;
 let viteClose: (() => Promise<void>) | null = null;
 
 export default async function setup(project: TestProject) {
-  // Boot on DOCKER alone. The stack itself (wrangler dev + vite + DevContainer) needs no model —
-  // only the codegen scenarios do, and they keep their own `HAS_AI_PATH` gate. Gating the whole
-  // stack on the AI path would make every non-AI scenario (e.g. scope deletion) unrunnable, and
-  // `inject('viteBaseUrl')` undefined for it.
+  // Boot on DOCKER alone, the lane's one gate (`gates.ts` says why a model is not one).
   if (!HAS_DOCKER) {
     project.provide('uiSmokeSkipped', true);
     return; // nothing booted → nothing to tear down
