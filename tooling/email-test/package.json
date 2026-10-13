@@ -23,7 +23,7 @@
   "scripts": {
     "dev": "wrangler dev --show-interactive-dev-session=false",
     "deploy": "wrangler deploy",
-    "types": "wrangler types",
+    "types": "bash ../../scripts/generate-types.sh",
     "test": "vitest --run"
   },
   "keywords": [

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Generate TypeScript types for all wrangler.jsonc files in packages/ and apps/
+# Generate TypeScript types for all wrangler.jsonc files in packages/, apps/ and tooling/
 # Each wrangler.jsonc gets a worker-configuration.d.ts generated alongside it.
 #
 # ⚠️ Invoke wrangler by ABSOLUTE path — never bare `wrangler` from PATH.
@@ -43,13 +43,20 @@ find_wrangler() {
 failed=()
 generated=0
 
-# The find scope below is DELIBERATELY packages/ + apps/ only. Do NOT widen it to
+# The find scope below is DELIBERATELY packages/ + apps/ + tooling/. Do NOT widen it to
 # `experiments/`: experiments are point-in-time spikes we explicitly do not maintain
 # (workflow.md § Experiments), so a stale one would now fail the whole run — and
 # `npm run types` is a mandatory pre-code step (critical.md), so that would block real
-# work over a spike nobody intends to fix. `tooling/` (email-test, test-endpoints) DOES
-# hold live workspaces with wrangler configs and is a genuine open question — decide it
-# deliberately rather than by widening the glob.
+# work over a spike nobody intends to fix. `tooling/` is in because its two Workers are
+# live: `email-test` serves every email waiter and `test-endpoints` the fetch suites, and
+# `type-check.sh` already holds them to type-checking. Left out until 2026-10-13, their
+# committed types went a year stale with nothing to notice, since CI's staleness check
+# regenerates only what this loop covers.
+#
+# The list comes from git, tracked files plus new ones not yet added, never from `find`: a
+# `wrangler.jsonc` a .gitignore covers is generated output, not one of our Workers.
+# `tooling/doc-testing` writes one under its ignored `test/generated/`, and `wrangler types`
+# fails on it.
 while IFS= read -r wrangler_file; do
   wrangler_dir="$(dirname "$wrangler_file")"
   abs_dir="$PROJECT_ROOT/$wrangler_dir"
@@ -88,7 +95,8 @@ while IFS= read -r wrangler_file; do
   rm -f "$out_file"
 
   echo ""
-done < <(find packages apps -name "wrangler.jsonc" -not -path "*/node_modules/*" -not -path "*/dist/*")
+done < <(git ls-files --cached --others --exclude-standard -- \
+  ':(glob)packages/**/wrangler.jsonc' ':(glob)apps/**/wrangler.jsonc' ':(glob)tooling/**/wrangler.jsonc')
 
 if [ ${#failed[@]} -gt 0 ]; then
   echo "❌ Type generation FAILED for ${#failed[@]} target(s):"

@@ -67,7 +67,7 @@ jobs:
         run: ./scripts/ci-install.sh --cache-clean --dev-vars --chromium --bundle
 
       - name: Verify committed worker-configuration.d.ts is not stale
-        # `worker-configuration.d.ts` is COMMITTED (29 files) but generated from
+        # `worker-configuration.d.ts` is COMMITTED (under apps/ and tooling/) but generated from
         # wrangler.jsonc, so editing a config without re-running `npm run types` leaves a
         # stale global `Env`. Adding a binding fails loudly (the code that uses it will not
         # type-check); REMOVING one does not — `Env` keeps declaring a binding that is
