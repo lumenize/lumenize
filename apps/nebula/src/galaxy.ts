@@ -1737,11 +1737,11 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // — and `assembleStream` hands the text out live while rebuilding the whole-response shape the
     // caller parses. Without one nothing changes: the call stays a whole response.
     if (onDelta) body = { ...body, stream: true };
-    // WORKERS_AI_TOKEN / CLOUDFLARE_ACCOUNT_ID / CF_AI_GATEWAY are runtime env (`.dev.vars`
-    // / `wrangler secret`), not committed wrangler vars, so they're absent from the
-    // generated `Env` — widen at the read (packaging.md).
-    const env = this.env as Env & { WORKERS_AI_TOKEN?: string; CLOUDFLARE_ACCOUNT_ID?: string; CF_AI_GATEWAY?: string };
-    if (this.modelLane() === 'rest') return this.#callModelRest(env, env.WORKERS_AI_TOKEN!, model, body, onDelta);
+    // WORKERS_AI_TOKEN / CLOUDFLARE_ACCOUNT_ID / CF_AI_GATEWAY come from `.dev.vars`, and
+    // `.dev.vars.example` types them on `Env` as strings; a deployed Worker sets none of them,
+    // so each read here treats missing and empty alike.
+    const env = this.env;
+    if (this.modelLane() === 'rest') return this.#callModelRest(env, env.WORKERS_AI_TOKEN, model, body, onDelta);
     // The model-catalog types don't cover every @cf id; run() is treated loosely. The
     // options carry the session-affinity header (`extraHeaders` is the binding's own knob).
     const out = await this.aiBinding().run(model, body, { extraHeaders: this.modelCallHeaders() });
@@ -1753,7 +1753,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    *  (the hosted lane), else the `env.AI` binding. `protected` so a probe can pin either
    *  lane and assert what it sends. */
   protected modelLane(): 'rest' | 'binding' {
-    return (this.env as Env & { WORKERS_AI_TOKEN?: string }).WORKERS_AI_TOKEN ? 'rest' : 'binding';
+    return this.env.WORKERS_AI_TOKEN ? 'rest' : 'binding';
   }
 
   /** The `env.AI` binding — a seam so a probe can capture the options the binding lane

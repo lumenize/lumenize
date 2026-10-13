@@ -1,19 +1,14 @@
 # Local development secrets
 # Copy this file to .dev.vars and fill in the values
 
-# Test token for test-endpoints service
-# For local dev, use: lumenize-test-local-dev-2025
-# Must match the token configured in your test-endpoints deployment
+# The token the deployed `test-endpoints` and `email-test` Workers check (tooling/), so it must
+# match theirs: every email waiter and the fetch suites present it.
 TEST_TOKEN=your-test-token-here
 
 # Test endpoints URL
 # Default: https://test-endpoints.transformation.workers.dev
 # For your own deployment: https://your-test-endpoints.workers.dev
 TEST_ENDPOINTS_URL=https://test-endpoints.transformation.workers.dev
-
-# Cloudflare Log Explorer API token (for http_requests, firewall_events datasets)
-# Create at: Cloudflare Dashboard → Analytics & Logs → Logs → Log Explorer
-CLOUDFLARE_LOG_QUERY_TOKEN=your-log-query-token-here
 
 # Programatically access Cloudflare Logpush logs pushed to R2
 # Full URL to R2 bucket (includes account ID and bucket name)
@@ -22,7 +17,9 @@ CLOUDFLARE_R2_LOGPUSH_URL=https://YOUR-ACCOUNT-ID.r2.cloudflarestorage.com/YOUR-
 # R2 bucket name for Logpush (e.g., cloudflare-managed-03e4752d)
 CLOUDFLARE_R2_BUCKET_NAME=your-bucket-name
 
-# Cloudflare account ID (same as in R2 URL)
+# Cloudflare account ID — an identifier, not a secret, and the ONE line that names it. Read by the
+# R2 scripts (same id as in the R2 URL), the Workers AI REST URL (`Galaxy#callModelRest`), the
+# harness's deployed `deleted-on-cloudflare` scenario, and the CI lanes.
 CLOUDFLARE_ACCOUNT_ID=your-account-id
 
 # R2 API credentials for bucket access
@@ -30,13 +27,11 @@ CLOUDFLARE_ACCOUNT_ID=your-account-id
 CLOUDFLARE_R2_ACCESS_KEY_ID=your-r2-access-key-id
 CLOUDFLARE_R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
 
-# Cloudflare global API key
-# Find at: Cloudflare Dashboard → My Profile → API Tokens → Global API Key
-CLOUDFLARE_GLOBAL_API_KEY=your-global-api-key-here
-
-# Debug logging (see @lumenize/debug for patterns)
-# Examples: proxy-fetch.*, rpc.*, *
-# Leave empty to disable
+# Debug logging (see @lumenize/debug for patterns). A namespace enables itself and its children.
+# Examples: nebula, nebula.Galaxy.model, lmz.mesh, *
+# ⚠️ Every key in `.dev.vars` overrides the same name in a Worker's `wrangler.jsonc` vars, an empty
+# one included, and apps/nebula's config sets a DEBUG default. DELETE this line in your copy to keep
+# that default; an empty DEBUG silences it. The line stays here because the generated `Env` reads it.
 DEBUG=
 
 # @lumenize/auth configuration
@@ -75,11 +70,12 @@ AUTH_ACCESS_TOKEN_TTL=
 # TURNSTILE_SECRET_KEY=your-turnstile-secret-key-here
 
 # Turnstile BYPASS token — a high-entropy secret that lets the trusted `/live` prod-drive skip
-# Turnstile (nebula-auth router.checkTurnstile) by presenting it as the `x-lumenize-turnstile-bypass`
+# Turnstile (`checkTurnstile` in Mesh's auth router) by presenting it as the `x-lumenize-turnstile-bypass`
 # header. Turnstile stays ON for every request without it. Skips ONLY the anti-bot gate, never auth.
 # Generate: node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 # Secret — set via `wrangler secret put AUTH_TURNSTILE_BYPASS_TOKEN`; NEVER a committed config.
-AUTH_TURNSTILE_BYPASS_TOKEN=generate-a-32-byte-base64url-token
+# Empty here turns the bypass off; `apps/nebula/harness/prod.ts` needs production's value.
+AUTH_TURNSTILE_BYPASS_TOKEN=
 
 # JWT keys for @lumenize/auth (Ed25519)
 # Generate with: node -e "const c=require('crypto');const{publicKey,privateKey}=c.generateKeyPairSync('ed25519');console.log('PRIVATE:',JSON.stringify(privateKey.export({type:'pkcs8',format:'pem'})));console.log('PUBLIC:',JSON.stringify(publicKey.export({type:'spki',format:'pem'})))"
@@ -128,20 +124,24 @@ CERTIFICATE_API_TOKEN=
 # Resend account: larry@lumenize.com
 RESEND_API_KEY="re_..."
 
-# Only needed where there's no `wrangler login` OAuth session (CI / cloud agents).
-# The remote-binding proxy (e2e-email / hono `send_email remote:true`) uses your
-# OAuth session locally, so these are NOT needed for local runs; in CI they come
-# from GitHub Secrets as job env, the token from the CLOUDFLARE_REMOTE_BINDINGS_TOKEN
-# secret (Workers Scripts Write + Account Settings Read on the account, User Details
-# Read + Memberships Read on the user). The secret-less Claude-hosted lane sets
-# LUMENIZE_NO_CF_REMOTE=1 instead (omits the CF-remote projects) and never gets the token.
-CLOUDFLARE_API_TOKEN=cfut_...
-CLOUDFLARE_ACCOUNT_ID=your-account-id
+# The signing secret of Resend's webhook to the deployed `email-test` Worker (tooling/email-test),
+# which checks each delivery event with it and pushes it to the email waiters by recipient. Set as
+# that Worker's secret (`wrangler secret put`); its tests bind their own.
+# RESEND_WEBHOOK_SECRET=whsec_...
 
-# Nebula Studio codegen model (DevStudio.callModel — apps/nebula/src/dev-studio.ts)
-# WORKERS_AI_TOKEN: a scoped Workers-AI REST token. When present, DevStudio uses the REST
-# transport (works in every lane, incl. secret-less hosted where the `env.AI` binding can't
-# authenticate); when absent, it falls back to the `env.AI` binding (needs CF account creds).
-WORKERS_AI_TOKEN=your-workers-ai-rest-token
-# ANTHROPIC_API_KEY: declared secret binding (Anthropic model-provider path).
-ANTHROPIC_API_KEY=sk-ant-...
+# CLOUDFLARE_API_TOKEN does NOT belong here. wrangler reads it from the process environment, never
+# from `.dev.vars`, to authenticate remote bindings where there is no `wrangler login` session
+# (CI's job env; see `.github/workflows/ci.yml`). A line here would only type a bogus `Env` member.
+
+# Studio's codegen model (`Galaxy#callModelRest`, apps/nebula/src/galaxy.ts).
+# WORKERS_AI_TOKEN: a scoped Workers-AI REST token. When set, the Galaxy uses the REST
+# transport, which builds its URL from CLOUDFLARE_ACCOUNT_ID above (works in every lane, incl.
+# secret-less hosted where the `env.AI` binding can't authenticate); when empty, it falls back
+# to the `env.AI` binding, which `wrangler dev` authenticates with your `wrangler login`. Leave it
+# empty unless you need REST: any value at all switches the lane. A deployed Worker needs neither
+# this nor the account id, since its binding authenticates itself.
+WORKERS_AI_TOKEN=
+# CF_AI_GATEWAY: an AI Gateway id, sent as `cf-aig-gateway-id` on the same REST URL. LEAVE EMPTY:
+# naming a gateway turns on account-side logging of every prompt and reply, a data-handling
+# decision (see `Galaxy#callModelRest`'s JSDoc). Empty and absent behave the same.
+CF_AI_GATEWAY=
