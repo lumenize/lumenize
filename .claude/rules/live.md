@@ -149,8 +149,17 @@ app's cleanup, and every branch on `HARNESS_TARGET_URL` or on the stack's logs b
 (`grep -rlnE 'HARNESS_TARGET_URL|stack\.logs' apps/nebula/harness`). On 2026-10-06 a deletion's answer became a 4410 close, and three of those
 paths still waited for the answer; the first deployed run's account sweep reported ten failed
 deletes that had all landed. **A deployed sweep SHOULD run beside a `wrangler tail <worker>
---format json` capture,** since a deployed failure leaves no logs otherwise: one that day passed
+--format json` capture,** since a deployed run keeps no logs below error level: one that day passed
 when run alone and stayed unexplained.
+
+**A deployed pass SHOULD end by reading its target's Workers Issues since the pass began, and a new
+issue is a finding even when every scenario passed.** `apps/nebula/wrangler.jsonc` turns Issues on for
+every deploy of either target (production from its first deploy after 2026-10-13), and it keeps every
+error-level line and uncaught exception. Read them
+with the token in the inventory above, `GET …/workers/observability/issues?service=<worker>&orderBy=lastObserved&order=desc`,
+taking `type` `log` or `exception`; `unknown` is scanner traffic. Two are standing: `scope-deleted`
+is every teardown's ordered abort, and the vulnerability-scan issues are bots probing public hosts.
+This adds nothing to when a pass runs, which stays the call above.
 
 ⚠️ **Exploration, distinct from automated testing.** `.claude/rules/testing.md` owns the vitest suites
 (the capable-of-failing, committed regression net); this is the *running-system* check. Both MUST be
