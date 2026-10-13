@@ -40,7 +40,8 @@ import { connectDriver, readDevVar } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
 import { debugLines } from '../lib/stdio';
 
-export const bootVars = { DEBUG: 'lmz.mesh.lmzApi.dispatchEnvelope' };
+/** `nebula.Galaxy.model` writes only when Workers AI refuses a call, with the whole body the reply cuts short. */
+export const bootVars = { DEBUG: 'lmz.mesh.lmzApi.dispatchEnvelope,nebula.Galaxy.model' };
 
 /** A galaxy scope of this scenario's own (never shared — codegen writes source).
  *  Per-run unique for the same reason as `build-box.ts`: a deployed target's state is
