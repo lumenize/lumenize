@@ -1,5 +1,7 @@
 # A standards-conformant MCP server: Streamable-HTTP + `subscriptions/listen`
 
+> ⚠️ **2026-10-13: re-derive the premise before this resumes.** Larry is moving the MCP plan toward webhook delivery under the MCP Events extension, which Cloudflare's API MCP server shipped against that day. The `tasks/backlog.md` row *Re-plan MCP push around MCP Events webhooks* holds what changes and why.
+
 **Status:** On hold (2026-07-28). Proof-of-principle to regain **MCP Transport working-group standing** — the WG abandoned WebSockets, so a conformant `subscriptions/listen` implementation is the re-entry currency. Pinned business decision: **ship to production but discourage adoption via true-cost pricing** (~$4/mo per continuously-connected gateway); efficiency is an explicit non-goal. Not on the pre-alpha critical path.
 
 **Objective — let any unmodified standard MCP client read and `subscriptions/listen` to a Lumenize/Nebula resource over the ratified MCP Streamable-HTTP transport (POST + SSE), receiving `notifications/resources/updated`, by teaching the Gateway to terminate MCP HTTP alongside its existing WebSocket role.**

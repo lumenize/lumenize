@@ -17,7 +17,8 @@
     "packages/ts-runtime-parser-validator/forks/typia/utils",
     "experiments/residency-hold",
     "experiments/preview-self-binding",
-    "experiments/email-quota-probe"
+    "experiments/email-quota-probe",
+    "experiments/workers-issues"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
