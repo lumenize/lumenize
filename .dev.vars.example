@@ -10,6 +10,11 @@ TEST_TOKEN=your-test-token-here
 # For your own deployment: https://your-test-endpoints.workers.dev
 TEST_ENDPOINTS_URL=https://test-endpoints.transformation.workers.dev
 
+# Cloudflare Log Explorer API token (for http_requests, firewall_events datasets). No code reads it:
+# the coding agent queries production's request and firewall logs with it when debugging.
+# Create at: Cloudflare Dashboard → Analytics & Logs → Logs → Log Explorer
+CLOUDFLARE_LOG_QUERY_TOKEN=your-log-query-token-here
+
 # Programatically access Cloudflare Logpush logs pushed to R2
 # Full URL to R2 bucket (includes account ID and bucket name)
 CLOUDFLARE_R2_LOGPUSH_URL=https://YOUR-ACCOUNT-ID.r2.cloudflarestorage.com/YOUR-BUCKET-NAME
@@ -26,6 +31,11 @@ CLOUDFLARE_ACCOUNT_ID=your-account-id
 # Create at: Cloudflare Dashboard → R2 → Manage R2 API Tokens
 CLOUDFLARE_R2_ACCESS_KEY_ID=your-r2-access-key-id
 CLOUDFLARE_R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
+
+# Cloudflare global API key — the account's master key, sent with the login email as X-Auth-Key.
+# No code reads it. The coding agent uses it only when asked to, for what no scoped token reaches.
+# Find at: Cloudflare Dashboard → My Profile → API Tokens → Global API Key
+CLOUDFLARE_GLOBAL_API_KEY=your-global-api-key-here
 
 # Debug logging (see @lumenize/debug for patterns). A namespace enables itself and its children.
 # Examples: nebula, nebula.Galaxy.model, lmz.mesh, *
@@ -111,6 +121,11 @@ JWT_PUBLIC_KEY_GREEN="-----BEGIN PUBLIC KEY-----\nMCow...\n-----END PUBLIC KEY--
 # TEST_CERTIFICATE_ZONE_ID=
 # TEST_CERTIFICATE_API_TOKEN=
 
+# Production's counterpart: a token scoped to `lumenize.dev`'s SSL and Certificates, the one to set as
+# the production Worker's CERTIFICATE_API_TOKEN secret, and what the coding agent reads production's
+# certificate packs with. Production's zone id is CERTIFICATE_ZONE_ID in apps/nebula/wrangler.jsonc.
+# PROD_CERTIFICATE_API_TOKEN=
+
 # A deployed `https` Worker's own certificate token, set as its secret, never here: an `http` local
 # stack orders no certificate, so leave it empty. Named so the generated `Env` types it.
 CERTIFICATE_API_TOKEN=
@@ -145,3 +160,7 @@ WORKERS_AI_TOKEN=
 # naming a gateway turns on account-side logging of every prompt and reply, a data-handling
 # decision (see `Galaxy#callModelRest`'s JSDoc). Empty and absent behave the same.
 CF_AI_GATEWAY=
+
+# An Anthropic API key. No code reads it yet: Claude Opus is an allowed eval judge in
+# tasks/on-hold/nebula-studio-self-improvement.md, and the coding agent can compare models with it.
+ANTHROPIC_API_KEY=sk-ant-...
