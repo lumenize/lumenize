@@ -39,15 +39,14 @@ export const scopeLifecycleHooks: ScopeLifecycleHooks = {
         await rawRpcStub(BINDING[tier], instanceName).teardown(cause, operationId);
         log.debug('torn down', { instanceName, tier, cause, operationId });
       } catch (err) {
-        const shape = {
-          name: (err as Error)?.name, message: (err as Error)?.message,
-          durableObjectReset: (err as { durableObjectReset?: unknown })?.durableObjectReset,
-        };
         if (isOrderedReset(err)) {
-          log.debug('reset as ordered', { instanceName, tier, cause, operationId, ...shape });
+          log.debug('reset as ordered', { instanceName, tier, cause, operationId });
           return;
         }
-        log.error('teardown failed', { instanceName, tier, cause, operationId, ...shape });
+        // Named on its own because the logger writes an Error's enumerable fields, and whether
+        // workerd makes `durableObjectReset` one is unmeasured.
+        const durableObjectReset = (err as { durableObjectReset?: unknown })?.durableObjectReset;
+        log.error('teardown failed', { instanceName, tier, cause, operationId, error: err, durableObjectReset });
       }
     }));
   },
@@ -58,9 +57,7 @@ export const scopeLifecycleHooks: ScopeLifecycleHooks = {
     try {
       await rawRpcStub('GALAXY', galaxy).orderCertificate(operationId);
     } catch (err) {
-      debug('nebula.scope.certificate').error('certificate wake failed', {
-        galaxy, operationId, name: (err as Error)?.name, message: (err as Error)?.message,
-      });
+      debug('nebula.scope.certificate').error('certificate wake failed', { galaxy, operationId, error: err });
     }
   },
 };

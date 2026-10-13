@@ -178,7 +178,7 @@ describe('the source entries sit at the chat floor', () => {
     } catch (e) {
       // A red says WHY: the Galaxy's own turn entries ride the sink.
       const turn = entries.filter((x) => /nebula\.Galaxy\.(trigger|stream)/.test(x.namespace))
-        .map((x) => `${x.level} ${x.namespace} ${x.message} ${JSON.stringify(x.data?.error ?? '')}`);
+        .map((x) => `${x.level} ${x.namespace} ${x.message} ${(x.data?.error as { message?: string } | undefined)?.message ?? JSON.stringify(x.data?.error ?? '')}`);
       throw new Error(`${e instanceof Error ? e.message : String(e)} — the Galaxy's turn entries: ${turn.join(' | ').slice(0, 1500)}`);
     }
     // The premise held — the grant is gone: the member's direct write is refused now.

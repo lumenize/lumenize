@@ -90,10 +90,7 @@ export abstract class MeshDO<Env = any> extends ComposedMeshDO(DurableObject, 'L
       } catch { /* table doesn't exist yet — nothing to recover */ }
     }).catch((error) => {
       const log = debug('lmz.mesh.LumenizeDO.onStart');
-      log.error('onStart() failed', {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      });
+      log.error('onStart() failed', { error });
     });
   }
 

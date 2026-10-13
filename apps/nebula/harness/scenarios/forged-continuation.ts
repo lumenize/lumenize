@@ -114,7 +114,7 @@ export async function run(stack: DevStack): Promise<void> {
     // `TypeError: undefined is not a function` for the missing member. Measured under the mutation.
     const stdio = stack.logs?.();
     const starRanIt = stdio !== undefined && debugLines(stdio).some((e) => e.message === 'ontology pull failed'
-      && String(e.data.error).includes('undefined is not a function'));
+      && String(e.data.error?.message).includes('undefined is not a function'));
     if (backToForger && !starRanIt) {
       console.log(`  ✓ limb 1 — the continuation came back to the forger, and the Star ran nothing${stdio === undefined ? ' (its log is not observable on a deployed target)' : ''}`);
     } else {
@@ -206,7 +206,7 @@ export async function run(stack: DevStack): Promise<void> {
         received = true;
       } catch { /* reported below */ }
       const ranIt = debugLines(stack.logs()).some((l) => l.message === 'ontology pull failed'
-        && String(l.data.error).includes(forgedArg));
+        && String(l.data.error?.message).includes(forgedArg));
       if (received && !ranIt) {
         console.log('  ✓ limb 3 — the reaper received the marker-shaped Error as data, and the Star ran nothing');
       } else {

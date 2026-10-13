@@ -535,8 +535,7 @@ export class Snapshots {
           ontologyVersion,
           requestCount: requests.size,
           typeNames: [...new Set([...requests.values()].map(r => r.typeName))],
-          error: err instanceof Error ? err.message : String(err),
-          name: err instanceof Error ? err.name : undefined,
+          error: err,
         });
         throw err;
       }

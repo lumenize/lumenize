@@ -120,7 +120,7 @@ describe('a subscribe is bounded, and a refused push says so', () => {
     );
     expect(refusals).toHaveLength(1);
     expect(refusals[0].data?.member).toBe('handleResourceUpdate');
-    expect(refusals[0].data?.error).toMatch(/overrides a mesh-callable member but is not itself decorated with @mesh\(\)/);
+    expect(refusals[0].data?.error?.message).toMatch(/overrides a mesh-callable member but is not itself decorated with @mesh\(\)/);
 
     client[Symbol.dispose]();
   }, 20_000);

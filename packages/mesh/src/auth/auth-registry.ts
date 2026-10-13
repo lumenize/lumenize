@@ -602,7 +602,7 @@ export class AuthRegistry extends DurableObject {
         this.ctx.storage.sql.exec('INSERT INTO Scopes (universeGalaxyStarId) VALUES (?)', slug);
       } catch (err) {
         log.error('Universe INSERT conflicted unexpectedly — checkSlugAvailable invariant violated', {
-          slug, error: err instanceof Error ? err.message : String(err),
+          slug, error: err,
         });
         throw err;
       }
@@ -1708,7 +1708,7 @@ export class AuthRegistry extends DurableObject {
       // to retry rather than handed a bare 500. A bounce AFTER the provider accepts never reaches
       // here; that is `tasks/backlog.md` § internal email reliability.
       debug('nebula-auth.Registry.email').error('Magic-link send failed', {
-        to: lcEmail, instanceName, error: err instanceof Error ? err.message : String(err),
+        to: lcEmail, instanceName, error: err,
       });
       throw new RegistryError(502, 'email_send_failed', "We couldn't send your sign-in email. Try again.");
     }

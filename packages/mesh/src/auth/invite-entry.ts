@@ -67,7 +67,7 @@ export async function sendInviteEmails(
       log.error('Invite email send failed', {
         email: invitee.email,
         instanceName: opts.instanceName,
-        error: error instanceof Error ? error.message : String(error),
+        error,
       });
     }
   }));

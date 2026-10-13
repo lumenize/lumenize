@@ -59,7 +59,7 @@ export async function run(stack: DevStack): Promise<void> {
   const isFailedSend = (l: DebugLine) => l.namespace === 'nebula-auth.Registry.email'
     && l.message === 'Magic-link send failed' && l.data.to === email;
   const lines = await waitForDebugLines(stack, (all) => all.some(isFailedSend), 'the failed send for the claim');
-  assert.match(String(lines.find(isFailedSend)!.data.error), /Resend API error: 401/,
+  assert.match(String(lines.find(isFailedSend)!.data.error?.message), /Resend API error: 401/,
     "the failure must be Resend's own refusal, not a send that never left");
   console.error("  ✓ limb 1 — the first claim answered 502 email_send_failed, and the stack logged Resend's 401");
 

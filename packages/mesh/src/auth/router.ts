@@ -321,8 +321,7 @@ export async function routeAuthRequest(
     debug('nebula-auth.router.dispatch').error('dispatcher threw', {
       path: url.pathname,
       method: request.method,
-      error: err instanceof Error ? err.message : String(err),
-      name: err instanceof Error ? err.name : undefined,
+      error: err,
     });
     return jsonError(500, 'internal_error', 'An unexpected error occurred');
   }
@@ -382,7 +381,7 @@ async function checkTurnstile(request: Request, env: Env): Promise<Response | nu
   try { body = await cloned.json(); }
   catch (err) {
     debug('nebula-auth.router.turnstileBodyParse').debug('turnstile body not JSON', {
-      path: new URL(request.url).pathname, error: err instanceof Error ? err.message : String(err),
+      path: new URL(request.url).pathname, error: err,
     });
     return jsonError(400, 'invalid_request', 'Request body must be JSON');
   }

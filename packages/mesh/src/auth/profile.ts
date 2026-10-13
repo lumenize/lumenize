@@ -458,7 +458,7 @@ export class Profile extends UnscopedMeshDO<Env> {
       scopes = await this.lookupProfileScopes(profileId);
     } catch (err) {
       debug('nebula-auth.Profile.authz.failClosed').warn('scoped-admin registry read failed — denying', {
-        profileId, error: err instanceof Error ? err.message : String(err),
+        profileId, error: err,
       });
       throw new Error('Forbidden: profile authz check failed');
     }

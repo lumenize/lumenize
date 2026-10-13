@@ -846,7 +846,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       this.ctx.storage.kv.put(DEV_ONTOLOGY_ROW_KEY, row);
       log.info('landed', { instanceName: this.lmz.instanceName, version: expected });
     } catch (e) {
-      log.error('landing failed', { instanceName: this.lmz.instanceName, expected, error: e instanceof Error ? e.message : String(e) });
+      log.error('landing failed', { instanceName: this.lmz.instanceName, expected, error: e });
     }
   }
 
@@ -960,7 +960,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       // The cloud-only stuck signature — EVIDENCE only (expect zero); never a recovery
       // trigger (the ephemeral model designs the state away).
       if (isStuckFlagError(e) || isStuckFlagText(message)) {
-        debug('nebula.Galaxy.build').error('stuck-flag signature observed', { message });
+        debug('nebula.Galaxy.build').error('stuck-flag signature observed', { error: e });
       }
       this.#destroyBuildContainer();
       return skipped(message);
@@ -1180,7 +1180,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     }
     let packs;
     try { packs = await api.list(); } catch (e) {
-      log.error('certificate packs could not be listed; none deleted', { host, error: (e as Error).message });
+      log.error('certificate packs could not be listed; none deleted', { host, error: e });
       return;
     }
     for (const pack of packs.filter((p) => packNamesGalaxy(p.hosts, host))) {
@@ -1188,7 +1188,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         await api.delete(pack.id);
         log.info('pack deleted', { packId: pack.id, host });
       } catch (e) {
-        log.error('certificate pack delete failed', { packId: pack.id, host, error: (e as Error).message });
+        log.error('certificate pack delete failed', { packId: pack.id, host, error: e });
       }
     }
   }
@@ -1302,7 +1302,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       // `waitUntil` holds the Galaxy for the detached turn — see RESIDENCY in runTriggeredTurn.
       this.ctx.waitUntil(this.runTriggeredTurn(resourceId, content).catch((e) => {
         debug('nebula.Galaxy.trigger').error('triggered turn threw', {
-          resourceId, error: e instanceof Error ? e.message : String(e),
+          resourceId, error: e,
         });
       }));
     }
@@ -1543,14 +1543,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       // mismatch would turn the warm into a wasted boot. The backend's defaults are port 8080 and
       // egress `{ mode: 'none' }`, hence no internet — deps are fully baked.
       void (this.#containerApi ??= new WorkspaceContainerAPI(this.ctx)).start(BUILD_BOX_LAUNCH_SPEC).catch((e: unknown) => {
-        debug('nebula.Galaxy.warm').warn('warm start failed (non-fatal — exec will retry)', {
-          error: e instanceof Error ? e.message : String(e),
-        });
+        debug('nebula.Galaxy.warm').warn('warm start failed (non-fatal — exec will retry)', { error: e });
       });
     } catch (e) {
-      debug('nebula.Galaxy.warm').warn('warm start threw (non-fatal)', {
-        error: e instanceof Error ? e.message : String(e),
-      });
+      debug('nebula.Galaxy.warm').warn('warm start threw (non-fatal)', { error: e });
     }
   }
 
@@ -1579,7 +1575,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   /** {@link deliverPreviewReady}'s result handler, sent `onErrorOnly`: logs a nudge that did not land. */
   onPreviewReadyUndelivered(result?: unknown): void {
     if (result instanceof Error) {
-      debug('nebula.Galaxy.deliverPreviewReady').warn('preview-ready delivery failed (non-fatal)', { error: result.message });
+      debug('nebula.Galaxy.deliverPreviewReady').warn('preview-ready delivery failed (non-fatal)', { error: result });
     }
   }
 

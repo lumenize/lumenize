@@ -417,7 +417,7 @@ export class Resources {
       onPushUndelivered: (what, result) => {
         if (!(result instanceof Error)) return;
         debug('nebula.Resources.push').warn(`${what} was not delivered`, {
-          callee: this.#lmz().callContext.callee?.instanceName, error: result.message,
+          callee: this.#lmz().callContext.callee?.instanceName, error: result,
         });
       },
     };
@@ -505,7 +505,7 @@ export class Resources {
         this.#install(row);
       } catch (err) {
         debug('nebula.Resources.ontology').warn('install refused', {
-          version: row.version, error: err instanceof Error ? err.message : String(err),
+          version: row.version, error: err,
         });
         return new OntologyStaleError(pinned ?? '', installed);
       }
@@ -571,10 +571,10 @@ export class Resources {
           const failing = [...results.values()].filter((r) => !r.valid).length;
           log.info('rows failing the new version', { instanceName, version, failing, checked: items.size, cap: FAILING_ROW_CAP, capped });
         },
-        (err) => log.warn('counting rows that fail the new version failed', { instanceName, version, error: err instanceof Error ? err.message : String(err) }),
+        (err) => log.warn('counting rows that fail the new version failed', { instanceName, version, error: err }),
       ));
     } catch (err) {
-      log.warn('counting rows that fail the new version failed', { instanceName, version, error: err instanceof Error ? err.message : String(err) });
+      log.warn('counting rows that fail the new version failed', { instanceName, version, error: err });
     }
   }
 
@@ -598,7 +598,7 @@ export class Resources {
     this.#askedAt = undefined;
     try {
       if (result instanceof Error) {
-        log.warn('ontology pull failed', { instanceName, error: result.message });
+        log.warn('ontology pull failed', { instanceName, error: result });
         return;
       }
       const row = result as OntologyVersionRow | null;
@@ -608,7 +608,7 @@ export class Resources {
       }
       this.#install(row);
     } catch (err) {
-      log.error('ontology pull handling failed', { error: err instanceof Error ? err.message : String(err) });
+      log.error('ontology pull handling failed', { error: err });
     }
   }
 
@@ -798,7 +798,7 @@ export class Resources {
         // the test is that the event announces itself below and the flip is visible org-wide.
         await this.#flipInviteStatuses(nodeId, Object.keys(tiers).map((email) =>
           ({ email, state: 'submission-failed', error: result.message })));
-        log.warn('node invite submission failed', { nodeId, error: result.message });
+        log.warn('node invite submission failed', { nodeId, error: result });
         return;
       }
       const summary = result as InviteSummary;
@@ -821,7 +821,7 @@ export class Resources {
     } catch (err) {
       // Never rethrow — a fire-back handler's throw vanishes. Identifiers only.
       log.error('node invite result handling failed', {
-        nodeId, error: err instanceof Error ? err.message : String(err),
+        nodeId, error: err,
       });
     }
   }
@@ -968,7 +968,7 @@ export class Resources {
       // Fail-closed: reject the watcher handle (Error keyed by queryHash) so a typo'd/malformed query
       // doesn't register a silent, permanently-empty watcher.
       debug('nebula.Resources.doSubscribeQuerySubscribers').warn('watcher query rejected', {
-        queryHash, clientAddress, error: err instanceof Error ? err.message : String(err),
+        queryHash, clientAddress, error: err,
       });
       this.#sendRoster([splitAddress(clientAddress)], queryHash,
         err instanceof Error ? err : new Error(String(err)));
@@ -1121,8 +1121,7 @@ export class Resources {
     } catch (err) {
       debug('nebula.Resources.doTransaction').error('handler threw', {
         clientAddress,
-        error: err instanceof Error ? err.message : String(err),
-        name: err instanceof Error ? err.name : undefined,
+        error: err,
       });
       throw err instanceof Error ? err : new Error(String(err));
     }
@@ -1137,8 +1136,7 @@ export class Resources {
     } catch (err) {
       debug('nebula.Resources.doRead').error('handler threw', {
         resourceId,
-        error: err instanceof Error ? err.message : String(err),
-        name: err instanceof Error ? err.name : undefined,
+        error: err,
       });
       throw err instanceof Error ? err : new Error(String(err));
     }
@@ -1184,8 +1182,7 @@ export class Resources {
         clientAddress,
         resourceType,
         resourceId,
-        error: err instanceof Error ? err.message : String(err),
-        name: err instanceof Error ? err.name : undefined,
+        error: err,
       });
       this.#send(tab, this.#ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
         err instanceof Error ? err : new Error(String(err))),
@@ -1213,7 +1210,7 @@ export class Resources {
       const queryHash = canonicalQueryHash(query);
       debug('nebula.Resources.doSubscribeQuery').warn('query rejected', {
         clientAddress, queryType: query.queryType, typeName: query.typeName, field: query.field,
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       });
       this.#sendQueryUpdate([splitAddress(clientAddress)], queryHash,
         err instanceof Error ? err : new Error(String(err)));

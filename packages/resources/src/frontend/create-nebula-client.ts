@@ -260,7 +260,7 @@ export function createNebulaStore(
       (handle.snapshot ?? handle.ready)?.catch((err: unknown) => {
         log.warn('auto-subscribe failed', {
           key,
-          error: err instanceof Error ? err.message : String(err),
+          error: err,
         });
       });
       componentHandles.set(key, handle);

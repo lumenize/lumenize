@@ -415,7 +415,7 @@ export async function handleMagicLinkLookup(request: Request, env: Env): Promise
     } catch (e) {
       // Best-effort (see `profileForSub`) — empty fields are a worse consent screen, not a broken one.
       debug('nebula-auth.worker.lookup').warn('display-name read failed (continuing)', {
-        email: lookup.email, error: (e as Error).message,
+        email: lookup.email, error: e,
       });
     }
   }
@@ -556,7 +556,7 @@ export async function wakeCertificates(
     try {
       deleted = await registryStub.checkSlugAvailable(galaxy);
     } catch (e) {
-      debug('nebula-auth.certificate').error('could not re-read a woken galaxy; not reaped', { galaxy, operationId, error: (e as Error).message });
+      debug('nebula-auth.certificate').error('could not re-read a woken galaxy; not reaped', { galaxy, operationId, error: e });
       continue;
     }
     if (deleted) {
@@ -603,7 +603,7 @@ async function settleAcceptance(
     } catch (e) {
       // Best-effort (see `profileForSub`): the membership is already accepted and refusing now would
       // strand the person outside an account they agreed to join. Loud in the log, silent to them.
-      log.warn('display-name write failed (continuing)', { sub, error: (e as Error).message });
+      log.warn('display-name write failed (continuing)', { sub, error: e });
     }
   }
   log.info('accepted', {
@@ -662,7 +662,7 @@ export async function handlePendingMembership(request: Request, env: Env): Promi
     names = (await (await profileForSub(env, resolved.record.sub))?.readDisplayNames() ?? {}) as typeof names;
   } catch (e) {
     debug('nebula-auth.worker.pendingMembership').warn('display-name read failed (continuing)', {
-      sub: resolved.record.sub, error: (e as Error).message,
+      sub: resolved.record.sub, error: e,
     });
   }
   return Response.json({
@@ -984,7 +984,7 @@ export async function handleLogout(request: Request, env: Env): Promise<Response
       ({ subs } = await registry(env).logoutSessions(hashes, everywhere === true, operationId) as { subs: string[] });
     }
   } catch (err) {
-    log.warn('revoke failed (continuing)', { operationId, error: err instanceof Error ? err.message : String(err) });
+    log.warn('revoke failed (continuing)', { operationId, error: err });
   }
   log.info('logged out', { operationId, ended: subs.length, everywhere: everywhere === true });
   return new Response(JSON.stringify({ ended: subs.length }), { status: 200, headers });

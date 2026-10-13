@@ -42,7 +42,7 @@ describe('scope lifecycle hooks — teardown', () => {
     const failures = sink.filter((e) => e.namespace === 'nebula.scope.teardown' && e.message === 'teardown failed');
     expect(failures.map((e) => e.data.instanceName)).toEqual([bad]);
     expect(failures[0].level).toBe('error');
-    expect(failures[0].data.message).toBe('injected teardown failure (test)');
+    expect(failures[0].data.error.message).toBe('injected teardown failure (test)');
 
     // Each wiped target's entry stamped its identity and the operation's id, and its rejection was
     // read as the reset it ordered. Mutation: count the abort's rejection a failure → `one` and

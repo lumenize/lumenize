@@ -299,9 +299,7 @@ async function dispatchEnvelope(
     await runWithCallContext(handlerContext, () =>
       executeFilledChain(filled, nodeInstance, { requireMeshDecorator: false }));
   } catch (handlerError) {
-    log.error('failed to deliver a dispatch-rejected result to the local handler', {
-      error: handlerError instanceof Error ? handlerError.message : String(handlerError),
-    });
+    log.error('failed to deliver a dispatch-rejected result to the local handler', { error: handlerError });
   }
 }
 
@@ -672,12 +670,8 @@ export function initIdentityFromHeaders(
       lmz.__init({ bindingName: bindingName || undefined, instanceName: instanceNameOrId || undefined });
     } catch (error) {
       // __init's first-write-wins guard throws on a binding/name divergence.
-      const message = error instanceof Error ? error.message : String(error);
-      debug('lmz.mesh.initIdentityFromHeaders').error('Initialization from headers failed', {
-        error: message,
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-      return new Response(message, { status: 500 });
+      debug('lmz.mesh.initIdentityFromHeaders').error('Initialization from headers failed', { error });
+      return new Response(error instanceof Error ? error.message : String(error), { status: 500 });
     }
   }
 
@@ -988,8 +982,6 @@ export async function fireResponse(
   local?: { lmz: { bindingName?: string; instanceName?: string }; __handleResponse(envelope: CallEnvelope): Promise<any> },
 ): Promise<void> {
   const log = debug('lmz.mesh.lmzApi.fireResponse');
-  const errText = () => (outcome instanceof Error ? outcome.message : String(outcome));
-
   // No fire-back wanted, or onErrorOnly skipping a success. An undelivered post-ack
   // throw must still surface: a continuation that throws at the fire-back door carries no
   // `response` of its own, so this is the only place its Error is logged (N8).
@@ -997,9 +989,7 @@ export async function fireResponse(
     if (isError) {
       // The stack rides along: a bare message (`TypeError: undefined is not a function`,
       // 2026-09-06, once in a dozen live runs) names nothing a reader can act on.
-      log.error(`${nodeTypeName}: post-ack chain threw with no handler to receive the error`, {
-        error: errText(), stack: outcome instanceof Error ? outcome.stack : undefined,
-      });
+      log.error(`${nodeTypeName}: post-ack chain threw with no handler to receive the error`, { error: outcome });
     }
     return;
   }
@@ -1040,14 +1030,12 @@ export async function fireResponse(
       ack = await resolveStub(env, bindingName, instanceName).__handleResponse(fireEnvelope);
     }
   } catch (transportError) {
-    log.error(`${nodeTypeName}: fire-back transport to __handleResponse failed`, {
-      error: transportError instanceof Error ? transportError.message : String(transportError),
-    });
+    log.error(`${nodeTypeName}: fire-back transport to __handleResponse failed`, { error: transportError });
     return;
   }
   if (ack && '$error' in ack) {
-    let sinkErr = 'unknown';
-    try { const e = postprocess(ack.$error); sinkErr = e instanceof Error ? e.message : String(e); } catch { /* keep default */ }
+    let sinkErr: unknown = 'unknown';
+    try { sinkErr = postprocess(ack.$error); } catch { /* keep default */ }
     log.error(`${nodeTypeName}: response leg rejected at the sink (scope gate or admission)`, { error: sinkErr });
   }
 }
@@ -1223,9 +1211,7 @@ export async function executeEnvelope(
   }).catch((detachedError: unknown) => {
     // Defensive: fireResponse never rejects, but a bug there must not become an
     // unhandled rejection on the waitUntil promise.
-    debug('lmz.mesh.lmzApi.executeEnvelope').error(`${nodeTypeName}: detached post-ack task failed`, {
-      error: detachedError instanceof Error ? detachedError.message : String(detachedError),
-    });
+    debug('lmz.mesh.lmzApi.executeEnvelope').error(`${nodeTypeName}: detached post-ack task failed`, { error: detachedError });
   });
   // Hold the node for the detached tail; postAck runs eagerly either way. An ephemeral
   // MeshWorker is held at any compatibility date. A DO/Container is held from 2026-10-01
@@ -1311,7 +1297,7 @@ export function ComposedMeshDO<TBase extends AbstractConstructor>(Base: TBase, n
         env: base.env,
         handleResponseLocally: (e) => this.__handleResponse(e),
         onValidationError: (error, details) => {
-          debug(`lmz.mesh.${nodeTypeName}.__executeOperation`).error(error.message.split('.')[0], details);
+          debug(`lmz.mesh.${nodeTypeName}.__executeOperation`).error(error.message.split('.')[0], { ...details, error });
         },
       });
     }
@@ -1392,7 +1378,7 @@ export function ComposedMeshDO<TBase extends AbstractConstructor>(Base: TBase, n
         waitUntil: (p) => base.ctx.waitUntil(p),
         env: base.env,
         onValidationError: (error, details) => {
-          debug(`lmz.mesh.${nodeTypeName}.__handleResponse`).error(error.message.split('.')[0], details);
+          debug(`lmz.mesh.${nodeTypeName}.__handleResponse`).error(error.message.split('.')[0], { ...details, error });
         },
       });
     }

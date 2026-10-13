@@ -1388,9 +1388,7 @@ export class ClientResources {
     } catch (err) {
       // User-supplied callback threw — swallow so the framework keeps
       // operating, but surface the bug to the developer.
-      log.warn('onShouldRefreshUI callback threw', {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      log.warn('onShouldRefreshUI callback threw', { error: err });
     }
   }
 

@@ -332,8 +332,7 @@ export class Alarms {
       } catch (e) {
         this.#log.error('Error executing alarm', {
           id: row.id,
-          error: e instanceof Error ? e.message : String(e),
-          stack: e instanceof Error ? e.stack : undefined
+          error: e,
         });
       }
 

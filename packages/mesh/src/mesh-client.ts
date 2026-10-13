@@ -1285,7 +1285,7 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
    */
   logRefusal(what: string, result?: unknown): void {
     if (result instanceof Error) {
-      this.#debugFactory('lumenize.nebula-client').warn(`${what} was refused`, { error: result.message });
+      this.#debugFactory('lumenize.nebula-client').warn(`${what} was refused`, { error: result });
     }
   }
 
@@ -1798,7 +1798,7 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
       this.onClaimsChange();
     } catch (err) {
       this.#debugFactory('lmz.mesh.LumenizeClient.onClaimsChange').error('onClaimsChange threw', {
-        error: err instanceof Error ? err.message : String(err),
+        error: err,
       });
     }
   }
@@ -1909,9 +1909,7 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
       message = JSON.parse(data) as GatewayMessage;
     } catch (error) {
       const log = this.#debugFactory('lmz.mesh.LumenizeClient.#handleMessage');
-      log.error('Failed to parse Gateway message', {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      log.error('Failed to parse Gateway message', { error });
       return;
     }
 
@@ -1981,7 +1979,7 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
       chain = postprocess(message.chain) as OperationChain;
     } catch (error) {
       log.error('could not decode an answer', {
-        callId: message.callId, error: error instanceof Error ? error.message : String(error),
+        callId: message.callId, error,
       });
       return;
     }
@@ -2005,7 +2003,7 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
     };
     run().catch((err) => {
       this.#debugFactory('lmz.mesh.LumenizeClient.#runFilledChain').error(
-        'result handler threw', { callId, error: err instanceof Error ? err.message : String(err) },
+        'result handler threw', { callId, error: err },
       );
     });
   }
@@ -2093,7 +2091,7 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
         {
           callId,
           member: entryKey === undefined ? '(unknown)' : String(entryKey),
-          error: error instanceof Error ? error.message : String(error),
+          error,
         },
       );
 
