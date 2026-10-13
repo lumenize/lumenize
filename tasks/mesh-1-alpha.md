@@ -6,7 +6,7 @@
 
 **An adopter can install `@lumenize/mesh`, read its docs, and run a multi-tenant app on it without anything from Nebula.**
 
-After `mesh-is-built-on-the-scope-tree.md`, Nebula runs on Mesh 1.0, but an adopter on their own would find routes serving Nebula's pages, scope deletions whose teardown only Nebula's Worker runs, website docs describing 0.26, and labels that only fit an app builder. The items below close that gap. Items 5, 9 and 10 must be decided before the publish, and the rest must land. There is no Item 6: the Registry stays raw (`mesh-is-built-on-the-scope-tree.md` D13).
+After `mesh-is-built-on-the-scope-tree.md`, Nebula runs on Mesh 1.0, but an adopter on their own would find routes serving Nebula's pages, scope deletions whose teardown only Nebula's Worker runs, website docs describing 0.26, and labels that only fit an app builder. Items 1 to 10 close that gap, and Item 11 changes how Mesh's calls behave, which costs less before the first 1.0 publish than after. Items 5, 9 and 10 must be decided before the publish, and the rest must land. There is no Item 6: the Registry stays raw (`mesh-is-built-on-the-scope-tree.md` D13).
 
 **No item here risks a schema change.** They are docs, configuration, and adopter-facing work Nebula does not need: adding a step that serves an adopter's login page changes what a route serves and nothing anyone stores. Anything that could need a schema change went into `mesh-is-built-on-the-scope-tree.md`, before the wipe (its § *What waits for mesh-1-alpha*). Every built app carries the Client's code, so an item here changes the wire, and the exports a generated app imports, only by addition.
 
@@ -91,6 +91,13 @@ After `mesh-is-built-on-the-scope-tree.md`, Nebula runs on Mesh 1.0, but an adop
 - **A Client reaches its host node through its page's own host.** It upgrades at `wss://tenant1.crm.acme.lumenize.dev/gateway/alice.9f2c41aa`, and `hostedUpgrade`, which the app's `fetch` handler calls, routes it to the node that host spells, by the route `defineRoutes` marks `hosts` for that tier. Under ADR-021 every Galaxy has hosts of its own, for which Nebula's `certificate.ts` orders a pack.
 - **Open: a certificate hook, or a Mesh default.** Every scope's page needs a host that serves TLS, so an adopter running Mesh's tiers needs certificates for them. The path-routed upgrade that once avoided that was deleted with `hostFromHostname`.
 - **Nebula's Galaxy keeps its own certificate machine and the state it stores,** whatever Mesh offers adopters, so nothing here migrates a Galaxy.
+
+## Item 11: Durable calls
+
+**Goal:** a call that must happen survives what loses one today, a page's reload or a node's reset, so Mesh delivers the way an actor system with reliable delivery does (Larry, 2026-10-13). The design, and what the reload detour found in the code, are in [on-hold/mesh-call-durable.md](on-hold/mesh-call-durable.md), which comes off hold to land before the publish.
+
+- **The reconnect half is decided already:** `backlog.md` § *Lumenize Mesh*'s receipt for every call, which has a Client resend a call its socket lost.
+- ⚠️ **The rule in § *Objective* binds it as it binds every item here:** it changes the wire, and the exports a generated app imports, only by addition.
 
 ## Docs ideas
 
