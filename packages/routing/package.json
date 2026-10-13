@@ -24,7 +24,7 @@
     "test:watch": "vitest",
     "test:unit": "vitest --run --project unit",
     "test:integration": "vitest --run --project integration",
-    "types": "wrangler types --config test/integration/wrangler.jsonc test/integration/worker-configuration.d.ts"
+    "types": "bash ../../scripts/generate-types.sh"
   },
   "dependencies": {
     "@lumenize/debug": "^0.26.0"

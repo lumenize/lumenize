@@ -22,7 +22,7 @@
     "test": "vitest --run",
     "test:coverage": "vitest --coverage --run",
     "coverage": "COVERAGE=true vitest --run --coverage",
-    "types": "wrangler types --config test/wrangler.jsonc"
+    "types": "bash ../../scripts/generate-types.sh"
   },
   "keywords": [
     "cloudflare",

@@ -18,7 +18,7 @@
     "test": "vitest --run",
     "test:coverage": "vitest --coverage --run",
     "coverage": "COVERAGE=true vitest --run --coverage",
-    "types": "wrangler types"
+    "types": "bash ../../scripts/generate-types.sh"
   },
   "keywords": [
     "cloudflare",

@@ -32,7 +32,7 @@
     "test:coverage": "vitest --coverage --run",
     "test:node-import": "tsx --test test/node-import.test.mjs",
     "coverage": "COVERAGE=true vitest --run --coverage",
-    "types": "wrangler types"
+    "types": "bash ../../scripts/generate-types.sh"
   },
   "keywords": [
     "cloudflare",

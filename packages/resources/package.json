@@ -18,7 +18,7 @@
   "scripts": {
     "test": "vitest --run",
     "coverage": "vitest --run --coverage",
-    "types": "wrangler types"
+    "types": "bash ../../scripts/generate-types.sh"
   },
   "author": "Lumenize",
   "license": "UNLICENSED",
