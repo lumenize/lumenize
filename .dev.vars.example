@@ -15,6 +15,12 @@ TEST_ENDPOINTS_URL=https://test-endpoints.transformation.workers.dev
 # Create at: Cloudflare Dashboard → Analytics & Logs → Logs → Log Explorer
 CLOUDFLARE_LOG_QUERY_TOKEN=your-log-query-token-here
 
+# Cloudflare API token with Workers Observability (Edit), Notifications (Edit) and Account Settings
+# (Read). No code reads it: the coding agent lists Workers Issues and their occurrences, queries
+# Workers Logs, and talks to Cloudflare's API MCP server (mcp.cloudflare.com) with it.
+# Create at: Cloudflare Dashboard → My Profile → API Tokens → Create Token → Custom token
+CLOUDFLARE_NOTIFICATIONS_AND_OBSERVABILITY_TOKEN=your-observability-token-here
+
 # Programatically access Cloudflare Logpush logs pushed to R2
 # Full URL to R2 bucket (includes account ID and bucket name)
 CLOUDFLARE_R2_LOGPUSH_URL=https://YOUR-ACCOUNT-ID.r2.cloudflarestorage.com/YOUR-BUCKET-NAME
@@ -36,6 +42,9 @@ CLOUDFLARE_R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
 # No code reads it. The coding agent uses it only when asked to, for what no scoped token reaches.
 # Find at: Cloudflare Dashboard → My Profile → API Tokens → Global API Key
 CLOUDFLARE_GLOBAL_API_KEY=your-global-api-key-here
+
+# Cloudflare Advanced Certificate Manager
+PROD_CERTIFICATE_API_TOKEN=your-token-here
 
 # Debug logging (see @lumenize/debug for patterns). A namespace enables itself and its children.
 # Examples: nebula, nebula.Galaxy.model, lmz.mesh, *
