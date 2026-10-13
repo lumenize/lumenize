@@ -57,6 +57,15 @@ different lines, so a test for both on one line is false on every tree. Bit 2026
 whatever happened; only its positive control, which found no start where there plainly was one,
 showed the match could not fire.
 
+**A log added to diagnose a scenario's failure MUST have its namespace in that scenario's
+`bootVars` `DEBUG`, when the scenario sets one.** That value replaces the Worker's `DEBUG` for the
+boot, and `@lumenize/debug` prints only `error` outside it. So the new line prints nothing in
+exactly the run it was written for, and nothing reports the drop. Check it by booting the scenario
+with a fault that fires the log, then finding the line in the stack's stdio. Bit 2026-10-13: a warn
+under `nebula.Galaxy.model` was added to capture a Workers AI 400 seen only in `first-app-built`,
+whose `bootVars` named six other namespaces. With `nebula.Galaxy.model` added, a boot of
+`studio-codegen-rest` with an invalid `WORKERS_AI_TOKEN` printed the line.
+
 ## Timing a limb against the code it drives
 
 **A limb's page MUST act only after its connection is up, as an app waits on the factory's `ready`.** A page that acts sooner has its first ops sent twice, once queued and once by the first connection's restore, and the second copy can answer what the code under test was holding. Bit 2026-10-11: a gate's resend survived its mutation for exactly that reason.
