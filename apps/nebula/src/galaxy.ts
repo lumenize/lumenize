@@ -1789,27 +1789,30 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * objects instead. Adding a gateway id here is a data-handling decision — make it
    * on purpose, and see `tasks/on-hold/nebula-tenant-ai-billing.md` first.
    *
-   * **Never log the token or the `Authorization` header** (security.md); errors carry the
-   * URL `pathname` + status only (the token rides the header, never the URL).
+   * **Never log the token or the `Authorization` header** (critical.md); errors carry the
+   * URL `pathname` + status only (the token rides the header, never the URL). A refused call
+   * logs the provider's whole body at warn, beside identifiers and nothing from `headers`.
    */
   async #callModelRest(
     env: { CLOUDFLARE_ACCOUNT_ID?: string; CF_AI_GATEWAY?: string },
     token: string,
     model: string,
-    body: unknown,
+    body: Record<string, unknown>,
     onDelta?: (text: string) => void,
   ): Promise<unknown> {
     const accountId = env.CLOUDFLARE_ACCOUNT_ID;
     if (!accountId) throw new Error('Workers AI REST path needs CLOUDFLARE_ACCOUNT_ID');
     const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
     const headers = workersAiRestHeaders({ token, gateway: env.CF_AI_GATEWAY, extra: this.modelCallHeaders() });
+    const payload = JSON.stringify(body);
     // A refused call is retried twice with backoff (`Retry-After` when the service says,
     // else 5 s then 15 s): Workers AI answers 429 under the sweep's call volume, and on
     // 2026-09-06 one 429 ended a turn with no reply while the client waited on nothing.
     // Past the retries it fails into the loop's controlled error, which still replies.
     let resp: Response;
-    for (let attempt = 0; ; attempt++) {
-      resp = await this.restFetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+    let attempt = 0;
+    for (; ; attempt++) {
+      resp = await this.restFetch(url, { method: 'POST', headers, body: payload });
       if (resp.ok || attempt >= 2 || !(resp.status === 429 || resp.status >= 500)) break;
       await resp.body?.cancel().catch(() => { /* nothing to free */ });
       const retryAfter = Number(resp.headers.get('retry-after'));
@@ -1817,10 +1820,22 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       await new Promise((r) => setTimeout(r, waitMs));
     }
     if (!resp.ok) {
-      // The provider's own message rides the error, bounded: a 400 is not retried and only
-      // its body says why (2026-09-06: one ended a five-round turn with no clue in the log).
-      const body = await resp.text().catch(() => '');
-      throw new Error(`Workers AI REST ${resp.status} at ${new URL(url).pathname}: ${body.replace(/\s+/g, ' ').slice(0, 300)}`);
+      // A 400 is not retried and only its body says why. The error, which becomes the reply,
+      // carries it bounded; the log carries it whole, because a nested `AiError` runs past
+      // any bound a reply can hold (2026-10-12: two sweeps' build turns ended on a 400 whose
+      // cause was cut at 300 characters, and nothing else recorded it).
+      const text = await resp.text().catch(() => '');
+      const path = new URL(url).pathname;
+      debug('nebula.Galaxy.model').warn('model call refused', {
+        instanceName: this.lmz.instanceName ?? this.ctx.id.name,
+        status: resp.status,
+        path,
+        attempts: attempt + 1,
+        requestBytes: payload.length,
+        messages: Array.isArray(body.messages) ? body.messages.length : undefined,
+        body: text,
+      });
+      throw new Error(`Workers AI REST ${resp.status} at ${path}: ${text.replace(/\s+/g, ' ').slice(0, 300)}`);
     }
     if (onDelta && resp.body) return assembleStream(resp.body, onDelta);
     return unwrapWorkersAiRest(await resp.json());

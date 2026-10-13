@@ -20,6 +20,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
+import { setDebugSink, clearDebugSink, type DebugLogOutput } from '@lumenize/debug';
 import {
   runCodegenLoop,
   assembleCodegenPrompt,
@@ -189,6 +190,39 @@ describe('loop driver: stop conditions', () => {
     expect(always.error).toMatch(/Workers AI REST 429/);
     const plain = (await inDO(env.GALAXY, dev, (s) => s.runRestStatusesForTest([400]))) as { calls: number; error?: string };
     expect(plain).toEqual({ calls: 1, error: expect.stringMatching(/400/) });
+  });
+
+  it('a refused model call logs the provider\'s WHOLE body at warn, and never the token', async () => {
+    // In-lane because no scenario can make Workers AI answer a long nested AiError on demand.
+    // 2026-10-12: two sweeps' build turns ended on a 400 whose cause was cut at 300 characters.
+    // Mutations: bound the logged body → red; drop the log → red; log `headers` → red.
+    const dev = uniqueGalaxyScope();
+    const token = `token-${crypto.randomUUID()}`;
+    const inner = JSON.stringify({ error: { message: `${'x'.repeat(400)} — the cause is at the end`, code: 'invalid' } });
+    const body = JSON.stringify({ errors: [{ message: `AiError: AiError: ${inner}`, code: 3030 }], success: false, result: {}, messages: [] });
+    const entries: DebugLogOutput[] = [];
+    setDebugSink((e) => entries.push(e));
+    let out: { calls: number; error?: string };
+    try {
+      out = (await inDO(env.GALAXY, dev, (s) => s.runRestStatusesForTest([{ status: 400, body }], { token }))) as typeof out;
+    } finally {
+      clearDebugSink();
+    }
+    // The reply stays bounded; only the log carries the whole body.
+    expect(out.error).toMatch(/^Workers AI REST 400 at /);
+    expect(out.error).not.toContain('the cause is at the end');
+    const refused = entries.filter((e) => e.namespace === 'nebula.Galaxy.model' && e.level === 'warn');
+    expect(refused).toHaveLength(1);
+    expect(refused[0]!.data).toEqual({
+      instanceName: dev,
+      status: 400,
+      path: expect.stringMatching(/^\/client\/v4\/accounts\/[^/]+\/ai\/run\/@cf\/test\/model$/),
+      attempts: 1,
+      requestBytes: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }).length,
+      messages: 1,
+      body,
+    });
+    expect(JSON.stringify(entries)).not.toContain(token);
   });
 
   it('a build whose CONTAINER step failed is told once, and a second one ends the turn build-unavailable', async () => {

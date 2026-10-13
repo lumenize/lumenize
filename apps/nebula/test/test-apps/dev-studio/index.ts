@@ -154,35 +154,43 @@ export class GalaxyLoopProbe extends Galaxy {
     };
   }
   #capturedRestHeaders?: Record<string, string>;
-  /** Statuses the fake transport answers with, in order (200 after the queue empties);
-   *  a 429 carries `retry-after: 0` so the lane's backoff costs the test nothing. */
-  #restStatuses: number[] = [];
+  /** Answers the fake transport gives, in order (200 after the queue empties): a bare status
+   *  answers `refused`, or a status with the body the provider would send. A refusal carries
+   *  `retry-after: 0` so the lane's backoff costs the test nothing. */
+  #restStatuses: Array<number | { status: number; body: string }> = [];
   #restCalls = 0;
   protected override restFetch(_url: string, init: RequestInit): Promise<Response> {
     this.#capturedRestHeaders = { ...(init.headers as Record<string, string>) };
     this.#restCalls++;
-    const status = this.#restStatuses.shift() ?? 200;
-    if (status !== 200) return Promise.resolve(new Response('refused', { status, headers: { 'retry-after': '0' } }));
+    const next = this.#restStatuses.shift() ?? 200;
+    const { status, body } = typeof next === 'number' ? { status: next, body: 'refused' } : next;
+    if (status !== 200) return Promise.resolve(new Response(body, { status, headers: { 'retry-after': '0' } }));
     return Promise.resolve(new Response(JSON.stringify({ success: true, result: { response: 'stub' } }),
       { headers: { 'content-type': 'application/json' } }));
   }
-  /** Drive the REST lane through a status sequence; returns how many calls the lane made
-   *  and whether it threw — the retry-on-429 contract. */
-  async runRestStatusesForTest(statuses: number[]): Promise<{ calls: number; error?: string }> {
+  /** Drive the REST lane through a sequence of answers; returns how many calls the lane made
+   *  and whether it threw — the retry-on-429 contract. `token` is the `WORKERS_AI_TOKEN` the
+   *  lane sends, so a test can look for it where it must not appear. */
+  async runRestStatusesForTest(
+    statuses: Array<number | { status: number; body: string }>, opts: { token?: string } = {},
+  ): Promise<{ calls: number; error?: string }> {
     this.#lane = 'rest';
-    const env = this.env as { CLOUDFLARE_ACCOUNT_ID?: string };
+    const env = this.env as { CLOUDFLARE_ACCOUNT_ID?: string; WORKERS_AI_TOKEN?: string };
     const had = env.CLOUDFLARE_ACCOUNT_ID;
+    const hadToken = env.WORKERS_AI_TOKEN;
     env.CLOUDFLARE_ACCOUNT_ID ??= 'account-for-test';
+    if (opts.token !== undefined) env.WORKERS_AI_TOKEN = opts.token;
     this.#restStatuses = [...statuses];
     this.#restCalls = 0;
     try {
-      await this.runModel('@cf/test/model', { messages: [] });
+      await this.runModel('@cf/test/model', { messages: [{ role: 'user', content: 'hi' }] });
       return { calls: this.#restCalls };
     } catch (e) {
       return { calls: this.#restCalls, error: e instanceof Error ? e.message : String(e) };
     } finally {
       this.#lane = undefined;
       if (had === undefined) delete env.CLOUDFLARE_ACCOUNT_ID;
+      if (hadToken === undefined) delete env.WORKERS_AI_TOKEN; else env.WORKERS_AI_TOKEN = hadToken;
     }
   }
   /** Run `runModel` on the REST lane against the capturing transport and return the headers
