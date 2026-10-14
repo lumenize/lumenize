@@ -143,7 +143,10 @@ and the stuck-flag race. `test-nebula` is the standing deployed target, redeploy
 one stable name (deliberate — fresh names would strand a DO-namespace set per run; the script
 header carries the reasoning). Do not delete it as clutter. A deployed sweep spends most of its time
 waiting on Cloudflare, so `drive.ts all --concurrency=N` overlaps the waits: at 2 it took 79.5 min
-against 142 one at a time (2026-10-04). A local sweep refuses it.
+against 142 one at a time (2026-10-04). A local sweep refuses it. On a night with no build,
+`bash apps/nebula/scripts/deployed-sweep.sh` runs that sweep against a deploy of the committed
+`pre-alpha` head, from a checkout of its own, and leaves `$TMPDIR/lumenize-deployed-sweep-latest.log`
+for the morning's triage.
 
 **A build whose change can only show deployed MUST end its close-out with a deployed pass of its own scenarios** (Larry, 2026-10-07). That covers a change to what a Client hears back, to teardown or `ctx.abort()`, to Workers KV or auth, to certificates or placement, or to a container. Deploy with `deploy-test.sh` and run the scenarios the build wrote or touched; each captures the Worker's logs as it runs (`live-scenarios.md` § *Reading the Worker's logs*). The full sweep stays at the wipe gate and milestones. The evidence is `nebula-clients-connect-to-their-scope`: its deployed pass found both of that build's real defects, a 4410 close ordered wrong twice, first ahead of a Galaxy's wipe and then behind its abort, and an older stale-KV refusal. No local tier could produce any of them, because no local Galaxy orders a certificate, a local abort delivers every frame, and local KV reads back its own writes.
 

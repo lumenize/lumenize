@@ -1,10 +1,12 @@
 # Deployed `/live` runs read the Worker's own log lines
 
+**Status:** ✅ built and closed out 2026-10-14; archived.
+
 ## Objective
 
 A deployed `/live` run captures `test-nebula`'s log lines, so a scenario that reads the stack's logs runs unchanged in both venues. It was built on 2026-10-13/14 in the Workers Issues session. The same runs found a Mesh defect, the subrequest-depth error, now fixed, and a product gap, a turn that dies with its Galaxy, now in pre-alpha (`nebula-pre-alpha.md` § *Turn-liveness heartbeat*).
 
-The rest of this file is how the capture works, then what is left.
+The rest of this file is how the capture works, then how it closed out.
 
 ## How the capture works
 
@@ -19,13 +21,15 @@ The rest of this file is how the capture works, then what is left.
 
 `live-scenarios.md` § *Reading the Worker's logs* is the rule a scenario follows.
 
-## Pending
+## Closed out 2026-10-14
 
-1. **The guards are deleted and `DevStack.logs` is required; what remains is a deployed pass of the limbs the 2026-10-14 sweep reddened.** That sweep passed 53 of 65 at concurrency 2. Of the twelve failures:
-   - **Six were scenarios reading a line before it could arrive**, and are fixed: `dev-star-follows-the-build` limb 9, `delete-from-its-own-page` limb 2, `scope-teardown` limb 7 and `logout-ends-every-host` limb 2 each read a line from another invocation without waiting for it, and `invite-consent` limb 6 waited on an access line the tail had dropped.
-   - **Two were the platform resetting the shared app's Galaxy** at 17:10:58, dropping all fourteen sockets with 1006 under the same script version. The reconnects were rightly told to subscribe again, which `push-survives-token-lapse` limb 1 and `resubscribe-when-lost` limb 2 counted as a defect. Each now counts subscribes against what its tab was told.
-   - **`resubscribe-when-lost` limb 3's reconnect left the harness six seconds late**, past the grace period, so it was rightly told `true`. The suspected cause is the backfill's 52 MB polls, now filtered; unproven.
-   - **Three were a Galaxy restarting mid-turn or mid-build**, nothing recording why: `four-party-chat`, `studio-codegen-rest`, `studio-guidance-loop`. Pre-alpha now runs such a turn again once (`nebula-pre-alpha.md` § *Turn-liveness heartbeat*).
-   - **`forged-continuation`** met a transient 500 when the Registry's connection dropped during `claim-universe`, and **`deleted-on-cloudflare`** the listing lag it is known for.
-   Every one of these scenarios passes locally, and `display-names-reach-subscribers` and `forged-continuation` limb 2 no longer wait on an access line either. What remains is their deployed pass.
+**The deployed pass of every limb the 2026-10-14 sweep reddened is green, 9 of 9**, with no Workers Issue of ours since it began; the two standing ones are `scope-deleted` and the scanners' probes. That sweep passed 53 of 65 at concurrency 2. Of the twelve failures:
+- **Six were scenarios reading a line before it could arrive**, and are fixed: `dev-star-follows-the-build` limb 9, `delete-from-its-own-page` limb 2, `scope-teardown` limb 7 and `logout-ends-every-host` limb 2 each read a line from another invocation without waiting for it, and `invite-consent` limb 6 waited on an access line the tail had dropped. `display-names-reach-subscribers` and `forged-continuation` limb 2 stopped waiting on access lines too.
+- **Two were the platform resetting the shared app's Galaxy** at 17:10:58, dropping all fourteen sockets with 1006 under the same script version. The reconnects were rightly told to subscribe again, which `push-survives-token-lapse` limb 1 and `resubscribe-when-lost` limb 2 counted as a defect. Each now counts subscribes against what its tab was told.
+- **`resubscribe-when-lost` limb 3's reconnect left the harness six seconds late**, past the grace period, so it was rightly told `true`. The suspected cause is the backfill's 52 MB polls, now filtered; it came back in time on the deployed pass, which suggests but does not prove it.
+- **Three were a Galaxy restarting mid-turn or mid-build**, nothing recording why: `four-party-chat`, `studio-codegen-rest`, `studio-guidance-loop`. Pre-alpha now runs such a turn again once (`nebula-pre-alpha.md` § *Turn-liveness heartbeat*).
+- **`forged-continuation`** met a transient 500 when the Registry's connection dropped during `claim-universe`, and **`deleted-on-cloudflare`** the listing lag it is known for.
+
+The pass found one more defect, in the capture itself: `dev-star` limb 6 waited eleven minutes for lines the backfill had dropped on a non-unique `$metadata.id`, as § *How the capture works* now records; its rerun passed. A deployed sweep of the whole registry now runs on a night with no build, `apps/nebula/scripts/deployed-sweep.sh`.
+
 The MCP Events design talk is deferred to another session; its backlog row under Lumenize Mesh holds it.
