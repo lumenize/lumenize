@@ -51,7 +51,7 @@ These entry points SHOULD be `async`: `fetch()`, `alarm()`, `webSocketMessage()`
 **Exceptions**: only methods calling APIs with no synchronous alternative (`crypto.subtle.*`, `fetch()`, Workers RPC calls, etc.) MAY be `async`.
 
 ## No mutable instance state
-DOs can be hibernated or evicted at any time, so instance variables holding mutable state are lost. `ctx.storage.kv`/`ctx.storage.sql` MUST be the source of truth — reads are ~1/1,000th the cost of writes and frequently-read values are cache-served, so read-on-every-access has no measurable penalty and avoids inconsistency. However, write costs add up so use judiciously.
+DOs can be hibernated or evicted at any time, so instance variables holding mutable state are lost. `ctx.storage.kv`/`ctx.storage.sql` MUST be the source of truth, because a value read from storage cannot go stale. That read is not free: a SQLite-backed object has no key→value cache, only SQLite's 2000 KiB page cache, and deployed a cached `kv.get` or point `sql.exec` costs about 9–20 µs of CPU, against well under a microsecond for a `Map` on the instance (`experiments/do-read-cache/RESULTS.md`, 2026-10-14). Reads are still billed at ~1/1,000th of writes, so write costs are the ones to use judiciously.
 
 ```typescript
 // Wrong: state won't survive eviction
