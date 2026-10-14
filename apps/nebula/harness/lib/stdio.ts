@@ -28,11 +28,15 @@ const ANNOUNCE_AFTER_MS = 30_000;
  */
 export const waiting: { what?: string } = {};
 
-/** Run `wait` as the run's current wait on `what`, saying so once it has run {@link ANNOUNCE_AFTER_MS}. */
+/**
+ * Run `wait` as the run's current wait on `what`, saying so once it has run {@link ANNOUNCE_AFTER_MS}.
+ * A wait whose whole budget is that short ends before it would be worth announcing, so it stays quiet.
+ */
 async function asWait<T>(what: string, budgetMs: number, wait: () => Promise<T>): Promise<T> {
   waiting.what = what;
-  const announce = setTimeout(() => console.error(`[harness] still waiting for ${what}, up to `
-    + `${Math.round(budgetMs / 60_000)} min in all; a SIGINT or SIGTERM stops the run and keeps its capture`), ANNOUNCE_AFTER_MS);
+  const budget = budgetMs < 120_000 ? `${Math.round(budgetMs / 1000)} s` : `${Math.round(budgetMs / 60_000)} min`;
+  const announce = budgetMs <= ANNOUNCE_AFTER_MS ? undefined : setTimeout(() => console.error(`[harness] still waiting for `
+    + `${what}, up to ${budget} in all; a SIGINT or SIGTERM stops the run and keeps its capture`), ANNOUNCE_AFTER_MS);
   try {
     return await wait();
   } finally {

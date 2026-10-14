@@ -52,9 +52,21 @@ function asPrinted(source: Record<string, unknown>): string {
   return `${JSON.stringify(line, null, 2)}\n`;
 }
 
-interface LogsEvent { source?: unknown; $metadata?: { id?: string } }
+interface LogsEvent { source?: unknown; timestamp?: number; $metadata?: { id?: string; requestId?: string } }
 
-async function query(account: string, token: string, worker: string, from: number, to: number, offset?: string): Promise<LogsEvent[]> {
+/**
+ * What tells one Workers Logs event from every other. `$metadata.id` alone does not: it is the
+ * millisecond plus a count within the invocation, so three invocations of one object in one
+ * millisecond each have an event `01M4Y0434M000000000000000X`, measured 2026-10-14, and about one
+ * event in ten shared its id with another.
+ */
+function eventKey(event: LogsEvent): string | undefined {
+  const { id, requestId } = event.$metadata ?? {};
+  return id === undefined ? undefined : `${requestId ?? ''}|${id}`;
+}
+
+/** One page of `worker`'s events in `[from, to]`, newest first. */
+async function query(account: string, token: string, worker: string, from: number, to: number): Promise<LogsEvent[]> {
   const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/observability/telemetry/query`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -66,7 +78,6 @@ async function query(account: string, token: string, worker: string, from: numbe
         { key: '$metadata.service', operation: 'eq', type: 'string', value: worker },
         { key: '$metadata.type', operation: 'eq', type: 'string', value: 'cf-worker' },
       ] },
-      ...(offset ? { offset } : {}),
     }),
   });
   const body = await res.json() as { success?: boolean; errors?: Array<{ message?: string }>; result?: { events?: { events?: LogsEvent[] } } };
@@ -90,22 +101,24 @@ export async function startLogsBackfill(
   let polling = false;
   let stopped = false;
 
+  // A full page is followed by the window up to its oldest event's millisecond, which it repeats in
+  // part; `seen` drops the repeats. Paging by an event's id would skip events sharing it.
   const poll = async () => {
-    const to = Date.now();
+    let to = Date.now();
     const from = Math.max(sinceMs, to - WINDOW_MS);
-    let offset: string | undefined;
     for (let page = 0; page < 50 && !stopped; page++) {
-      const events = await query(account, token, worker, from, to, offset);
+      const events = await query(account, token, worker, from, to);
       for (const event of events) {
-        const id = event.$metadata?.id;
-        if (!id || seen.has(id)) continue;
+        const id = eventKey(event);
+        if (id === undefined || seen.has(id)) continue;
         seen.add(id);
         const key = debugLineKey(event.source);
         if (key) onLine({ key, text: asPrinted(event.source as Record<string, unknown>) });
       }
-      if (events.length < PAGE) return;
-      offset = events.at(-1)?.$metadata?.id;
-      if (!offset) return;
+      const oldest = events.at(-1)?.timestamp;
+      // A page one millisecond deep cannot be narrowed further; what it leaves out stays out.
+      if (events.length < PAGE || oldest === undefined || oldest + 1 >= to) return;
+      to = oldest + 1;
     }
   };
 
