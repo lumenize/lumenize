@@ -35,12 +35,10 @@
  * `needsContainer = false` — nothing here builds.
  */
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { packNamesGalaxy, cloudflareCertificateApi } from '../../src/certificate';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf } from '../lib/harness';
+import { startTail } from '../lib/tail';
 import { testSlug } from '../lib/test-scopes';
 // @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with deploy-test.sh.
 import { TEST_ORIGIN } from '../../scripts/test-deploy-config.mjs';
@@ -98,43 +96,25 @@ function durableObjects(): (className: string) => Promise<Map<string, boolean>> 
 
 /**
  * `wrangler tail` on the test Worker, mapping each Durable Object's `instanceName`, as its own log
- * lines name it, to the `durableObjectId` the event carries. In JSON mode the tail prints nothing
- * until an event arrives, so it is live once a request `ping` makes has come back through it.
+ * lines name it, to the `durableObjectId` the event carries.
  */
 async function tailObjectIds(ping: () => Promise<unknown>): Promise<{
   idOf: (instanceName: string) => string | undefined; lines: TailLine[]; stop: () => void;
 }> {
-  const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-  const child = spawn('npx', ['wrangler', 'tail', WORKER, '--format', 'json'], { cwd: appDir, stdio: ['ignore', 'pipe', 'pipe'] });
   const ids = new Map<string, string>();
   const lines: TailLine[] = [];
-  let live = false;
-  let pending = '';
-  child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
-    pending += chunk;
-    // Each event is pretty-printed, and its closing brace is the only line that is `}` alone.
-    for (let end = pending.indexOf('\n}\n'); end >= 0; end = pending.indexOf('\n}\n')) {
-      const text = pending.slice(0, end + 2);
-      pending = pending.slice(end + 3);
-      let event: { durableObjectId?: string; logs?: Array<{ message?: unknown[] }> };
-      try { event = JSON.parse(text.slice(text.indexOf('{'))); } catch { continue; }
-      live = true;
-      for (const log of event.logs ?? []) {
-        try {
-          const line = JSON.parse(String(log.message?.[0])) as TailLine;
-          lines.push(line);
-          // Only an object's own teardown line, which names that object and runs in its own event.
-          if (event.durableObjectId && line.namespace === 'nebula.scope.teardown' && line.message === 'tearing down'
-            && typeof line.data?.instanceName === 'string') ids.set(line.data.instanceName, event.durableObjectId);
-        } catch { /* not one of our JSON lines */ }
-      }
+  const tail = await startTail(WORKER, ping, (event) => {
+    for (const log of event.logs ?? []) {
+      try {
+        const line = JSON.parse(String(log.message?.[0])) as TailLine;
+        lines.push(line);
+        // Only an object's own teardown line, which names that object and runs in its own event.
+        if (event.durableObjectId && line.namespace === 'nebula.scope.teardown' && line.message === 'tearing down'
+          && typeof line.data?.instanceName === 'string') ids.set(line.data.instanceName, event.durableObjectId);
+      } catch { /* not one of our JSON lines */ }
     }
   });
-  for (const t = Date.now(); !live; await sleep(2_000)) {
-    if (Date.now() - t > 90_000) { child.kill(); throw new Error(`wrangler tail ${WORKER} never showed an event`); }
-    await ping().catch(() => undefined);
-  }
-  return { idOf: (name) => ids.get(name), lines, stop: () => child.kill() };
+  return { idOf: (name) => ids.get(name), lines, stop: tail.stop };
 }
 
 export async function run(stack: DevStack): Promise<void> {

@@ -113,7 +113,7 @@ discovered until someone asked why the tier had been skipped.
 
 **What a scenario and a harness helper must and must not do lives in `live-scenarios.md`, which
 loads when you touch `apps/nebula/harness/`:** no helper that makes up for a difference between the
-local stack and production, guarding and timing a read of the stack's logs, checking what the
+local stack and production, comparing and timing a read of the Worker's logs, checking what the
 harness constructs, and a mutation check for each limb of a multi-limb scenario.
 
 ## Two venues, one registry — local is the default; deployed is a deliberate pass (2026-08-29)
@@ -142,16 +142,16 @@ header carries the reasoning). Do not delete it as clutter. A deployed sweep spe
 waiting on Cloudflare, so `drive.ts all --concurrency=N` overlaps the waits: at 2 it took 79.5 min
 against 142 one at a time (2026-10-04). A local sweep refuses it.
 
-**A build whose change can only show deployed MUST end its close-out with a deployed pass of its own scenarios** (Larry, 2026-10-07). That covers a change to what a Client hears back, to teardown or `ctx.abort()`, to Workers KV or auth, to certificates or placement, or to a container. Deploy with `deploy-test.sh` and run the scenarios the build wrote or touched beside a `wrangler tail` capture; the full sweep stays at the wipe gate and milestones. The evidence is `nebula-clients-connect-to-their-scope`: its deployed pass found both of that build's real defects, a 4410 close ordered wrong twice, first ahead of a Galaxy's wipe and then behind its abort, and an older stale-KV refusal. No local tier could produce any of them, because no local Galaxy orders a certificate, a local abort delivers every frame, and local KV reads back its own writes.
+**A build whose change can only show deployed MUST end its close-out with a deployed pass of its own scenarios** (Larry, 2026-10-07). That covers a change to what a Client hears back, to teardown or `ctx.abort()`, to Workers KV or auth, to certificates or placement, or to a container. Deploy with `deploy-test.sh` and run the scenarios the build wrote or touched; each captures the Worker's logs as it runs (`live-scenarios.md` § *Reading the Worker's logs*). The full sweep stays at the wipe gate and milestones. The evidence is `nebula-clients-connect-to-their-scope`: its deployed pass found both of that build's real defects, a 4410 close ordered wrong twice, first ahead of a Galaxy's wipe and then behind its abort, and an older stale-KV refusal. No local tier could produce any of them, because no local Galaxy orders a certificate, a local abort delivers every frame, and local KV reads back its own writes.
 
 **A local sweep never runs the deployed-only paths, so a change to what a Client hears back MUST
 be checked against them before the deploy.** They are `drive.ts`'s account sweep and the shared
 app's cleanup, and every branch on `HARNESS_TARGET_URL` or on the stack's logs being absent
 (`grep -rlnE 'HARNESS_TARGET_URL|stack\.logs' apps/nebula/harness`). On 2026-10-06 a deletion's answer became a 4410 close, and three of those
 paths still waited for the answer; the first deployed run's account sweep reported ten failed
-deletes that had all landed. **A deployed sweep SHOULD run beside a `wrangler tail <worker>
---format json` capture,** since a deployed run keeps no logs below error level: one that day passed
-when run alone and stayed unexplained.
+deletes that had all landed. Since 2026-10-14 every deployed scenario captures the Worker's
+lines through a `wrangler tail` filled in by Workers Logs, which `test-nebula` keeps, and a
+failure writes the whole capture to a file whose path it prints.
 
 **A deployed pass SHOULD end by reading its target's Workers Issues since the pass began, and a new
 issue is a finding even when every scenario passed.** `apps/nebula/wrangler.jsonc` turns Issues on for

@@ -65,7 +65,7 @@ import type { NodeInviteAck } from '@lumenize/resources';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf, waitForHost } from '../lib/harness';
 import { servedOntologyVersion } from '../lib/own-app';
-import { clientIdIn, debugLines, waitForDebugLines } from '../lib/stdio';
+import { clientIdIn, debugLines, loggedAfter, waitForDebugLines, type DebugLine } from '../lib/stdio';
 import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
 import { foundTenantStar, refreshAccessToken } from '../../test/lib/email-login';
@@ -479,13 +479,16 @@ export async function run(stack: DevStack): Promise<void> {
       const id = current.lmz.instanceName;
       const mine = (all: ReturnType<typeof debugLines>) => all.filter((l) =>
         l.namespace === 'nebula.Resources.subscribe' && l.message === 'arrived' && clientIdIn(l.data) === id);
-      const lines = await waitForDebugLines(stack, (all) => mine(all).filter((l) => l.data.stale === false).length >= 3,
-        "the page's three admitted subscribes").catch(() => debugLines(stack.logs?.() ?? ''));
-      const install = lines.find((l) => l.message === 'installed' && l.data.instanceName === dev && l.data.version === vP);
+      // The install is logged by another invocation than the subscribes, which a deployed capture
+      // can deliver later, so the wait is for both.
+      const isInstall = (l: DebugLine) => l.message === 'installed' && l.data.instanceName === dev && l.data.version === vP;
+      const lines = await waitForDebugLines(stack, (all) => mine(all).filter((l) => l.data.stale === false).length >= 3
+        && all.some(isInstall), "the page's three admitted subscribes and the install").catch(() => debugLines(stack.logs?.() ?? ''));
+      const install = lines.find(isInstall);
       const admitted = mine(lines).filter((l) => l.data.stale === false);
       const refused = mine(lines).filter((l) => l.data.stale === true);
       const rowsRefused = refused.filter((l) => l.data.kind === 'resource').length;
-      const after = install !== undefined && admitted.every((l) => l.idx > install.idx);
+      const after = install !== undefined && admitted.every((l) => loggedAfter(l, install));
       return [install !== undefined && admitted.length >= 3 && refused.length - rowsRefused >= 1 && after,
         `installed ${install ? 'logged' : 'NOT logged'}; the list subscription refused ${refused.length - rowsRefused}×, ` +
         `the rows ${rowsRefused}×; ${admitted.length} admitted, ${after ? 'all after the install' : 'SOME BEFORE the install'}`];
@@ -575,15 +578,15 @@ export async function run(stack: DevStack): Promise<void> {
     await sleep(6_000);
     fences.push(fence());
     await logHalf('limb 9 — the tenant asked while the ops retried, and not once in the six seconds after', async () => {
-      const at = (all: ReturnType<typeof debugLines>, topic: string) => all.find((l) =>
-        l.namespace === 'nebula.Resources.subscribe' && l.message === 'arrived' && l.data.topic === topic)?.idx;
-      const lines = await waitForDebugLines(stack, (all) => at(all, fences[2]!) !== undefined, 'the last fence')
+      const fenceIn = (all: ReturnType<typeof debugLines>, topic: string) => all.find((l) =>
+        l.namespace === 'nebula.Resources.subscribe' && l.message === 'arrived' && l.data.topic === topic);
+      const lines = await waitForDebugLines(stack, (all) => fenceIn(all, fences[2]!) !== undefined, 'the last fence')
         .catch(() => debugLines(stack.logs?.() ?? ''));
-      const [f0, f1, f2] = fences.map((t) => at(lines, t));
-      if (f0 === undefined || f1 === undefined || f2 === undefined) return [false, `fences logged at ${JSON.stringify([f0, f1, f2])}`];
+      const [f0, f1, f2] = fences.map((t) => fenceIn(lines, t));
+      if (f0 === undefined || f1 === undefined || f2 === undefined) return [false, `fences logged at ${JSON.stringify([f0?.at, f1?.at, f2?.at])}`];
       const asks = lines.filter((l) => l.namespace === 'nebula.Resources.source' && l.message === 'ask' && l.data.instanceName === tenant);
-      const during = asks.filter((l) => l.idx > f0 && l.idx < f1).length;
-      const after = asks.filter((l) => l.idx > f1 && l.idx < f2).length;
+      const during = asks.filter((l) => loggedAfter(l, f0) && loggedAfter(f1, l)).length;
+      const after = asks.filter((l) => loggedAfter(l, f1) && loggedAfter(f2, l)).length;
       return [during >= 1 && after === 0, `${during} asks while the ops retried, ${after} in the six seconds after`];
     });
 

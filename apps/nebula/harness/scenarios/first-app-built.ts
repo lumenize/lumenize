@@ -64,6 +64,7 @@ import { DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar, connectDriver, NEW_HOST_TIMEOUT_MS } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
+import { loggedAfter } from '../lib/stdio';
 import { launchChromium, bootStudioVite, instrumentedPage, captureArtifacts } from '../lib/browser';
 import { provisionAndLogin, requestMagicLink } from '../../test/lib/email-login';
 
@@ -78,8 +79,8 @@ export const bootVars = { DEBUG: 'nebula.Galaxy.warm,nebula.Galaxy.teardown,nebu
 /** The Galaxy's own markers, parsed leniently off the dev stack's stdio — the log objects are
  *  pretty-printed JSON, one per `console.debug`; anything that is not one of ours is skipped. */
 type GalaxyMarker = { ns: string; message: string; at: number; idx: number; instanceName?: string };
-/** Every `nebula.Galaxy.*` marker off the dev stack's stdio, in EMISSION order (`idx`) —
- *  two markers logged in one millisecond keep their order, which a timestamp cannot say. */
+/** Every `nebula.Galaxy.*` marker off the Worker's captured lines. Ordered with `loggedAfter`: by
+ *  time, then by position for two markers logged in one millisecond, which a timestamp cannot say. */
 function galaxyMarkers(raw: string): GalaxyMarker[] {
   const markers: GalaxyMarker[] = [];
   for (const block of raw.replace(/\x1b\[[0-9;]*m/g, '').split(/\n(?=\{\n)/)) {
@@ -438,7 +439,7 @@ export async function run(stack: DevStack): Promise<void> {
     // The Worker's stdio is captured on a LOCAL stack only (`DevStack.logs`); a deployed target
     // (`HARNESS_TARGET_URL`) shows neither the markers nor, through `docker ps`, its containers,
     // so there the pairing is reported as not observable and the reply half — the second
-    // disclosure above — is what the venue asserts (`live-scenarios.md` § *Reading the local stack's logs*).
+    // disclosure above — is what the venue asserts (`live-scenarios.md` § *Reading the Worker's logs*).
     // Until the observability tail Worker exposes deployed logs — `tasks/backlog.md` § *Testing
     // & Quality* carries the re-merge — after which `DevStack.logs` gets a deployed reader.
     const stdio = stack.logs?.();
@@ -449,7 +450,7 @@ export async function run(stack: DevStack): Promise<void> {
     const pairedThrough = (from: number, to: number): { warms: number; unpaired: number } => {
       const inWindow = markers.filter((m) => m.at >= from && m.at <= to);
       const warms = warmsOf(inWindow);
-      const unpaired = warms.filter((w) => !inWindow.some((t) => t.ns === 'nebula.Galaxy.teardown' && t.idx > w.idx)).length;
+      const unpaired = warms.filter((w) => !inWindow.some((t) => t.ns === 'nebula.Galaxy.teardown' && loggedAfter(t, w))).length;
       return { warms: warms.length, unpaired };
     };
     let pairing = 'pairing not observable on a deployed target — no stdio capture';
@@ -464,7 +465,7 @@ export async function run(stack: DevStack): Promise<void> {
       // above would stay green on the cycle's own destroy (`testing.md`'s self-heal trap).
       const lastReport = markers.filter((m) => m.ns === 'nebula.Galaxy.build' && m.message === 'job report' && m.at <= askedAt).at(-1);
       assert.ok(lastReport !== undefined, 'positive control: the build turn logged a job report');
-      assert.ok(markers.some((m) => m.ns === 'nebula.Galaxy.teardown' && m.idx > lastReport.idx),
+      assert.ok(markers.some((m) => m.ns === 'nebula.Galaxy.teardown' && loggedAfter(m, lastReport)),
         "the turn-level teardown must follow the build turn's last job report — the finally is the only teardown after it");
       const questionTurn = pairedThrough(askedAt, Date.now());
       assert.equal(questionTurn.unpaired, 0, `the question's turn fired ${questionTurn.warms} warm(s) and ${questionTurn.unpaired} had no teardown after it`);

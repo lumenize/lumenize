@@ -37,11 +37,11 @@ import type { DevStack } from '../lib/harness';
 import { constructionPairs, readDevVar, scopeUrlOf } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
-import { debugLines } from '../lib/stdio';
+import { debugLines, loggedAfter } from '../lib/stdio';
 import { foundTenantStar, refreshAccessToken } from '../../test/lib/email-login';
 
 export const needsContainer = false;
-export const bootVars = { DEBUG: 'nebula.Star.onStart' };
+export const bootVars = { DEBUG: 'nebula.Star.onStart,nebula-auth.facade.executeScopeDeletion' };
 
 /** Poll `check` until it holds or `ms` passes; answers whether it held. */
 async function eventually(check: () => boolean | Promise<boolean>, ms = 15_000): Promise<boolean> {
@@ -108,8 +108,6 @@ export async function run(stack: DevStack): Promise<void> {
     });
     const dClient = d;
     assert.ok(await eventually(() => dClient.connectionState === 'connected'), `D never connected (state=${d.connectionState})`);
-    const t1Starts = () => debugLines(stack.logs?.() ?? '')
-      .filter((e) => e.namespace === 'nebula.Star.onStart' && e.data.name === t1).length;
 
     // ── LIMB 1: O deletes crm from its own Studio page and lands on the account page ───────────
     let errorRendered = false;
@@ -122,7 +120,6 @@ export async function run(stack: DevStack): Promise<void> {
     }).observe(document.body, { subtree: true, childList: true })`);
     await page.getByTestId('app-delete').click();
     await page.getByTestId('confirm-delete').waitFor({ state: 'visible', timeout: 10_000 });
-    const startsBefore = t1Starts();
     const beforeAppDelete = navigations.length;
     await page.getByTestId('confirm-delete-go').click();
     const account = new URL(vite.scopeUrl(universe)).host;
@@ -137,16 +134,25 @@ export async function run(stack: DevStack): Promise<void> {
     limb('limb 2 — a page on the deleted app is told, and stops', toldOnce && dClient.connectionState === 'disconnected',
       `told ${JSON.stringify(told)}; state ${dClient.connectionState}`);
     if (stack.logs) {
-      // The stack's stdio arrives late and in bursts, and wrangler logs a request after the Worker's
-      // own output, so once a request sent now has its line here, a start before it would be here too.
+      // The capture arrives late and in bursts, and a request's access line follows the Worker's own
+      // output, so once a request sent now has its line here, a start before it would be here too.
       const barrier = `/barrier-${crypto.randomUUID()}`;
       await fetch(`${stack.baseUrl.replace(/\/$/, '')}${barrier}`).then((r) => r.body?.cancel());
-      const arrived = await eventually(() => (stack.logs?.() ?? '').includes(barrier));
-      const rebuilt = t1Starts() - startsBefore;
+      const arrived = await eventually(() => (stack.logs?.() ?? '').includes(barrier), 60_000);
+      // Starts are split by when they were LOGGED against the deletion's completion line: a deployed
+      // capture can deliver a start from before the deletion after it. The teardown's own construction
+      // of t1 comes before that line, since the deletion awaits it.
+      const all = debugLines(stack.logs?.() ?? '');
+      const deletion = all.find((e) => e.namespace === 'nebula-auth.facade.executeScopeDeletion'
+        && e.message === 'deleted' && e.data.target === galaxy);
+      const starts = all.filter((e) => e.namespace === 'nebula.Star.onStart' && e.data.name === t1);
+      const startsBefore = deletion ? starts.filter((e) => loggedAfter(deletion, e)).length : 0;
+      const rebuilt = deletion ? starts.filter((e) => loggedAfter(e, deletion)).length : 0;
       // D's own connect built t1 before the deletion, so a count that never moved off zero means the
       // namespace or its field changed and this half could not see a rebuild.
-      limb('limb 2 — nothing builds the deleted Star again', arrived && startsBefore > 0 && rebuilt === 0,
-        `the barrier line arrived: ${arrived}; ${t1} started ${startsBefore} time(s) before the deletion and ${rebuilt} after`);
+      limb('limb 2 — nothing builds the deleted Star again', arrived && deletion !== undefined && startsBefore > 0 && rebuilt === 0,
+        `the barrier line arrived: ${arrived}; the deletion's line ${deletion ? 'arrived' : 'did NOT arrive'}; `
+          + `${t1} started ${startsBefore} time(s) before the deletion and ${rebuilt} after`);
     } else {
       console.log('  · whether the Star was rebuilt is not observable on a deployed target');
     }

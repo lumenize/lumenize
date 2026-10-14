@@ -114,6 +114,8 @@ Its task file is the authority: [nebula-testing-with-personas.md](nebula-testing
 **The lesson the build taught, worth keeping:** the first cut wrapped only the codegen loop's two awaits (model call, container build). `first-app-built`'s new live watch caught the banner painting *before codegen had started* — the discriminator and the entire plain-answer generation are silent model calls too. The turn is the unit of liveness, not any await inside it. That watch (limb 3: no banner mid-turn, no empty bubble, across a real 60–100 s turn) is what now locks the flash out.
 
 **Deliberately not here:** a per-call `callModel` timeout — it changes the model lane's failure semantics and is parked in [backlog.md](backlog.md) § *Other Nebula backlog*. Real token streaming, first parked beside it, was pulled forward and built the same day (`apps/nebula/src/model-stream.ts`, 2026-09-03): the thinking now arrives as it is written, so the heartbeat covers only the builds and the gaps between calls.
+**What the heartbeat cannot save: a Galaxy reset mid-turn (found 2026-10-14).** When the runtime resets the Galaxy, the turn dies with it, and no reply is ever written. The heartbeat stops too, so the client shows its "No reply arrived" banner rather than hanging, but the person's request is simply lost and they must ask again. `studio-codegen-rest` and `first-app-built` have each hit it deployed. Whether a turn should resume, re-run or say it stopped is open, with the evidence in [backlog.md](backlog.md) § *Testing & Quality*, the `studio-codegen-rest` row.
+
 
 ## ③ Capture live
 

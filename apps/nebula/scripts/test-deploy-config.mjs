@@ -25,6 +25,12 @@
  *    application is keyed by its Durable Object namespace and must keep its name, so production's
  *    first deploy would collide with the test target's.
  *
+ * Two additions are not swaps. **`DEBUG`** gains {@link TEST_DEBUG_ADDED}: a deployed run cannot
+ * set a scenario's `bootVars`, and its harness reads the Worker's lines through `wrangler tail` and
+ * Workers Logs, so the test target logs every namespace a scenario turns on locally. Production's
+ * value is kept and extended, so the two cannot drift. And **`observability`** keeps production's
+ * Issues setting and adds Workers Logs, which the harness reads, and traces.
+ *
  * Throws when an input is missing or the config's shape has changed, rather than emitting a
  * config nobody reviewed. `scripts/test-deploy-config.selftest.mjs` checks every swap.
  *
@@ -36,6 +42,10 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const NEBULA_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula
+
+/** The `DEBUG` namespaces the test target logs beyond production's: the ones scenarios' `bootVars`
+ *  turn on that production's patterns do not match. */
+export const TEST_DEBUG_ADDED = 'lmz.mesh';
 
 /** The deployed test target's origin, which the harness also reads for a deployed run. */
 export const TEST_ORIGIN = 'https://lumenize-test.dev';
@@ -91,6 +101,18 @@ export function deriveTestDeployConfig({ workerName, kvNamespaceId, zoneId, sour
     throw new Error('test-deploy-config: wrangler.jsonc has no vars.CERTIFICATE_ZONE_ID to swap');
   }
   cfg.vars.CERTIFICATE_ZONE_ID = zoneId;
+  if (typeof cfg.vars.DEBUG !== 'string') {
+    throw new Error('test-deploy-config: wrangler.jsonc has no vars.DEBUG to extend');
+  }
+  cfg.vars.DEBUG = `${cfg.vars.DEBUG},${TEST_DEBUG_ADDED}`;
+  // Workers Logs, on the test target alone: it keeps lines `wrangler tail` drops, and the tail keeps
+  // lines it drops (`experiments/tail-abort/RESULTS.md`), so a deployed run can read both. Traces
+  // record each RPC hop of a mesh flow, the nesting a subrequest depth error is about.
+  cfg.observability = {
+    ...cfg.observability,
+    logs: { enabled: true, invocation_logs: false },
+    traces: { enabled: true },
+  };
 
   const kv = (cfg.kv_namespaces ?? []).find((b) => b.binding === 'REFRESH_TOKEN_KV');
   if (!kv) throw new Error('test-deploy-config: wrangler.jsonc has no REFRESH_TOKEN_KV binding to swap');

@@ -44,7 +44,7 @@ import {
   refreshCookie, refreshFromPage, homeSummary, requestMagicLink,
 } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
-import { debugLines } from '../lib/stdio';
+import { debugLines, LOG_WAIT_MS } from '../lib/stdio';
 
 export const needsContainer = false;
 
@@ -161,7 +161,7 @@ export async function run(stack: DevStack): Promise<void> {
     console.error('  · limb 6 — a failed display-name read is not observable on a deployed target');
   } else {
     const cardLine = 'POST /auth/pending-membership ';
-    const deadline = Date.now() + 10_000;
+    const deadline = Date.now() + LOG_WAIT_MS;
     while (!stack.logs().includes(cardLine) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
     const stdio = stack.logs();
     assert.ok(stdio.includes(cardLine), 'the card\'s request line never reached the captured stdio');

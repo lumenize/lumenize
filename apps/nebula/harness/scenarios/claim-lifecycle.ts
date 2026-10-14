@@ -43,7 +43,7 @@ import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, superuserEmail } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
-import { waitForDebugLines, type DebugLine } from '../lib/stdio';
+import { loggedAfter, waitForDebugLines, type DebugLine } from '../lib/stdio';
 import {
   provisionAndLogin, refreshAccessToken, requestUniverseClaim, requestStarClaim, requestMagicLink,
   refreshTokenForScope, setCookieHeaders, acceptMembership, consumeLink, refreshCookie,
@@ -225,7 +225,7 @@ export async function run(stack: DevStack): Promise<void> {
       assert.deepEqual(markers.map((m) => [m.data.instanceName, m.data.binding, m.data.cause]).sort(),
         [[universe, 'UNIVERSE', 'creation'], [galaxy, 'GALAXY', 'creation'], [`${galaxy}.dev`, 'STAR', 'creation']].sort(),
         "the founder's first Accept must tear down the universe, its galaxy and its .dev Star");
-      assert.ok(markers.every((m) => m.idx < done.idx), "the acceptance's completion must follow every marker it caused");
+      assert.ok(markers.every((m) => loggedAfter(done, m)), "the acceptance's completion must follow every marker it caused");
     } else {
       notObservable('2 (universe)');
     }
@@ -254,8 +254,12 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── 4. Neither the root's first Accept nor an invitee's tears anything down ─────────────────
     if (observable) {
-      assert.equal((await acceptanceAt(PLATFORM, 'accepted')).markers.length, 0,
-        "the root's first Accept must tear nothing down");
+      // A deployed target's root is a standing account whose membership was accepted long ago, so its
+      // Accept here is not its first: that half holds only of a fresh local stack.
+      const deployedRoot = process.env.HARNESS_TARGET_URL !== undefined;
+      assert.equal((await acceptanceAt(PLATFORM, deployedRoot ? 'already-accepted' : 'accepted')).markers.length, 0,
+        deployedRoot ? "the root's Accept must tear nothing down" : "the root's first Accept must tear nothing down");
+      if (deployedRoot) console.error("  · limb 4 — the root's FIRST Accept: a fresh local stack only, whose root is new");
     } else {
       notObservable('4 (root markers)');
     }

@@ -32,6 +32,7 @@ import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar, scopeUrlOf } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
+import { LOG_WAIT_MS } from '../lib/stdio';
 import {
   requestUniverseClaim, refreshTokenForScope, setCookieHeaders, refreshAccessToken, consumeLink,
 } from '../../test/lib/email-login';
@@ -126,7 +127,7 @@ export async function run(stack: DevStack): Promise<void> {
     // The trailing space keeps `POST /auth/magic-link/lookup` from matching.
     const acceptLine = 'POST /auth/magic-link ';
     let stdio = stack.logs?.();
-    const captureDeadline = Date.now() + PUSH_TIMEOUT_MS;
+    const captureDeadline = Date.now() + LOG_WAIT_MS;
     while (stdio !== undefined && !stdio.includes(acceptLine) && Date.now() < captureDeadline) {
       await new Promise((r) => setTimeout(r, 100));
       stdio = stack.logs?.();

@@ -34,12 +34,35 @@ into `callContext.originRequest` so a mesh-borne facade mints from it rather tha
 **Every emailed link is now followed AS SENT in every lane**, which is the property to defend: a new
 host-rewriting helper is a regression of this rule, whatever its JSDoc says.
 
-## Reading the local stack's logs
+## Reading the Worker's logs
 
-**A scenario that reads the local stack's stdio (`DevStack.logs`) MUST guard on its presence, and
-MUST report that half as not observable on a deployed target.** The capture does not exist under
-`HARNESS_TARGET_URL`. An unguarded read asserts over an empty string and reds every deployed run.
-Bit 2026-09-05 on `first-app-built`'s marker-pairing limb, caught by a verifier panel rather than a run.
+**`DevStack.logs` holds the Worker's own lines in both venues: a local stack's stdio, or on a
+deployed target a `wrangler tail` filled in by Workers Logs (`harness/lib/deployed-logs.ts`).**
+Neither deployed channel delivers every line, and in `experiments/tail-abort/RESULTS.md` no line was
+lost by both: the tail loses each line an abort ends on an object hosting live tabs, and Workers Logs
+lags up to about ten minutes. So a limb reading the logs runs in both venues, and a new scenario
+MUST NOT guard on the capture being absent. The guards older scenarios carry come out as each is
+verified deployed.
+
+- **Lines MUST be compared by when they were logged, with `loggedAfter` (`harness/lib/stdio.ts`),
+  never by position.** A deployed capture arrives one invocation at a time, when each ends, so a
+  later request's lines can arrive ahead of an earlier one's.
+- **A wait for a line MUST use `LOG_WAIT_MS`**: 20 s locally, eleven minutes deployed, where a line
+  only Workers Logs holds can take that long. A wait returns as soon as its line is in.
+- **A limb reading a WebSocket upgrade's own lines, the node's start and its accept, MUST read
+  them after the socket closes.** Deployed, an upgrade's invocation ends only then, and so do its
+  lines. `scope-hosts-its-clients` limbs 2 and 4 are the example.
+- **A check that needs a fresh stack MUST be guarded on `HARNESS_TARGET_URL === undefined`.** The
+  deployed Worker is long-lived and shared by every run, so "no Star of this name ever started" or
+  "this file was never written" holds only on a stack the scenario booted.
+- **The deployed `DEBUG` is production's plus `TEST_DEBUG_ADDED`**
+  (`apps/nebula/scripts/test-deploy-config.mjs`). A namespace a scenario reads deployed MUST be in
+  one of the two, as a local read needs it in `bootVars`.
+
+The deployed capture carries lines of the harness's own too: an access line in `wrangler dev`'s
+shape for each request event, `[wrangler:info] POST /auth/magic-link 200 OK`, path only, and a
+`[harness tail]` or `[harness logs]` notice when an event was truncated or did not parse, when the
+tail sampled, or when a Workers Logs poll failed.
 
 **A limb that COUNTS log lines MUST first wait for a line its own request logs after the thing it
 counts.** The stack's stdio reaches the harness late and in bursts, so a count read too soon passes on

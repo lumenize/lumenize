@@ -32,7 +32,7 @@ import {
 } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
 import { testSlug } from '../lib/test-scopes';
-import { debugLines } from '../lib/stdio';
+import { debugLines, LOG_WAIT_MS, waitForDebugLines, type DebugLine } from '../lib/stdio';
 import { waitForEmail } from '@lumenize/email-test/client';
 import { ImpersonationChainError, ImpersonationMintError } from '@lumenize/mesh/client';
 import { childrenOf, isTornDown } from '../../../../packages/mesh/src/impersonation';
@@ -195,24 +195,12 @@ export async function run(stack: DevStack): Promise<void> {
 
   // ── 1a. The mint's record names the page ────────────────────────────────────────────────────────
   // ADR-016: a mint establishes a session, so its record names the subject beside the caller's
-  // whole projected claims, the page included. Read from the stack's stdio, waiting for the record
-  // itself, which is the line this limb reads; a deployed target captures none.
+  // whole projected claims, the page included. Read from the Worker's logs, waiting for the record
+  // itself, which is the line this limb reads.
   // Mutation: strip the claims from the record → it names only the subject → reds.
   if (stack.logs) {
-    const deadline = Date.now() + 20_000;
-    let record: { data: { subOfNarrowerToken?: string; actingToken?: Record<string, unknown> } } | undefined;
-    while (!record && Date.now() < deadline) {
-      for (const block of (stack.logs() ?? '').replace(/\x1b\[[0-9;]*m/g, '').split(/\n(?=\{\n)/)) {
-        const end = block.indexOf('\n}');
-        if (end < 0) continue;
-        try {
-          const obj = JSON.parse(block.slice(0, end + 2));
-          if (obj.message === 'Impersonation token issued' && obj.data?.subOfNarrowerToken === subject.sub) record = obj;
-        } catch { /* not one of ours */ }
-      }
-      if (!record) await sleep(100);
-    }
-    assert.ok(record, 'the mint logged no record');
+    const isRecord = (l: DebugLine) => l.message === 'Impersonation token issued' && l.data.subOfNarrowerToken === subject.sub;
+    const record = (await waitForDebugLines(stack, (all) => all.some(isRecord), "the mint's record")).find(isRecord)!;
     assert.equal(record.data.actingToken?.sub, admin.sub, "the mint's record must carry the caller's claims");
     assert.equal(record.data.actingToken?.aud, star, "the mint's record must name the caller's page");
     assert.ok(record.data.actingToken?.access, "the mint's record must carry the authority asserted");
@@ -284,13 +272,9 @@ export async function run(stack: DevStack): Promise<void> {
   // id of its own. A second child of the same subject from this tab would share that id, so
   // `impersonate()` refuses it before any call. Mutation: drop the check → the second child mints,
   // and its upgrade closes the first child's socket with 4409 → the rejection below never comes.
-  if (stack.logs) {
-    const name = `${star}/${child.lmz.instanceName}`;
-    await until(`the Star to hold ${name}`, () => debugLines(stack.logs!()).some((e) =>
-      e.message === 'WebSocket connection accepted' && e.data.instanceName === name));
-  } else {
-    console.error('[impersonation-lifecycle] limb 2b host: not observable on a deployed target');
-  }
+  // Which node holds the child's socket is read once the socket closes, below: deployed, an
+  // upgrade's lines arrive only then (`live-scenarios.md` § *Reading the Worker's logs*).
+  const childName = `${star}/${child.lmz.instanceName}`;
   const mintsBeforeSecond = mintRequests;
   await assert.rejects(
     () => adminClient.impersonate(subject.sub, { ttlSeconds: SAFE_TTL }),
@@ -338,6 +322,12 @@ export async function run(stack: DevStack): Promise<void> {
   // `disconnected` → reds.
   // The first subject's child ends first, so this one is the subject's only open child.
   child[Symbol.dispose]();
+  if (stack.logs) {
+    await until(`the Star to have held ${childName}`, () => debugLines(stack.logs!()).some((e) =>
+      e.message === 'WebSocket connection accepted' && e.data.instanceName === childName), LOG_WAIT_MS);
+  } else {
+    console.error('[impersonation-lifecycle] limb 2b host: not observable on a deployed target');
+  }
   const pausing = await adminClient.impersonate(subject.sub, { ttlSeconds: REMINT_TTL });
   await connected(pausing);
   pausing.disconnect();

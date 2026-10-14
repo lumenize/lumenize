@@ -32,7 +32,7 @@ import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf, waitForHost } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
-import { debugLines, waitForDebugLines, type DebugLine } from '../lib/stdio';
+import { debugLines, loggedAfter, waitForDebugLines, type DebugLine } from '../lib/stdio';
 import { provisionAndLogin, refreshAccessToken, requestStarClaim } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -106,7 +106,7 @@ export async function run(stack: DevStack): Promise<void> {
       const all = await stdio((a) => {
         const done = a.find((l) => l.namespace === 'nebula-auth.facade.createGalaxy' && l.message === 'created'
           && l.data.target === galaxy);
-        return !!done && a.some((l) => l.namespace === 'nebula-auth.Registry.createGalaxy')
+        return !!done && a.some((l) => l.namespace === 'nebula-auth.Registry.createGalaxy' && l.data.operationId === done.data.operationId)
           && a.filter((l) => l.message === 'tearing down' && l.data.operationId === done.data.operationId).length >= 2;
       }, "the create's completion line, record and markers");
       const created = all.find((l) => l.namespace === 'nebula-auth.facade.createGalaxy'
@@ -121,7 +121,7 @@ export async function run(stack: DevStack): Promise<void> {
         [[galaxy, 'GALAXY', 'creation'], [`${galaxy}.dev`, 'STAR', 'creation']].sort(),
         'a creation must tear down the galaxy and its .dev Star, each named');
       // Mutation: answer before the teardown returns → the completion line precedes a marker.
-      assert.ok(markers.every((m) => m.idx < created.idx), "the create's completion must follow every marker it caused");
+      assert.ok(markers.every((m) => loggedAfter(created, m)), "the create's completion must follow every marker it caused");
       const record = all.find((l) => l.namespace === 'nebula-auth.Registry.createGalaxy' && l.data.operationId === op);
       // Mutation: record the create as before (no projection) → no `access` and no `aud` → reds.
       assert.equal(record?.data.actingToken?.aud, universe, 'the create record must name the page');
@@ -281,14 +281,17 @@ export async function run(stack: DevStack): Promise<void> {
     // The universe's own page deletes it: as in limb 4, the call rejects with `HostDeletedError`.
     await atUniverse.client.scopes.delete(universe).catch((e: Error) => { if (e.name !== 'HostDeletedError') throw e; });
     if (observable) {
-      const all = await stdio(has('nebula-auth.facade.executeScopeDeletion', 'deleted', 'target', universe),
-        "the universe deletion's completion line");
-      const recordOf = (target: string) => {
-        const done = all.find((l) => l.namespace === 'nebula-auth.facade.executeScopeDeletion'
+      const recordIn = (lines: DebugLine[], target: string) => {
+        const done = lines.find((l) => l.namespace === 'nebula-auth.facade.executeScopeDeletion'
           && l.message === 'deleted' && l.data.target === target);
-        return all.find((l) => l.namespace === 'nebula-auth.Registry.executeScopeDeletion'
-          && l.data.operationId === done?.data.operationId);
+        return done && lines.find((l) => l.namespace === 'nebula-auth.Registry.executeScopeDeletion'
+          && l.data.operationId === done.data.operationId);
       };
+      // Each record is logged by another invocation than its completion line, which a deployed
+      // capture can deliver later, so the wait is for every line read below.
+      const all = await stdio((a) => [universe, galaxy, `${universe}.crm2`].every((t) => recordIn(a, t)),
+        "the three deletions' completion lines and records");
+      const recordOf = (target: string) => recordIn(all, target);
       // Limb 6's refused create logged no teardown marker. It is the fourth create on this galaxy's
       // name — after limb 1's stranger, limb 2's and limb 5's re-create — and the universe deletion
       // this block waited for came after it.

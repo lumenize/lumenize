@@ -17,6 +17,9 @@
  *
  * @see tasks/archive/claude-live-verification.md
  */
+import { writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { bootDevStack, HAS_DOCKER, readDevVar, type DevStack } from './lib/harness';
 import { stopOrphanedContainers } from './lib/containers';
 import { hostOrigin } from '@lumenize/mesh/client';
@@ -26,6 +29,7 @@ import { superuserAccounts } from './lib/superuser-accounts';
 import { installLocalhostLookup } from './lib/localhost-lookup';
 import { deleteClaimedUniverses, sharedApp } from './lib/shared-app';
 import { readSharedApp, RUN_ID } from './lib/shared-app-record';
+import { startDeployedLogs } from './lib/deployed-logs';
 import * as messageRoundtrip from './scenarios/message-roundtrip';
 import * as downwardDominion from './scenarios/downward-dominion';
 import * as superuserEndToEnd from './scenarios/superuser-end-to-end';
@@ -490,6 +494,19 @@ function appPacks(): (() => Promise<Array<{ id: string; hosts: string[] }>>) | u
 /** The deployed test target's stack id, which keys its run's shared app (`lib/shared-app-record.ts`). */
 const DEPLOYED_STACK_ID = `deployed:${TEST_ORIGIN}`;
 
+/** The deployed test Worker, which `scripts/deploy-test.sh` names the same way. */
+const TEST_WORKER = process.env.TEST_WORKER_NAME ?? 'test-nebula';
+
+/**
+ * A deployed stack whose `logs` is the test Worker's own lines, from a `wrangler tail` filled in by
+ * Workers Logs (`lib/deployed-logs.ts`), so a limb that reads them runs in both venues. The tail is
+ * live before the scenario's first request, and both stop with the stack.
+ */
+async function withDeployedLogs(stack: DevStack): Promise<DevStack> {
+  const logs = await startDeployedLogs(TEST_WORKER, () => fetch(`${stack.baseUrl}/_version?sha=tail-probe`));
+  return { ...stack, logs: logs.text, cleanup: async () => { logs.stop(); await stack.cleanup(); } };
+}
+
 /** The deployed target as a stack: nothing booted, so nothing to tear down. */
 function deployedStack(target: string): DevStack {
   return {
@@ -568,7 +585,7 @@ async function main(): Promise<void> {
       : '[harness] booting a fresh local wrangler dev WITHOUT the build box (no Docker needed)…');
   }
   const stack: DevStack = target
-    ? deployedStack(target)
+    ? await withDeployedLogs(deployedStack(target))
     : await bootDevStack({ withContainer: needsContainer, vars: scenario.bootVars });
   const t0 = Date.now();
   try {
@@ -582,11 +599,19 @@ async function main(): Promise<void> {
     // stdio (its debug markers under the booted `DEBUG` namespaces). A red that only
     // quotes the scenario's assertion cannot be attributed — 2026-09-06's `build-box` 404
     // had four green build reports behind it and nothing said what the dist did.
+    // A deployed capture delivers an invocation's lines when it ends; give the ones in flight a
+    // moment, since the line a limb missed is often among them.
+    if (target) await new Promise((r) => setTimeout(r, 10_000));
     const stdio = stack.logs?.();
     if (stdio) {
       const lines = stdio.split('\n');
-      console.error(`── dev stack stdio, last ${Math.min(lines.length, 400)} of ${lines.length} lines ──`);
+      console.error(`── ${target ? `${TEST_WORKER}'s tail and Workers Logs` : 'dev stack stdio'}, last ${Math.min(lines.length, 400)} of ${lines.length} lines ──`);
       console.error(lines.slice(-400).join('\n'));
+      // The whole capture as well: a deployed one carries every client's traffic on the target,
+      // so the line a limb missed is often far above the last 400.
+      const file = join(tmpdir(), `lumenize-${name}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
+      writeFileSync(file, stdio);
+      console.error(`── the whole capture: ${file}`);
     }
     process.exitCode = 1;
   } finally {

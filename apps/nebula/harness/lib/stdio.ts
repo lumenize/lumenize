@@ -1,16 +1,40 @@
 /**
- * The local stack's debug output, parsed — for scenarios that assert on what a request recorded.
+ * The Worker's own debug output, parsed — for scenarios that assert on what a request recorded.
  *
- * A stack started by the harness captures its `wrangler dev` stdio (`DevStack.logs`); a deployed
- * target has none, so every reader here takes the capture as optional and a scenario MUST report a
- * limb built on it as not observable there (`live-scenarios.md` § *Reading the local stack's logs*).
+ * Both venues capture it in `DevStack.logs`: a local stack its `wrangler dev` stdio, a deployed one
+ * a `wrangler tail` on the test Worker filled in by Workers Logs (`lib/deployed-logs.ts`). The
+ * deployed capture arrives one invocation at a time, when each ends, so a limb compares lines by
+ * when they were LOGGED (`at`), never by position, and waits up to {@link LOG_WAIT_MS}.
  */
 import type { DevStack } from './harness';
 
-/** One `@lumenize/debug` JSON block from the stdio, with its position among them. */
+/**
+ * How long a read of the Worker's lines may wait. A local stack prints each line as it is logged. A
+ * deployed tail delivers an invocation's lines when it ends, measured 2026-10-13 at up to 19 s late
+ * for a request and 171 s inside a build turn, and a line only Workers Logs holds arrives 29 s to
+ * about ten minutes late (`experiments/tail-abort/RESULTS.md`). A wait returns as soon as its line
+ * is in, so the deployed budget costs nothing when the line comes through the tail.
+ */
+export const LOG_WAIT_MS = process.env.HARNESS_TARGET_URL !== undefined ? 660_000 : 20_000;
+
+/**
+ * One `@lumenize/debug` JSON block from the capture. `at` is the line's own ISO `timestamp`, when
+ * it was logged, and orders lines in either venue. `idx` is its position in the capture, which is
+ * arrival order: on a deployed target that is not the order lines were logged in.
+ */
 export type DebugLine = {
-  namespace: string; message: string; level?: string; data: Record<string, any>; idx: number;
+  namespace: string; message: string; level?: string; data: Record<string, any>; at: string; idx: number;
 };
+
+/**
+ * Whether `a` was logged after `b`: by logged time, then by position for two lines logged in the
+ * same millisecond, which one invocation logs and so one capture delivers in order, in either
+ * venue. Compare positions alone and a deployed capture, which arrives one invocation at a time,
+ * can put a request's line after a later request's.
+ */
+export function loggedAfter<T extends { at: string | number; idx: number }>(a: T, b: T): boolean {
+  return a.at > b.at || (a.at === b.at && a.idx > b.idx);
+}
 
 /**
  * The client id a host's log line names: the last segment of its `clientAddress`, `alice.9f2c41aa`
@@ -20,27 +44,27 @@ export function clientIdIn(data: Record<string, any>): string | undefined {
   return typeof data.clientAddress === 'string' ? data.clientAddress.split('/').pop() : undefined;
 }
 
-/** Every JSON debug block in `raw`, in order. wrangler pretty-prints each as a `{`…`}` block. */
+/** Every JSON debug block in `raw`, in capture order. Each is printed as a `{`…`}` block. */
 export function debugLines(raw: string): DebugLine[] {
   const out: DebugLine[] = [];
   for (const block of raw.replace(/\x1b\[[0-9;]*m/g, '').split(/\n(?=\{\n)/)) {
     const end = block.indexOf('\n}');
     if (end < 0) continue;
     try {
-      const obj = JSON.parse(block.slice(0, end + 2)) as Omit<DebugLine, 'idx'>;
-      if (obj.namespace) out.push({ ...obj, data: obj.data ?? {}, idx: out.length });
+      const obj = JSON.parse(block.slice(0, end + 2)) as Omit<DebugLine, 'idx' | 'at'> & { timestamp?: string };
+      if (obj.namespace) out.push({ ...obj, data: obj.data ?? {}, at: obj.timestamp ?? '', idx: out.length });
     } catch { /* not one of ours */ }
   }
   return out;
 }
 
 /**
- * The parsed stdio once `ready` holds of it. The stack's stdio reaches the harness late and in
- * bursts, so a limb waits for a line its own request logs after the thing it reads (`live.md`).
- * Throws naming `what` when it never arrives.
+ * The parsed capture once `ready` holds of it. The capture reaches the harness late and in bursts,
+ * so a limb waits for a line its own request logs after the thing it reads (`live.md`). Throws
+ * naming `what` when it never arrives.
  */
 export async function waitForDebugLines(
-  stack: DevStack, ready: (all: DebugLine[]) => boolean, what: string, timeoutMs = 20_000,
+  stack: DevStack, ready: (all: DebugLine[]) => boolean, what: string, timeoutMs = LOG_WAIT_MS,
 ): Promise<DebugLine[]> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {

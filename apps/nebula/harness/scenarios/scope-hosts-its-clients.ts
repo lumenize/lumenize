@@ -39,8 +39,9 @@
  *     whatever the cause.
  *
  * Real logins (ADR-009 rung 1): the run's shared app's owner, signed in by email, whose refresh
- * on each host mints that host's token. Limbs 1, 2, 4 and 5 read the stack's stdio, which a deployed
- * target does not capture, and say so there. `needsContainer = false`.
+ * on each host mints that host's token. Limbs 1, 2, 4 and 5 read the stack's logs, and 2 and 4 read
+ * theirs after every socket has closed, since a deployed capture gets an upgrade's lines only then.
+ * `needsContainer = false`.
  */
 import assert from 'node:assert/strict';
 import { request as httpRequest } from 'node:http';
@@ -54,7 +55,7 @@ import { connectDriver, constructionPairs, readDevVar, scopeUrlOf } from '../lib
 import { provisionAndLogin, refreshAccessToken, refreshCookie, scopeOriginFrom, foundTenantStar } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
 import { testSlug } from '../lib/test-scopes';
-import { debugLines } from '../lib/stdio';
+import { debugLines, LOG_WAIT_MS } from '../lib/stdio';
 
 export const needsContainer = false;
 export const bootVars = { DEBUG: 'nebula.Star.onStart,lmz.mesh.ClientGateway.acceptUpgrade,lmz.mesh.ClientGateway.route' };
@@ -84,8 +85,8 @@ function upgradeStatus(url: string, token: string): Promise<number> {
 }
 
 /** Poll `check` until it holds or `WAIT_MS` passes; answers whether it held. */
-async function eventually(check: () => boolean): Promise<boolean> {
-  const deadline = Date.now() + WAIT_MS;
+async function eventually(check: () => boolean, ms = WAIT_MS): Promise<boolean> {
+  const deadline = Date.now() + ms;
   while (!check()) {
     if (Date.now() > deadline) return false;
     await new Promise((r) => setTimeout(r, 100));
@@ -176,13 +177,19 @@ export async function run(stack: DevStack): Promise<void> {
   // Each debug entry prints as a multi-line JSON block, so a line-by-line match never sees its
   // namespace beside its data: read the parsed entries.
   const entries = () => debugLines(stdio() ?? '');
-  const starStarted = (): boolean =>
-    entries().some((e) => e.namespace === 'nebula.Star.onStart' && e.data.name === star);
+  /** Whether S started, at or before `until` when given. */
+  const starStarted = (until?: string): boolean => entries().some((e) =>
+    e.namespace === 'nebula.Star.onStart' && e.data.name === star && (until === undefined || e.at <= until));
   const accepted = (instanceName: string): boolean => entries().some((e) =>
     e.namespace === 'lmz.mesh.ClientGateway.acceptUpgrade' && e.data.instanceName === instanceName);
 
   const drivers: Driver[] = [];
   const tabs: HostedTab[] = [];
+  // An upgrade's own lines, the node's start and its accept, reach a deployed capture only when
+  // the upgrade ends, which is when its socket closes (`experiments/tail-abort/RESULTS.md`). So the
+  // limbs that read them run after every tab has closed, in both venues.
+  const afterClose: Array<() => Promise<void>> = [];
+  let beforeSave = '';
   /** A hosted tab on `pageUrl`, as `sub`, recording into `log`, under `instanceName` when given. */
   async function hostedTab(
     pageUrl: string, scope: string, accessToken: string, sub: string, log: SocketLog, instanceName?: string,
@@ -226,7 +233,7 @@ export async function run(stack: DevStack): Promise<void> {
       // wrangler logs each request after the Worker's own output, so once the last refusal's
       // request line is here, a Star start it caused would be too.
       const last = refusals.at(-1)!.path;
-      assert.ok(await eventually(() => (stdio() ?? '').includes(last)), `"${last}" never reached the captured stdio`);
+      assert.ok(await eventually(() => (stdio() ?? '').includes(last), LOG_WAIT_MS), `"${last}" never reached the captured stdio`);
       limb('limb 1 — no refused upgrade started the Star', !starStarted(), `a Star named ${star} started`);
     }
 
@@ -237,9 +244,13 @@ export async function run(stack: DevStack): Promise<void> {
     if (stdio() === undefined) {
       console.log('  · which node started, and the name it holds the socket under, are not observable on a deployed target');
     } else {
-      limb('limb 2 — the upgrade starts the Star', await eventually(starStarted), `no start was logged for ${star}`);
-      limb('limb 2 — the Star holds the socket under {S}/{id}', await eventually(() => accepted(tabName)),
-        `no accept line names ${tabName}`);
+      // Limb 5's save is the next call to reach S, so a start logged before it is the upgrade's.
+      afterClose.push(async () => {
+        limb('limb 2 — the upgrade starts the Star', await eventually(() => starStarted(beforeSave), LOG_WAIT_MS),
+          `no start was logged for ${star} before limb 5's save`);
+        limb('limb 2 — the Star holds the socket under {S}/{id}', await eventually(() => accepted(tabName), LOG_WAIT_MS),
+          `no accept line names ${tabName}`);
+      });
     }
 
     // ── LIMB 3: a push from a Profile and one from the Galaxy above reach the hosted tab ───────
@@ -280,11 +291,14 @@ export async function run(stack: DevStack): Promise<void> {
     if (stdio() === undefined) {
       console.log('  · which node holds the persona\'s socket is not observable on a deployed target');
     } else {
-      limb('limb 4 — a persona\'s tab is held by the .dev Star', await eventually(() => accepted(personaName)),
-        `no accept line names ${personaName}`);
+      afterClose.push(async () => {
+        limb('limb 4 — a persona\'s tab is held by the .dev Star', await eventually(() => accepted(personaName), LOG_WAIT_MS),
+          `no accept line names ${personaName}`);
+      });
     }
 
     // ── LIMB 5: a save runs in place on the tab's own Star; its read of the Galaxy is relayed ──
+    beforeSave = new Date().toISOString();
     await tab.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, testSlug('n'), 'Saved in place');
     const config = await tab.lmz.callAsync('GALAXY', app.galaxy, tab.ctn<Galaxy>().getGalaxyConfig());
     limb('limb 5 — the save and the Galaxy read both answer', typeof config === 'object' && config !== null,
@@ -293,7 +307,7 @@ export async function run(stack: DevStack): Promise<void> {
       console.log('  · whether the save ran in place is not observable on a deployed target');
     } else {
       limb('limb 5 — the save ran in place on the Star', await eventually(() => entries().some((e) =>
-        e.namespace === 'lmz.mesh.ClientGateway.route' && e.data.outcome === 'ran in place' && e.data.instance === star)),
+        e.namespace === 'lmz.mesh.ClientGateway.route' && e.data.outcome === 'ran in place' && e.data.instance === star), LOG_WAIT_MS),
       `no frame line with the outcome \`ran in place\` names ${star}`);
     }
 
@@ -349,6 +363,10 @@ export async function run(stack: DevStack): Promise<void> {
     await galaxyOwner.client.scopes.delete(star);
     const gone = await eventually(() => codes.slice(beforeDelete).includes(4410));
     limb('limb 7 — deleting the Star closes the tab with 4410', gone, `closed with ${JSON.stringify(codes.slice(beforeDelete))}`);
+
+    // ── LIMBS 2 and 4, read now that every socket has closed ──────────────────────────────────
+    for (const t of tabs) { try { t[Symbol.dispose](); } catch { /* already disposed */ } }
+    for (const check of afterClose) await check();
   } finally {
     for (const t of tabs) { try { t[Symbol.dispose](); } catch { /* already disposed */ } }
     for (const d of drivers) d.dispose();

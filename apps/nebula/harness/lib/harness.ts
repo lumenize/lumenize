@@ -110,8 +110,9 @@ export interface DevStack {
   activeKey: 'BLUE' | 'GREEN';
   /** Kill `wrangler dev` + clean up. */
   cleanup: () => Promise<void>;
-  /** The dev stack's stdio so far (the last few MB) — the Worker's own debug markers, for a
-   *  scenario that enabled them with `bootVars: { DEBUG: '…' }`. Absent on a deployed target. */
+  /** The Worker's own output so far (the last few MB), its debug markers among it: a local stack's
+   *  stdio, under the `DEBUG` a scenario's `bootVars` set, or on a deployed target what its tail
+   *  and Workers Logs carried (`lib/deployed-logs.ts`), under the test Worker's `DEBUG`. */
   logs?: () => string;
 }
 
@@ -230,7 +231,7 @@ function declaredEnvNames(): Set<string> {
 }
 
 /** How much of the dev stack's stdio a scenario can read back — the last ~4 MB. */
-const STDIO_KEEP = 4 * 1024 * 1024;
+export const STDIO_KEEP = 4 * 1024 * 1024;
 let captured = '';
 
 /** A connected driver: the real-WS client + its identity + lifecycle helpers.

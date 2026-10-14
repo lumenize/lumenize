@@ -26,7 +26,7 @@
  *     Galaxy orders, since it then finds no token to order with.*
  *
  * Every limb reads the stack's stdio, so on a deployed target each says it is not observable there
- * (`live-scenarios.md` § *Reading the local stack's logs*).
+ * (`live-scenarios.md` § *Reading the Worker's logs*).
  *
  * `needsContainer = false` — auth, the Registry, the Galaxy's entry and the teardown hook only.
  */
@@ -37,7 +37,7 @@ import type { Galaxy } from '../../src/galaxy';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
-import { waitForDebugLines, type DebugLine } from '../lib/stdio';
+import { debugLines, loggedAfter, waitForDebugLines, type DebugLine } from '../lib/stdio';
 import {
   provisionAndLogin, refreshAccessToken, consumeLink, setCookieHeaders, refreshTokenForScope, refreshCookie,
   claimedUniverses,
@@ -54,26 +54,40 @@ const WAKE = 'nebula.Galaxy.orderCertificate';
 const ACCEPTED = 'nebula-auth.worker.acceptMembership';
 
 /**
- * The first acceptance after line `after` that answered `outcome` for `scope`, once its completion
- * line lands: its operation id, and the line's position for the next read to start after.
+ * The first acceptance logged after `after` that answered `outcome` for `scope`, once its completion
+ * line lands: its operation id, and the line itself for the next read to start after.
  */
-async function acceptance(stack: DevStack, scope: string, outcome: string, after = -1): Promise<{ op: string; idx: number }> {
+async function acceptance(stack: DevStack, scope: string, outcome: string, after?: DebugLine): Promise<{ op: string; line: DebugLine }> {
   const match = (l: DebugLine) => l.namespace === ACCEPTED && l.message === 'accepted'
-    && l.data.scope === scope && l.data.outcome === outcome && l.idx > after;
+    && l.data.scope === scope && l.data.outcome === outcome && (after === undefined || loggedAfter(l, after));
   const all = await waitForDebugLines(stack, (a) => a.some(match), `the ${outcome} acceptance of ${scope}`);
-  const line = all.find(match)!;
-  return { op: line.data.operationId, idx: line.idx };
+  const line = all.filter(match).reduce((first, l) => (loggedAfter(first, l) ? l : first));
+  return { op: line.data.operationId, line };
 }
 
 /** Whether a line is a create's or an acceptance's completion — the requests that may wake. */
 const isWaker = (l: DebugLine) => (l.namespace === ACCEPTED && l.message === 'accepted')
   || (l.namespace === 'nebula-auth.facade.createGalaxy' && l.message === 'created');
 
-/** The wake markers `op` caused. Its completion line is logged after its wakes, so read after it. */
-async function wakesOf(stack: DevStack, op: string): Promise<DebugLine[]> {
-  const all = await waitForDebugLines(stack, (a) => a.some((l) => l.data.operationId === op && isWaker(l)),
-    `the completion line of ${op}`);
-  return all.filter((l) => l.namespace === WAKE && l.data.operationId === op);
+/** How long a read expecting no wake waits after the completion line on a deployed target. */
+const NO_WAKE_SETTLE_MS = 30_000;
+
+/**
+ * The galaxies `op` woke, read once its completion line and every wake in `expected` are in. A wake
+ * is logged by the Galaxy's own invocation, which the request awaits, so a local stack prints it
+ * first; a deployed capture can deliver it after the completion line, or minutes later from Workers
+ * Logs. So a read expecting none waits {@link NO_WAKE_SETTLE_MS} more there before it counts.
+ */
+async function wakesOf(stack: DevStack, op: string, expected: string[]): Promise<string[]> {
+  const woke = (all: DebugLine[]) => all.filter((l) => l.namespace === WAKE && l.data.operationId === op)
+    .map((l) => l.data.instanceName as string);
+  await waitForDebugLines(stack, (a) => a.some((l) => l.data.operationId === op && isWaker(l)), `the completion line of ${op}`);
+  // A wake that never comes is the assertion's to report, so a timeout here falls through to it.
+  await waitForDebugLines(stack, (a) => expected.every((n) => woke(a).includes(n)), `the wakes of ${op}`).catch(() => undefined);
+  if (expected.length === 0 && process.env.HARNESS_TARGET_URL !== undefined) {
+    await new Promise((r) => setTimeout(r, NO_WAKE_SETTLE_MS));
+  }
+  return woke(debugLines(stack.logs?.() ?? ''));
 }
 
 export async function run(stack: DevStack): Promise<void> {
@@ -90,7 +104,7 @@ export async function run(stack: DevStack): Promise<void> {
     const provisioned = await provisionAndLogin({ baseUrl: origin, scope: `${universe}.crm`, email: owner, testToken });
     if (observable) {
       const { op } = await acceptance(stack, universe, 'accepted');
-      assert.deepEqual((await wakesOf(stack, op)).map((l) => l.data.instanceName), [`${universe}.crm`],
+      assert.deepEqual(await wakesOf(stack, op, [`${universe}.crm`]), [`${universe}.crm`],
         "the link page's acceptance must wake the claim's galaxy, named by its own instanceName");
     }
     console.error(`  ✓ limb 1 — the link page's acceptance woke ${universe}.crm by name${observable ? '' : ' (not observable deployed)'}`);
@@ -131,7 +145,7 @@ export async function run(stack: DevStack): Promise<void> {
     await onHome.text();
     if (observable) {
       const { op } = await acceptance(stack, ticketUniverse, 'accepted');
-      assert.deepEqual((await wakesOf(stack, op)).map((l) => l.data.instanceName), [`${ticketUniverse}.notes`],
+      assert.deepEqual(await wakesOf(stack, op, [`${ticketUniverse}.notes`]), [`${ticketUniverse}.notes`],
         "Home's acceptance of a ticket-backed claim must wake its galaxy");
     }
     console.error(`  ✓ limb 2 — Home's acceptance woke ${ticketUniverse}.notes${observable ? '' : ' (not observable deployed)'}`);
@@ -146,7 +160,7 @@ export async function run(stack: DevStack): Promise<void> {
         && l.message === 'created' && l.data.target === `${universe}.web`), 'the create\'s completion line');
       const op = created.find((l) => l.namespace === 'nebula-auth.facade.createGalaxy' && l.message === 'created'
         && l.data.target === `${universe}.web`)!.data.operationId;
-      assert.deepEqual((await wakesOf(stack, op)).map((l) => l.data.instanceName), [`${universe}.web`],
+      assert.deepEqual(await wakesOf(stack, op, [`${universe}.web`]), [`${universe}.web`],
         'a facade create must wake the galaxy it created');
     }
     console.error(`  ✓ limb 3 — the facade create woke ${universe}.web${observable ? '' : ' (not observable deployed)'}`);
@@ -159,8 +173,11 @@ export async function run(stack: DevStack): Promise<void> {
     if (observable) {
       const all = await waitForDebugLines(stack, (a) => a.some((l) => l.namespace === 'lmz.mesh.ScopedMeshDO.passage'
         && l.data.instanceName === never), `the never-created Galaxy's entry marker`);
+      // This run's galaxies only: a deployed Worker is shared, and another run's wake can arrive
+      // ahead of its own completion line.
+      const ours = (name: string) => [universe, ticketUniverse].some((u) => name.startsWith(`${u}.`));
       const wakers = new Set(all.filter(isWaker).map((l) => l.data.operationId));
-      const stray = all.filter((l) => l.namespace === WAKE && !wakers.has(l.data.operationId));
+      const stray = all.filter((l) => l.namespace === WAKE && ours(l.data.instanceName) && !wakers.has(l.data.operationId));
       assert.deepEqual(stray.map((l) => l.data), [], 'every wake must belong to a create or an acceptance');
     }
     console.error(`  ✓ limb 4 — a mesh call reached ${never} and woke nothing${observable ? '' : ' (not observable deployed)'}`);
@@ -170,8 +187,8 @@ export async function run(stack: DevStack): Promise<void> {
     const loner = await provisionAndLogin({ baseUrl: origin, scope: `${lone}.crm`, email: uniqueTestEmail(), testToken });
     // `provisionAndLogin` accepts on the link's page and then again on Home, so the re-accepts here
     // are read after that second acceptance's line.
-    let previous = -1;
-    if (observable) previous = (await acceptance(stack, lone, 'already-accepted', (await acceptance(stack, lone, 'accepted')).idx)).idx;
+    let previous: DebugLine | undefined;
+    if (observable) previous = (await acceptance(stack, lone, 'already-accepted', (await acceptance(stack, lone, 'accepted')).line)).line;
     const reaccept = async () => {
       const res = await fetch(`${origin}/auth/accept-membership`, {
         method: 'POST',
@@ -184,9 +201,9 @@ export async function run(stack: DevStack): Promise<void> {
     await reaccept();
     if (observable) {
       const first = await acceptance(stack, lone, 'already-accepted', previous);
-      assert.deepEqual((await wakesOf(stack, first.op)).map((l) => l.data.instanceName), [`${lone}.crm`],
+      assert.deepEqual(await wakesOf(stack, first.op, [`${lone}.crm`]), [`${lone}.crm`],
         'an already-accepted re-accept must wake the standing galaxy');
-      previous = first.idx;
+      previous = first.line;
     }
     const atLone = await connectDriver(stack, { scope: lone, session: await refreshAccessToken(origin, loner.session, lone) });
     drivers.push(atLone);
@@ -195,18 +212,21 @@ export async function run(stack: DevStack): Promise<void> {
     await reaccept();
     if (observable) {
       const { op } = await acceptance(stack, lone, 'already-accepted', previous);
-      assert.deepEqual((await wakesOf(stack, op)).map((l) => l.data.instanceName), [],
+      assert.deepEqual(await wakesOf(stack, op, []), [],
         'a re-accept after its galaxy is deleted must wake nothing');
     }
     console.error(`  ✓ limb 5 — a re-accept woke ${lone}.crm while it stood, and nothing once deleted${observable ? '' : ' (not observable deployed)'}`);
 
     // ── 6. The http origin orders nothing ───────────────────────────────────────────────────────
-    if (observable) {
+    // A local stack's origin is http; a deployed target's is https, where ordering is the point.
+    if (process.env.HARNESS_TARGET_URL === undefined) {
       const all = await waitForDebugLines(stack, () => true, 'any line');
       assert.deepEqual(all.filter((l) => l.namespace === 'nebula.Galaxy.certificate').map((l) => l.message), [],
         'a local Galaxy must make no certificate call');
+      console.error('  ✓ limb 6 — the http origin ordered nothing');
+    } else {
+      console.error('  · limb 6 — an http origin ordering nothing: a local stack only, since a deployed origin is https');
     }
-    console.error(`  ✓ limb 6 — the http origin ordered nothing${observable ? '' : ' (not observable deployed)'}`);
   } finally {
     for (const d of drivers) d.dispose();
   }

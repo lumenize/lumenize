@@ -18,9 +18,10 @@
  * reading anything else. Each absence check is a (namespace, name) pair: a Star's construction under
  * `nebula.Star.onStart`, a Galaxy's under `nebula.Galaxy.onStart`, a Profile's under
  * `nebula-auth.Profile.onStart`, and a scoped node's passage step under
- * `lmz.mesh.ScopedMeshDO.passage`. Every matcher has a positive control showing it can fire. On a
- * deployed target the stack's logs are not captured, so each log half says it is not observable and
- * only the messages are asserted.
+ * `lmz.mesh.ScopedMeshDO.passage`. Every matcher has a positive control showing it can fire. Both
+ * venues capture the Worker's lines; three halves hold only of a fresh local stack, whose Registry and
+ * shared app this run built and whose Durable Objects' files are on this machine, and a deployed
+ * target says so instead.
  *
  * Limbs, all run, the verdict at the end (`live-scenarios.md`):
  *  1. **The frame's fields.** `PROFILE` at `['<B>']` and `binding: ['STAR']` are refused by the
@@ -60,7 +61,7 @@ import { readDevVar, scopeUrlOf } from '../lib/harness';
 import { provisionStarAdmin, foundTenantStar } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
 import { testSlug } from '../lib/test-scopes';
-import { debugLines, waitForDebugLines, type DebugLine } from '../lib/stdio';
+import { debugLines, LOG_WAIT_MS, waitForDebugLines, type DebugLine } from '../lib/stdio';
 
 export const needsContainer = false;
 export const bootVars = {
@@ -130,6 +131,7 @@ export async function run(stack: DevStack): Promise<void> {
     if (!ok) failures.push(`${name}: ${detail}`);
   };
   const observable = stack.logs !== undefined;
+  const local = process.env.HARNESS_TARGET_URL === undefined;
   const entries = (): DebugLine[] => debugLines(stack.logs?.() ?? '');
   const named = (namespace: string, name: string, key = 'name') =>
     entries().filter((e) => e.namespace === namespace && e.data[key] === name);
@@ -181,10 +183,19 @@ export async function run(stack: DevStack): Promise<void> {
     const refusedWith = (a: Answer, expected: string | RegExp) =>
       !a.ok && (typeof expected === 'string' ? a.message === expected : expected.test(a.message));
     const said = (a: Answer) => (a.ok ? `answered ${JSON.stringify(a.value)}` : `refused with "${a.message}"`);
-    /** On a deployed target, say a log half is not observable; locally, assert it. */
-    const logHalf = (name: string, ok: () => boolean, detail: string) => {
-      if (!observable) console.log(`  · ${name} is not observable on a deployed target`);
-      else limb(name, ok(), detail);
+    /** Assert a log half once its line can have arrived, polling up to `LOG_WAIT_MS`: a deployed
+     *  capture delivers an invocation's lines when it ends, which can be after its answer. A count
+     *  only grows, so a negative that fails stays failed rather than passing late. */
+    const logHalf = async (name: string, ok: () => boolean, detail: string) => {
+      const deadline = Date.now() + LOG_WAIT_MS;
+      while (!ok() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 250));
+      limb(name, ok(), detail);
+    };
+    /** A half that holds only of a fresh local stack: a deployed target's Registry and shared app
+     *  were built before this run. */
+    const localHalf = async (name: string, ok: () => boolean, detail: string) => {
+      if (!local) console.log(`  · ${name}: a fresh local stack only`);
+      else await logHalf(name, ok, detail);
     };
 
     // ── LIMB 6 first: positive controls, so every matcher is shown able to fire ─────────────────
@@ -194,13 +205,13 @@ export async function run(stack: DevStack): Promise<void> {
     limb('limb 6 — a PROFILE read of the caller\'s own profile answers', profileCall.ok, said(profileCall));
     const facadeCall = await send('AUTH_FACADE', undefined, op('expandScope'));
     limb('limb 6 — an AUTH_FACADE call answers', facadeCall.ok, said(facadeCall));
-    logHalf('limb 6 — the passage matcher fires for the app\'s Galaxy',
+    await logHalf('limb 6 — the passage matcher fires for the app\'s Galaxy',
       () => named('lmz.mesh.ScopedMeshDO.passage', app.galaxy, 'instanceName').length > 0, 'no passage entry named it');
-    logHalf('limb 6 — the Galaxy matcher fires for the app\'s Galaxy',
+    await localHalf('limb 6 — the Galaxy matcher fires for the app\'s Galaxy',
       () => named('nebula.Galaxy.onStart', app.galaxy).length > 0, 'no Galaxy start named it');
-    logHalf('limb 6 — the Star matcher fires for B, started when it was founded',
+    await logHalf('limb 6 — the Star matcher fires for B, started when it was founded',
       () => named('nebula.Star.onStart', starB).length > 0, 'no Star start named it');
-    logHalf('limb 6 — the Profile matcher fires for the caller\'s own profile',
+    await logHalf('limb 6 — the Profile matcher fires for the caller\'s own profile',
       () => named('nebula-auth.Profile.onStart', profileId).length > 0, 'no Profile start named it');
 
     // ── LIMB 1: the frame's fields ─────────────────────────────────────────────────────────────
@@ -209,14 +220,14 @@ export async function run(stack: DevStack): Promise<void> {
     limb('limb 1 — PROFILE at an array is refused by the field check', refusedWith(arrayInstance, fieldMessage), said(arrayInstance));
     const arrayBinding = await send(['STAR'], starA, op('read'));
     limb('limb 1 — an array binding is refused by the field check', refusedWith(arrayBinding, fieldMessage), said(arrayBinding));
-    logHalf('limb 1 — no Profile named B started', () => named('nebula-auth.Profile.onStart', starB).length === 0, 'a Profile named B started');
+    await logHalf('limb 1 — no Profile named B started', () => named('nebula-auth.Profile.onStart', starB).length === 0, 'a Profile named B started');
 
     // ── LIMB 2: the missing route ───────────────────────────────────────────────────────────────
     const freshSchemas = () => entries().filter((e) =>
       e.namespace === 'nebula-auth.Registry.migrate' && Number(e.data.rowsWritten) > 0).length;
     const schemasBefore = freshSchemas();
     // The stack's one Registry migrated a fresh schema at the first login, so the matcher can fire.
-    logHalf('limb 2 — the fresh-schema matcher fires for the Registry the logins built',
+    await localHalf('limb 2 — the fresh-schema matcher fires for the Registry the logins built',
       () => schemasBefore > 0, 'no Registry logged a fresh schema');
     for (const [binding, instance] of [
       ['AUTH_REGISTRY', 'registry'], ['AUTH_REGISTRY', 'client-routes-probe'], ['AUTH_EMAIL_SENDER', undefined], ['__proto__', 'x'],
@@ -225,7 +236,7 @@ export async function run(stack: DevStack): Promise<void> {
       limb(`limb 2 — ${binding}${instance ? ` at ${instance}` : ''} is refused with the missing-route message`,
         refusedWith(a, NO_ROUTE(binding)), said(a));
     }
-    logHalf('limb 2 — no Registry migrated a fresh schema', () => freshSchemas() === schemasBefore, 'a fresh Registry was built');
+    await logHalf('limb 2 — no Registry migrated a fresh schema', () => freshSchemas() === schemasBefore, 'a fresh Registry was built');
 
     // ── LIMB 3: passage ─────────────────────────────────────────────────────────────────────────
     const passageEntriesB = () => named('lmz.mesh.ScopedMeshDO.passage', starB, 'instanceName').length;
@@ -236,20 +247,20 @@ export async function run(stack: DevStack): Promise<void> {
     const siblingClient = await send('STAR', `${starB}/someone.tab1`, op('receive'));
     limb('limb 3 — STAR at a Client on the sibling is refused for lack of passage',
       refusedWith(siblingClient, noPassage(starB)), said(siblingClient));
-    logHalf('limb 3 — the sibling\'s passage step never ran', () => passageEntriesB() === passageBefore, 'the sibling\'s passage step ran');
+    await logHalf('limb 3 — the sibling\'s passage step never ran', () => passageEntriesB() === passageBefore, 'the sibling\'s passage step ran');
     const none = await send('STAR', uncreated, op('getCurrentOntology'));
     limb('limb 3 — STAR at a scope nobody created is refused for lack of passage', refusedWith(none, noPassage(uncreated)), said(none));
-    logHalf('limb 3 — the uncreated Star never started', () => named('nebula.Star.onStart', uncreated).length === 0, 'it started');
+    await logHalf('limb 3 — the uncreated Star never started', () => named('nebula.Star.onStart', uncreated).length === 0, 'it started');
 
     // ── LIMB 4: the tier ────────────────────────────────────────────────────────────────────────
     const starAtGalaxy = await send('STAR', app.galaxy, op('getCurrentOntology'));
     limb('limb 4 — STAR at the app\'s Galaxy is refused with the tier message',
       refusedWith(starAtGalaxy, `"${app.galaxy}" is a galaxy scope, which "STAR" does not serve`), said(starAtGalaxy));
-    logHalf('limb 4 — no Star named the app\'s Galaxy started', () => named('nebula.Star.onStart', app.galaxy).length === 0, 'it started');
+    await logHalf('limb 4 — no Star named the app\'s Galaxy started', () => named('nebula.Star.onStart', app.galaxy).length === 0, 'it started');
     const galaxyAtStar = await send('GALAXY', starA, op('getCurrentOntology'));
     limb('limb 4 — GALAXY at the caller\'s own Star is refused with the tier message',
       refusedWith(galaxyAtStar, `"${starA}" is a star scope, which "GALAXY" does not serve`), said(galaxyAtStar));
-    logHalf('limb 4 — no Galaxy named the caller\'s Star started', () => named('nebula.Galaxy.onStart', starA).length === 0, 'it started');
+    await logHalf('limb 4 — no Galaxy named the caller\'s Star started', () => named('nebula.Galaxy.onStart', starA).length === 0, 'it started');
 
     // ── LIMB 5: the unscoped and worker routes ──────────────────────────────────────────────────
     for (const name of [starB, '_platform']) {
@@ -257,7 +268,7 @@ export async function run(stack: DevStack): Promise<void> {
       limb(`limb 5 — PROFILE at ${name} is refused with lmz.__init's message`,
         refusedWith(a, `"${name}" parses as a scope, and an UnscopedMeshDO never runs under a scope's name — name it by an id, such as a UUID, or extend ScopedMeshDO`),
         said(a));
-      logHalf(`limb 5 — no Profile named ${name} started`, () => named('nebula-auth.Profile.onStart', name).length === 0, 'it started');
+      await logHalf(`limb 5 — no Profile named ${name} started`, () => named('nebula-auth.Profile.onStart', name).length === 0, 'it started');
     }
     const address = await send('PROFILE', `${starB}/x`, op('read'));
     limb('limb 5 — PROFILE at a Client\'s address is refused with its own message',
@@ -286,8 +297,8 @@ export async function run(stack: DevStack): Promise<void> {
     const inventedWrite = await send('PROFILE', invented, op('writeProfile', { nickname: 'not mine' }));
     limb('limb 7 — the caller\'s write there is refused by the owner-or-admin check',
       refusedWith(inventedWrite, /^Forbidden: /), said(inventedWrite));
-    if (!observable) {
-      console.log('  · whether a Profile nobody created stored anything is not observable on a deployed target');
+    if (!local) {
+      console.log('  · whether a Profile nobody created stored anything: a local stack only, whose files are on this machine');
     } else {
       const after = profileFiles();
       const madeByTheUuid = [...after].filter(([file, s]) => {

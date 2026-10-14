@@ -46,7 +46,7 @@ import { connectDriver, constructionPairs, readDevVar, scopeUrlOf, waitForHost, 
 import { provisionAndLogin, refreshAccessToken, acceptInviteAndLogin, foundTenantStar } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
 import { testSlug } from '../lib/test-scopes';
-import { clientIdIn, debugLines, waitForDebugLines } from '../lib/stdio';
+import { clientIdIn, debugLines, LOG_WAIT_MS, waitForDebugLines } from '../lib/stdio';
 import { bootStudioVite, launchChromium, instrumentedPage, captureArtifacts } from '../lib/browser';
 
 export const needsContainer = false;
@@ -412,13 +412,14 @@ export async function run(stack: DevStack): Promise<void> {
         const first = `frozen-${Date.now()}`;
         // Resumed as soon as the host node gives up on the page, seen as the reap of its row, so it
         // reconnects inside the grace period and only a signal of the loss makes it re-subscribe.
-        // A deployed target has no capture to watch, so it waits past the 30 s and the grace period.
+        // The reap comes after the host's 30 s wait; deployed its line can take longer to arrive.
         const isReap = (l: { message: string; data: Record<string, unknown> }) => l.message === 'update not delivered'
           && l.data.name === 'ClientDisconnectedError' && !ours.has(String(clientIdIn(l.data)));
         const reapsBefore = stack.logs ? debugLines(stack.logs()).filter(isReap).length : 0;
         await writer.client.postUserMessage(first);
         if (stack.logs) {
-          await waitForDebugLines(stack, (all) => all.filter(isReap).length > reapsBefore, 'the paused page\'s reap', 45_000);
+          await waitForDebugLines(stack, (all) => all.filter(isReap).length > reapsBefore, 'the paused page\'s reap',
+            Math.max(45_000, LOG_WAIT_MS));
         } else {
           await new Promise((r) => setTimeout(r, 35_000));
         }

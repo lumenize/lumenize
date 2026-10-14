@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { deriveTestDeployConfig, parseJsonc, TEST_ORIGIN } from './test-deploy-config.mjs';
+import { deriveTestDeployConfig, parseJsonc, TEST_DEBUG_ADDED, TEST_ORIGIN } from './test-deploy-config.mjs';
 
 const NEBULA_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
 const prod = parseJsonc(readFileSync(resolve(NEBULA_DIR, 'wrangler.jsonc'), 'utf8'));
@@ -45,6 +45,15 @@ assert.ok(cfg.containers.length > 0, 'the instrument needs a container to check'
 for (const c of cfg.containers) {
   assert.equal(c.name, `test-nebula-${c.class_name.toLowerCase()}`, `container ${c.class_name} must name the test worker`);
 }
+
+// Production's DEBUG, extended by the namespaces scenarios read through the deployed tail.
+assert.equal(cfg.vars.DEBUG, `${prod.vars.DEBUG},${TEST_DEBUG_ADDED}`, "DEBUG must be production's plus the test target's additions");
+assert.ok(!prod.vars.DEBUG.split(',').includes(TEST_DEBUG_ADDED), 'the addition must not already be in production');
+
+// Workers Logs on the test target, with production's Issues kept.
+assert.equal(cfg.observability.logs?.enabled, true, 'the test target must keep Workers Logs');
+assert.equal(cfg.observability.traces?.enabled, true, 'the test target must keep traces');
+assert.deepEqual(cfg.observability.issues, prod.observability.issues, "the test target must keep production's Issues setting");
 
 // Refuses without a namespace id or a zone id.
 assert.throws(() => deriveTestDeployConfig({ workerName: 'test-nebula', kvNamespaceId: '', zoneId: ZONE_ID }), /namespace id/);
