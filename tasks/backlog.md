@@ -514,6 +514,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Publish blog 2d "When time stops: benchmarking Cloudflare Durable Objects from outside" — **already drafted**; flip `draft: true` → published at `website/blog/2026-05-09-benchmarking-cloudflare-durable-objects-from-outside/index.md` (bench archived in [gateway-hop-benchmark](archive/gateway-hop-benchmark.md); also tracked in MEMORY as "Publish 2d").
 
+- [ ] **Write up the DO read-cache measurements as a "what I got wrong" post (2026-10-14).** A Cloudflare engineer corrected Larry on Discord: SQLite-backed DOs no longer have the automatic in-memory cache from the 2021 "Choose three" post. Deployed, reading a 10-field record costs ~8.8 µs (`kv.get`) to ~18.8 µs (`sql.exec`) of CPU on a page-cache hit, against 0.2 µs from a `Map` on the instance, and after an hour idle a DO came back one of two ways (a ~0.4 s wake, or ~90 µs per page on first read). Everything is in `experiments/do-read-cache/RESULTS.md`, and Larry's Discord reply has the short version. A sibling of the 2026-05-03 throughput post. Its clock finding, that an object's `Date.now()` never counts its own CPU work even across an await, is consistent with 2d's clock model above and could be cited from it.
+
 - [ ] Cross post on Medium like this
         > If you are not a premium Medium member, read the full tutorial FREE here and consider joining medium to read more such guides.
 
