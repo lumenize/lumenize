@@ -486,7 +486,7 @@ describe('Objects with no encoder', () => {
 
   it("sends a typed-array subclass such as Node's Buffer as its built-in type", () => {
     class Bytes extends Uint8Array {}
-    expect(preprocess(new Bytes([104, 105])).json).toMatchObject({ subtype: 'Uint8Array' });
+    expect(preprocess(new Bytes([104, 105]))).toMatchObject({ subtype: 'Uint8Array' });
     const result = parse(stringify(new Bytes([104, 105])));
     expect(result).toBeInstanceOf(Uint8Array);
     expect(Array.from(result)).toEqual([104, 105]);

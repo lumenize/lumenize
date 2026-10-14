@@ -8,8 +8,7 @@ import type {
   RpcWebSocketMessageResponse
 } from './types';
 import { isNestedOperationMarker } from './types';
-import { preprocess, postprocess, parse } from '@lumenize/structured-clone';
-import { createRpcPreprocessTransform } from './rpc-transforms';
+import { preprocess, parse } from '@lumenize/structured-clone';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
 import { debug } from '@lumenize/debug';
@@ -239,21 +238,9 @@ async function dispatchCall(
     // Execute operation chain using core's executor
     const result = await executeOperationChain(processedOperations, doInstance);
     
-    // Flatten prototype chains so methods become own properties
-    // (structured-clone's preprocess doesn't walk prototypes)
-    const flattenedResult = flattenPrototypeChains(result);
-    
-    // Preprocess with RPC transform to replace functions with markers during the tree walk
-    // This preserves object identity while replacing functions
-    const transform = createRpcPreprocessTransform(processedOperations);
-    const intermediate = preprocess(flattenedResult, { transform });
-    
-    // Postprocess to reconstruct objects (with markers in place of functions)
-    const processedResult = postprocess(intermediate);
-    
     return {
       success: true,
-      result: processedResult
+      result: copyResultForWire(result, processedOperations, new WeakMap())
     };
     
   } catch (error: any) {
@@ -340,98 +327,94 @@ async function processIncomingOperations(
 }
 
 /**
- * Flattens prototype chains - makes prototype methods/properties into own properties
- * Only creates new objects when necessary (preserves identity for plain objects)
+ * Copies a method's result for the wire. Every function becomes a remote
+ * function marker whose operation chain leads back to it, and every class
+ * instance becomes a plain object carrying its prototype's methods and getter
+ * values. The copy is taken as the call returns, so a later call in the same
+ * batch cannot change this call's answer, and an object reached twice, or
+ * through a cycle, is copied once.
+ *
+ * A Map key or value, or a Set member, adds no step to the chain, since an
+ * operation chain has no step into a Map or Set: a function there gets the
+ * chain that reaches the container.
  */
-function flattenPrototypeChains(obj: any, seen = new WeakMap<any, any>()): any {
-  // Primitives and null/undefined pass through
-  if (obj === null || obj === undefined || typeof obj !== 'object') {
-    return obj;
+function copyResultForWire(value: any, chain: OperationChain, seen: WeakMap<object, any>): any {
+  if (typeof value === 'function') {
+    const marker: RemoteFunctionMarker = {
+      __isRemoteFunction: true,
+      __operationChain: chain,
+      __functionName: value.name || 'anonymous',
+    };
+    return marker;
   }
-  
-  // Handle circular references
-  if (seen.has(obj)) {
-    return seen.get(obj);
-  }
-  
-  // Handle built-in types that structured-clone handles (don't flatten these)
-  if (isStructuredCloneNativeType(obj)) {
-    seen.set(obj, obj);
-    return obj;
-  }
-  
-  // Handle arrays
-  if (Array.isArray(obj)) {
-    const flattened: any[] = [];
-    seen.set(obj, flattened);
-    for (const item of obj) {
-      flattened.push(flattenPrototypeChains(item, seen));
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value)) return seen.get(value);
+
+  // Each copy is registered before its children are copied, so a cycle back
+  // to it resolves to the copy.
+  if (value instanceof Map) {
+    const copy = new Map();
+    seen.set(value, copy);
+    for (const [k, v] of value) {
+      copy.set(copyResultForWire(k, chain, seen), copyResultForWire(v, chain, seen));
     }
-    return flattened;
+    return copy;
   }
-  
-  // Check if this object has a non-trivial prototype (class instance)
-  const proto = Object.getPrototypeOf(obj);
-  const hasPrototypeMethods = proto && proto !== Object.prototype && proto !== null;
-  
-  if (!hasPrototypeMethods) {
-    // Plain object - recurse into properties. Register the copy BEFORE
-    // recursing so a cycle back to this object resolves to the copy; seeding
-    // `seen` with the original left it, and any class instance reachable only
-    // through it, unflattened in the result.
-    const flattened: any = {};
-    seen.set(obj, flattened);
-    for (const [key, val] of Object.entries(obj)) {
-      flattened[key] = flattenPrototypeChains(val, seen);
-    }
-    // A cycle through this object always registers as a change, so an
-    // unchanged object was never captured and can keep its identity.
-    const hasChanges = Object.keys(flattened).some(k => flattened[k] !== obj[k]);
-    if (!hasChanges) {
-      seen.set(obj, obj);
-      return obj; // Preserve identity
-    }
-    return flattened;
+  if (value instanceof Set) {
+    const copy = new Set();
+    seen.set(value, copy);
+    for (const member of value) copy.add(copyResultForWire(member, chain, seen));
+    return copy;
   }
-  
-  // Has prototype methods - flatten them into own properties
-  const flattened: any = {};
-  seen.set(obj, flattened);
-  
-  // Copy own properties
-  for (const [key, val] of Object.entries(obj)) {
-    flattened[key] = flattenPrototypeChains(val, seen);
+  // structured-clone encodes the rest of these whole. A function in a returned
+  // Error's own property arrives as the codec's `function` tag, not a marker.
+  if (isStructuredCloneNativeType(value)) {
+    seen.set(value, value);
+    return value;
   }
-  
-  // Walk prototype chain and add methods/properties as own properties
-  let currentProto = proto;
-  while (currentProto && currentProto !== Object.prototype && currentProto !== null) {
-    const descriptors = Object.getOwnPropertyDescriptors(currentProto);
-    for (const [key, descriptor] of Object.entries(descriptors)) {
-      // Skip constructor and properties already on the object
-      if (key === 'constructor' || flattened.hasOwnProperty(key)) {
-        continue;
+  if (Array.isArray(value)) {
+    const copy: any[] = new Array(value.length);
+    seen.set(value, copy);
+    for (let i = 0; i < value.length; i++) {
+      if (Object.hasOwn(value, i)) {
+        copy[i] = copyResultForWire(value[i], [...chain, { type: 'get', key: i }], seen);
       }
-      
-      // Get the value
+    }
+    return copy;
+  }
+
+  const copy: Record<string, any> = {};
+  seen.set(value, copy);
+  for (const [key, val] of Object.entries(value)) {
+    setOwn(copy, key, copyResultForWire(val, [...chain, { type: 'get', key }], seen));
+  }
+  // A class instance's methods and getters live on its prototype chain.
+  for (let proto = Object.getPrototypeOf(value); proto && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
+    for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(proto))) {
+      if (key === 'constructor' || Object.hasOwn(copy, key)) continue;
       if ('value' in descriptor) {
-        flattened[key] = flattenPrototypeChains(descriptor.value, seen);
-      } else if ('get' in descriptor && descriptor.get) {
-        // Evaluate getters - needed for __asObject() inspection
+        setOwn(copy, key, copyResultForWire(descriptor.value, [...chain, { type: 'get', key }], seen));
+      } else if (descriptor.get) {
+        // Evaluated, so `__asObject()` inspection sees the value; a getter
+        // that throws or answers undefined is left out.
         try {
-          const getterValue = descriptor.get.call(obj);
+          const getterValue = descriptor.get.call(value);
           if (getterValue !== undefined) {
-            flattened[key] = flattenPrototypeChains(getterValue, seen);
+            setOwn(copy, key, copyResultForWire(getterValue, [...chain, { type: 'get', key }], seen));
           }
-        } catch (error) {
-          // If getter throws, skip it
+        } catch {
+          // skip it
         }
       }
     }
-    currentProto = Object.getPrototypeOf(currentProto);
   }
-  
-  return flattened;
+  return copy;
+}
+
+// Defines an own property, so a key named `__proto__` is copied as data
+// rather than replacing the copy's prototype.
+function setOwn(target: Record<string, any>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true });
 }
 
 // ============================================================================

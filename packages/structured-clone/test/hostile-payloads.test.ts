@@ -12,13 +12,15 @@
  * - drop the `Object.getPrototypeOf(Ctor) === TypedArray` conjunct in `allocArrayBuffer`
  * - make `setOwn` assign `__proto__` rather than define it
  * - drop the `Array.isArray(v.data)` check in `allocArrayBuffer`
+ * - on a pointer that misses the index, walk the parsed document instead
+ * - fill a `$ref`'s target when the `$ref` is resolved, rather than in the fill pass
+ * - key the index by each container's whole pointer rather than its own segment
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { stringify, parse } from '../src/index.js';
 
-const wire = (json: unknown, aliases?: Record<string, unknown>) =>
-  JSON.stringify({ json, meta: aliases ? { aliases } : {} });
+const wire = (json: unknown) => JSON.stringify(json);
 
 // A non-Error global that counts its constructions, registered the way a custom
 // Error class is, so the decoder can find it by name if anything lets it.
@@ -68,7 +70,7 @@ describe('an encoded error names a global that is not an Error class', () => {
 
   it.each([
     ['inline', (error: unknown) => parse(wire(error))],
-    ['aliased', (error: unknown) => parse(wire([{ $ref: 0 }, { $ref: 0 }], { 0: error }))[0]],
+    ['aliased', (error: unknown) => parse(wire([{ $ref: '#/1' }, error]))[0]],
   ])('constructs nothing when the error is %s', (_, decode) => {
     const before = constructed;
     const err = decode({ $type: 'error', name: 'Tripwire', message: 'm' });
@@ -130,17 +132,9 @@ describe('an encoded typed array names a global that is not a typed array', () =
 describe('a wire key named __proto__', () => {
   // Written as strings: in a JS object literal, `__proto__` sets the prototype.
   it.each([
-    ['a plain object', '{"json":{"__proto__":{"isAdmin":true}},"meta":{}}', Object.prototype],
-    [
-      'an aliased plain object',
-      '{"json":[{"$ref":0},{"$ref":0}],"meta":{"aliases":{"0":{"__proto__":{"isAdmin":true}}}}}',
-      Object.prototype,
-    ],
-    [
-      'an error',
-      '{"json":{"$type":"error","name":"Error","message":"m","__proto__":{"isAdmin":true}},"meta":{}}',
-      Error.prototype,
-    ],
+    ['a plain object', '{"__proto__":{"isAdmin":true}}', Object.prototype],
+    ['an aliased plain object', '[{"$ref":"#/1"},{"__proto__":{"isAdmin":true}}]', Object.prototype],
+    ['an error', '{"$type":"error","name":"Error","message":"m","__proto__":{"isAdmin":true}}', Error.prototype],
   ])('arrives on %s as an own key, not as its prototype', (_, payload, prototype) => {
     const decoded = parse(payload);
     const value = Array.isArray(decoded) ? decoded[0] : decoded;
@@ -166,5 +160,84 @@ describe('an encoded arraybuffer whose data is a length, not bytes', () => {
 
     expect(() => parse(payload)).toThrow(DOMException);
     expect(() => parse(payload)).toThrow(/data is not an array/);
+  });
+});
+
+describe('a $ref that names no value in the document', () => {
+  const prototypeKeys = () => Object.getOwnPropertyNames(Object.prototype).sort();
+
+  it.each([
+    ['__proto__, with no such own key', '{"a":{"$ref":"#/__proto__"}}'],
+    ['constructor/constructor, with no such own key', '{"a":{"$ref":"#/constructor/constructor"}}'],
+    ['a dangling index', '[{"$ref":"#/5"}]'],
+    ["a Map's entries pair rather than a value in it", '{"m":{"$type":"map","entries":[[{"k":1},{"v":1}]]},"r":{"$ref":"#/m/entries/0"}}'],
+    ["a Date's payload", '{"when":{"$type":"date","iso":"2026-10-14T00:00:00.000Z"},"r":{"$ref":"#/when/iso"}}'],
+    ['another $ref', '[{"$ref":"#/1"},{"$ref":"#/0"}]'],
+    ['a pointer with no #', '[{"$ref":"/1"},{}]'],
+    ['the numeric form the format used to write', '[{"$ref":0},{}]'],
+    ['an array index written with a leading zero', '[{"$ref":"#/01"},{}]'],
+  ])('is refused: %s', (_, payload) => {
+    const before = prototypeKeys();
+
+    expect(() => parse(payload)).toThrow(DOMException);
+    expect(() => parse(payload)).toThrow(/names no value|holds no JSON Pointer/);
+    expect(prototypeKeys()).toEqual(before);
+    expect(({} as any).isAdmin).toBeUndefined();
+  });
+
+  it('is refused when it has a sibling key', () => {
+    expect(() => parse('[{"$ref":"#/1","x":1},{}]')).toThrow(/sibling keys/);
+  });
+});
+
+describe('a document a hostile sender sized to blow up the index', () => {
+  // Node reports its heap; workerd and chromium run the same decode and its
+  // correctness checks, with no heap figure to read.
+  const heapUsed = (): number | undefined =>
+    typeof process !== 'undefined' && typeof process.memoryUsage === 'function'
+      && globalThis.navigator?.userAgent?.startsWith('Node.js')
+      ? process.memoryUsage().heapUsed
+      : undefined;
+  const decodeWithin32MB = (payload: string) => {
+    const before = heapUsed();
+    const decoded = parse(payload);
+    const after = heapUsed();
+    if (before !== undefined && after !== undefined) expect(after - before).toBeLessThan(32 * 1024 * 1024);
+    return decoded;
+  };
+
+  it('decodes 1,000 levels of 1,000-character keys whose bottom cycles to the root', () => {
+    const keys = Array.from({ length: 1000 }, (_, i) => String(i).padStart(1000, 'k'));
+    const payload = keys.map((k) => `{"${k}":`).join('') + '{"$ref":"#"}' + '}'.repeat(1000);
+
+    const decoded = decodeWithin32MB(payload);
+
+    let at = decoded;
+    for (const k of keys.slice(0, -1)) at = at[k];
+    expect(at[keys[999]]).toBe(decoded);
+  });
+
+  it('decodes 4,000 same-length siblings under a key longer than 16 KB', () => {
+    const big = 'b'.repeat(16 * 1024 + 1);
+    const siblings = Array.from({ length: 4000 }, (_, i) => `"s${String(i).padStart(4, '0')}":{}`).join(',');
+    const payload = `{"${big}":{${siblings}},"r":{"$ref":"#/${big}/s3999"}}`;
+
+    const decoded = decodeWithin32MB(payload);
+
+    expect(Object.keys(decoded[big])).toHaveLength(4000);
+    expect(decoded.r).toBe(decoded[big].s3999);
+  });
+
+  it('decodes 20,000 forward references, each to an object holding the next', () => {
+    const elements = Array.from({ length: 20_000 }, (_, i) =>
+      i < 19_999 ? `{"next":{"$ref":"#/${i + 1}"}}` : '{}');
+    const payload = `[${elements.join(',')}]`;
+
+    const decoded = decodeWithin32MB(payload);
+
+    expect(decoded).toHaveLength(20_000);
+    for (let i = 0; i < 19_999; i++) {
+      if (decoded[i].next !== decoded[i + 1]) expect.fail(`element ${i} does not hold element ${i + 1}`);
+    }
   });
 });

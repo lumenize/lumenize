@@ -127,7 +127,7 @@ describe('merge-patch over the W4 wire format', () => {
     expect(restored.code).toBe('E_NEW');
   });
 
-  it('cycle-bearing graph: patches against aliases round-trip', () => {
+  it('cycle-bearing graph: patches against $refs round-trip', () => {
     const a1: any = { kind: 'node', label: 'A' };
     const b1: any = { kind: 'node', label: 'B' };
     a1.other = b1;
@@ -138,8 +138,8 @@ describe('merge-patch over the W4 wire format', () => {
     b2.other = a2;
     const before = preprocess(a1);
     const after = preprocess(a2);
-    // Aliases must be present (cycles)
-    expect((before.meta as any).aliases).toBeDefined();
+    // The cycle is a $ref back to the root
+    expect((before as any).other.other).toEqual({ $ref: '#' });
     const patch = diff(before as unknown as JsonValue, after as unknown as JsonValue);
     const reconstructed = applyMergePatch(before as unknown as JsonValue, patch);
     const restored = postprocess(reconstructed as any) as any;

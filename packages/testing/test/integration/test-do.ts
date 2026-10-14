@@ -40,6 +40,18 @@ export class TestDO extends DurableObject {
   }
 
   /**
+   * Return the arguments, and a method that returns them again. Calling the
+   * method replays this call from the chain its marker carries, so it shows
+   * whether those arguments crossed the wire unchanged.
+   */
+  describeArgs(...args: unknown[]) {
+    return {
+      received: args,
+      replay() { return args; },
+    };
+  }
+
+  /**
    * Return a complex object
    */
   getComplexObject() {

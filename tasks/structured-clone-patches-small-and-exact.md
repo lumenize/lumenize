@@ -236,3 +236,30 @@ Each phase leaves `npm run test:code` green, and Phase 3 onward also `npx tsc --
 - **The decoder's `function` case copies any extra keys** besides `name` (in `decodeValue` and `fillContainer`), though `preprocess` emits only `name`. Rule 10's "refuses what the encoder never writes" applies to it too.
 - **`decodeRequestSync` and `decodeResponseSync` construct with `data.body`** (`web-api-encoding.ts`), so the body has to be decoded before the object exists. That is why rule 11 refuses a body's `$ref` to its own request or response.
 - **`merge-patch.ts`'s own-property gaps are where Stage 2 placed them:** `!(key in after)` in `diff`, `before[key]` and `after[key]` bracket reads, `k in b` in `jsonEqual`, and `out[k] =` in `deepClone`.
+
+### Phase 1 (2026-10-14)
+
+**What landed.** `preprocess` walks once and writes `{"$ref":"#/…"}` pointers through the encoding; `postprocess` indexes value positions per container, only when the document holds a `$ref`, then fills; the wrapper, `LmzIntermediate` and the transform hook are gone; rpc builds its own markers in `copyResultForWire` (`packages/rpc/src/lumenize-rpc-do.ts`, the walk that was `flattenPrototypeChains`), and `packages/rpc/src/rpc-transforms.ts` is deleted.
+
+**Gate:** `npm run test:code` passes. `packages/structured-clone` went from 49 files and 1,066 tests to 52 and 1,156, `packages/rpc` from 22 and 333 to 23 and 335, and `packages/testing` from 205 tests to 206; `npx tsc --noEmit` passes for structured-clone, rpc, testing, mesh, resources, `apps/nebula` and its harness.
+
+**For the human:**
+
+- **rpc's copy keeps a result as it was when its call returned.** The round trip did that silently: in one batch, `getLiveState()` then `bumpLiveState()` answered `{ n: 0 }` for the first call, because the result was decoded fresh before the second call ran. The task file did not name this. `copyResultForWire` copies every plain object, array, Map and Set to keep it, and `test/function-markers.test.ts` pins it.
+- **One small difference from before:** a function in an Error's own property, on an Error a method *returns*, now arrives as the codec's `{ name }` marker rather than a remote function marker, since the walk does not copy Errors. A thrown Error never went through this path. rpc exists only for testing, so I left it; say if you want Errors copied too.
+- **Rule 10's refusal of a `$ref` with sibling keys landed here**, with its `test/hostile-payloads.test.ts` row, because this phase rewrote the `$ref` decode. Phase 2 adds the rest of rule 10.
+
+**Retro:**
+
+- **Removing the round trip fixed a real bug.** The hook put its marker into the encoding unencoded, so the decode that followed treated the marker's arguments as wire data: an argument key `$$x` came back `$x`, and a `Date` argument came back `{}`. `packages/testing`'s new replay test reds on the old code for exactly that.
+- **Restoring the round trip without the hook does not red**, because a marker is now encoded as data and the codec round-trips it exactly. The round trip was redundant, not wrong.
+- **`RequestSync` copies the `Headers` it is given**, when it is built and again when it is decoded, so a `Headers` shared with a request keeps its pointer, `#/request/data/headers`, but not its identity. That was true before too.
+- **The heap bound needed the right emulation to fail.** V8 keeps `parent + '/' + key` as a rope, so an index keyed by concatenated pointers stays small; only a pointer rendered whole from its segments, `'#/' + segments.join('/')`, reproduces the Stage 2 figure. Under that mutation the 1,000-level document fails at 501,754,704 bytes. The correct decode of the 20,000 forward references grows Node's heap by about 12 MB, within the 32 MB bound.
+- **Mutations:** caught were the wrapper; a segment from the raw key; no `~` escape, and `/` escaped before `~`; refusing every `__proto__` segment; resolving only to containers met earlier in document order, which reds exactly the two reordered-document tests; walking the parsed document on an index miss; filling a target when its `$ref` resolves (stack overflow on the forward chain); the joined-pointer index; plain assignment of `__proto__`; and in rpc, skipping Map values, seeding `seen` with the original, and sharing unchanged originals.
+
+**Close-out:**
+
+- `website/docs/structured-clone/index.mdx`'s Tier 2 line now reads `// Returns plain JSON`, with its `@check-example` source in `test/for-docs/api-tiers.test.ts`; the rest of that page is Phase 4's.
+- `preprocess.ts`'s header paragraph on aliases is rewritten for pointers; the rest of each header is Phase 4's.
+- `defaultEncodeBody` and `defaultDeencodeBody` in `web-api-encoding.ts` had no caller before this build; Phase 2's body work deletes them.
+- `packages/rpc/test/lumenize-rpc-do.test.ts`'s header names `#preprocessResult`, which no longer exists; it predates this build.

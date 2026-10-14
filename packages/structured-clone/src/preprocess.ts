@@ -16,10 +16,9 @@
  *     tracking needed.
  *
  * Cycles and aliases:
- *   - When a complex value is referenced more than once (including cycles),
- *     it is hoisted into `meta.aliases` keyed by stringified id, and every
- *     occurrence in `json` becomes `{ $ref: id }`. The first walk counts
- *     references (`refCount`); the second walk emits the wire form.
+ *   - An object is written in full where the walk first reaches it, and
+ *     every later occurrence becomes `{ $ref: "#/owner" }`, a JSON Reference
+ *     to that first place in the encoding.
  *
  * Special-type tags emitted:
  *   undefined, bigint, number-special (NaN/Infinity/-Infinity/-0),
@@ -36,70 +35,13 @@ import {
 } from './web-api-encoding';
 import type { RequestSync } from './request-sync';
 import type { ResponseSync } from './response-sync';
+import type { JsonValue } from './merge-patch';
 
-/**
- * Intermediate format returned by `preprocess()` and consumed by `postprocess()`.
- *
- * @property json - The encoded document. Plain JSON for the cycle-free case;
- *   contains `{ $ref: id }` placeholders for any shared/cyclic subgraphs.
- * @property meta - Sparse sidecar. Currently only `aliases` is populated.
- *   May grow to include `paths` for special-type tracking in a future revision.
- */
-export interface LmzIntermediate {
-  json: any;
-  meta: {
-    aliases?: Record<string, any>;
-  };
-}
-
-/**
- * Symbol returned from transform hook to indicate value should be skipped
- * and processed normally by structured-clone.
- * @internal
- */
-export const TRANSFORM_SKIP = Symbol('TRANSFORM_SKIP');
-
-/**
- * Path element in the object tree - represents a step in the traversal.
- * @internal
- */
-export interface PathElement {
+// A step from the value's root, for naming where an unencodable object sits
+// in a DataCloneError's message.
+interface PathStep {
   type: 'get' | 'index';
   key: string | number;
-}
-
-/**
- * Context provided to transform hooks during preprocessing.
- * @internal
- */
-export interface PreprocessContext {
-  /** Current path from root to this value. */
-  path: PathElement[];
-}
-
-/**
- * Transform hook called for each value during preprocessing.
- *
- * Return `TRANSFORM_SKIP` to use the default encoding for this value, or
- * return the encoded form directly. The returned value is placed into `json`
- * (or into an alias slot if it ends up being referenced multiply).
- *
- * Special form: if the returned value is a plain object with a `$type`
- * property, it is treated as an inline-tagged special type — `postprocess`
- * users can register a custom decoder for that `$type` (decoder API TBD;
- * for now the standard tags are emitted by this module).
- *
- * @internal
- */
-export type PreprocessTransform = (
-  value: any,
-  context: PreprocessContext,
-) => any | typeof TRANSFORM_SKIP;
-
-/** Options for `preprocess()`. @internal */
-export interface PreprocessOptions {
-  /** Custom transform hook called for each value before default encoding. */
-  transform?: PreprocessTransform;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +50,13 @@ export interface PreprocessOptions {
 // ---------------------------------------------------------------------------
 function escapeKey(k: string): string {
   return k.startsWith('$') ? '$' + k : k;
+}
+
+// A JSON Pointer segment (RFC 6901): `~` becomes `~0` before `/` becomes `~1`,
+// so `a/b` and `a~1b` stay distinct.
+export function escapePointerSegment(segment: string): string {
+  if (segment.indexOf('~') === -1 && segment.indexOf('/') === -1) return segment;
+  return segment.replace(/~/g, '~0').replace(/\//g, '~1');
 }
 
 // Writes an own data property. Assigning `__proto__` calls Object.prototype's
@@ -123,7 +72,7 @@ export function setOwn(target: Record<string, any>, key: string, value: unknown)
 }
 
 // Renders a path as `session.keys[0]` for error messages.
-function formatPath(path: PathElement[]): string {
+function formatPath(path: PathStep[]): string {
   let out = '';
   for (const step of path) {
     if (step.type === 'index') out += `[${step.key}]`;
@@ -133,172 +82,73 @@ function formatPath(path: PathElement[]): string {
 }
 
 /**
- * Preprocesses complex values to a format that can be stringified to JSON.
+ * Encodes a value as JSON that `postprocess` turns back into it, preserving
+ * cycles, shared objects and every special type.
  *
- * The output is the W4 object-based format (`LmzIntermediate`) that can be:
- *  - Stringified via `JSON.stringify()` for transport.
- *  - Sent over `MessagePort` / `BroadcastChannel`.
- *  - Stored in IndexedDB.
- *  - **Diffed with RFC 7396 JSON Merge Patch** for per-mutation
- *    synchronization (see `./merge-patch.ts`).
+ * An object reached a second time is written as `{"$ref":"#/owner"}`, a JSON
+ * Reference whose pointer names where the object was first written, through
+ * the encoding rather than the value: a value inside a Map's `entries` is
+ * `#/m/entries/0/1`, and a cycle through the root is `#`.
  *
- * Preserves cycles and aliases by hoisting shared subgraphs into
- * `meta.aliases`. The hot common-case (no shared objects) produces pure
- * nested JSON in `json` with an empty `meta`.
- *
- * @param data - Value to preprocess.
- * @param options - Optional preprocessing options including custom transform hooks.
- * @returns Intermediate format `{ json, meta }`.
  * @throws TypeError if value contains symbols.
  * @throws DOMException named `DataCloneError` for an object with no encoder
  *   that isn't a plain object or class instance (CryptoKey, Blob, streams, …),
  *   naming its type and path.
  */
-export function preprocess(data: any, options?: PreprocessOptions): LmzIntermediate {
-  const transform = options?.transform;
+export function preprocess(data: any): JsonValue {
+  // Every object written so far, with the object it was written inside and
+  // the pointer suffix from that object to it. A pointer is rendered from
+  // these only when a `$ref` is written.
+  const placed = new Map<object, { owner: object | null; suffix: string }>();
+  // Placement order, so a failed Error property can take back what it placed.
+  const placedOrder: object[] = [];
 
-  // ---- Pass 1: count references to identify multiply-referenced objects ----
-  const refCount = new WeakMap<object, number>();
-  // Track in-progress to break cycle recursion.
-  const visiting = new WeakSet<object>();
-
-  function countRefs(value: any): void {
-    if (value === null || typeof value !== 'object') return;
-    // Skip values that the transform hook handles directly — the hook
-    // returns its own shape, so we can't recurse it as a normal object.
-    // BUT: we DO need to track its identity so the transform's shared
-    // outputs are correctly aliased. For simplicity Pass 1 ignores the
-    // transform; transform return values are treated as opaque scalars in
-    // Pass 2 (they don't get cycle-tracked).
-    const prev = refCount.get(value);
-    refCount.set(value, (prev ?? 0) + 1);
-    if (prev !== undefined) return; // already counted; skip recursion
-    if (visiting.has(value)) return; // cycle guard (shouldn't fire given the prev check)
-    visiting.add(value);
-    if (Array.isArray(value)) {
-      for (const item of value) countRefs(item);
-    } else if (value instanceof Map) {
-      for (const [k, v] of value) {
-        countRefs(k);
-        countRefs(v);
-      }
-    } else if (value instanceof Set) {
-      for (const item of value) countRefs(item);
-    } else if (value instanceof Date || value instanceof RegExp || value instanceof URL || value instanceof Headers) {
-      // Atomic — no inner refs.
-    } else if (value instanceof Error) {
-      if (value.cause !== undefined) countRefs(value.cause);
-      for (const key of Object.getOwnPropertyNames(value)) {
-        if (!['name', 'message', 'stack', 'cause'].includes(key)) {
-          countRefs((value as any)[key]);
-        }
-      }
-    } else if (value.constructor?.name === 'ArrayBuffer' || ArrayBuffer.isView(value)) {
-      // Atomic.
-    } else if (
-      value.constructor?.name === 'RequestSync' ||
-      value.constructor?.name === 'ResponseSync'
-    ) {
-      // Will encode atomically; headers tracking happens during pass 2.
-      if ((value as any).headers) countRefs((value as any).headers);
-    } else if (
-      value instanceof Boolean || value instanceof Number || value instanceof String
-    ) {
-      // Atomic boxed primitives.
-    } else if (typeof value === 'object') {
-      for (const k of Object.keys(value)) countRefs((value as any)[k]);
+  function pointerTo(obj: object): string {
+    const suffixes: string[] = [];
+    for (let at = placed.get(obj)!; at.owner !== null; at = placed.get(at.owner)!) {
+      suffixes.push(at.suffix);
     }
-    visiting.delete(value);
+    return '#' + suffixes.reverse().join('');
   }
 
-  countRefs(data);
-
-  // ---- Pass 2: emit wire form ----
-  const aliases: Record<string, any> = {};
-  // For objects that are referenced multiply: assign an id, hoist to aliases,
-  // emit `{ $ref: id }` at every occurrence (including the first).
-  const aliasId = new WeakMap<object, number>();
-  let nextAliasId = 0;
-
-  function getAliasId(v: object): number {
-    let id = aliasId.get(v);
-    if (id === undefined) {
-      id = nextAliasId++;
-      aliasId.set(v, id);
-    }
-    return id;
-  }
-
-  function isShared(v: any): boolean {
-    if (v === null || typeof v !== 'object') return false;
-    return (refCount.get(v) ?? 0) > 1;
-  }
-
-  function refOf(v: object): { $ref: number } {
-    return { $ref: getAliasId(v) };
-  }
-
-  function encodeBody(value: any, path: PathElement[]): any {
-    // 1. Primitives
+  // Encodes the value at one position. `owner` is the object whose encoding
+  // holds the position and `suffix` is the pointer from it, `/` included.
+  function encode(value: any, owner: object | null, suffix: string, path: PathStep[]): any {
     if (value === null) return null;
     if (value === undefined) return { $type: 'undefined' };
     if (typeof value === 'symbol') throw new TypeError('unable to serialize symbol');
     if (typeof value === 'string') return value;
     if (typeof value === 'boolean') return value;
-    if (typeof value === 'number') {
-      if (Number.isNaN(value)) return { $type: 'number-special', value: 'NaN' };
-      if (value === Infinity) return { $type: 'number-special', value: 'Infinity' };
-      if (value === -Infinity) return { $type: 'number-special', value: '-Infinity' };
-      // JSON writes -0 as 0. The decoder's `Number(value)` fallback already
-      // reads the tag back, so a receiver that predates it gets -0 too.
-      if (Object.is(value, -0)) return { $type: 'number-special', value: '-0' };
-      return value;
-    }
+    if (typeof value === 'number') return encodeNumber(value);
     if (typeof value === 'bigint') return { $type: 'bigint', value: value.toString() };
     if (typeof value === 'function') {
-      // Functions encoded as a marker. Custom props on the function aren't
-      // currently preserved.
+      // Custom props on the function aren't preserved.
       return { $type: 'function', name: (value as Function).name || 'anonymous' };
     }
-
-    // 2. Complex objects — check if shared/aliased
-    if (typeof value === 'object') {
-      const obj = value as object;
-      if (isShared(obj)) {
-        const id = getAliasId(obj);
-        const key = String(id);
-        if (!(key in aliases)) {
-          // Placeholder so cycles terminate
-          aliases[key] = null;
-          aliases[key] = encodeComplex(value, path);
-        }
-        return refOf(obj);
-      }
-      // Unique — inline directly.
-      return encodeComplex(value, path);
-    }
-
-    return value;
+    if (placed.has(value)) return { $ref: pointerTo(value) };
+    placed.set(value, { owner, suffix });
+    placedOrder.push(value);
+    return encodeObject(value, path);
   }
 
-  function encodeComplex(value: any, path: PathElement[]): any {
+  function encodeObject(value: any, path: PathStep[]): any {
     // Order matters: check most-specific subclasses before plain object.
     if (Array.isArray(value)) {
-      return value.map((item, i) => encodeRoot(item, [...path, { type: 'index', key: i }]));
+      return value.map((item, i) => encode(item, value, `/${i}`, [...path, { type: 'index', key: i }]));
     }
     if (value instanceof Map) {
       return {
         $type: 'map',
-        entries: Array.from(value.entries(), ([k, v]) => [
-          encodeRoot(k, path),
-          encodeRoot(v, path),
+        entries: Array.from(value.entries(), ([k, v], i) => [
+          encode(k, value, `/entries/${i}/0`, path),
+          encode(v, value, `/entries/${i}/1`, path),
         ]),
       };
     }
     if (value instanceof Set) {
       return {
         $type: 'set',
-        values: Array.from(value, (v) => encodeRoot(v, path)),
+        values: Array.from(value, (v, i) => encode(v, value, `/values/${i}`, path)),
       };
     }
     if (value instanceof Date) {
@@ -315,17 +165,23 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
       };
       if (value.stack) errorData.stack = value.stack;
       if (value.cause !== undefined) {
-        errorData.cause = encodeRoot(value.cause, [...path, { type: 'get', key: 'cause' }]);
+        errorData.cause = encode(value.cause, value, '/cause', [...path, { type: 'get', key: 'cause' }]);
       }
       for (const key of Object.getOwnPropertyNames(value)) {
         if (!['name', 'message', 'stack', 'cause'].includes(key)) {
+          const wireKey = escapeKey(key);
+          const mark = placedOrder.length;
           try {
-            setOwn(errorData, escapeKey(key), encodeRoot(
+            setOwn(errorData, wireKey, encode(
               (value as any)[key],
+              value,
+              '/' + escapePointerSegment(wireKey),
               [...path, { type: 'get', key }],
             ));
           } catch {
-            // skip un-encodable props
+            // Skip an un-encodable prop, and forget what it placed, so no
+            // later `$ref` points into the encoding that was dropped.
+            for (const dropped of placedOrder.splice(mark)) placed.delete(dropped);
           }
         }
       }
@@ -340,11 +196,11 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
       return { $type: 'url', href: value.href };
     }
     if ((value as any).constructor?.name === 'RequestSync') {
-      const data = encodeRequestSync(value as RequestSync, (h) => encodeRoot(h, path));
+      const data = encodeRequestSync(value as RequestSync, (h) => encode(h, value, '/data/headers', path));
       return { $type: 'request-sync', data };
     }
     if ((value as any).constructor?.name === 'ResponseSync') {
-      const data = encodeResponseSync(value as ResponseSync, (h) => encodeRoot(h, path));
+      const data = encodeResponseSync(value as ResponseSync, (h) => encode(h, value, '/data/headers', path));
       return { $type: 'response-sync', data };
     }
     if (value instanceof Request) {
@@ -404,7 +260,8 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
       return {
         $type: 'arraybuffer',
         subtype,
-        data: Array.from(value as unknown as ArrayLike<number | bigint>, (el) => encodeBody(el, path)),
+        data: Array.from(value as unknown as ArrayLike<number | bigint>, (el) =>
+          typeof el === 'bigint' ? { $type: 'bigint', value: el.toString() } : encodeNumber(el)),
       };
     }
     // Copying own keys is right only for a plain object or a class instance.
@@ -424,31 +281,26 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
     // Plain object
     const out: Record<string, any> = {};
     for (const key of Object.keys(value)) {
-      setOwn(out, escapeKey(key), encodeRoot(
+      const wireKey = escapeKey(key);
+      setOwn(out, wireKey, encode(
         (value as any)[key],
+        value,
+        '/' + escapePointerSegment(wireKey),
         [...path, { type: 'get', key }],
       ));
     }
     return out;
   }
 
-  function encodeRoot(value: any, path: PathElement[]): any {
-    // Apply transform hook first
-    if (transform) {
-      const transformed = transform(value, { path });
-      if (transformed !== TRANSFORM_SKIP) {
-        // The hook handled this value — treat its return as opaque.
-        // Note: returned value passes through JSON.stringify as-is and is
-        // NOT alias-tracked. To get alias semantics, the hook should call
-        // back into structured-clone if/when needed.
-        return transformed;
-      }
-    }
-    return encodeBody(value, path);
-  }
+  return encode(data, null, '', []);
+}
 
-  const json = encodeRoot(data, []);
-  const meta: LmzIntermediate['meta'] = {};
-  if (Object.keys(aliases).length > 0) meta.aliases = aliases;
-  return { json, meta };
+function encodeNumber(value: number): any {
+  if (Number.isNaN(value)) return { $type: 'number-special', value: 'NaN' };
+  if (value === Infinity) return { $type: 'number-special', value: 'Infinity' };
+  if (value === -Infinity) return { $type: 'number-special', value: '-Infinity' };
+  // JSON writes -0 as 0. The decoder's `Number(value)` fallback already
+  // reads the tag back, so a receiver that predates it gets -0 too.
+  if (Object.is(value, -0)) return { $type: 'number-special', value: '-0' };
+  return value;
 }

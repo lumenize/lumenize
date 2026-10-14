@@ -103,6 +103,39 @@ export const sharedDOMethods = {
     ];
   },
 
+  // A function in each place a result can hold one, a shared object and a
+  // cycle (for testing that every function becomes a remote function marker)
+  getFunctionPlaces(label: string): any {
+    const shared = { tag: 'shared', sharedFn() { return 'shared'; } };
+    const result: any = {
+      label,
+      plain: { innerFn() { return 'inner'; } },
+      list: [1, function listFn() { return 'list'; }],
+      model: new DataModel(3, 'model'),
+      byKey: new Map<string, any>([
+        ['fn', function mapFn() { return 'map'; }],
+        ['obj', { deepFn() { return 'deep'; } }],
+      ]),
+      members: new Set<any>([function setFn() { return 'set'; }]),
+      first: shared,
+      second: shared,
+    };
+    result.self = result;
+    return result;
+  },
+
+  // An object the DO keeps changing (for testing that a call's result is
+  // copied when it returns, before a later call in the batch changes it)
+  getLiveState(this: { liveState?: { n: number } }): { n: number } {
+    this.liveState ??= { n: 0 };
+    return this.liveState;
+  },
+
+  bumpLiveState(this: { liveState?: { n: number } }): number {
+    this.liveState ??= { n: 0 };
+    return ++this.liveState.n;
+  },
+
   // Method that returns an object that will cause preprocessing to throw
   // This uses a getter that throws when accessed
   getProblematicObject(): any {

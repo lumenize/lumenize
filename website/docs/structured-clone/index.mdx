@@ -204,7 +204,7 @@ const restored = parse(jsonString);           // Reconstructs from JSON string
 For scenarios where you want a simple object format without stringification:
 
 ```typescript @check-example packages/structured-clone/test/for-docs/api-tiers.test.ts
-const intermediate = preprocess(complexObject);  // Returns { json, meta }
+const intermediate = preprocess(complexObject);  // Returns plain JSON
 const restored = postprocess(intermediate);      // Reconstructs from object
 ```
 

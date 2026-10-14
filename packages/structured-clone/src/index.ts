@@ -33,7 +33,7 @@
  *   - @ungap/structured-clone (cycle detection algorithm)
  */
 
-import { preprocess, type PreprocessOptions } from './preprocess';
+import { preprocess } from './preprocess';
 import { postprocess } from './postprocess';
 
 /**
@@ -45,15 +45,13 @@ import { postprocess } from './postprocess';
  * Convenience wrapper around `preprocess()` + `JSON.stringify()`.
  *
  * @param value - Any serializable value.
- * @param options - Optional preprocessing options.
- * @returns JSON string in `{ json, meta }` form.
  * @throws TypeError if value contains symbols.
  * @throws DOMException named `DataCloneError` for an object with no encoder
  *   that isn't a plain object or class instance (CryptoKey, Blob, streams, …),
  *   naming its type and path.
  */
-export function stringify(value: any, options?: PreprocessOptions): string {
-  return JSON.stringify(preprocess(value, options));
+export function stringify(value: any): string {
+  return JSON.stringify(preprocess(value));
 }
 
 /**
@@ -66,7 +64,7 @@ export function parse(value: string): any {
 }
 
 // Intermediate-format API
-export { preprocess, TRANSFORM_SKIP } from './preprocess';
+export { preprocess } from './preprocess';
 export { postprocess } from './postprocess';
 
 // RFC 7396 JSON Merge Patch — primitives for per-mutation sync over the
@@ -77,11 +75,3 @@ export type { JsonValue, MergePatch } from './merge-patch';
 // Synchronous Request/Response wrappers
 export { RequestSync } from './request-sync';
 export { ResponseSync } from './response-sync';
-
-// Type exports
-export type {
-  LmzIntermediate,
-  PreprocessTransform,
-  PathElement,
-  PreprocessOptions,
-} from './preprocess';
