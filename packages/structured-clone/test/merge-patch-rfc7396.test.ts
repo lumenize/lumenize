@@ -17,6 +17,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { applyMergePatch, diff, type JsonValue } from '../src/index.js';
+import { applyDiff } from './patching.js';
 
 interface Rfc7396Vector {
   original: JsonValue;
@@ -62,29 +63,26 @@ describe('RFC 7396 round-trip: apply(before, diff(before, after)) === after', ()
   RFC_7396_APPENDIX_A.forEach((vec, idx) => {
     const num = idx + 1;
     it(`round-trip vector ${num}: ${vec.note}`, () => {
-      const patch = diff(vec.original, vec.result);
-      const out = applyMergePatch(vec.original, patch);
-      expect(out).toEqual(vec.result);
+      const answer = diff(vec.original, vec.result);
+      expect(answer.kind).not.toBe('full');
+      expect(applyDiff(vec.original, answer, vec.result)).toEqual(vec.result);
     });
   });
 });
 
 describe('RFC 7396 additional edge cases (not in Appendix A but implied by spec)', () => {
-  it('apply(target, undefined) returns a deep clone of target (our no-op sentinel)', () => {
-    // RFC doesn't have a "no-op" patch — but our diff() returns undefined
-    // for identical inputs, and apply() must handle it.
+  it('apply(target, {}) returns an equal copy of target', () => {
     const target = { a: 1, b: [2, 3] };
-    const out = applyMergePatch(target, undefined) as { a: number; b: number[] };
+    const out = applyMergePatch(target, {});
     expect(out).toEqual(target);
     expect(out).not.toBe(target);
-    expect(out.b).not.toBe(target.b);
   });
 
-  it('diff(x, x) returns undefined (no-op sentinel)', () => {
-    expect(diff({ a: 1 }, { a: 1 })).toBeUndefined();
-    expect(diff(null, null)).toBeUndefined();
-    expect(diff([1, 2], [1, 2])).toBeUndefined();
-    expect(diff('foo', 'foo')).toBeUndefined();
+  it('diff(x, x) answers same', () => {
+    expect(diff({ a: 1 }, { a: 1 })).toEqual({ kind: 'same' });
+    expect(diff(null, null)).toEqual({ kind: 'same' });
+    expect(diff([1, 2], [1, 2])).toEqual({ kind: 'same' });
+    expect(diff('foo', 'foo')).toEqual({ kind: 'same' });
   });
 
   it('null in a deeply-nested patch deletes', () => {

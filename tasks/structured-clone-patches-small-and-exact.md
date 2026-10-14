@@ -285,3 +285,22 @@ Each phase leaves `npm run test:code` green, and Phase 3 onward also `npx tsc --
 **Close-out:**
 
 - Phase 1's close-out item is done: `defaultEncodeBody` and `defaultDeencodeBody` are deleted from `web-api-encoding.ts`.
+
+### Phase 3 (2026-10-14)
+
+**What landed.** `diff` answers `Diff`, the union of the interfaces `DiffSame`, `DiffPatches` and `DiffFull`. It sets a reordered Map, Set or object-form array again whole: under a plain object by two patches, at the root or inside a Map by `full`. Its equality check counts members' order wherever they sit, inside an array included. `diff`, the equality check, the deep copy and `applyMergePatch` read only own properties, write only own properties, and throw a `TypeError` on an object whose prototype is neither `Object.prototype` nor `null`. `MergePatch` is now `JsonValue`: `same` replaced the `undefined` sentinel, which nothing produces any more. The tests share `test/patching.ts`, whose `shape` compares decoded values with every kept order and no plain-object order.
+
+**Gate:** `npx tsc --noEmit -p packages/structured-clone` passes; `packages/structured-clone` is at 58 files and 1,420 tests, 4 skipped, the Node-only `Buffer` and SQLite cases in the workers and chromium projects.
+
+**Measured patch sizes,** against each criterion's bound: a leaf on the 1,000-node org tree 217 B (300), a grant 127 B (150), one Set edge 90 B (120), one entry of a 1,000-entry `Map<number, string>` 33 B (100), appending to a 500-id list 65 B and removing its fourth 68 B (100), a shared pair ahead of 200 shared rows 118 B (500), and the recipe's mid-array edit 697 B, 1.12 times `JSON.stringify(steps)` (1.2). The org tree's snapshot is 187,714 B.
+
+**For the human:** nothing.
+
+**Retro:**
+
+- **Three of criterion 14's mutations needed a fixture the criterion does not name.** A bare bracket read in `applyMergePatch` behaves exactly like an own read for every key `Object.prototype` defines, since an inherited function or `Object.prototype` itself merges like `{}`; only a polluted `Object.prototype` tells them apart. `test/merge-patch.test.ts` defines a non-enumerable `polluted` on it for one test and deletes it after. The same test is what reds a bracket read in `diff`, beside an own `__proto__` holding `{}`, which a bracket read mistakes for the inherited `Object.prototype` and drops. And an `in` in the equality check reds only when an own `__proto__` is renamed to another key holding an equal value.
+- **"Stop at the first order change" is invisible when the two reordered Maps sit under different parents,** since each parent's diff meets only one. It reds for two under one parent, and for a reordered Map ahead of a changed sibling; both cases are in `test/merge-patch-order.test.ts`.
+- **SQLite's `json_patch` agrees with `applyMergePatch` on key order** for every patch list in that file: it keeps a surviving key in place and adds a new one last.
+- **Mutations:** all 17 caught, each by the test meant to catch it. Declaring the answers as type aliases fails `tsc` with an unused `@ts-expect-error` in `test/merge-patch.test.ts`.
+
+**Close-out:** `merge-patch.ts`'s header is rewritten for the format that ships, which removes the last `Phase 1` handle from `src/`; the other headers are Phase 4's.

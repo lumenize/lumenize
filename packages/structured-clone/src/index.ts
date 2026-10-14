@@ -70,7 +70,7 @@ export { postprocess } from './postprocess';
 // RFC 7396 JSON Merge Patch — primitives for per-mutation sync over the
 // object-based wire format. Hand-rolled (~120 LOC, no deps).
 export { applyMergePatch, diff } from './merge-patch';
-export type { JsonValue, MergePatch } from './merge-patch';
+export type { JsonValue, MergePatch, Diff, DiffSame, DiffPatches, DiffFull } from './merge-patch';
 
 // Synchronous Request/Response wrappers
 export { RequestSync } from './request-sync';
