@@ -224,3 +224,15 @@ Each phase leaves `npm run test:code` green, and Phase 3 onward also `npx tsc --
 - **Normalizing key order on write**: weighed and rejected (§ *Decisions*).
 - **The rest of `website/docs/mesh/protocol.mdx`**: [mesh-1-alpha.md](mesh-1-alpha.md) § *Item 1: The website docs rewrite*.
 - **JSON Patch (RFC 6902)**: left open (§ *Future state*).
+
+## Build notes
+
+### Before Phase 1 (2026-10-14)
+
+- **Baseline:** `npm test` in `packages/structured-clone` passes 49 files and 1,066 tests. Its `placeholder.test.ts` "Could not resolve" warnings are older than this build.
+- **`PathElement` has a second user.** Besides the transform hook, `formatPath` in `preprocess.ts` renders the value path into the `DataCloneError` message for an unencodable object ("at session.keys[0]"). Deleting the hook removes the exported `PathElement`, `PreprocessContext`, `PreprocessTransform`, `PreprocessOptions` and `TRANSFORM_SKIP`, but the encoder keeps an internal value path for that message, beside the new encoding-pointer segments.
+- **`stringify` takes `options?: PreprocessOptions`** (`index.ts`), so its signature loses that parameter when the hook goes.
+- **Typed arrays encode element by element today**, each through `encodeBody`, so a `Float64Array`'s `NaN` and a `BigInt64Array`'s bigints carry tags. Base64 over the bytes (rule 6) carries them exactly, with no per-element tags.
+- **The decoder's `function` case copies any extra keys** besides `name` (in `decodeValue` and `fillContainer`), though `preprocess` emits only `name`. Rule 10's "refuses what the encoder never writes" applies to it too.
+- **`decodeRequestSync` and `decodeResponseSync` construct with `data.body`** (`web-api-encoding.ts`), so the body has to be decoded before the object exists. That is why rule 11 refuses a body's `$ref` to its own request or response.
+- **`merge-patch.ts`'s own-property gaps are where Stage 2 placed them:** `!(key in after)` in `diff`, `before[key]` and `after[key]` bracket reads, `k in b` in `jsonEqual`, and `out[k] =` in `deepClone`.
