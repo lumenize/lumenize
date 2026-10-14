@@ -18,6 +18,4 @@ The rest of this file is how the capture works, then what is left.
 ## Pending
 
 1. **Delete the guards for a venue without logs.** About 25 scenarios still branch on `stack.logs` being absent or say "not observable on a deployed target". The capture runs in both venues now, so each guarded limb runs deployed once its branch goes, and `DevStack.logs` can become required. Each needs a deployed run as it changes.
-2. **Seal the continuation the Gateway holds in memory.** The Gateway keeps a node's continuation in `#pendingCalls`, so evicting the Gateway loses the call. `tasks/archive/mesh-calls-to-and-from-clients.md` accepted that risk. The long-term fix is a sealed continuation sent down to the Client, with a memory copy kept only for the timeout. It gets its own task file through `/write-task`.
-
 The MCP Events design talk is deferred to another session; its backlog row under Lumenize Mesh holds it.
