@@ -130,7 +130,7 @@ export class DocumentDO extends LumenizeDO<Env> {
 | Pattern | Why It Matters |
 |---------|----------------|
 | No `async`/`await` | Continuations describe work; framework handles timing. Helps avoid race conditions. |
-| No instance variables | State in storage survives hibernation/eviction. Reads are cached and cheap (writes cost 1,000x more). |
+| No instance variables | State in storage survives hibernation and eviction; an instance variable doesn't. Writes are billed at 1,000x reads. |
 | Direct delivery | SpellCheckWorker sends findings straight to the originating client, not back through DocumentDO (as is shown in the incomplete diagram). |
 | No instance name for Workers | Pass `undefined` as the 2nd parameter to `lmz.call()` |
 
