@@ -20,8 +20,11 @@ Uncommitted, all mine: `apps/nebula/harness/lib/tail.ts` (new), `drive.ts`, `lib
 
 ## Pending, in order
 
-1. **Name the chain on a fire-back failure.** `packages/mesh/src/lmz-api.ts` logs `fire-back transport to __handleResponse failed` with only the error. Add the inbound `callChain` and its length, so the next `Subrequest depth limit exceeded` names the nodes it went through. Small and independent of the rest.
-2. **Find why lines never reach the tail.** The 10 deployed failures, from the last run, each with the line it waited for:
+1. **Decide the deployed reader.** `experiments/tail-abort/RESULTS.md` measured what each channel delivers, over 68 deployed `ctx.abort()` kills:
+   - **`wrangler tail` lost 4**, each on an object with a `waitUntil` or a pending RPC in flight. A Galaxy deleted mid-turn is that case: `scope-teardown` posts a chat message, so its Galaxy is streaming a turn when the delete lands, and its `tearing down` line never arrived in two runs.
+   - **Workers Issues and Workers Logs lost 6 others**, and Workers Logs also lost an ordinary line. No kill was lost by both.
+   - **An upgrade's lines reach the tail only when its socket closes**, which is why `scope-hosts-its-clients` never saw its accept and start lines: it reads them with the sockets still open.
+2. **Decide each remaining failure as harness or code.** The 10 deployed failures, from the last full run, each with the line it waited for; a code defect gets fixed here:
 
    | Scenario | Never saw |
    |---|---|
@@ -29,22 +32,20 @@ Uncommitted, all mine: `apps/nebula/harness/lib/tail.ts` (new), `drive.ts`, `lib
    | `claim-lifecycle` | the acceptance answering accepted, with 3 markers |
    | `client-routes` | the Gateway's line for `routes-5` (routes-12 in a rerun, missing from three tails at once) |
    | `galaxy-cap` | both refused acceptances' completion lines |
-   | `scope-teardown` | the create's completion line |
+   | `scope-teardown` | the deleted Galaxy's own `tearing down` line, in the two runs since |
    | `scope-hosts-its-clients` | the Star's start and accept lines, limbs 2 and 4 |
    | `logout-ends-every-host` | the logout's revocations: an empty list |
    | `studio-codegen-rest` | 229 chunks reached the tab, 44 deliveries logged |
    | `impersonation-lifecycle` | the Star never came to hold the impersonated tab |
    | `dev-star-follows-the-build` | 2 of 16 properties |
 
-   Most are a line the Worker should have written and the capture never got. Two hypotheses, neither checked. First, `wrangler tail` drops events in sampling mode under load and says so only on stderr, which `lib/tail.ts` keeps only for its startup error. Second, an invocation that never ends never delivers its lines: the `client-routes` socket stayed open. Check the first by recording stderr through the run. Then decide each remaining failure as harness or code; a code defect gets fixed here.
 3. **Land the capture.** Keep it on for every deployed run, or opt in per scenario with `export const deployedLogs = true` for the 13 that pass. Then run the local sweep, `drive.ts all --fast`, since 11 scenarios changed, and commit.
 4. **Rules.** `live-scenarios.md` § *Reading the local stack's logs* now covers both venues: compare with `loggedAfter`, wait with `LOG_WAIT_MS`, guard a fresh-stack check with `HARNESS_TARGET_URL === undefined`, and note the synthesized access lines and the truncation marker. `live.md`'s sentence that a deployed sweep SHOULD run beside a `wrangler tail` becomes a fact the harness does.
 5. **Backlog.** Delete the three absorbed rows. `first-app-built`'s pairing limb, the subject of the third, already runs deployed.
 6. **Delete the guards for a venue without logs.** Once the capture runs everywhere, the "not observable deployed" branches are dead, and `DevStack.logs` can become required.
 7. **Move `deleted-on-cloudflare.ts` onto `lib/tail.ts`.** It has its own copy of the event parser.
-8. **Find the depth error's real chain.** `experiments/depth-chain/RESULTS.md` refuted the first suspect: a Client's answer resets the depth, so the Gateway's held promise is innocent. The remaining candidate is a Client delivery that ends with no answer, which fires back from the invocation that started it. Item 1's `callChain` is the evidence to wait for.
+8. **Find the depth error's real chain.** `experiments/depth-chain/RESULTS.md` refuted the first suspect: a Client's answer resets the depth, so the Gateway's held promise is innocent. The remaining candidate is a Client delivery that ends with no answer, which fires back from the invocation that started it. The fire-back failure line now carries the call chain and its target (`d9d53fa`), which is the evidence to wait for; `test-nebula` carries it from its next deploy.
 9. **Seal the continuation the Gateway holds in memory.** The Gateway keeps a node's continuation in `#pendingCalls`, so evicting the Gateway loses the call. `tasks/archive/mesh-calls-to-and-from-clients.md` accepted that risk. The long-term fix is a sealed continuation sent down to the Client, with a memory copy kept only for the timeout. It gets its own task file through `/write-task`.
 10. **`handler threw: cannot subscribe before create`, ten times at error level.** Resources' `doSubscribe` throws it. Decide whether it is a race in the code or an expected refusal that belongs at `warn`.
-11. **Commit `experiments/depth-chain/`** with its results, workspace entry and lockfile.
 
 The MCP Events design talk is deferred to another session; its backlog row under Lumenize Mesh holds it.
