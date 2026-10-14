@@ -16,12 +16,21 @@
   // tsc bundle were deleted with the in-DO serve path; the flag now survives for
   // Galaxy's isomorphic-git/@cloudflare/computer.)
   "compatibility_flags": ["nodejs_compat"],
-  // Workers Issues, Cloudflare's error monitoring (free in its open beta). It needs neither Workers
-  // Logs nor traces, which stay off, and reads `@lumenize/debug`'s JSON lines as they are: each
-  // error-level line is an occurrence titled by its `message`, with the `stack` the logger lifts
-  // from an Error source-mapped. Measured in `experiments/workers-issues/RESULTS.md`; the map is
-  // ~1.6 MB gzipped against a 15 MB cap. Keep both keys: a deploy without them turns Issues off.
-  "observability": { "issues": { "enabled": true } },
+  // What production keeps of its own lines (Larry, 2026-10-14, before pre-alpha invites):
+  // - Workers Issues, Cloudflare's error monitoring: each error-level `@lumenize/debug` line is an
+  //   occurrence titled by its `message`, with the `stack` the logger lifts from an Error
+  //   source-mapped (`experiments/workers-issues/RESULTS.md`; the map is ~1.6 MB gzipped against a
+  //   15 MB cap, and a deploy without `upload_source_maps` turns that off).
+  // - Workers Logs, every line at every level `DEBUG` lets through, 7 days, queryable by API and
+  //   by trace id: the only record of a user's problem below error level. `wrangler tail` alone
+  //   loses lines (`experiments/tail-abort/RESULTS.md`). 20M events a month are included.
+  // - Traces, each RPC hop of a mesh flow, free until 2026-12-01's pricing change.
+  // Re-check the cost at that change, or as volume nears the included 20M.
+  "observability": {
+    "logs": { "enabled": true },
+    "traces": { "enabled": true },
+    "issues": { "enabled": true },
+  },
   "upload_source_maps": true,
   // Every host under `lumenize.dev`, and its apex (ADR-021): the Worker reads which scope a request
   // is for from its host, against `LUMENIZE_ORIGIN` in `vars` below.

@@ -28,8 +28,8 @@
  * Two additions are not swaps. **`DEBUG`** gains {@link TEST_DEBUG_ADDED}: a deployed run cannot
  * set a scenario's `bootVars`, and its harness reads the Worker's lines through `wrangler tail` and
  * Workers Logs, so the test target logs every namespace a scenario turns on locally. Production's
- * value is kept and extended, so the two cannot drift. And **`observability`** keeps production's
- * Issues setting and adds Workers Logs, which the harness reads, and traces.
+ * value is kept and extended, so the two cannot drift. `observability` is production's unchanged:
+ * its Workers Logs is what a deployed run's harness reads beside `wrangler tail`.
  *
  * Throws when an input is missing or the config's shape has changed, rather than emitting a
  * config nobody reviewed. `scripts/test-deploy-config.selftest.mjs` checks every swap.
@@ -105,14 +105,6 @@ export function deriveTestDeployConfig({ workerName, kvNamespaceId, zoneId, sour
     throw new Error('test-deploy-config: wrangler.jsonc has no vars.DEBUG to extend');
   }
   cfg.vars.DEBUG = `${cfg.vars.DEBUG},${TEST_DEBUG_ADDED}`;
-  // Workers Logs, on the test target alone: it keeps lines `wrangler tail` drops, and the tail keeps
-  // lines it drops (`experiments/tail-abort/RESULTS.md`), so a deployed run can read both. Traces
-  // record each RPC hop of a mesh flow, the nesting a subrequest depth error is about.
-  cfg.observability = {
-    ...cfg.observability,
-    logs: { enabled: true, invocation_logs: false },
-    traces: { enabled: true },
-  };
 
   const kv = (cfg.kv_namespaces ?? []).find((b) => b.binding === 'REFRESH_TOKEN_KV');
   if (!kv) throw new Error('test-deploy-config: wrangler.jsonc has no REFRESH_TOKEN_KV binding to swap');

@@ -10,7 +10,7 @@ The rest of this file is how the capture works, then what is left.
 
 - **Two channels, one append-only text.** `drive.ts`'s `withDeployedLogs` runs `lib/deployed-logs.ts`: a `wrangler tail test-nebula --format json` through `lib/tail.ts`, filled in by Workers Logs polled through `lib/workers-logs.ts`. Neither delivers every line, and in `experiments/tail-abort/RESULTS.md` no line was lost by both. Whichever channel delivers a line first appends it, and the other's copy is left out, so a line never moves once read.
 - **Arrival order, not logged order.** An invocation's lines arrive when it ends, a WebSocket upgrade's when its socket closes, and a line only Workers Logs holds up to about ten minutes late. A scenario compares lines with `loggedAfter` and waits with `LOG_WAIT_MS`, eleven minutes deployed.
-- **The test target keeps more than production.** `scripts/test-deploy-config.mjs` adds `lmz.mesh` to `DEBUG` and turns on Workers Logs and traces, each asserted by its selftest.
+- **Workers Logs and traces are on for production, so the test target has them too** (Larry, 2026-10-14). `scripts/test-deploy-config.mjs` keeps production's `observability` unchanged and adds `lmz.mesh` to `DEBUG`, each asserted by its selftest.
 - **A failure keeps the whole capture,** written to `$TMPDIR/lumenize-<scenario>-<iso>.log`, with a note for each invocation that ended other than `ok`.
 
 `live-scenarios.md` § *Reading the Worker's logs* is the rule a scenario follows.

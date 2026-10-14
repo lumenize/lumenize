@@ -50,10 +50,9 @@ for (const c of cfg.containers) {
 assert.equal(cfg.vars.DEBUG, `${prod.vars.DEBUG},${TEST_DEBUG_ADDED}`, "DEBUG must be production's plus the test target's additions");
 assert.ok(!prod.vars.DEBUG.split(',').includes(TEST_DEBUG_ADDED), 'the addition must not already be in production');
 
-// Workers Logs on the test target, with production's Issues kept.
-assert.equal(cfg.observability.logs?.enabled, true, 'the test target must keep Workers Logs');
-assert.equal(cfg.observability.traces?.enabled, true, 'the test target must keep traces');
-assert.deepEqual(cfg.observability.issues, prod.observability.issues, "the test target must keep production's Issues setting");
+// Production's observability, unchanged: its Workers Logs is what a deployed run's harness reads.
+assert.deepEqual(cfg.observability, prod.observability, "the test target must keep production's observability");
+assert.equal(cfg.observability.logs?.enabled, true, "the harness reads Workers Logs, so production's config must keep it on");
 
 // Refuses without a namespace id or a zone id.
 assert.throws(() => deriveTestDeployConfig({ workerName: 'test-nebula', kvNamespaceId: '', zoneId: ZONE_ID }), /namespace id/);
