@@ -1,9 +1,10 @@
 # Wire Merge-Patch Synchronization (DAG + Resources)
 
-**Status**: On hold — post-demo
+**Status**: On hold — picked up as [nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 14*, after pre-alpha
 **Depends on**:
 - W4 wire format + `diff` / `applyMergePatch` utilities — shipped in [PR #11](https://github.com/lumenize/lumenize/pull/11) (merge commit `260c242`)
 - DAG normalization (originally Phase 3 of the wire-format task) — ✅ shipped 2026-05-16, archived at [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md)
+- **A format a merge patch can address — NOT shipped (found 2026-10-14), and now a pre-alpha must-have** ahead of the wipe: [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md). Maps, Sets and aliases still encode in shapes that make a one-entry change patch the whole collection, and a patch loses a `null`, a `__proto__` key, or the order of a Map, Set or long array.
 **Related**: [tasks/archive/nebula-frontend.md](../archive/nebula-frontend.md) "DAG-binding update strategies" Options C and D — both became cheaper after W4 shipped.
 
 ## Goal
@@ -18,14 +19,14 @@ Most plumbing is common; the DAG path adds a few specifics (per-Star fanout, sna
 ## Why on hold (post-demo)
 
 - The demo ships with **Option 0** for DAG (eTag-bump-and-pull per [tasks/archive/nebula-frontend.md](../archive/nebula-frontend.md)) and full-snapshot reads — both functional, just not bandwidth-optimal.
-- W4 + `diff` + `applyMergePatch` are already in place — the foundation is done. This task is purely the integration into Nebula's fanout / read paths.
+- W4 + `diff` + `applyMergePatch` are already in place. The foundation is done once the pre-alpha format fix above lands, and this task is then purely the integration into Nebula's fanout / read paths.
 - Worth picking up once a real workload exposes the scale concern: 1k-node DAG full-resends saturating bandwidth, or large resources read often where most reads return "unchanged."
 
 ## Foundation (already shipped)
 
 From [PR #11](https://github.com/lumenize/lumenize/pull/11):
 
-- W4 object-based wire format produced by `preprocess()`, consumed by `postprocess()` — `{ json, meta }` shape, RFC 7396-compatible (object-keyed, no tuple arrays for Map entries).
+- W4 object-based wire format produced by `preprocess()`, consumed by `postprocess()` — `{ json, meta }` shape. ⚠️ **Not yet RFC 7396-friendly for Maps, Sets or aliases** (corrected 2026-10-14; this line used to claim no tuple arrays for Map entries). A Map is still `{"$type":"map","entries":[[k, v], …]}`, a Set is one `values` array, and alias ids are a traversal counter. Measured on the org tree's shape at 10,000 nodes: adding a leaf patches to 104,655 B gzipped against a 111,447 B snapshot. The fix and the measurements are in [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md).
 - `diff(beforeW4, afterW4)` → RFC 7396 patch.
 - `applyMergePatch(beforeW4, patch)` → afterW4.
 - Both exported from `@lumenize/structured-clone`.
@@ -36,6 +37,8 @@ From [PR #11](https://github.com/lumenize/lumenize/pull/11):
 ### ETag as the correlation key
 
 Both use cases use an **ETag chain**: `{ patch, fromETag, toETag }`. Receiver applies patch iff `currentETag === fromETag`. On any mismatch (or apply failure, or postprocess-produces-wrong-ETag), receiver requests a full snapshot.
+
+**Decided 2026-10-14 (Larry): a subscription push is the same for every subscriber.** A client whose eTag does not match the push's base sends a read with its last eTag and gets a patch bridging the versions it missed. For a resource, ADR-004 keeps every version, so the base is usually still stored; the exception is the coalescing window, which overwrites a same-actor version in place within the hour, and that read answers with the full value. The retention strategies below are for the org tree, whose state keeps no history.
 
 ### Patch-history retention on the server
 
@@ -94,7 +97,7 @@ Cons / unknowns:
 3. Fanout: send `{ patch, fromETag, toETag }` to every subscribed client.
 4. If a subscriber's known ETag doesn't match `prev`'s ETag → send a full snapshot instead.
 
-**DAG normalization (shipped 2026-05-16, archive: [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md))** was the hard prerequisite for this work. Without it, the inline `parentIds[]` / `childIds[]` arrays would have forced whole-array replacement under merge-patch on every edge change — defeating the diff. With normalized `{ nodes, edges, permissions }`, adding a node is two key flips (one new node entry + one new edge entry).
+**DAG normalization (shipped 2026-05-16, archive: [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md))** was the hard prerequisite for this work. Without it, the inline `parentIds[]` / `childIds[]` arrays would have forced whole-array replacement under merge-patch on every edge change — defeating the diff. With normalized `{ nodes, edges, permissions }`, adding a node is two key flips (one new node entry + one new edge entry) — once the pre-alpha format fix encodes `OrgTreeState`'s Map and Set as objects. Until then, each is one array and the flip replaces it whole.
 
 ### Client-side (NebulaClient)
 
@@ -220,7 +223,7 @@ Estimated effort: ~150–300 LOC + tests. Phase-3-adjacent; Phase 3 code is fres
 
 - **Patch-history retention concrete N for resources.** Memory budget vs. cache hit rate.
 - **Subscriptions on resources** — do they use the same patch fanout as DAG, or stay read-only? If subscriptions land, the DAG and Resource paths converge.
-- **Permissions-only DAG changes** — should produce a tiny patch (`{ permissions: { "42": { "alice": "admin" } } }`). Verify in benchmarks.
+- **Permissions-only DAG changes** — should produce a tiny patch (`{ permissions: { "42": { "alice": "admin" } } }`). Measured 2026-10-14 at 10,000 nodes: 5,744 B gzipped under today's Map encoding, 71 B with plain objects. [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md)'s size criteria cover it.
 - **Patch generation cost** — `diff` is O(snapshot size). Acceptable for 1k-10k node DAGs. Watch for surprises at the high end.
 - **Compression interaction** — WS `permessage-deflate` is on by default for `compatibility_date >= 2023-08-15` (verified via the workerd#4091 thread; Lumenize is at `2026-03-12`). Patches compress less aggressively than uniform snapshots; raw bytes matter slightly more here than for snapshots.
 

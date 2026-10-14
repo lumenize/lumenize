@@ -1,6 +1,6 @@
 # The agent posts to the chat as itself
 
-**Status:** Pass 1, drafted 2026-10-11 for Larry's read and reshaped the same day to hold posts that arrive mid-turn; phases not written. Split out of [nebula-testing-with-personas.md](nebula-testing-with-personas.md) at its third Stage 1 gate; it builds after [nebula-star-ontology.md](nebula-star-ontology.md) and gates personas. Drafted while that file is in review, a deliberate exception to writing one child task file at a time, because the design was worked out with Larry on 2026-10-10. Decided then: the agent posts as itself, and a turn a person's post starts acts as that person. Decided 2026-10-11: a post that arrives mid-turn is held with its poster's authority, built in two steps.
+**Status:** Pass 1, drafted 2026-10-11 for Larry's read and reshaped the same day to hold posts that arrive mid-turn; phases not written. Split out of [nebula-testing-with-personas.md](nebula-testing-with-personas.md) at its third Stage 1 gate; nothing gates it, and it gates personas. Drafted while its sibling [nebula-star-ontology.md](archive/nebula-star-ontology.md) was in review, a deliberate exception to writing one child task file at a time, because the design was worked out with Larry on 2026-10-10. Decided then: the agent posts as itself, and a turn a person's post starts acts as that person. Decided 2026-10-11: a post that arrives mid-turn is held with its poster's authority, built in two steps.
 
 ## Objective
 
@@ -32,7 +32,7 @@ The rest of this file covers what changes, how a held post is run, the two steps
 ## Relationships
 
 - **It gates [nebula-testing-with-personas.md](nebula-testing-with-personas.md)**, whose provisioning outcome and admin-invite outcome are agent posts, and whose confirmation relies on a quick yes being acted on.
-- **Nothing open gates it.** It builds after [nebula-star-ontology.md](nebula-star-ontology.md) in the order personas' § *Relationships* gives.
+- **Nothing open gates it.** Its sibling, [nebula-star-ontology.md](archive/nebula-star-ontology.md), was built on 2026-10-12, so personas now waits on this task alone.
 
 ## What changes
 
@@ -96,7 +96,7 @@ The rest of this file covers what changes, how a held post is run, the two steps
 - **`studio-guidance.md`**: asking before acting on what the agent was not asked directly is cross-turn policy, so it lives in the tool contract.
 - **`live.md`**: a `/live` scenario first. Holding a post and running its turn as its poster are deterministic and gate; which held posts the agent's own turn takes up is the model's judgment, and rides a limb that does not.
 - **`calibration.md` §12**: whatever decides when Studio stops showing *thinking* lives in a named function, as `deriveTurnDisplay` does.
-- **Milestone:** pre-alpha, after [nebula-star-ontology.md](nebula-star-ontology.md) and before the personas task.
+- **Milestone:** pre-alpha, before the personas task.
 
 ## Future state
 
