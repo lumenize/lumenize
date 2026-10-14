@@ -657,14 +657,14 @@ export async function handlePendingMembership(request: Request, env: Env): Promi
   const card = await registry(env).getMembershipCard(resolved.record.sub) as
     { universeGalaxyStarId: string; accepted: boolean; invited?: boolean; invitedByName?: string } | null;
   if (!card) return errorResponse(404, 'not_found', 'No such membership');
+  const log = debug('nebula-auth.worker.pendingMembership');
   let names: { nickname?: string; name?: string } = {};
   try {
     names = (await (await profileForSub(env, resolved.record.sub))?.readDisplayNames() ?? {}) as typeof names;
   } catch (e) {
-    debug('nebula-auth.worker.pendingMembership').warn('display-name read failed (continuing)', {
-      sub: resolved.record.sub, error: e,
-    });
+    log.warn('display-name read failed (continuing)', { sub: resolved.record.sub, error: e });
   }
+  log.debug('card answered', { sub: resolved.record.sub, scope: card.universeGalaxyStarId });
   return Response.json({
     ...card,
     ...(names.nickname ? { nickname: names.nickname } : {}),

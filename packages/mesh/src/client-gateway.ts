@@ -222,7 +222,10 @@ export class ClientGateway {
     // has. Refused before any side effect, so an open socket under the same name stays open.
     const offered = (request.headers.get('Sec-WebSocket-Protocol') ?? '').split(',').map((p) => p.trim());
     if (!offered.includes(WS_PROTOCOL)) {
-      log.warn('WebSocket upgrade refused: the Client does not offer the current protocol', { offered: offered.filter((p) => !p.startsWith('lmz.access-token.')) });
+      log.warn('WebSocket upgrade refused: the Client does not offer the current protocol', {
+        offered: offered.filter((p) => !p.startsWith('lmz.access-token.')),
+        pathname: new URL(request.url).pathname,
+      });
       return new Response(`Upgrade Required: offer the '${WS_PROTOCOL}' subprotocol`, { status: 426 });
     }
 
