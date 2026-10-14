@@ -172,13 +172,7 @@ Four objects, each filled with 18,000 rows both ways and then aborted, were read
 - **The fourth behaved like the 3.5 KB DOs.** It woke in 20 ms, and then its cold reads waited 16–24 µs each. About 6 reads share each `sql` page and about 4 each `kv` page here, so that works out to roughly 90 µs per page on first touch, the same as the 3.5 KB run.
 - **So after an hour idle there are at least two cold paths.** Either the first call waits about 0.4 s and nothing after it is cold, or the wake is quick and each page waits about 90 µs the first time it's read. Across 8 DOs, 3 took the first path and 5 the second, all 3 among the 35 MB record DOs and none among the 158 MB ones. Eight is too few to say what decides it.
 
-Four more objects, seeded at 16:16Z, are for a next-day check:
-
-```sh
-cd experiments/do-read-cache
-BASE=https://experiment-do-read-cache.transformation.workers.dev node scripts/probe.mjs check-idle results/idle-seed-2026-10-14T16-16-06-344Z.json
-node scripts/logs.mjs results/idle-check-deployed-<run>.json && node scripts/analyze.mjs results/idle-check-deployed-<run>.json
-```
+**A day or more idle was not measured.** A batch seeded at 16:16Z for a next-day check was wiped unread. That is the case closest to a Nebula Star left idle for days, and the one a rebuild from object storage would show up in. `seed-idle` and `check-idle` still run it.
 
 ## What this means
 
@@ -210,4 +204,4 @@ node scripts/logs.mjs results/idle-check-deployed-<run>.json && node scripts/ana
 - `scripts/probe.mjs`: the driver, with the `clock`, `sweep`, `abort`, `seed-idle`, `check-idle` and `wipe` modes.
 - `scripts/logs.mjs`: the Workers Logs join.
 - `scripts/analyze.mjs`: the tables. `CLOCK=cpu|wall|worker` picks the clock.
-- `results/`: one JSON file per run. Every sweep and abort object was wiped when its run ended. The 16:15Z and 17:32Z idle batches were wiped by their checks. The 16:16Z batch holds 158 MB per DO until `check-idle` or `wipe` runs on `results/idle-seed-2026-10-14T16-16-06-344Z.json`.
+- `results/`: one JSON file per run. Every sweep and abort object was wiped when its run ended. Every idle batch was wiped too: 16:15Z and 17:32Z by their checks, 16:16Z unread.
