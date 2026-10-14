@@ -1030,7 +1030,15 @@ export async function fireResponse(
       ack = await resolveStub(env, bindingName, instanceName).__handleResponse(fireEnvelope);
     }
   } catch (transportError) {
-    log.error(`${nodeTypeName}: fire-back transport to __handleResponse failed`, { error: transportError });
+    // A transport error names no node: `Subrequest depth limit exceeded` (2026-10-13) said only
+    // that some chain ran 16 calls deep. The chain and the target say which one.
+    const hop = (n: { bindingName: string; instanceName?: string }) =>
+      n.instanceName === undefined ? n.bindingName : `${n.bindingName}/${n.instanceName}`;
+    log.error(`${nodeTypeName}: fire-back transport to __handleResponse failed`, {
+      error: transportError,
+      to: hop(response.returnAddr),
+      callChain: fireEnvelope.callContext.callChain.map(hop),
+    });
     return;
   }
   if (ack && '$error' in ack) {
