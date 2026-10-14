@@ -20,7 +20,8 @@
     "experiments/email-quota-probe",
     "experiments/workers-issues",
     "experiments/depth-chain",
-    "experiments/tail-abort"
+    "experiments/tail-abort",
+    "experiments/do-read-cache"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
