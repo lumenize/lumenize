@@ -164,8 +164,10 @@ issue is a finding even when every scenario passed.** `apps/nebula/wrangler.json
 every deploy of either target (production from its first deploy after 2026-10-13), and it keeps every
 error-level line and uncaught exception. Read them with `node scripts/issues.mjs --worker <worker>
 --since <the pass's start>`, which shows the `log` and `exception` issues and hides `unknown`, the
-scanner traffic. Two are standing: `scope-deleted`
-is every teardown's ordered abort, and the vulnerability-scan issues are bots probing public hosts.
+scanner traffic. Three are standing: `scope-deleted`
+is every teardown's ordered abort, the vulnerability-scan issues are bots probing public hosts, and
+`Network connection lost.` is those bots hanging up mid-request, every occurrence a probe of a path
+like `/.env.save` on a test app's host (2026-10-14). One whose path a real page loads is a finding.
 This adds nothing to when a pass runs, which stays the call above.
 
 ⚠️ **Exploration, distinct from automated testing.** `.claude/rules/testing.md` owns the vitest suites
