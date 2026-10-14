@@ -596,7 +596,13 @@ export async function runCodegenLoop(
       return done('no-tool-calls', 'model returned no tool calls');
     }
 
-    messages.push({ role: 'assistant', content: turn.text, tool_calls: turn.rawToolCalls });
+    // A call whose arguments did not parse goes back with `{}` in their place: the provider parses
+    // every tool call in the history it is sent, and refuses the whole next request with a 400 over
+    // one it cannot. The tool message that answers it still quotes what the model wrote.
+    const echoed = (turn.rawToolCalls as any[]).map((raw, i) => (turn.toolCalls[i]?.args === undefined
+      ? { ...raw, function: { ...(raw?.function ?? {}), arguments: '{}' } }
+      : raw));
+    messages.push({ role: 'assistant', content: turn.text, tool_calls: echoed });
 
     let sawError = false;
     /** Capture one call's failure: the record, the tool message, the fix-mode flag. */

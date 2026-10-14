@@ -286,6 +286,10 @@ describe('malformed envelopes + tool errors, captured not crashed', () => {
     expect(r.stop).toBe('complete');
     expect(h.writes).toEqual([]); // never dispatched
     expect(r.toolCalls[0].error).toContain('malformed tool arguments');
+    // The next request echoes the call with `{}` for its arguments: Workers AI parses every tool
+    // call in the history and answers the whole request 400 over one it cannot.
+    const echoed = h.messagesSeen[1].find((m) => m.role === 'assistant') as { tool_calls?: Array<{ function: { arguments: string } }> };
+    expect(echoed.tool_calls?.[0]?.function.arguments).toBe('{}');
   });
 
   it('m2b: unknown tool name → captured tool error, loop continues', async () => {
