@@ -5,6 +5,11 @@
  *   npx tsx apps/nebula/harness/drive.ts all          # sweep EVERY scenario, one boot each
  *   npx tsx apps/nebula/harness/drive.ts all --fast   # …skipping the ones that need Docker
  *   HARNESS_DEBUG=1 npx tsx apps/nebula/harness/drive.ts   # stream wrangler-dev stdio
+ *   HARNESS_LOG_WAIT_MS=60000 …                           # give up on a missing log line sooner
+ *
+ * A SIGINT or SIGTERM stops a run: a scenario keeps its capture, as a failure does, and cleans up;
+ * a sweep starts nothing more and passes the signal to the scenarios running. A second one, two
+ * seconds or more after the first, exits at once without cleanup.
  *
  * ⚠️ **Run the sweep after touching anything a scenario you did not write depends on** — a login
  * or consent semantic, `test/lib/email-login.ts`, a shared Studio screen. Nothing else will tell
@@ -30,6 +35,10 @@ import { installLocalhostLookup } from './lib/localhost-lookup';
 import { deleteClaimedUniverses, sharedApp } from './lib/shared-app';
 import { readSharedApp, RUN_ID } from './lib/shared-app-record';
 import { startDeployedLogs } from './lib/deployed-logs';
+import { waiting } from './lib/stdio';
+
+/** A signal this soon after the first is the same stop, passed on by another process. */
+const DUPLICATE_SIGNAL_MS = 2_000;
 import * as messageRoundtrip from './scenarios/message-roundtrip';
 import * as downwardDominion from './scenarios/downward-dominion';
 import * as superuserEndToEnd from './scenarios/superuser-end-to-end';
@@ -340,6 +349,25 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
     await previous;
     try { await run(); } finally { release(); }
   };
+  // A signal stops the sweep: nothing more starts, and each running scenario gets the signal in its
+  // own process group, so it keeps its capture and cleans up. A second signal is passed on and ends
+  // the sweep, and each scenario then exits without cleanup.
+  const running = new Set<number>();
+  let stoppedBy: NodeJS.Signals | undefined;
+  let stoppedAt = 0;
+  const stopSweep = (signal: NodeJS.Signals) => {
+    // `npx`, `tsx` and a terminal each pass a Ctrl-C on, so one stop can arrive more than once.
+    if (stoppedBy !== undefined && Date.now() - stoppedAt < DUPLICATE_SIGNAL_MS) return;
+    const again = stoppedBy !== undefined;
+    stoppedBy = signal;
+    stoppedAt = Date.now();
+    console.error(again ? `[harness] ${signal} again: passing it on and exiting`
+      : `[harness] ${signal}: no further scenario starts; passing it on to the ${running.size} running`);
+    for (const pid of running) { try { process.kill(-pid, signal); } catch { /* already gone */ } }
+    if (again) process.exit(130);
+  };
+  process.on('SIGINT', stopSweep);
+  process.on('SIGTERM', stopSweep);
   const runScenario = async (name: string): Promise<void> => {
     const t0 = Date.now();
     checkTree(name);
@@ -362,12 +390,16 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
         // The parent swept stale packs once already, so each child skips it; and every child is
         // one run, so on a deployed target they share one app (lib/shared-app.ts).
         env: { ...process.env, ...SCENARIOS[name].sweepEnv, HARNESS_PACKS_SWEPT: '1', HARNESS_RUN_ID: runId },
+        // Its own process group, so a signal reaches it once, from the sweep, and reaches its stack too.
+        detached: true,
       },
     );
+    if (child.pid !== undefined) running.add(child.pid);
     let out = '';
     child.stdout.on('data', (chunk) => { out += chunk; });
     child.stderr.on('data', (chunk) => { out += chunk; });
     const status = await new Promise<number | null>((resolve) => child.on('close', resolve));
+    if (child.pid !== undefined) running.delete(child.pid);
     writeFileSync(join(logDir, `${name}.log`), out);
     const ok = status === 0;
     const detail = ok ? '' : (/^(?:AssertionError|\w*Error):.*$/m.exec(out)?.[0] ?? '(see the kept output)').slice(0, 120);
@@ -382,7 +414,7 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
   };
   const queue = [...names];
   await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
-    for (let name = queue.shift(); name !== undefined; name = queue.shift()) {
+    for (let name = queue.shift(); name !== undefined && stoppedBy === undefined; name = queue.shift()) {
       const next = name;
       await (signsInAsSuperuser(next) ? inSuperuserTurn(() => runScenario(next)) : runScenario(next));
     }
@@ -421,6 +453,10 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
     console.log(`\n⚠️  the source changed during the sweep — results from "${taintedFrom}" on belong to no tree; re-run the sweep`);
   }
   if (failed.length > 0 || taintedFrom !== undefined) process.exitCode = 1;
+  if (stoppedBy !== undefined) {
+    console.log(`\n🛑 the sweep was stopped by ${stoppedBy}: ${names.length - results.length - parked.length} scenario(s) never started`);
+    process.exitCode = 130;
+  }
 }
 
 /**
@@ -502,13 +538,13 @@ const TEST_WORKER = process.env.TEST_WORKER_NAME ?? 'test-nebula';
  * Workers Logs (`lib/deployed-logs.ts`), so a limb that reads them runs in both venues. The tail is
  * live before the scenario's first request, and both stop with the stack.
  */
-async function withDeployedLogs(stack: DevStack): Promise<DevStack> {
+async function withDeployedLogs(stack: Omit<DevStack, 'logs'>): Promise<DevStack> {
   const logs = await startDeployedLogs(TEST_WORKER, () => fetch(`${stack.baseUrl}/_version?sha=tail-probe`));
   return { ...stack, logs: logs.text, cleanup: async () => { logs.stop(); await stack.cleanup(); } };
 }
 
 /** The deployed target as a stack: nothing booted, so nothing to tear down. */
-function deployedStack(target: string): DevStack {
+function deployedStack(target: string): Omit<DevStack, 'logs'> {
   return {
     // The target's platform host, wherever HARNESS_TARGET_URL points on it: every session route
     // answers there. The only deployed target is the test one, whose origin its config names.
@@ -588,21 +624,13 @@ async function main(): Promise<void> {
     ? await withDeployedLogs(deployedStack(target))
     : await bootDevStack({ withContainer: needsContainer, vars: scenario.bootVars });
   const t0 = Date.now();
-  try {
-    console.error(`[harness] booted at ${stack.baseUrl} — running scenario "${name}"…`);
-    await scenario.run(stack);
-    console.log(`✅ harness scenario "${name}" PASSED (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
-  } catch (err) {
-    console.error(`❌ harness scenario "${name}" FAILED after ${((Date.now() - t0) / 1000).toFixed(1)}s:`);
-    console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
-    // The Worker's own side of the story, kept with the red: the last of the dev stack's
-    // stdio (its debug markers under the booted `DEBUG` namespaces). A red that only
-    // quotes the scenario's assertion cannot be attributed — 2026-09-06's `build-box` 404
-    // had four green build reports behind it and nothing said what the dist did.
-    // A deployed capture delivers an invocation's lines when it ends; give the ones in flight a
-    // moment, since the line a limb missed is often among them.
-    if (target) await new Promise((r) => setTimeout(r, 10_000));
-    const stdio = stack.logs?.();
+  const secs = () => ((Date.now() - t0) / 1000).toFixed(1);
+  // The Worker's own side of the story, kept with the red: the last of the dev stack's
+  // stdio (its debug markers under the booted `DEBUG` namespaces). A red that only
+  // quotes the scenario's assertion cannot be attributed — 2026-09-06's `build-box` 404
+  // had four green build reports behind it and nothing said what the dist did.
+  const keepCapture = () => {
+    const stdio = stack.logs();
     if (stdio) {
       const lines = stdio.split('\n');
       console.error(`── ${target ? `${TEST_WORKER}'s tail and Workers Logs` : 'dev stack stdio'}, last ${Math.min(lines.length, 400)} of ${lines.length} lines ──`);
@@ -613,15 +641,54 @@ async function main(): Promise<void> {
       writeFileSync(file, stdio);
       console.error(`── the whole capture: ${file}`);
     }
-    process.exitCode = 1;
-  } finally {
-    // Every account the scenario claimed, deleted as its owner, pass or fail, which hands back the
-    // certificate pack its app ordered on a deployed target (lib/shared-app.ts).
-    // Locally a stack's storage goes with the stack and it ordered no pack, so nothing is handed back.
+  };
+  // Every account the scenario claimed, deleted as its owner, pass or fail, which hands back the
+  // certificate pack its app ordered on a deployed target (lib/shared-app.ts).
+  // Locally a stack's storage goes with the stack and it ordered no pack, so nothing is handed back.
+  let cleanedUp: Promise<void> | undefined;
+  const cleanup = () => (cleanedUp ??= (async () => {
     if (process.env.HARNESS_TARGET_URL) {
       await deleteClaimedUniverses(stack, readDevVar('TEST_TOKEN'), (line) => console.error(`[harness] cleanup: ${line}`));
     }
     await stack.cleanup();
+  })());
+  // A signal stops the run where it stands, keeping the capture and cleaning up, so an agent that
+  // already sees what it needs need not sit out an eleven-minute wait. A second one exits at once.
+  let stoppedBy: NodeJS.Signals | undefined;
+  let stoppedAt = 0;
+  const stop = (signal: NodeJS.Signals) => {
+    // `npx`, `tsx` and a terminal each pass a Ctrl-C on, so one stop can arrive more than once.
+    if (stoppedBy !== undefined && Date.now() - stoppedAt < DUPLICATE_SIGNAL_MS) return;
+    if (stoppedBy !== undefined) {
+      console.error(`[harness] ${signal} again: exiting without cleanup`);
+      process.exit(130);
+    }
+    stoppedBy = signal;
+    stoppedAt = Date.now();
+    process.exitCode = 130;
+    console.error(`🛑 harness scenario "${name}" STOPPED by ${signal} after ${secs()}s`
+      + `${waiting.what !== undefined ? `, waiting for ${waiting.what}` : ''}`);
+    keepCapture();
+    void cleanup().catch((e: Error) => console.error(`[harness] cleanup failed: ${e.message}`)).finally(() => process.exit(130));
+  };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+  try {
+    console.error(`[harness] booted at ${stack.baseUrl} — running scenario "${name}"…`);
+    await scenario.run(stack);
+    if (stoppedBy === undefined) console.log(`✅ harness scenario "${name}" PASSED (${secs()}s)`);
+  } catch (err) {
+    // A stopped run has said why already, and its scenario then fails on the stack it lost.
+    if (stoppedBy !== undefined) return;
+    console.error(`❌ harness scenario "${name}" FAILED after ${secs()}s:`);
+    console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
+    // A deployed capture delivers an invocation's lines when it ends; give the ones in flight a
+    // moment, since the line a limb missed is often among them.
+    if (target) await new Promise((r) => setTimeout(r, 10_000));
+    keepCapture();
+    process.exitCode = 1;
+  } finally {
+    await cleanup();
   }
 }
 

@@ -65,7 +65,7 @@ import type { NodeInviteAck } from '@lumenize/resources';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf, waitForHost } from '../lib/harness';
 import { servedOntologyVersion } from '../lib/own-app';
-import { clientIdIn, debugLines, loggedAfter, waitForDebugLines, type DebugLine } from '../lib/stdio';
+import { clientIdIn, debugLines, loggedAfter, settleForAbsence, waitForDebugLines, type DebugLine } from '../lib/stdio';
 import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
 import { foundTenantStar, refreshAccessToken } from '../../test/lib/email-login';
@@ -194,15 +194,13 @@ export async function run(stack: DevStack): Promise<void> {
   const dev = `${galaxy}.dev`;
   const tenant = `${galaxy}.tenant1`;
   const ownerEmail = uniqueTestEmail();
-  const observable = stack.logs !== undefined;
   const results: Array<{ name: string; ok: boolean; detail: string }> = [];
   const record = (name: string, ok: boolean, detail: string) => {
     results.push({ name, ok, detail });
     console.log(`${ok ? '✅' : '❌'} ${name.padEnd(64)} ${detail}`);
   };
-  /** On a deployed target, say a log half is not observable; locally, record it. */
+  /** Record a limb that reads the Worker's logs. */
   const logHalf = async (name: string, check: () => Promise<[boolean, string]>) => {
-    if (!observable) { console.log(`  · ${name} is not observable on a deployed target`); return; }
     const [ok, detail] = await check();
     record(name, ok, detail);
   };
@@ -311,7 +309,7 @@ export async function run(stack: DevStack): Promise<void> {
     await logHalf("limb 1 — the .dev Star's validator is keyed on its own name", async () => {
       const lines = await waitForDebugLines(stack, (all) => all.some((l) =>
         l.namespace === 'nebula.Resources.ontology' && l.message === 'facet cold load' && l.data.version === v2),
-      `a facet cold load for ${v2}`).catch(() => debugLines(stack.logs?.() ?? ''));
+      `a facet cold load for ${v2}`).catch(() => debugLines(stack.logs()));
       const ids = lines.filter((l) => l.message === 'facet cold load' && l.data.version === v2).map((l) => l.data.bundleId);
       return [ids.length > 0 && ids.every((id) => id === `${dev}/${v2}`), `bundleIds for ${v2}: ${JSON.stringify(ids)}`];
     });
@@ -350,7 +348,7 @@ export async function run(stack: DevStack): Promise<void> {
     await logHalf('limb 3 — the tenant asked its Galaxy, got no row, and installed nothing', async () => {
       const lines = await waitForDebugLines(stack, (all) => all.some((l) =>
         l.message === 'ontology pull returned no row' && l.data.instanceName === tenant),
-      `the tenant's empty answer`).catch(() => debugLines(stack.logs?.() ?? ''));
+      `the tenant's empty answer`).catch(() => debugLines(stack.logs()));
       const asked = lines.some((l) => l.namespace === 'nebula.Resources.source' && l.message === 'ask' && l.data.instanceName === tenant);
       const answered = lines.some((l) => l.message === 'ontology pull returned no row' && l.data.instanceName === tenant);
       const installed = lines.filter((l) => l.message === 'installed' && l.data.instanceName === tenant).length;
@@ -428,10 +426,9 @@ export async function run(stack: DevStack): Promise<void> {
       const reader = await openPage(dev, version);
       // A read, so the op that makes the Star install adds no row to what the next count checks.
       await reader.resources.read('Deal', crypto.randomUUID()).catch(() => null);
-      if (!observable) return { version, line: 'not observable on a deployed target' };
       const lines = await waitForDebugLines(stack, (all) => all.some((l) =>
         l.message === 'rows failing the new version' && l.data.instanceName === dev && l.data.version === version),
-      `the count for ${version}`).catch(() => debugLines(stack.logs?.() ?? ''));
+      `the count for ${version}`).catch(() => debugLines(stack.logs()));
       const hit = lines.find((l) => l.message === 'rows failing the new version' && l.data.instanceName === dev && l.data.version === version);
       return { version, line: hit ? `${hit.data.failing} of ${hit.data.checked}` : 'no count logged' };
     };
@@ -483,7 +480,7 @@ export async function run(stack: DevStack): Promise<void> {
       // can deliver later, so the wait is for both.
       const isInstall = (l: DebugLine) => l.message === 'installed' && l.data.instanceName === dev && l.data.version === vP;
       const lines = await waitForDebugLines(stack, (all) => mine(all).filter((l) => l.data.stale === false).length >= 3
-        && all.some(isInstall), "the page's three admitted subscribes and the install").catch(() => debugLines(stack.logs?.() ?? ''));
+        && all.some(isInstall), "the page's three admitted subscribes and the install").catch(() => debugLines(stack.logs()));
       const install = lines.find(isInstall);
       const admitted = mine(lines).filter((l) => l.data.stale === false);
       const refused = mine(lines).filter((l) => l.data.stale === true);
@@ -580,8 +577,12 @@ export async function run(stack: DevStack): Promise<void> {
     await logHalf('limb 9 — the tenant asked while the ops retried, and not once in the six seconds after', async () => {
       const fenceIn = (all: ReturnType<typeof debugLines>, topic: string) => all.find((l) =>
         l.namespace === 'nebula.Resources.subscribe' && l.message === 'arrived' && l.data.topic === topic);
-      const lines = await waitForDebugLines(stack, (all) => fenceIn(all, fences[2]!) !== undefined, 'the last fence')
-        .catch(() => debugLines(stack.logs?.() ?? ''));
+      // Each fence is its own invocation, so a deployed capture can deliver them out of order: wait for
+      // all three, then settle, since "not once after" is a count of lines that must be absent.
+      await waitForDebugLines(stack, (all) => fences.every((t) => fenceIn(all, t) !== undefined), 'all three fences')
+        .catch(() => undefined);
+      await settleForAbsence();
+      const lines = debugLines(stack.logs());
       const [f0, f1, f2] = fences.map((t) => fenceIn(lines, t));
       if (f0 === undefined || f1 === undefined || f2 === undefined) return [false, `fences logged at ${JSON.stringify([f0?.at, f1?.at, f2?.at])}`];
       const asks = lines.filter((l) => l.namespace === 'nebula.Resources.source' && l.message === 'ask' && l.data.instanceName === tenant);

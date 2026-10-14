@@ -11,8 +11,7 @@
  *  1. **A first acceptance lands the names without a failure.** No mesh call has reached a brand-new
  *     person's Profile yet, and nobody is subscribed to it: its first touch is the `@rawRpc()` entry,
  *     which stamps the identity a mesh entry would. The names must be there when they then subscribe,
- *     and — where the local stack's stdio is captured — the Worker must not have logged a failed
- *     display-name write. *Reds against dropping `@rawRpc()` from `setDisplayNames`, which the entry
+ *     and the Worker must not have logged a failed display-name write. *Reds against dropping `@rawRpc()` from `setDisplayNames`, which the entry
  *     then refuses.*
  *  2. **A later acceptance reaches a live subscriber.** The same person, now signed in with a tab
  *     subscribed to their own profile, claims a second Universe and accepts it under a new nickname.
@@ -21,8 +20,7 @@
  * ⚠️ **Nothing is constructed.** Both memberships come from real claims, real letters and real
  * clicks (ADR-009 rung 1), and the accept is the POST the consent screen sends, with a nickname.
  *
- * ⚠️ **Every limb runs and the verdict comes at the end** (`.claude/rules/live.md`), and limb 1's
- * log half is reported as not observable on a deployed target, which captures no stdio.
+ * ⚠️ **Every limb runs and the verdict comes at the end** (`.claude/rules/live.md`).
  */
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
@@ -32,7 +30,7 @@ import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar, scopeUrlOf } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
-import { LOG_WAIT_MS } from '../lib/stdio';
+import { debugLines, waitForDebugLines, type DebugLine } from '../lib/stdio';
 import {
   requestUniverseClaim, refreshTokenForScope, setCookieHeaders, refreshAccessToken, consumeLink,
 } from '../../test/lib/email-login';
@@ -119,32 +117,23 @@ export async function run(stack: DevStack): Promise<void> {
     const handle = watcher.subscribeProfile(profileId);
     const initial = await handle.snapshot as { value?: { nickname?: string } } | null;
 
-    // ⚠️ **Wait for the accept's own request line before counting.** The stack's stdio reaches this
+    // ⚠️ **Wait for the accept's own completion line before counting.** The capture reaches this
     // process late and in bursts, and a count read before the warning arrives passes on a tree where
-    // the write failed — measured, one run in two. The Worker logs the warning before it answers,
-    // and wrangler logs the request after, so once that line is here the warning would be too; its
+    // the write failed — measured, one run in two. The acceptance logs `accepted` after any failed
+    // write, in the same invocation, so once that line is here the warning would be too; its
     // presence is also what shows the capture works at all.
-    // The trailing space keeps `POST /auth/magic-link/lookup` from matching.
-    const acceptLine = 'POST /auth/magic-link ';
-    let stdio = stack.logs?.();
-    const captureDeadline = Date.now() + LOG_WAIT_MS;
-    while (stdio !== undefined && !stdio.includes(acceptLine) && Date.now() < captureDeadline) {
-      await new Promise((r) => setTimeout(r, 100));
-      stdio = stack.logs?.();
-    }
-    assert.ok(stdio === undefined || stdio.includes(acceptLine),
-      `the first accept's request line never reached the captured stdio, so its failed writes cannot be counted`);
-    const failedWrites = stdio === undefined ? undefined
-      : stdio.split('\n').filter((line) => line.includes('display-name write failed')).length;
+    const ns = 'nebula-auth.worker.acceptMembership';
+    const acceptedIn = (all: DebugLine[]) => all.some((l) => l.namespace === ns && l.message === 'accepted' && l.data.scope === first);
+    const lines = await waitForDebugLines(stack, acceptedIn, "the first accept's completion line")
+      .catch(() => debugLines(stack.logs()));
+    assert.ok(acceptedIn(lines),
+      `the first accept's completion line never reached the capture, so its failed writes cannot be counted`);
+    const failedWrites = lines.filter((l) => l.namespace === ns && l.message.startsWith('display-name write failed')
+      && l.data.sub === sub).length;
     const namesLanded = initial?.value?.nickname === 'First';
-    // Unobservable on a deployed target, so it cannot fail there — the names half still can.
-    const noFailedWrite = failedWrites === undefined || failedWrites === 0;
     record('first acceptance: the names land, and no write failed',
-      namesLanded && noFailedWrite,
-      `the nickname on subscribe is ${JSON.stringify(initial?.value?.nickname)}; ` +
-      (failedWrites === undefined
-        ? 'failed writes not observable on a deployed target — no stdio capture'
-        : `${failedWrites} failed display-name write(s) logged`));
+      namesLanded && failedWrites === 0,
+      `the nickname on subscribe is ${JSON.stringify(initial?.value?.nickname)}; ${failedWrites} failed display-name write(s) logged`);
 
     // ── LIMB 2: a later acceptance, with this person's own tab subscribed ──────────────────────
     //    POSITIVE CONTROL: the tab already heard its initial snapshot, so the subscription is live.

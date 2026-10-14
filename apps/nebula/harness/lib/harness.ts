@@ -113,7 +113,7 @@ export interface DevStack {
   /** The Worker's own output so far (the last few MB), its debug markers among it: a local stack's
    *  stdio, under the `DEBUG` a scenario's `bootVars` set, or on a deployed target what its tail
    *  and Workers Logs carried (`lib/deployed-logs.ts`), under the test Worker's `DEBUG`. */
-  logs?: () => string;
+  logs: () => string;
 }
 
 /** A scope's own host on `stack`, at its port — where a page on that scope lives and its client
@@ -317,7 +317,7 @@ async function waitForConnected(client: NebulaClient, timeoutMs: number): Promis
  * login and never reaches `connectDriver`.
  */
 export async function connectDriver<C extends NebulaClient = NebulaClient>(
-  stack: DevStack,
+  stack: Omit<DevStack, 'logs'>,
   opts: {
     scope: string;
     /**

@@ -112,11 +112,9 @@ export async function run(stack: DevStack): Promise<void> {
     // The chunks: the Galaxy hosts the poster's tab, so it delivers each one in place.
     assert.ok(chunks > 0, 'no stream chunk of the turn reached the poster\'s tab');
     const address = `${SCOPE}/${driver.client.lmz.instanceName}`;
-    if (stack.logs === undefined) {
-      console.error('[studio-codegen-rest] in-place delivery is not observable on a deployed target');
-    } else {
+    {
       // The stdio reaches this process late and in bursts, so the count waits for it to catch up.
-      const inPlaceCount = () => debugLines(stack.logs!()).filter((e) => e.message === 'delivered in place'
+      const inPlaceCount = () => debugLines(stack.logs()).filter((e) => e.message === 'delivered in place'
         && e.data.bindingName === 'GALAXY' && e.data.instanceName === address
         && e.data.method === 'handleStreamChunk').length;
       const caughtUp = Date.now() + 15_000;

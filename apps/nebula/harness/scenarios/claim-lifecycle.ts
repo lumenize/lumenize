@@ -32,7 +32,7 @@
  *     slug can be claimed again with the same first app. *Reds if convergence deletes the universe
  *     row alone.*
  *
- * Limbs 2–7's stdio halves are not observable on a deployed target, which says so per limb.
+ * Limbs 2–7 also read the Worker's logs, in both venues.
  *
  * `needsContainer = false` — auth, the Registry, the teardown hook and the chat plane only.
  */
@@ -82,9 +82,7 @@ export async function run(stack: DevStack): Promise<void> {
   const origin = stack.baseUrl.replace(/\/$/, '');
   const universe = testSlug('cl');
   const galaxy = `${universe}.crm`;
-  const observable = stack.logs !== undefined;
   const drivers: Driver[] = [];
-  const notObservable = (limb: string) => console.error(`[claim-lifecycle] limb ${limb}: not observable on a deployed target`);
 
   /** The link a send produces, armed before the send and filtered by its unique recipient. */
   const mailTo = async (
@@ -220,22 +218,18 @@ export async function run(stack: DevStack): Promise<void> {
     console.error('  ✓ limb 1 — nothing entered a pending scope; each call succeeded once its founder accepted');
 
     // ── 2. A claim's first acceptance wipes the scopes it wrote, before it answers ──────────────
-    if (observable) {
+    {
       const { done, markers } = await acceptanceAt(universe, 'accepted', 3);
       assert.deepEqual(markers.map((m) => [m.data.instanceName, m.data.binding, m.data.cause]).sort(),
         [[universe, 'UNIVERSE', 'creation'], [galaxy, 'GALAXY', 'creation'], [`${galaxy}.dev`, 'STAR', 'creation']].sort(),
         "the founder's first Accept must tear down the universe, its galaxy and its .dev Star");
       assert.ok(markers.every((m) => loggedAfter(done, m)), "the acceptance's completion must follow every marker it caused");
-    } else {
-      notObservable('2 (universe)');
     }
     await clickFor(tenantLink, tenant);
-    if (observable) {
+    {
       const { markers } = await acceptanceAt(tenant, 'accepted', 1);
       assert.deepEqual(markers.map((m) => [m.data.instanceName, m.data.binding]), [[tenant, 'STAR']],
         "a claim-star's first Accept must tear down its Star alone");
-    } else {
-      notObservable('2 (claim-star)');
     }
     console.error('  ✓ limb 2 — each first acceptance wiped the scopes its claim wrote, before answering');
 
@@ -243,40 +237,32 @@ export async function run(stack: DevStack): Promise<void> {
     const atGalaxy = await driver(galaxy, await refreshAccessToken(origin, { refreshToken: founderCookie, authScope: universe }, galaxy));
     const founderChat = await postMessage(atGalaxy, 'before the second Accept');
     assert.equal((await postAccept(universe, founderCookie)).status, 200, 'a second Accept must answer 200');
-    if (observable) {
+    {
       const { markers } = await acceptanceAt(universe, 'already-accepted');
       assert.equal(markers.length, 0, 'a second Accept must tear nothing down');
-    } else {
-      notObservable('3 (markers)');
     }
     assert.deepEqual(await founderChat.read(), [founderChat.messageId], 'the message must survive a second Accept');
     console.error('  ✓ limb 3 — a second Accept tore nothing down; the message survived');
 
     // ── 4. Neither the root's first Accept nor an invitee's tears anything down ─────────────────
-    if (observable) {
+    {
       // A deployed target's root is a standing account whose membership was accepted long ago, so its
       // Accept here is not its first: that half holds only of a fresh local stack.
       const deployedRoot = process.env.HARNESS_TARGET_URL !== undefined;
       assert.equal((await acceptanceAt(PLATFORM, deployedRoot ? 'already-accepted' : 'accepted')).markers.length, 0,
         deployedRoot ? "the root's Accept must tear nothing down" : "the root's first Accept must tear nothing down");
       if (deployedRoot) console.error("  · limb 4 — the root's FIRST Accept: a fresh local stack only, whose root is new");
-    } else {
-      notObservable('4 (root markers)');
     }
     assert.deepEqual(await otherChat.read(), [otherChat.messageId], "another account's chat must survive the root's Accept");
     await clickFor(inviteLink, galaxy);
-    if (observable) {
-      assert.equal((await acceptanceAt(galaxy, 'accepted')).markers.length, 0,
-        "an invitee's first Accept must tear nothing down");
-    } else {
-      notObservable('4 (invitee markers)');
-    }
+    assert.equal((await acceptanceAt(galaxy, 'accepted')).markers.length, 0,
+      "an invitee's first Accept must tear nothing down");
     assert.deepEqual(await founderChat.read(), [founderChat.messageId], "the invited app's chat must survive the invitee's Accept");
     console.error("  ✓ limb 4 — the root's and an invitee's first Accept tore nothing down; both chats survived");
 
     // ── 5. Every acceptance leaves its record ──────────────────────────────────────────────────
     const founderSub = atUniverse.sub;
-    if (observable) {
+    {
       const { all, done } = await acceptanceAt(universe, 'accepted');
       const record = all.find((l) => l.namespace === 'nebula-auth.Registry.identity.membershipAccepted'
         && l.data.operationId === done.data.operationId);
@@ -288,8 +274,6 @@ export async function run(stack: DevStack): Promise<void> {
         'the acceptance record must name the scopes it handed to teardown');
       assert.ok(!('actingToken' in record.data), 'an acceptance presents no token, so its record names no actor');
       console.error('  ✓ limb 5 — the acceptance recorded credential, address, sub and teardown, with no actor');
-    } else {
-      notObservable('5');
     }
 
     // ── 6. A claim and a consume each leave their record ───────────────────────────────────────
@@ -303,7 +287,7 @@ export async function run(stack: DevStack): Promise<void> {
       body: JSON.stringify({ slug: ticketUniverse, appSlug: 'notes' }),
     });
     assert.equal(signedUp.status, 200, 'the ticket-backed claim must succeed');
-    if (observable) {
+    {
       const all = await waitForDebugLines(stack, (a) => a.some((l) => l.namespace === 'nebula-auth.Registry.claimUniverseWithTicket'
         && l.data.universe === ticketUniverse), 'the ticket-backed claim record');
       const scopesOf = (l: DebugLine | undefined) => [l?.data.universe, l?.data.galaxy, l?.data.devStar];
@@ -324,8 +308,6 @@ export async function run(stack: DevStack): Promise<void> {
       assert.ok(consume.data.sessions.some((s: { sub: string }) => s.sub === founderSub), 'the consume record must name the sessions it opened');
       assert.ok(!('actingToken' in consume.data), 'a consume presents no token, so its record names no actor');
       console.error('  ✓ limb 6 — each claim, the ticket-backed one included, and the consume left its record');
-    } else {
-      notObservable('6');
     }
 
     // ── 7. A superseded claim leaves nothing behind ────────────────────────────────────────────
@@ -335,14 +317,12 @@ export async function run(stack: DevStack): Promise<void> {
     await mailTo(changer, () => requestUniverseClaim({ baseUrl: origin, universe: retired, appSlug: 'crm', email: changer }));
     const keptLink = await mailTo(changer, () => requestUniverseClaim({ baseUrl: origin, universe: kept, appSlug: 'crm', email: changer }));
     await clickFor(keptLink, kept);
-    if (observable) {
+    {
       const all = await waitForDebugLines(stack, (a) => a.some((l) => l.namespace === 'nebula-auth.Registry.claim.converged'
         && l.data.keptScope === kept), 'the convergence record');
       const converged = all.find((l) => l.namespace === 'nebula-auth.Registry.claim.converged' && l.data.keptScope === kept)!;
       assert.deepEqual(converged.data.retired, [retired, `${retired}.crm`, `${retired}.crm.dev`],
         'the convergence record must name the retired claim\'s whole subtree');
-    } else {
-      notObservable('7 (record)');
     }
     assert.notEqual(await requestUniverseClaim({ baseUrl: origin, universe: retired, appSlug: 'crm', email: uniqueTestEmail() }),
       null, 'the retired slug must be claimable again with the same first app');

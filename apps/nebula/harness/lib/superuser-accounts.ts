@@ -22,7 +22,7 @@ import {
 const PLATFORM_SCOPE = '_platform';
 
 /** Sign in as the deployed superuser on `stack` and hand back its list and delete. */
-export async function superuserAccounts(stack: DevStack, testToken: string): Promise<AccountSweepApi> {
+export async function superuserAccounts(stack: Omit<DevStack, 'logs'>, testToken: string): Promise<AccountSweepApi> {
   const origin = stack.baseUrl.replace(/\/$/, '');
   // `_scopeless`: the login names no scope, so its mail carries no scope tag.
   const waiter = waitForEmail({ testToken, instance: '_scopeless', to: DEPLOYED_SUPERUSER, timeout: 60_000 });

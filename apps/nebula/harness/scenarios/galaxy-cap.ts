@@ -68,7 +68,6 @@ export async function run(stack: DevStack): Promise<void> {
   const origin = stack.baseUrl.replace(/\/$/, '');
   const universe = testSlug('cap');
   const owner = uniqueTestEmail();
-  const observable = stack.logs !== undefined;
   const drivers: Driver[] = [];
 
   try {
@@ -128,7 +127,7 @@ export async function run(stack: DevStack): Promise<void> {
     console.error('  ✓ limb 3 — an acceptance past the cap is refused by message and stays unaccepted');
 
     // ── 4. A refused create or acceptance orders nothing; below the cap each site does ──────────
-    if (observable) {
+    {
       const capRefused = (l: DebugLine) => l.namespace === 'nebula-auth.Registry.identity.membershipAccepted'
         && l.message === 'Acceptance refused by the galaxy cap' && l.data.scope === second;
       // Home's refusal is the last request limbs 2 and 3 made, and its completion line is logged
@@ -155,7 +154,7 @@ export async function run(stack: DevStack): Promise<void> {
       assert.deepEqual([createOp(over, 'called'), ...refusedOps].map(teardownsOf), [0, 0, 0],
         'a refused create or acceptance must tear nothing down');
     }
-    console.error(`  ✓ limb 4 — the refusals tore nothing down and woke nothing, and below the cap each site woke one${observable ? '' : ' (not observable deployed)'}`);
+    console.error(`  ✓ limb 4 — the refusals tore nothing down and woke nothing, and below the cap each site woke one`);
 
     // ── 5. A superuser's root membership counts none of the zone's galaxies ─────────────────────
     // The zone now holds the owner's apps and the refused claim's: more than the cap.

@@ -17,6 +17,9 @@ It boots a fresh local `wrangler dev`, mints an identity, drives + inspects (API
 via Playwright — screenshot / a11y / console / network), exits non-zero on failure. Needs `.dev.vars` +
 a `wrangler login` session; **Docker only when the scenario declares `needsContainer`** — a
 container-free boot skips the image build entirely.
+A deployed wait for a log line can run eleven minutes, and says what it waits for after thirty
+seconds. When you already see what you need, `pkill -INT -f 'drive.ts <scenario>'` stops the run,
+keeps its whole capture and cleans up, as a failure does.
 
 ⚠️ **After changing anything a scenario you did NOT write depends on, you MUST sweep the whole
 registry — `drive.ts all` (add `--fast` to skip the Docker ones).** The registry is a suite nothing
@@ -146,8 +149,8 @@ against 142 one at a time (2026-10-04). A local sweep refuses it.
 
 **A local sweep never runs the deployed-only paths, so a change to what a Client hears back MUST
 be checked against them before the deploy.** They are `drive.ts`'s account sweep and the shared
-app's cleanup, and every branch on `HARNESS_TARGET_URL` or on the stack's logs being absent
-(`grep -rlnE 'HARNESS_TARGET_URL|stack\.logs' apps/nebula/harness`). On 2026-10-06 a deletion's answer became a 4410 close, and three of those
+app's cleanup, and every branch on `HARNESS_TARGET_URL`
+(`grep -rln 'HARNESS_TARGET_URL' apps/nebula/harness`). On 2026-10-06 a deletion's answer became a 4410 close, and three of those
 paths still waited for the answer; the first deployed run's account sweep reported ten failed
 deletes that had all landed. Since 2026-10-14 every deployed scenario captures the Worker's
 lines through a `wrangler tail` filled in by Workers Logs, which `test-nebula` keeps, and a

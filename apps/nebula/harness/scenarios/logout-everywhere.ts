@@ -18,7 +18,7 @@
  *     id, name E's `sub` with the reason `logout-everywhere`. *Reds if the revocation is batched
  *     with no subject.*
  *
- * Limb 3 reads the stack's stdio, which a deployed target does not capture; it says so there.
+ * Limb 3 reads the Worker's logs, in both venues.
  *
  * `needsContainer = false` — auth, Studio's shell and the logout page only.
  */
@@ -36,7 +36,6 @@ export const bootVars = { DEBUG: 'nebula-auth.worker.logout,nebula-auth.Registry
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
-  const observable = stack.logs !== undefined;
   const universe = testSlug('le');
   const studioScope = `${universe}.crm`;
   const e = uniqueTestEmail();
@@ -101,7 +100,7 @@ export async function run(stack: DevStack): Promise<void> {
     console.error("  ✓ limb 2 — P's logout everywhere ended the session Q held");
 
     // ── LIMB 3: the logout records whose sessions ended ────────────────────────────────────────
-    if (observable) {
+    {
       const isDone = (x: DebugLine) => x.namespace === 'nebula-auth.worker.logout' && x.message === 'logged out';
       const all = await waitForDebugLines(stack, (lines) => lines.some(isDone), "E's logout completion line");
       const done = all.find(isDone)!;
@@ -111,8 +110,6 @@ export async function run(stack: DevStack): Promise<void> {
       assert.ok(named.includes(`${eSub}:logout-everywhere`),
         `the logout's revocations must name E's sub, reason logout-everywhere: ${JSON.stringify(named)}`);
       console.error("  ✓ limb 3 — the logout's revocations named E's sub, reason logout-everywhere");
-    } else {
-      console.error('[logout-everywhere] limb 3: not observable on a deployed target');
     }
   } finally {
     await browser.close();

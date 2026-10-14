@@ -44,9 +44,9 @@
  *     *Reds if the seed leaves the scaffold, or the entry stops answering a chat-`write` caller.*
  *  8. **A plain question is answered through the single path, and every warm is torn down.**
  *     Asserted on the Worker's own `warm`/`teardown` markers off stdio, paired per turn, with the
- *     turn-level teardown isolated after the build turn's last job report; `docker ps` is the
- *     outside witness. Local venue only — a deployed target captures no stdio, so the pairing
- *     is reported as not observable there. *Reds if a teardown stops running, or the reply never lands.*
+ *     turn-level teardown isolated after the build turn's last job report, in both venues;
+ *     `docker ps` is the outside witness on a local stack. *Reds if a teardown stops running, or
+ *     the reply never lands.*
  *
  * ⚠️ **Model QUALITY is reported, never gated** (the discipline `studio-codegen-rest` sets). Whether
  * the generated app is any good is a different question with a different failure mode; what is
@@ -64,7 +64,7 @@ import { DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar, connectDriver, NEW_HOST_TIMEOUT_MS } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
-import { loggedAfter } from '../lib/stdio';
+import { LOG_WAIT_MS, loggedAfter } from '../lib/stdio';
 import { launchChromium, bootStudioVite, instrumentedPage, captureArtifacts } from '../lib/browser';
 import { provisionAndLogin, requestMagicLink } from '../../test/lib/email-login';
 
@@ -434,41 +434,47 @@ export async function run(stack: DevStack): Promise<void> {
       () => document.body.innerText.split('💭 thought process').length - 1 >= 2,
       undefined, { timeout: TURN_TIMEOUT_MS, polling: 500 },
     );
-    // Give the turn's `finally` a moment to log its teardown, then read the markers once.
-    await new Promise((r) => setTimeout(r, 3_000));
-    // The Worker's stdio is captured on a LOCAL stack only (`DevStack.logs`); a deployed target
-    // (`HARNESS_TARGET_URL`) shows neither the markers nor, through `docker ps`, its containers,
-    // so there the pairing is reported as not observable and the reply half — the second
-    // disclosure above — is what the venue asserts (`live-scenarios.md` § *Reading the Worker's logs*).
-    // Until the observability tail Worker exposes deployed logs — `tasks/backlog.md` § *Testing
-    // & Quality* carries the re-merge — after which `DevStack.logs` gets a deployed reader.
-    const stdio = stack.logs?.();
     // This Galaxy's markers only, on the stamp every marker carries (`testing.md`).
-    const markers = galaxyMarkers(stdio ?? '').filter((m) => m.instanceName === galaxy);
+    const markersIn = (raw: string) => galaxyMarkers(raw).filter((m) => m.instanceName === galaxy);
     // A warm is the FIRED marker, not the namespace: a failed start warns there without `by`.
     const warmsOf = (ms: GalaxyMarker[]) => ms.filter((m) => m.ns === 'nebula.Galaxy.warm' && m.message === 'container warm fired');
-    const pairedThrough = (from: number, to: number): { warms: number; unpaired: number } => {
-      const inWindow = markers.filter((m) => m.at >= from && m.at <= to);
+    const pairedIn = (ms: GalaxyMarker[], from: number, to: number): { warms: number; unpaired: number } => {
+      const inWindow = ms.filter((m) => m.at >= from && m.at <= to);
       const warms = warmsOf(inWindow);
       const unpaired = warms.filter((w) => !inWindow.some((t) => t.ns === 'nebula.Galaxy.teardown' && loggedAfter(t, w))).length;
       return { warms: warms.length, unpaired };
     };
-    let pairing = 'pairing not observable on a deployed target — no stdio capture';
-    if (stdio !== undefined) {
-      const buildTurn = pairedThrough(0, askedAt);
-      assert.ok(buildTurn.warms >= 1,
-        `positive control: the build turn must have fired at least one warm marker (parsed ${markers.length} Galaxy markers off stdio)`);
-      assert.equal(buildTurn.unpaired, 0, `the build turn fired ${buildTurn.warms} warm(s) and ${buildTurn.unpaired} had no teardown after it`);
-      // The TURN-LEVEL teardown, isolated: a build cycle destroys its own box BEFORE it logs
-      // its `job report`, so the only teardown that can follow the build turn's last report is
-      // the turn's `finally` — deleting that one alone reds here, every run, where the pairing
-      // above would stay green on the cycle's own destroy (`testing.md`'s self-heal trap).
-      const lastReport = markers.filter((m) => m.ns === 'nebula.Galaxy.build' && m.message === 'job report' && m.at <= askedAt).at(-1);
-      assert.ok(lastReport !== undefined, 'positive control: the build turn logged a job report');
-      assert.ok(markers.some((m) => m.ns === 'nebula.Galaxy.teardown' && loggedAfter(m, lastReport)),
-        "the turn-level teardown must follow the build turn's last job report — the finally is the only teardown after it");
-      const questionTurn = pairedThrough(askedAt, Date.now());
-      assert.equal(questionTurn.unpaired, 0, `the question's turn fired ${questionTurn.warms} warm(s) and ${questionTurn.unpaired} had no teardown after it`);
+    // The turn's teardown is logged by its own invocation, which a deployed capture delivers when
+    // that ends, so the read waits until every warm has its teardown, or the venue's budget runs out
+    // and the assertions below say what is missing (`live-scenarios.md` § *Reading the Worker's logs*).
+    const lastReportIn = (ms: GalaxyMarker[]) =>
+      ms.filter((m) => m.ns === 'nebula.Galaxy.build' && m.message === 'job report' && m.at <= askedAt).at(-1);
+    for (const deadline = Date.now() + LOG_WAIT_MS; Date.now() < deadline; await new Promise((r) => setTimeout(r, 1_000))) {
+      const ms = markersIn(stack.logs());
+      const report = lastReportIn(ms);
+      if (warmsOf(ms).length > 0 && pairedIn(ms, 0, askedAt).unpaired === 0 && pairedIn(ms, askedAt, Date.now()).unpaired === 0
+        && report !== undefined && ms.some((m) => m.ns === 'nebula.Galaxy.teardown' && loggedAfter(m, report))) break;
+    }
+    const markers = markersIn(stack.logs());
+    const pairedThrough = (from: number, to: number) => pairedIn(markers, from, to);
+    const buildTurn = pairedThrough(0, askedAt);
+    assert.ok(buildTurn.warms >= 1,
+      `positive control: the build turn must have fired at least one warm marker (parsed ${markers.length} Galaxy markers off stdio)`);
+    assert.equal(buildTurn.unpaired, 0, `the build turn fired ${buildTurn.warms} warm(s) and ${buildTurn.unpaired} had no teardown after it`);
+    // The TURN-LEVEL teardown, isolated: a build cycle destroys its own box BEFORE it logs
+    // its `job report`, so the only teardown that can follow the build turn's last report is
+    // the turn's `finally` — deleting that one alone reds here, every run, where the pairing
+    // above would stay green on the cycle's own destroy (`testing.md`'s self-heal trap).
+    const lastReport = lastReportIn(markers);
+    assert.ok(lastReport !== undefined, 'positive control: the build turn logged a job report');
+    assert.ok(markers.some((m) => m.ns === 'nebula.Galaxy.teardown' && loggedAfter(m, lastReport)),
+      "the turn-level teardown must follow the build turn's last job report — the finally is the only teardown after it");
+    const questionTurn = pairedThrough(askedAt, Date.now());
+    assert.equal(questionTurn.unpaired, 0, `the question's turn fired ${questionTurn.warms} warm(s) and ${questionTurn.unpaired} had no teardown after it`);
+    let pairing = `build turn ${buildTurn.warms} warm(s), every one torn down and the turn's own teardown after its last report; ` +
+      `question turn ${questionTurn.warms === 0 ? 'did not warm — its pairing was not exercised this run' : `${questionTurn.warms} warm(s), all paired`}`;
+    // `docker ps` sees only a local stack's containers.
+    if (process.env.HARNESS_TARGET_URL === undefined) {
       const leftover = { at: Date.now() + 30_000, names: boxes() };
       while (leftover.names.length > 0 && Date.now() < leftover.at) {
         await new Promise((r) => setTimeout(r, 1_000));
@@ -476,8 +482,7 @@ export async function run(stack: DevStack): Promise<void> {
       }
       assert.deepEqual(leftover.names, [],
         `a build-box container outlived its turn: ${leftover.names.join(', ')} — every warm owes a destroy`);
-      pairing = `build turn ${buildTurn.warms} warm(s), every one torn down and the turn's own teardown after its last report; ` +
-        `question turn ${questionTurn.warms === 0 ? 'did not warm — its pairing was not exercised this run' : `${questionTurn.warms} warm(s), all paired`}; no build box left running`;
+      pairing += '; no build box left running';
     }
     console.error(`  ✓ limb 8 — a plain question was answered through the single path (${pairing})`);
 

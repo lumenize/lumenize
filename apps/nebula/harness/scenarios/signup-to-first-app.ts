@@ -279,8 +279,7 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── LIMB 11: the claim refuses a missing first app, and writes three scopes with one ───────
     // Over HTTP from Node, through vite's port as the form posts. The record is the only place the
-    // three rows are observable before anyone accepts; it is stdio, so a deployed run cannot read it.
-    const observable = stack.logs !== undefined;
+    // three rows are observable before anyone accepts.
     const claimNs = 'nebula-auth.Registry.claimUniverse';
     const recordNames = (ns: string, u: string, app: string) => (all: DebugLine[]) =>
       all.some((l) => l.namespace === ns && l.data.universe === u && l.data.galaxy === `${u}.${app}`
@@ -295,10 +294,8 @@ export async function run(stack: DevStack): Promise<void> {
       'Invalid app slug format', 'the refusal names the app slug');
     const admitted = await post({ slug: bare, appSlug: 'crm', email: uniqueTestEmail() });
     assert.equal(admitted.status, 200, 'the same claim with both slugs must be admitted');
-    if (observable) {
-      await waitForDebugLines(stack, recordNames(claimNs, bare, 'crm'), `${claimNs} naming ${bare}'s three scopes`);
-    }
-    console.error(`  ✓ limb 11 — no first app is refused by message; with one, the claim records three scopes${observable ? '' : ' (record not observable on a deployed target)'}`);
+    await waitForDebugLines(stack, recordNames(claimNs, bare, 'crm'), `${claimNs} naming ${bare}'s three scopes`);
+    console.error(`  ✓ limb 11 — no first app is refused by message; with one, the claim records three scopes`);
 
     // ── LIMB 12: the ticket path's rendered page sends both slugs ──────────────────────────────
     // A new address with no memberships, in the same browser: its link's Continue lands on
@@ -325,12 +322,12 @@ export async function run(stack: DevStack): Promise<void> {
     await page.waitForURL((u) => u.origin === vite.viteBaseUrl && u.pathname === '/', { timeout: 30_000 });
     await page.getByTestId('home-pending').getByRole('button', { name: new RegExp(ticketUniverse) }).click();
     await page.getByTestId('consent-checkbox').waitFor({ state: 'visible', timeout: 30_000 });
-    if (observable) {
+    {
       const ticketNs = 'nebula-auth.Registry.claimUniverseWithTicket';
       await waitForDebugLines(stack, recordNames(ticketNs, ticketUniverse, 'notes'),
         `${ticketNs} naming ${ticketUniverse}'s three scopes`);
     }
-    console.error(`  ✓ limb 12 — the rendered signup page claimed ${ticketUniverse} with its first app${observable ? '' : ' (record not observable on a deployed target)'}`);
+    console.error(`  ✓ limb 12 — the rendered signup page claimed ${ticketUniverse} with its first app`);
 
     // ── LIMB 13: a ticket-backed signup accepted on Home enters its app ─────────────────────────
     const solo = await instrumentedPage(browser);

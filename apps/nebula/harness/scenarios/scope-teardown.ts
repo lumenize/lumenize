@@ -18,8 +18,8 @@
  * facade's completion line, reads the deleted scopes through the universe's page, which stands, and
  * brings each stopped test client back explicitly before its next call.
  * Locally miniflare's abort wipes storage by itself, so limb 4 witnesses the in-memory reset; the
- * durable wipe is the deployed pass's. The markers and records are read from the stack's stdio,
- * which a deployed target does not capture — those halves report themselves not observable there.
+ * durable wipe is the deployed pass's. The markers and records are read from the Worker's logs, in
+ * both venues.
  *
  * `needsContainer = false` — no build, so the boot skips Docker.
  */
@@ -32,7 +32,7 @@ import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf, waitForHost } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
-import { debugLines, loggedAfter, waitForDebugLines, type DebugLine } from '../lib/stdio';
+import { debugLines, loggedAfter, settleForAbsence, waitForDebugLines, type DebugLine } from '../lib/stdio';
 import { provisionAndLogin, refreshAccessToken, requestStarClaim } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -60,7 +60,6 @@ export async function run(stack: DevStack): Promise<void> {
   const galaxy = `${universe}.crm`;
   const tenant = `${galaxy}.t1`;
   const email = uniqueTestEmail();
-  const observable = stack.logs !== undefined;
   const stdio = (ready: (all: Line[]) => boolean, what: string) => waitForDebugLines(stack, ready, what);
   const has = (ns: string, message: string, field: string, value: unknown) => (all: Line[]) =>
     all.some((l) => l.namespace === ns && l.message === message && l.data[field] === value);
@@ -101,7 +100,7 @@ export async function run(stack: DevStack): Promise<void> {
     // ── 2. A creation wipes before it answers, and records the page ──────────────────────────────
     // Positive control for limb 1: the universe admin's create succeeds.
     assert.deepEqual(await atUniverse.client.scopes.createGalaxy(universe, 'crm'), { instanceName: galaxy });
-    if (observable) {
+    {
       // Wait for the completion line, the record and both markers, so the order below is what decides.
       const all = await stdio((a) => {
         const done = a.find((l) => l.namespace === 'nebula-auth.facade.createGalaxy' && l.message === 'created'
@@ -127,8 +126,6 @@ export async function run(stack: DevStack): Promise<void> {
       assert.equal(record?.data.actingToken?.aud, universe, 'the create record must name the page');
       assert.deepEqual(record?.data.actingToken?.access, { authScope: universe, scopeAdmin: true },
         'the create record must carry the authority asserted');
-    } else {
-      console.error('[scope-teardown] limb 2 markers and record: not observable on a deployed target');
     }
 
     // ── 3. The universe page's list answers for its own scope ───────────────────────────────────
@@ -188,7 +185,7 @@ export async function run(stack: DevStack): Promise<void> {
       atUniverse.client.ctn<Star>().resources.orgTree.getState()).then((st) => st.nodes.has(nodeId));
     assert.equal(tenantStillHasNode, false, "a deleted tenant's Star must read empty");
 
-    if (observable) {
+    {
       const all = await stdio(has('nebula-auth.facade.executeScopeDeletion', 'deleted', 'target', galaxy),
         "the delete's completion line");
       const done = all.find((l) => l.namespace === 'nebula-auth.facade.executeScopeDeletion'
@@ -207,8 +204,6 @@ export async function run(stack: DevStack): Promise<void> {
         'a deletion must log no teardown error');
       const record = all.find((l) => l.namespace === 'nebula-auth.Registry.executeScopeDeletion' && l.data.operationId === op);
       assert.equal(record?.data.actingToken?.aud, galaxy, "a deletion from the galaxy's page must record that page");
-    } else {
-      console.error('[scope-teardown] limb 4 markers and record: not observable on a deployed target');
     }
 
     // ── 5. A new owner starts empty ─────────────────────────────────────────────────────────────
@@ -280,17 +275,27 @@ export async function run(stack: DevStack): Promise<void> {
     await atUniverse.client.scopes.delete(`${universe}.crm2`);
     // The universe's own page deletes it: as in limb 4, the call rejects with `HostDeletedError`.
     await atUniverse.client.scopes.delete(universe).catch((e: Error) => { if (e.name !== 'HostDeletedError') throw e; });
-    if (observable) {
+    {
       const recordIn = (lines: DebugLine[], target: string) => {
         const done = lines.find((l) => l.namespace === 'nebula-auth.facade.executeScopeDeletion'
           && l.message === 'deleted' && l.data.target === target);
         return done && lines.find((l) => l.namespace === 'nebula-auth.Registry.executeScopeDeletion'
           && l.data.operationId === done.data.operationId);
       };
-      // Each record is logged by another invocation than its completion line, which a deployed
-      // capture can deliver later, so the wait is for every line read below.
-      const all = await stdio((a) => [universe, galaxy, `${universe}.crm2`].every((t) => recordIn(a, t)),
-        "the three deletions' completion lines and records");
+      const universeMarkerIn = (lines: DebugLine[]) => {
+        const op = lines.find((l) => l.namespace === 'nebula-auth.facade.executeScopeDeletion'
+          && l.message === 'deleted' && l.data.target === universe)?.data.operationId;
+        return op !== undefined && lines.some((l) => l.namespace === 'nebula.scope.teardown' && l.message === 'tearing down'
+          && l.data.operationId === op && l.data.instanceName === universe && l.data.binding === 'UNIVERSE');
+      };
+      // Each record is logged by another invocation than its completion line, and the universe's
+      // marker by the Universe in an invocation its own abort ends, which a deployed capture can
+      // deliver minutes later. So the wait is for every line read below, the marker included.
+      await stdio((a) => [universe, galaxy, `${universe}.crm2`].every((t) => recordIn(a, t)) && universeMarkerIn(a),
+        "the three deletions' completion lines and records, and the universe's marker");
+      // Two checks below count lines that must be absent, from invocations that ended before these.
+      await settleForAbsence();
+      const all = debugLines(stack.logs());
       const recordOf = (target: string) => recordIn(all, target);
       // Limb 6's refused create logged no teardown marker. It is the fourth create on this galaxy's
       // name — after limb 1's stranger, limb 2's and limb 5's re-create — and the universe deletion
@@ -326,8 +331,6 @@ export async function run(stack: DevStack): Promise<void> {
       const outcome = (m: string) => all.filter((l) => l.namespace === 'nebula.scope.teardown' && l.message === m).length;
       console.error(`[scope-teardown] teardown calls: resolved ${outcome('torn down')}, `
         + `rejected as the ordered reset ${outcome('reset as ordered')}, failed ${outcome('teardown failed')}`);
-    } else {
-      console.error('[scope-teardown] limbs 7–8: not observable on a deployed target');
     }
   } finally {
     for (const d of drivers) d.dispose();

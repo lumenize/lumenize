@@ -173,7 +173,7 @@ export async function run(stack: DevStack): Promise<void> {
     console.log(`  ${ok ? '✓' : '✗'} ${name}${ok ? '' : ` — ${detail}`}`);
     if (!ok) failures.push(`${name}: ${detail}`);
   };
-  const stdio = (): string | undefined => stack.logs?.();
+  const stdio = (): string | undefined => stack.logs();
   // Each debug entry prints as a multi-line JSON block, so a line-by-line match never sees its
   // namespace beside its data: read the parsed entries.
   const entries = () => debugLines(stdio() ?? '');
@@ -227,9 +227,7 @@ export async function run(stack: DevStack): Promise<void> {
       const status = await upgradeStatus(`${starHost}${r.path}`, r.token);
       limb(`limb 1 — ${r.name} is refused with ${r.status}`, status === r.status, `answered ${status}`);
     }
-    if (stdio() === undefined) {
-      console.log('  · whether a refused upgrade started a Star is not observable on a deployed target');
-    } else {
+    {
       // wrangler logs each request after the Worker's own output, so once the last refusal's
       // request line is here, a Star start it caused would be too.
       const last = refusals.at(-1)!.path;
@@ -241,17 +239,13 @@ export async function run(stack: DevStack): Promise<void> {
     const alice = socketLog();
     const tab = await hostedTab(starHost, star, onStar.accessToken, onStar.sub, alice);
     const tabName = `${star}/${tab.lmz.instanceName}`;
-    if (stdio() === undefined) {
-      console.log('  · which node started, and the name it holds the socket under, are not observable on a deployed target');
-    } else {
-      // Limb 5's save is the next call to reach S, so a start logged before it is the upgrade's.
-      afterClose.push(async () => {
-        limb('limb 2 — the upgrade starts the Star', await eventually(() => starStarted(beforeSave), LOG_WAIT_MS),
-          `no start was logged for ${star} before limb 5's save`);
-        limb('limb 2 — the Star holds the socket under {S}/{id}', await eventually(() => accepted(tabName), LOG_WAIT_MS),
-          `no accept line names ${tabName}`);
-      });
-    }
+    // Limb 5's save is the next call to reach S, so a start logged before it is the upgrade's.
+    afterClose.push(async () => {
+      limb('limb 2 — the upgrade starts the Star', await eventually(() => starStarted(beforeSave), LOG_WAIT_MS),
+        `no start was logged for ${star} before limb 5's save`);
+      limb('limb 2 — the Star holds the socket under {S}/{id}', await eventually(() => accepted(tabName), LOG_WAIT_MS),
+        `no accept line names ${tabName}`);
+    });
 
     // ── LIMB 3: a push from a Profile and one from the Galaxy above reach the hosted tab ───────
     const profileId = tab.claims.profileId;
@@ -288,14 +282,10 @@ export async function run(stack: DevStack): Promise<void> {
     const personaName = `${app.galaxy}.dev/${personaTab.lmz.instanceName}`;
     // A host builds its Clients' addresses from its own name, so a push reaches the tab wherever it
     // is held: only the accept line says which node holds it.
-    if (stdio() === undefined) {
-      console.log('  · which node holds the persona\'s socket is not observable on a deployed target');
-    } else {
-      afterClose.push(async () => {
-        limb('limb 4 — a persona\'s tab is held by the .dev Star', await eventually(() => accepted(personaName), LOG_WAIT_MS),
-          `no accept line names ${personaName}`);
-      });
-    }
+    afterClose.push(async () => {
+      limb('limb 4 — a persona\'s tab is held by the .dev Star', await eventually(() => accepted(personaName), LOG_WAIT_MS),
+        `no accept line names ${personaName}`);
+    });
 
     // ── LIMB 5: a save runs in place on the tab's own Star; its read of the Galaxy is relayed ──
     beforeSave = new Date().toISOString();
@@ -303,13 +293,9 @@ export async function run(stack: DevStack): Promise<void> {
     const config = await tab.lmz.callAsync('GALAXY', app.galaxy, tab.ctn<Galaxy>().getGalaxyConfig());
     limb('limb 5 — the save and the Galaxy read both answer', typeof config === 'object' && config !== null,
       `the Galaxy answered ${JSON.stringify(config)}`);
-    if (stdio() === undefined) {
-      console.log('  · whether the save ran in place is not observable on a deployed target');
-    } else {
-      limb('limb 5 — the save ran in place on the Star', await eventually(() => entries().some((e) =>
-        e.namespace === 'lmz.mesh.ClientGateway.route' && e.data.outcome === 'ran in place' && e.data.instance === star), LOG_WAIT_MS),
-      `no frame line with the outcome \`ran in place\` names ${star}`);
-    }
+    limb('limb 5 — the save ran in place on the Star', await eventually(() => entries().some((e) =>
+      e.namespace === 'lmz.mesh.ClientGateway.route' && e.data.outcome === 'ran in place' && e.data.instance === star), LOG_WAIT_MS),
+    `no frame line with the outcome \`ran in place\` names ${star}`);
 
     // ── LIMB 6: two tabs on one Star keep their own sockets ───────────────────────────────────
     const danaLog = socketLog();

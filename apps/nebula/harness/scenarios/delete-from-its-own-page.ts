@@ -37,7 +37,7 @@ import type { DevStack } from '../lib/harness';
 import { constructionPairs, readDevVar, scopeUrlOf } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
-import { debugLines, loggedAfter } from '../lib/stdio';
+import { debugLines, loggedAfter, settleForAbsence, waitForDebugLines, type DebugLine } from '../lib/stdio';
 import { foundTenantStar, refreshAccessToken } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -133,28 +133,34 @@ export async function run(stack: DevStack): Promise<void> {
     await new Promise((r) => setTimeout(r, 3_000));
     limb('limb 2 — a page on the deleted app is told, and stops', toldOnce && dClient.connectionState === 'disconnected',
       `told ${JSON.stringify(told)}; state ${dClient.connectionState}`);
-    if (stack.logs) {
-      // The capture arrives late and in bursts, and a request's access line follows the Worker's own
-      // output, so once a request sent now has its line here, a start before it would be here too.
+    {
+      // Starts are split by when they were LOGGED against the deletion's completion line: a deployed
+      // capture can deliver a start from before the deletion after it. D's own connect built t1 before
+      // the deletion, and its lines arrive deployed once D's socket closes, which the deletion did.
+      const deletionIn = (all: DebugLine[]) => all.find((e) => e.namespace === 'nebula-auth.facade.executeScopeDeletion'
+        && e.message === 'deleted' && e.data.target === galaxy);
+      const startsIn = (all: DebugLine[]) => all.filter((e) => e.namespace === 'nebula.Star.onStart' && e.data.name === t1);
+      await waitForDebugLines(stack, (all) => {
+        const deletion = deletionIn(all);
+        return deletion !== undefined && startsIn(all).some((e) => loggedAfter(deletion, e));
+      }, "the deletion's line and the start before it").catch(() => undefined);
+      // A rebuild must be absent. The capture arrives late and in bursts, and a request's access line
+      // follows the Worker's own output, so once a request sent now has its line here, a start before it
+      // would be too; deployed, a start is another invocation's line, which the settle covers.
       const barrier = `/barrier-${crypto.randomUUID()}`;
       await fetch(`${stack.baseUrl.replace(/\/$/, '')}${barrier}`).then((r) => r.body?.cancel());
-      const arrived = await eventually(() => (stack.logs?.() ?? '').includes(barrier), 60_000);
-      // Starts are split by when they were LOGGED against the deletion's completion line: a deployed
-      // capture can deliver a start from before the deletion after it. The teardown's own construction
-      // of t1 comes before that line, since the deletion awaits it.
-      const all = debugLines(stack.logs?.() ?? '');
-      const deletion = all.find((e) => e.namespace === 'nebula-auth.facade.executeScopeDeletion'
-        && e.message === 'deleted' && e.data.target === galaxy);
-      const starts = all.filter((e) => e.namespace === 'nebula.Star.onStart' && e.data.name === t1);
+      const arrived = await eventually(() => (stack.logs()).includes(barrier), 60_000);
+      await settleForAbsence();
+      const all = debugLines(stack.logs());
+      const deletion = deletionIn(all);
+      const starts = startsIn(all);
       const startsBefore = deletion ? starts.filter((e) => loggedAfter(deletion, e)).length : 0;
       const rebuilt = deletion ? starts.filter((e) => loggedAfter(e, deletion)).length : 0;
-      // D's own connect built t1 before the deletion, so a count that never moved off zero means the
-      // namespace or its field changed and this half could not see a rebuild.
+      // A count that never moved off zero means the namespace or its field changed and this half could
+      // not see a rebuild.
       limb('limb 2 — nothing builds the deleted Star again', arrived && deletion !== undefined && startsBefore > 0 && rebuilt === 0,
         `the barrier line arrived: ${arrived}; the deletion's line ${deletion ? 'arrived' : 'did NOT arrive'}; `
           + `${t1} started ${startsBefore} time(s) before the deletion and ${rebuilt} after`);
-    } else {
-      console.log('  · whether the Star was rebuilt is not observable on a deployed target');
     }
 
     // ── LIMB 3: O deletes the account from its own page and lands on Home ─────────────────────

@@ -33,7 +33,7 @@ import {
  * once the app's host answers, so on a deployed target the first ask waits out its certificate and
  * every later one finds it ready; its wildcard covers each tenant Star beneath.
  */
-export async function sharedApp(stack: DevStack, testToken: string): Promise<SharedApp> {
+export async function sharedApp(stack: Omit<DevStack, 'logs'>, testToken: string): Promise<SharedApp> {
   const app = await cachedApp(sharedAppFile(stack.id), async () => {
     const universe = testSlug('run');
     const appSlug = testSlug('app');

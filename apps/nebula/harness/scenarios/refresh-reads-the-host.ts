@@ -36,7 +36,7 @@
  *     deleted, X's refresh on `t2`'s host answers with that cookie expired, `Secure` included, and
  *     X's browser no longer holds it. *Reds if the double miss stops expiring the cookie.*
  *
- * Limbs 1 and 2 read the stack's stdio, which a deployed target does not capture; they say so there.
+ * Limbs 1 and 2 read the Worker's logs, in both venues.
  *
  * `needsContainer = false` — auth, the Registry and one facade call only.
  */
@@ -63,7 +63,6 @@ const claimsOf = (token: string) => parseJwtUnsafe(token)!.payload as unknown as
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const observable = stack.logs !== undefined;
   const acme = testSlug('rh');
   const galaxy = `${acme}.crm`;
   const t1 = `${galaxy}.t1`;
@@ -136,22 +135,14 @@ export async function run(stack: DevStack): Promise<void> {
   // ── LIMB 1: only cookies at or above the host are read ──────────────────────────────────────
   const xOnT1 = await mint(t1, [refreshCookie(evil, xEvil), refreshCookie(t1, xT1)].join('; '));
   assert.equal(xOnT1.access.authScope, t1, "X's plain membership at t1 must mint on its own host");
-  if (observable) {
-    assert.deepEqual(await readsOf(t1, xOnT1.sub), [t1], "a cookie for another universe must not be read on t1's host");
-    console.error('  ✓ limb 1 — on t1\'s host only the t1 cookie was read');
-  } else {
-    console.error('[refresh-reads-the-host] limb 1: not observable on a deployed target');
-  }
+  assert.deepEqual(await readsOf(t1, xOnT1.sub), [t1], "a cookie for another universe must not be read on t1's host");
+  console.error('  ✓ limb 1 — on t1\'s host only the t1 cookie was read');
 
   // ── LIMB 2: the first admin candidate ends the read ────────────────────────────────────────
   const yOnT1Token = await mintToken(t1, header(yCookies, [acme, galaxy, t1]));
   const yOnT1 = yOnT1Token.claims;
-  if (observable) {
-    assert.deepEqual(await readsOf(t1, yOnT1.sub), [acme], 'the read must stop at the first admin candidate, the broadest');
-    console.error('  ✓ limb 2 — the read stopped at acme, the first admin candidate');
-  } else {
-    console.error('[refresh-reads-the-host] limb 2: not observable on a deployed target');
-  }
+  assert.deepEqual(await readsOf(t1, yOnT1.sub), [acme], 'the read must stop at the first admin candidate, the broadest');
+  console.error('  ✓ limb 2 — the read stopped at acme, the first admin candidate');
 
   // ── LIMB 3: the admin membership is picked, and its dominion holds on the page ─────────────
   assert.deepEqual(yOnT1.access, { authScope: acme, scopeAdmin: true },

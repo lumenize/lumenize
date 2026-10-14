@@ -29,9 +29,9 @@
  *     Mutation: send the fire-back door's Client branch to the host's `executeEnvelope`, and the
  *     Star runs `onOntologyPulled` with the refusal.
  *
- * A real login throughout (ADR-009 rung 1): the run's shared app's owner, signed in by email. The
- * log halves of every limb need the local stack's capture, so on a deployed target each says so and
- * only the frame and the status are asserted, and limb 3 asserts nothing. `needsContainer = false`.
+ * A real login throughout (ADR-009 rung 1): the run's shared app's owner, signed in by email. Each
+ * limb that says the Star ran nothing first waits for the Gateway's line for the frame, which its
+ * host logs last, from the same invocation as anything the frame woke. `needsContainer = false`.
  */
 import assert from 'node:assert/strict';
 import { request as httpRequest } from 'node:http';
@@ -41,10 +41,22 @@ import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar, scopeUrlOf } from '../lib/harness';
 import { provisionAndLogin, refreshAccessToken } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
-import { clientIdIn, debugLines, waitForDebugLines } from '../lib/stdio';
+import { clientIdIn, debugLines, settleForAbsence, waitForDebugLines } from '../lib/stdio';
 
 export const needsContainer = false;
-export const bootVars = { DEBUG: 'nebula.Resources.ontology,nebula.Resources.reap,lmz.mesh.ClientGateway.socketClosed' };
+export const bootVars = {
+  DEBUG: 'nebula.Resources.ontology,nebula.Resources.reap,lmz.mesh.ClientGateway.socketClosed,lmz.mesh.ClientGateway.route,lmz.mesh.ClientGateway.acceptUpgrade',
+};
+
+/**
+ * Wait for the Gateway's line for the frame `callId`. Its host logs it last, from the invocation that
+ * ran whatever the frame woke, and an invocation's lines arrive together, so once it is in, a line
+ * the frame caused is in too: the barrier a "ran nothing" check needs in either venue.
+ */
+async function frameDone(stack: DevStack, callId: string): Promise<void> {
+  await waitForDebugLines(stack, (all) => all.some((l) => l.namespace === 'lmz.mesh.ClientGateway.route'
+    && l.data.callId === callId), `the Gateway's line for ${callId}`);
+}
 
 
 /** The status a WebSocket upgrade answers when it offers `protocols`: 101 when it opens. */
@@ -112,11 +124,11 @@ export async function run(stack: DevStack): Promise<void> {
       && answer.chain.at(-1)!.args!.at(-1) instanceof Error;
     // `onOntologyPulled` logs the Error it is filled with: here, the walk's
     // `TypeError: undefined is not a function` for the missing member. Measured under the mutation.
-    const stdio = stack.logs?.();
-    const starRanIt = stdio !== undefined && debugLines(stdio).some((e) => e.message === 'ontology pull failed'
+    await frameDone(stack, 'forged-1');
+    const starRanIt = debugLines(stack.logs()).some((e) => e.message === 'ontology pull failed'
       && String(e.data.error?.message).includes('undefined is not a function'));
     if (backToForger && !starRanIt) {
-      console.log(`  ✓ limb 1 — the continuation came back to the forger, and the Star ran nothing${stdio === undefined ? ' (its log is not observable on a deployed target)' : ''}`);
+      console.log('  ✓ limb 1 — the continuation came back to the forger, and the Star ran nothing');
     } else {
       const got = `answer to forger: ${answer === null ? 'none' : JSON.stringify(answer.chain.map((op) => op.key ?? op.type))}; Star ontology log: ${starRanIt}`;
       console.log(`  ✗ limb 1 — ${got}`);
@@ -133,19 +145,21 @@ export async function run(stack: DevStack): Promise<void> {
     const status = await upgradeStatus(
       gatewayUrl(name).replace(/^ws/, 'http'), `lmz, lmz.access-token.${session.accessToken}`);
     // A superseded tab is closed by its host node with 4409, which its debug log records with the
-    // tab's name on that node. The probe's own access-log line is the barrier, read first.
+    // tab's name on that node, in the close's own invocation. The probe's refusal line is the barrier,
+    // then the settle, since a close would come from another invocation than the refusal.
     let superseded: boolean | undefined;
-    if (stack.logs) {
-      const probeLine = `/gateway/${name} ${status}`;
-      const deadline = Date.now() + 15_000;
-      const probeSeen = () => stack.logs!().split('\n').filter((l) => l.includes(probeLine)).length >= (status === 101 ? 2 : 1);
-      while (!probeSeen() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
-      await new Promise((r) => setTimeout(r, 500));
+    {
+      if (status === 426) {
+        await waitForDebugLines(stack, (all) => all.some((e) => e.namespace === 'lmz.mesh.ClientGateway.acceptUpgrade'
+          && e.message.startsWith('WebSocket upgrade refused') && String(e.data.pathname ?? '').endsWith(`/${name}`)),
+        "the probe's refusal line").catch(() => undefined);
+      }
+      await settleForAbsence();
       superseded = debugLines(stack.logs()).some((e) => e.message === 'WebSocket closed'
         && e.data.code === 4409 && e.data.instanceName === `${app.galaxy}/${name}`);
     }
     if (status === 426 && superseded !== true && tab.client.connectionState === 'connected') {
-      console.log(`  ✓ limb 2 — an upgrade offering only \`lmz\` answered 426, and the open tab stayed connected${superseded === undefined ? ' (the host node\'s log is not observable on a deployed target)' : ''}`);
+      console.log('  ✓ limb 2 — an upgrade offering only `lmz` answered 426, and the open tab stayed connected');
     } else {
       const got = `status ${status}, tab superseded: ${superseded}`;
       console.log(`  ✗ limb 2 — ${got}`);
@@ -195,8 +209,6 @@ export async function run(stack: DevStack): Promise<void> {
     if (answered === 0) {
       console.log('  ✗ limb 3 — the hostile tab never received the tree\'s first snapshot');
       failures.push('limb 3: the hostile tab must receive a push to answer, or nothing here is measured');
-    } else if (!stack.logs) {
-      console.log('  ✓ limb 3 — the hostile tab answered a push (the Star\'s logs are not observable on a deployed target)');
     } else {
       // The reaper's receipt is the barrier: it logs once the fire-back has run, after any marker.
       let received = false;
@@ -231,7 +243,7 @@ export async function run(stack: DevStack): Promise<void> {
       });
       devHosted.addEventListener('error', () => reject(new Error('the .dev-hosted forger socket did not open')));
     });
-    const pulls = () => debugLines(stack.logs?.() ?? '').filter((e) => e.message === 'ontology pull failed').length;
+    const pulls = () => debugLines(stack.logs()).filter((e) => e.message === 'ontology pull failed').length;
     const pullsBefore = pulls();
     const handler = [{ type: 'get', key: 'resourcesResults' }, { type: 'get', key: 'onOntologyPulled' }, { type: 'apply', args: [] }];
     const answered = new Promise<{ chain: Array<{ type: string; key?: string; args?: unknown[] }> } | null>((resolve) => {
@@ -253,12 +265,10 @@ export async function run(stack: DevStack): Promise<void> {
     const backToForger = answer !== null
       && answer.chain.map((op) => op.key ?? op.type).join('.') === 'resourcesResults.onOntologyPulled.apply'
       && answer.chain.at(-1)!.args!.at(-1) instanceof Error;
-    // The answer reaches the socket only after the door chose its branch, so a pull the Star ran
-    // for it would already be logged; the stdio's lag gets half a second, as limb 2's does.
-    await new Promise((r) => setTimeout(r, 500));
-    const starRanIt = stack.logs !== undefined && pulls() > pullsBefore;
+    await frameDone(stack, 'forged-4');
+    const starRanIt = pulls() > pullsBefore;
     if (backToForger && !starRanIt) {
-      console.log(`  ✓ limb 4 — a .dev-hosted forger's answer came back to it, and the Star ran nothing${stack.logs ? '' : ' (its log is not observable on a deployed target)'}`);
+      console.log('  ✓ limb 4 — a .dev-hosted forger\'s answer came back to it, and the Star ran nothing');
     } else {
       const got = `answer to forger: ${answer === null ? 'none' : JSON.stringify(answer.chain.map((op) => op.key ?? op.type))}; Star ran onOntologyPulled: ${starRanIt}`;
       console.log(`  ✗ limb 4 — ${got}`);

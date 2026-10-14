@@ -29,7 +29,7 @@
  *     `profileId`, carries version 5, and is the same from O's browser and C's. Positive control:
  *     Manny's tab opens a socket and makes a call, so the `.dev` Star accepts the id.
  *
- * Limb 3 reads the stack's stdio, which a deployed target does not capture; it says so there.
+ * Limb 3 reads the Worker's logs, in both venues.
  *
  * `needsContainer = false` — auth, the refresh and one Star only.
  */
@@ -55,7 +55,6 @@ const claimsOf = (token: string) => parseJwtUnsafe(token)!.payload as unknown as
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const observable = stack.logs !== undefined;
   const universe = testSlug('ph');
   const galaxy = `${universe}.crm`;
   const dev = `${galaxy}.dev`;
@@ -149,7 +148,7 @@ export async function run(stack: DevStack): Promise<void> {
   console.error('  ✓ limb 2 — P, unaccepted N and the staging persona were refused; N got Manny once accepted');
 
   // ── LIMB 3: the refresh records its opener ─────────────────────────────────────────────
-  if (observable) {
+  {
     const isRecord = (x: { namespace: string; message: string; data: Record<string, unknown> }) =>
       x.namespace === 'nebula-auth.worker.refresh.persona' && x.message === 'persona minted'
       && x.data.sub === fromO.claims.sub && (x.data.opener as { sub?: string } | undefined)?.sub === owner.sub;
@@ -160,8 +159,6 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(record.data.star, dev);
     assert.equal(record.data.actingToken, undefined, 'a persona refresh records no acting token');
     console.error("  ✓ limb 3 — the refresh's record named O as the opener beside Manny");
-  } else {
-    console.error('[persona-host] limb 3: not observable on a deployed target');
   }
 
   // ── LIMB 4: the cookie's record decides, not its name ───────────────────────────────────

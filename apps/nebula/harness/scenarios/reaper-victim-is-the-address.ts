@@ -42,7 +42,7 @@ import type { DevStack } from '../lib/harness';
 import { readDevVar, scopeUrlOf } from '../lib/harness';
 import { provisionAndLogin } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
-import { clientIdIn, waitForDebugLines } from '../lib/stdio';
+import { clientIdIn, LOG_WAIT_MS, waitForDebugLines } from '../lib/stdio';
 
 export const needsContainer = false;
 /** The reapers' receipt: limb 1 waits for it, so both rows surviving cannot mean the reply never arrived. */
@@ -236,16 +236,13 @@ export async function run(stack: DevStack): Promise<void> {
       }
     });
     // The reaper logs its receipt of the forged reply before it decides anything, so both rows
-    // surviving below cannot be a reply that never arrived. A deployed target has no capture, and
-    // there the settle stands in for the barrier.
+    // surviving below cannot be a reply that never arrived.
     let receipt: { name?: string } | undefined;
-    if (stack.logs) {
-      const lines = await step('the reaper receives the forged reply', 20_000, () => waitForDebugLines(stack,
+    {
+      const lines = await step('the reaper receives the forged reply', LOG_WAIT_MS + 5_000, () => waitForDebugLines(stack,
         (all) => all.some((l) => l.message === 'update not delivered' && clientIdIn(l.data) === attacker.clientId),
         'the reaper\'s receipt of the forged reply'));
       receipt = lines.find((l) => l.message === 'update not delivered' && clientIdIn(l.data) === attacker.clientId)!.data;
-    } else {
-      await new Promise((r) => setTimeout(r, 1_500));  // the fire-back, then any DELETE
     }
     attacker.client.hostile = false;
 
@@ -253,9 +250,9 @@ export async function run(stack: DevStack): Promise<void> {
     record('a forged reply leaves the NAMED client subscribed', after.get('victim') === true,
       after.get('victim') ? 'the victim still receives pushes' : 'the victim was REAPED by a name it did not choose');
     record('the REPLYING client keeps its subscription too', after.get('attacker') === true
-      && (receipt === undefined || receipt.name === 'Error'),
+      && receipt?.name === 'Error',
       after.get('attacker')
-        ? `the forger still receives pushes; the reaper heard ${receipt ? `an Error named ${receipt.name}` : 'a reply (its log is not observable on a deployed target)'}`
+        ? `the forger still receives pushes; the reaper heard an Error named ${receipt?.name}`
         : `the forger was REAPED on its own word; the reaper heard ${receipt?.name ?? 'something'}`);
 
     // ── LIMB 2: the same forged error handed DIRECTLY to the old reaper address ───────────

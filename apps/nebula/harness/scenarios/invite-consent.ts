@@ -29,9 +29,8 @@
  *     without it the invitee would meet the SELF flavour ("Only accept if you initiated this
  *     signup") for something a third party initiated, which is the wrong warning entirely.*
  *  6. **Reading the card reads the invitee's names from a Profile nobody has written, without
- *     failing.** The card's read logs nothing under `display-name read failed` before the card's
- *     own request line. *Reds against `readDisplayNames` reading a table a never-written Profile
- *     does not have.* Not observable on a deployed target, which captures no logs.
+ *     failing.** No card read logs `display-name read failed` before its own `card answered`.
+ *     *Reds against `readDisplayNames` reading a table a never-written Profile does not have.*
  *
  * `needsContainer = false` — auth + the invite facade, never a build.
  */
@@ -44,7 +43,7 @@ import {
   refreshCookie, refreshFromPage, homeSummary, requestMagicLink,
 } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
-import { debugLines, LOG_WAIT_MS } from '../lib/stdio';
+import { debugLines, waitForDebugLines, type DebugLine } from '../lib/stdio';
 
 export const needsContainer = false;
 
@@ -154,20 +153,18 @@ export async function run(stack: DevStack): Promise<void> {
   console.error('  ✓ limb 3 — decline: rendering the offer three times wrote nothing');
 
   // ── LIMB 6: the card's names come from a Profile nobody has written, without a failed read ─────
-  // The Worker logs a failed read before it answers, and wrangler logs the request after, so once
-  // the card's request line is here a failure would be too. The lookup's own line in limb 1, a sibling
-  // namespace under `nebula-auth.worker`, is the positive control that those lines reach the capture.
-  if (stack.logs === undefined) {
-    console.error('  · limb 6 — a failed display-name read is not observable on a deployed target');
-  } else {
-    const cardLine = 'POST /auth/pending-membership ';
-    const deadline = Date.now() + LOG_WAIT_MS;
-    while (!stack.logs().includes(cardLine) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
-    const stdio = stack.logs();
-    assert.ok(stdio.includes(cardLine), 'the card\'s request line never reached the captured stdio');
-    assert.ok(debugLines(stdio).some((l) => l.namespace === 'nebula-auth.worker.lookup' && l.message === 'looked up'),
-      'the Worker\'s nebula-auth.worker lines never reached the capture, so a failed read could not either');
-    assert.ok(!stdio.includes('display-name read failed'),
+  // Each card read logs `card answered` after any failed read, in the same invocation, so once all
+  // four reads' lines are here a failure would be too. Those lines are also the positive control that
+  // the namespace a failure logs under reaches the capture.
+  {
+    const ns = 'nebula-auth.worker.pendingMembership';
+    const answers = (all: DebugLine[]) => all.filter((l) => l.namespace === ns && l.message === 'card answered' && l.data.scope === galaxy);
+    const all = await waitForDebugLines(stack, (a) => answers(a).length >= 4, 'the four card reads\' lines')
+      .catch(() => debugLines(stack.logs()));
+    const subs = new Set(answers(all).map((l) => l.data.sub));
+    // At least: the app is the run's shared one, so another scenario's invitee may read its card too.
+    assert.ok(answers(all).length >= 4, `the four card reads logged ${answers(all).length} line(s), so a failed read could be missing too`);
+    assert.ok(!all.some((l) => l.namespace === ns && l.message.startsWith('display-name read failed') && subs.has(l.data.sub)),
       'reading the card failed to read the invitee\'s names from their never-written Profile');
     console.error('  ✓ limb 6 — the card read a never-written Profile\'s names without a failed read');
   }

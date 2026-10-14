@@ -130,9 +130,8 @@ export async function run(stack: DevStack): Promise<void> {
     console.log(`  ${ok ? '✓' : '✗'} ${name}${ok ? '' : ` — ${detail}`}`);
     if (!ok) failures.push(`${name}: ${detail}`);
   };
-  const observable = stack.logs !== undefined;
   const local = process.env.HARNESS_TARGET_URL === undefined;
-  const entries = (): DebugLine[] => debugLines(stack.logs?.() ?? '');
+  const entries = (): DebugLine[] => debugLines(stack.logs());
   const named = (namespace: string, name: string, key = 'name') =>
     entries().filter((e) => e.namespace === namespace && e.data[key] === name);
 
@@ -173,10 +172,8 @@ export async function run(stack: DevStack): Promise<void> {
         handler: preprocess([{ type: 'get', key: 'onAnswer' }, { type: 'apply', args: [] }]),
       }));
       const answer = await answered;
-      if (observable) {
-        await waitForDebugLines(stack, (all) => all.some((l) =>
-          l.namespace === 'lmz.mesh.ClientGateway.route' && l.data.callId === callId), `the Gateway's line for ${callId}`);
-      }
+      await waitForDebugLines(stack, (all) => all.some((l) =>
+        l.namespace === 'lmz.mesh.ClientGateway.route' && l.data.callId === callId), `the Gateway's line for ${callId}`);
       return { ...answer, callId };
     }
     const op = (key: string, ...args: unknown[]) => [{ type: 'get', key }, { type: 'apply', args }];

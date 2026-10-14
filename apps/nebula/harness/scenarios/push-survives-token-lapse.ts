@@ -9,17 +9,18 @@
  * period that close starts, for the Client to come back with a fresh token.
  *
  *  1. **The live tab receives the push on its new socket, and a later write too.** It refreshed,
- *     reconnected inside the grace period, and re-subscribed nothing, counted on the host's
- *     subscribe marker, so the value came by the push and not by a snapshot. Mutation: answer at
- *     once, and the push is lost.
+ *     reconnected inside the grace period, was told `false`, and re-subscribed nothing, counted on
+ *     the host's subscribe marker, so the value came by the push and not by a snapshot. When the
+ *     platform resets the host during the wait, every socket drops, and the reconnect that follows is
+ *     told `true` and owes a subscribe of its own, so the count is read against what the tab was
+ *     told. Mutation: answer at once, and the push is lost.
  *  2. **The revoked tab never receives it.** It cannot refresh, so it never comes back, and its
  *     host node answers `ClientDisconnectedError` when the grace period ends, which reaps its row.
  *     Mutation: drop the expiry check, and the push reaches the revoked socket.
  *
  * Both limbs run, with the verdict at the end (`live-scenarios.md`). `bootVars` sets the shortest
  * supported token lifetime, so the lapse takes about two minutes locally; a deployed target keeps
- * the full fifteen, because no boot sets the var there. The log halves need the local stack's
- * capture, so on a deployed target each says so. Real logins (ADR-009 rung 1).
+ * the full fifteen, because no boot sets the var there. Real logins (ADR-009 rung 1).
  * `needsContainer = false`.
  */
 import assert from 'node:assert/strict';
@@ -31,7 +32,7 @@ import type { DevStack } from '../lib/harness';
 import { constructionPairs, readDevVar, scopeUrlOf, waitForHost } from '../lib/harness';
 import { provisionAndLogin } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
-import { clientIdIn, debugLines, waitForDebugLines } from '../lib/stdio';
+import { clientIdIn, debugLines, settleForAbsence, waitForDebugLines } from '../lib/stdio';
 
 export const needsContainer = false;
 export const bootVars = {
@@ -50,6 +51,25 @@ class TabClient extends NebulaClient {
 // An override is a new function, and `@mesh()` records itself on the function value, so the flag
 // is set again here; `tsx` does not transform TC39 decorators (see `reaper-victim-is-the-address`).
 (TabClient.prototype.handleResourceUpdate as any)[Symbol.for('lumenize.mesh.callable')] = true;
+
+/**
+ * A `WebSocket` that records each `connection_status` its host node sends: whether that connect was
+ * told to subscribe again. A host the platform resets while a tab waits tells its reconnect `true`,
+ * and the tab rightly subscribes again, so a count of subscribes is read against this record.
+ */
+function recordingSocket(told: boolean[]): typeof WebSocket {
+  return class extends WebSocket {
+    constructor(url: string | URL, protocols?: string | string[]) {
+      super(url, protocols);
+      this.addEventListener('message', (e) => {
+        try {
+          const frame = JSON.parse(String(e.data));
+          if (frame.type === 'connection_status') told.push(frame.subscriptionRequired);
+        } catch { /* a heartbeat pong is not JSON */ }
+      });
+    }
+  };
+}
 
 async function until(ready: () => boolean, ms: number, what: string): Promise<void> {
   const deadline = Date.now() + ms;
@@ -76,7 +96,7 @@ export async function run(stack: DevStack): Promise<void> {
   const disposers: Array<() => void> = [];
 
   /** A tab of the app's owner on the galaxy's host, signed in through its own cookie jar. */
-  const ownerTab = async (): Promise<{ tab: TabClient; browser: Browser }> => {
+  const ownerTab = async (told?: boolean[]): Promise<{ tab: TabClient; browser: Browser }> => {
     const browser = new Browser();
     const session = await provisionAndLogin({ baseUrl: origin, scope: galaxy, email: app.ownerEmail, testToken, fetchImpl: browser.fetch });
     await waitForHost(page);
@@ -91,6 +111,7 @@ export async function run(stack: DevStack): Promise<void> {
       fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
+      ...(told ? { WebSocket: recordingSocket(told) } : {}),
     });
     disposers.push(() => { try { tab[Symbol.dispose](); } catch { /* already */ } ctx.close(); });
     await until(() => tab.connectionState === 'connected', 30_000, 'a tab never connected');
@@ -110,7 +131,8 @@ export async function run(stack: DevStack): Promise<void> {
       await writer.resources.transaction({ [chatId]: { op: 'put', typeName: 'Chat', value: { title: `lapse-${renames}` } } as any });
     };
 
-    const { tab: live } = await ownerTab();
+    const liveTold: boolean[] = [];
+    const { tab: live } = await ownerTab(liveTold);
     await live.resources.subscribe('Chat', chatId).snapshot;
     const { tab: revoked, browser: revokedBrowser } = await ownerTab();
     await revoked.resources.subscribe('Chat', chatId).snapshot;
@@ -138,6 +160,7 @@ export async function run(stack: DevStack): Promise<void> {
 
     const liveBefore = live.pushes;
     const revokedBefore = revoked.pushes;
+    const toldBefore = liveTold.length;
     await rename();
 
     // The live tab's push first, then the revoked tab's verdict while the held push is the only one
@@ -145,17 +168,16 @@ export async function run(stack: DevStack): Promise<void> {
     await until(() => live.pushes > liveBefore, 20_000, '').catch(() => {});
     const pushed = live.pushes > liveBefore;
     const renewed = expOf(live) > liveExp;
+    // What the reconnect after the 4401 close was told: `false`, since it came back inside the grace period.
+    const toldOnReturn = liveTold[toldBefore];
 
     // ── LIMB 2: the revoked tab never gets it, and the held push reaps its row ──────────────────
     const revokedId = revoked.lmz.instanceName!;
     await until(() => revoked.connectionState === 'disconnected', 15_000, '').catch(() => {});
-    let reaped: boolean | undefined;
-    if (stack.logs) {
-      await waitForDebugLines(stack, (all) => all.some((l) => l.message === 'update not delivered' && clientIdIn(l.data) === revokedId),
-        'the revoked tab\'s reap').catch(() => {});
-      reaped = debugLines(stack.logs()).some((l) => l.message === 'update not delivered' && clientIdIn(l.data) === revokedId
-        && l.data.name === 'ClientDisconnectedError');
-    }
+    await waitForDebugLines(stack, (all) => all.some((l) => l.message === 'update not delivered' && clientIdIn(l.data) === revokedId),
+      'the revoked tab\'s reap').catch(() => {});
+    const reaped = debugLines(stack.logs()).some((l) => l.message === 'update not delivered' && clientIdIn(l.data) === revokedId
+      && l.data.name === 'ClientDisconnectedError');
     const silent = revoked.pushes === revokedBefore;
     // Read afresh: the fixture guard above narrowed the type to the state it asserted then.
     const state: string = revoked.connectionState;
@@ -165,20 +187,27 @@ export async function run(stack: DevStack): Promise<void> {
     await rename();
     await until(() => live.pushes > mid, 15_000, '').catch(() => {});
     const later = live.pushes > mid;
-    // A fresh tab's subscribe is the barrier: once its marker is in, the live tab's would be too.
-    let subscribes: number | undefined;
-    if (stack.logs) {
+    // A fresh tab's subscribe is the barrier: once its marker is in, the live tab's would be too, and
+    // deployed the settle covers a line from another invocation arriving after it.
+    let subscribes: number;
+    {
       const { tab: barrier } = await ownerTab();
       await barrier.resources.subscribe('Chat', chatId).snapshot;
       const barrierId = barrier.lmz.instanceName!;
-      const lines = await waitForDebugLines(stack, (all) => all.some((l) => l.message === 'subscribe-resource'
+      await waitForDebugLines(stack, (all) => all.some((l) => l.message === 'subscribe-resource'
         && clientIdIn(l.data) === barrierId), 'the barrier subscribe');
-      subscribes = lines.filter((l) => l.message === 'subscribe-resource' && clientIdIn(l.data) === live.lmz.instanceName).length;
+      await settleForAbsence();
+      subscribes = debugLines(stack.logs()).filter((l) => l.message === 'subscribe-resource'
+        && clientIdIn(l.data) === live.lmz.instanceName).length;
     }
-    limb('limb 1 — a push to a tab whose token lapsed', pushed && renewed && later && (subscribes === undefined || subscribes === 1),
-      `the push ${pushed ? 'arrived' : 'was LOST'}; token ${renewed ? 'renewed' : 'NOT renewed'}; the next write ${later ? 'arrived' : 'never arrived'}; subscribes ${subscribes ?? '(not observable)'} (1 is the first)`);
-    limb('limb 2 — a push to a tab whose session was revoked', silent && state === 'disconnected' && reaped !== false,
-      `the push ${silent ? 'never arrived' : 'ARRIVED'}; the tab is ${state}; the held push reaped its row: ${reaped ?? '(not observable)'}`);
+    // The first subscribe is the tab's own; each later connect told `true` owes one more, as when the
+    // platform resets the host during the wait.
+    const owed = 1 + liveTold.slice(1).filter(Boolean).length;
+    limb('limb 1 — a push to a tab whose token lapsed', pushed && renewed && later && toldOnReturn === false && subscribes === owed,
+      `the push ${pushed ? 'arrived' : 'was LOST'}; token ${renewed ? 'renewed' : 'NOT renewed'}; the next write ${later ? 'arrived' : 'never arrived'}; `
+        + `the return was told ${toldOnReturn}; subscribes ${subscribes}, owed ${owed} (told ${JSON.stringify(liveTold)})`);
+    limb('limb 2 — a push to a tab whose session was revoked', silent && state === 'disconnected' && reaped,
+      `the push ${silent ? 'never arrived' : 'ARRIVED'}; the tab is ${state}; the held push reaped its row: ${reaped}`);
   } finally {
     for (const dispose of disposers.reverse()) { try { dispose(); } catch { /* already */ } }
   }

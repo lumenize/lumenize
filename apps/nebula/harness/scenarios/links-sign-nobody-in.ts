@@ -30,7 +30,7 @@
  *     holds A's cookies, and Home's summary lists the invite as pending. *Reds if the image's `GET`
  *     accepted the invite.*
  *
- * Limb 4 reads the stack's stdio, which a deployed target does not capture; it says so there.
+ * Limb 4 reads the Worker's logs, in both venues.
  *
  * `needsContainer = false` — the dev Star's host answers with no app built, which is all a page
  * there needs to be for limb 2.
@@ -52,7 +52,6 @@ export const bootVars = { DEBUG: 'nebula-auth.worker.lookup,nebula-auth.Registry
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
-  const observable = stack.logs !== undefined;
   const universe = testSlug('links');
   const galaxy = `${universe}.crm`;
 
@@ -164,21 +163,17 @@ export async function run(stack: DevStack): Promise<void> {
     // ── LIMB 4: rendering the page proves nothing ──────────────────────────────────────────────
     const isLookup = (l: DebugLine) => l.namespace === 'nebula-auth.worker.lookup' && l.message === 'looked up' && l.data.email === a;
     const isProved = (l: DebugLine) => l.namespace === 'nebula-auth.Registry.identity.mailboxProved' && l.data.email === a;
-    if (observable) {
+    {
       const before = await waitForDebugLines(stack, (all) => all.some(isLookup), "the page's lookup line for A");
       assert.equal(before.filter(isProved).length, 0, "rendering A's link page must not prove A's mailbox");
-    } else {
-      console.error('[links-sign-nobody-in] limb 4: not observable on a deployed target');
     }
 
     // ── LIMB 5: Continue signs in as A, and the invite is still A's to accept ──────────────────
     await continueButton.click();
     await page.waitForURL((u) => u.origin === origin && u.pathname === '/', { timeout: 30_000 });
     assert.ok((await platformCookies(page)).length > 0, "Continue must sign this browser in as A — the positive control");
-    if (observable) {
-      await waitForDebugLines(stack, (all) => all.some(isProved), "A's mailboxProved line after Continue");
-      console.error("  ✓ limb 4 — no mailboxProved for A until Continue, and one after it");
-    }
+    await waitForDebugLines(stack, (all) => all.some(isProved), "A's mailboxProved line after Continue");
+    console.error("  ✓ limb 4 — no mailboxProved for A until Continue, and one after it");
     const summary = await page.evaluate(async () => {
       const res = await fetch('/auth/home-summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       return res.json() as Promise<{ pending: string[] }>;

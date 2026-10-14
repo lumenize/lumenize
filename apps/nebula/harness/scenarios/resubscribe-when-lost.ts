@@ -10,8 +10,9 @@
  * passed with no 4408 close at all. `Debugger.pause` stops the page's script until it resumes.
  *  1. **Studio, frozen past its host node's 30 s wait, is closed with 4408**, wakes inside the grace
  *     period, re-subscribes, and renders the next message. Mutation: no 4408 close.
- *  2. **A token rotation re-subscribes nothing**, counted on the host's subscribe marker, and the
- *     next write arrives. Mutation: restore the blanket re-subscribe on reconnect.
+ *  2. **A token rotation is told `false` and re-subscribes nothing**, counted on the host's
+ *     subscribe marker against what each connect was told, and the next write arrives. Mutation:
+ *     restore the blanket re-subscribe on reconnect.
  *  3. **A reconnect held 2 s**: the push sent in the gap arrives on the new socket, the tab is told
  *     `false`, and it re-subscribes nothing. Mutation: answer at once instead of waiting.
  *  4. **A reconnect held 8 s, past the 5 s grace period**: the tab is told `true`, re-subscribes and
@@ -32,8 +33,7 @@
  * Limbs 2, 6 and 7 wait for a real token to come due: `bootVars` sets the shortest supported
  * lifetime, so a call 90 s after a token's mint rotates its socket. Those tabs open first and wait
  * while the other limbs run. Real logins throughout (ADR-009 rung 1); a member arrives by a real
- * invite email. The log halves need the local stack's capture, so on a deployed target each says
- * so. `needsContainer = false`.
+ * invite email. The log halves read the Worker's logs, in both venues. `needsContainer = false`.
  */
 import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
@@ -46,7 +46,7 @@ import { connectDriver, constructionPairs, readDevVar, scopeUrlOf, waitForHost, 
 import { provisionAndLogin, refreshAccessToken, acceptInviteAndLogin, foundTenantStar } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
 import { testSlug } from '../lib/test-scopes';
-import { clientIdIn, debugLines, LOG_WAIT_MS, waitForDebugLines } from '../lib/stdio';
+import { clientIdIn, debugLines, LOG_WAIT_MS, settleForAbsence, waitForDebugLines } from '../lib/stdio';
 import { bootStudioVite, launchChromium, instrumentedPage, captureArtifacts } from '../lib/browser';
 
 export const needsContainer = false;
@@ -198,11 +198,11 @@ export async function run(stack: DevStack): Promise<void> {
   };
 
   /** How many subscribes the host logged for the client `clientId`, once a later line has arrived. */
-  const subscribesOf = async (clientId: string, barrierClientId: string): Promise<number | undefined> => {
-    if (!stack.logs) return undefined;
-    const lines = await waitForDebugLines(stack, (all) => all.some((l) => l.message === 'subscribe-resource'
+  const subscribesOf = async (clientId: string, barrierClientId: string): Promise<number> => {
+    await waitForDebugLines(stack, (all) => all.some((l) => l.message === 'subscribe-resource'
       && clientIdIn(l.data) === barrierClientId), 'the barrier subscribe');
-    return lines.filter((l) => l.message === 'subscribe-resource' && clientIdIn(l.data) === clientId).length;
+    await settleForAbsence();
+    return debugLines(stack.logs()).filter((l) => l.message === 'subscribe-resource' && clientIdIn(l.data) === clientId).length;
   };
 
   /** A tab of the app's owner, signed in through its own cookie jar, so it renews past the
@@ -238,8 +238,9 @@ export async function run(stack: DevStack): Promise<void> {
     };
 
     // ── Tabs for the limbs that wait on a token coming due, opened first ─────────────────────────
-    // Limb 2: the owner, renewing through its own jar.
-    const tab2 = await ownerTab();
+    // Limb 2: the owner, renewing through its own jar, recording what each connect is told.
+    const log2: SocketLog = { statuses: [], holdMs: 0 };
+    const tab2 = await ownerTab({ WebSocket: socketFor(log2) });
     await tab2.resources.subscribe('Chat', chatId).snapshot;
 
     // Limb 6: a plain member, and a Chat on a node no grant reaches, which only dominion reads.
@@ -286,9 +287,9 @@ export async function run(stack: DevStack): Promise<void> {
       await until(() => tab.connectionState === 'connected', 15_000, 'limb 3: the tab never came back');
       await until(() => tab.pushes > pushesBefore, 10_000, 'limb 3: the push sent in the gap never arrived').catch(() => {});
       const subscribes = await subscribesOf(id, (await barrierTab()).lmz.instanceName!);
-      const ok = tab.pushes > pushesBefore && log.statuses.at(-1) === false && (subscribes === undefined || subscribes === 1);
+      const ok = tab.pushes > pushesBefore && log.statuses.at(-1) === false && subscribes === 1;
       limb('limb 3 — a reconnect held 2 s', ok,
-        `push in the gap ${tab.pushes > pushesBefore ? 'arrived' : 'LOST'}; told ${log.statuses.at(-1)}; subscribes ${subscribes ?? '(not observable)'} (1 is the first)`);
+        `push in the gap ${tab.pushes > pushesBefore ? 'arrived' : 'LOST'}; told ${log.statuses.at(-1)}; subscribes ${subscribes} (1 is the first)`);
     }
 
     // ── LIMB 4: a reconnect held 8 s, past the 5 s grace period ─────────────────────────────────
@@ -308,16 +309,13 @@ export async function run(stack: DevStack): Promise<void> {
       const pushesBefore = tab.pushes;
       await rename();
       await until(() => tab.pushes > pushesBefore, 10_000, '').catch(() => {});
-      let reaped: boolean | undefined;
-      if (stack.logs) {
-        await waitForDebugLines(stack, (all) => all.some((l) => l.message === 'update not delivered' && clientIdIn(l.data) === id), 'limb 4\'s reap')
-          .catch(() => {});
-        reaped = debugLines(stack.logs()).some((l) => l.message === 'update not delivered' && clientIdIn(l.data) === id
-          && l.data.name === 'ClientDisconnectedError');
-      }
-      const ok = log.statuses.at(-1) === true && tab.pushes > pushesBefore && reaped !== false;
+      await waitForDebugLines(stack, (all) => all.some((l) => l.message === 'update not delivered' && clientIdIn(l.data) === id), 'limb 4\'s reap')
+        .catch(() => {});
+      const reaped = debugLines(stack.logs()).some((l) => l.message === 'update not delivered' && clientIdIn(l.data) === id
+        && l.data.name === 'ClientDisconnectedError');
+      const ok = log.statuses.at(-1) === true && tab.pushes > pushesBefore && reaped;
       limb('limb 4 — a reconnect held 8 s, past the grace period', ok,
-        `told ${log.statuses.at(-1)}; next write ${tab.pushes > pushesBefore ? 'arrived' : 'LOST'}; the gap's push reaped the row: ${reaped ?? '(not observable)'}`);
+        `told ${log.statuses.at(-1)}; next write ${tab.pushes > pushesBefore ? 'arrived' : 'LOST'}; the gap's push reaped the row: ${reaped}`);
     }
 
     // ── LIMB 5: a second connection under the same name ──────────────────────────────────────────
@@ -363,17 +361,14 @@ export async function run(stack: DevStack): Promise<void> {
       const id = watcher.lmz.instanceName!;
       const isReap = (l: { namespace: string; message: string; data: Record<string, any> }) => l.namespace === 'nebula-auth.Profile.reap'
         && l.message === 'update not delivered' && clientIdIn(l.data) === id && l.data.name === 'ClientDisconnectedError';
-      let reaped: boolean | undefined;
-      if (stack.logs) {
-        await waitForDebugLines(stack, (all) => all.some(isReap), 'limb 8\'s reap').catch(() => {});
-        reaped = debugLines(stack.logs()).some(isReap);
-      }
+      await waitForDebugLines(stack, (all) => all.some(isReap), 'limb 8\'s reap').catch(() => {});
+      const reaped = debugLines(stack.logs()).some(isReap);
       await new Promise((r) => setTimeout(r, 1_000));
       await writer.updateMyProfile({ nickname: 'changed-after' });
       await until(() => heard.includes('changed-after'), 10_000, '').catch(() => {});
       limb('limb 8 — the Profile channel, past the grace period',
-        log.statuses.at(-1) === true && heard.includes('changed-after') && reaped !== false,
-        `told ${log.statuses.at(-1)}; the next change ${heard.includes('changed-after') ? 'arrived' : 'LOST'}; the away change's push reaped the row: ${reaped ?? '(not observable)'}`);
+        log.statuses.at(-1) === true && heard.includes('changed-after') && reaped,
+        `told ${log.statuses.at(-1)}; the next change ${heard.includes('changed-after') ? 'arrived' : 'LOST'}; the away change's push reaped the row: ${reaped}`);
     }
 
     // ── LIMB 1: Studio, frozen past its host node's 30 s wait ──────────────────────────────────────
@@ -415,14 +410,10 @@ export async function run(stack: DevStack): Promise<void> {
         // The reap comes after the host's 30 s wait; deployed its line can take longer to arrive.
         const isReap = (l: { message: string; data: Record<string, unknown> }) => l.message === 'update not delivered'
           && l.data.name === 'ClientDisconnectedError' && !ours.has(String(clientIdIn(l.data)));
-        const reapsBefore = stack.logs ? debugLines(stack.logs()).filter(isReap).length : 0;
+        const reapsBefore = debugLines(stack.logs()).filter(isReap).length;
         await writer.client.postUserMessage(first);
-        if (stack.logs) {
-          await waitForDebugLines(stack, (all) => all.filter(isReap).length > reapsBefore, 'the paused page\'s reap',
-            Math.max(45_000, LOG_WAIT_MS));
-        } else {
-          await new Promise((r) => setTimeout(r, 35_000));
-        }
+        await waitForDebugLines(stack, (all) => all.filter(isReap).length > reapsBefore, 'the paused page\'s reap',
+          Math.max(45_000, LOG_WAIT_MS));
         await cdp.send('Debugger.resume');
         await cdp.send('Debugger.disable');
 
@@ -458,14 +449,21 @@ export async function run(stack: DevStack): Promise<void> {
     {
       await waitDue(tab2);
       const id = tab2.lmz.instanceName!;
+      const toldBefore = log2.statuses.length;
       await tab2.lmz.callAsync('GALAXY', galaxy, (tab2.ctn() as any).resources.orgTree.getState());
-      await until(() => tab2.connectionState === 'connected', 15_000, 'limb 2: the rotated tab never reconnected');
+      await until(() => tab2.connectionState === 'connected' && log2.statuses.length > toldBefore, 15_000,
+        'limb 2: the rotated tab never reconnected');
+      const toldOnRotation = log2.statuses[toldBefore];
       const subscribes = await subscribesOf(id, (await barrierTab()).lmz.instanceName!);
+      // The first subscribe is the tab's own; each later connect told `true` owes one more, as when
+      // the platform resets the host during the wait for the token to come due.
+      const owed = 1 + log2.statuses.slice(1).filter(Boolean).length;
       const pushesBefore = tab2.pushes;
       await rename();
       await until(() => tab2.pushes > pushesBefore, 10_000, '').catch(() => {});
-      limb('limb 2 — a token rotation', (subscribes === undefined || subscribes === 1) && tab2.pushes > pushesBefore,
-        `subscribes ${subscribes ?? '(not observable)'} (1 is the first); the next write ${tab2.pushes > pushesBefore ? 'arrived' : 'never arrived'}`);
+      limb('limb 2 — a token rotation', toldOnRotation === false && subscribes === owed && tab2.pushes > pushesBefore,
+        `the rotation was told ${toldOnRotation}; subscribes ${subscribes}, owed ${owed} (told ${JSON.stringify(log2.statuses)}); `
+          + `the next write ${tab2.pushes > pushesBefore ? 'arrived' : 'never arrived'}`);
     }
 
     // LIMB 6: the promoted member sees the admins' Chat once its token refreshes.

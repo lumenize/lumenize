@@ -198,14 +198,12 @@ export async function run(stack: DevStack): Promise<void> {
   // whole projected claims, the page included. Read from the Worker's logs, waiting for the record
   // itself, which is the line this limb reads.
   // Mutation: strip the claims from the record → it names only the subject → reds.
-  if (stack.logs) {
+  {
     const isRecord = (l: DebugLine) => l.message === 'Impersonation token issued' && l.data.subOfNarrowerToken === subject.sub;
     const record = (await waitForDebugLines(stack, (all) => all.some(isRecord), "the mint's record")).find(isRecord)!;
     assert.equal(record.data.actingToken?.sub, admin.sub, "the mint's record must carry the caller's claims");
     assert.equal(record.data.actingToken?.aud, star, "the mint's record must name the caller's page");
     assert.ok(record.data.actingToken?.access, "the mint's record must carry the authority asserted");
-  } else {
-    console.error('[impersonation-lifecycle] limb 1a record: not observable on a deployed target');
   }
 
   // ── 1b. MINT FIDELITY: the derived token is indistinguishable from the subject's own ────────────
@@ -322,12 +320,8 @@ export async function run(stack: DevStack): Promise<void> {
   // `disconnected` → reds.
   // The first subject's child ends first, so this one is the subject's only open child.
   child[Symbol.dispose]();
-  if (stack.logs) {
-    await until(`the Star to have held ${childName}`, () => debugLines(stack.logs!()).some((e) =>
-      e.message === 'WebSocket connection accepted' && e.data.instanceName === childName), LOG_WAIT_MS);
-  } else {
-    console.error('[impersonation-lifecycle] limb 2b host: not observable on a deployed target');
-  }
+  await until(`the Star to have held ${childName}`, () => debugLines(stack.logs()).some((e) =>
+    e.message === 'WebSocket connection accepted' && e.data.instanceName === childName), LOG_WAIT_MS);
   const pausing = await adminClient.impersonate(subject.sub, { ttlSeconds: REMINT_TTL });
   await connected(pausing);
   pausing.disconnect();

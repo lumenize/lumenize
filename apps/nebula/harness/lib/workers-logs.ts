@@ -60,7 +60,12 @@ async function query(account: string, token: string, worker: string, from: numbe
     headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify({
       queryId: `harness-${crypto.randomUUID()}`, view: 'events', limit: PAGE, timeframe: { from, to },
-      parameters: { filters: [{ key: '$metadata.service', operation: 'eq', type: 'string', value: worker }] },
+      // Our lines are `cf-worker` events. With traces on, spans are about nine in ten of a Worker's
+      // events: a poll of a busy sweep's window that kept them pulled 52 MB in 36 s, and 2.6 MB in 4 s without.
+      parameters: { filters: [
+        { key: '$metadata.service', operation: 'eq', type: 'string', value: worker },
+        { key: '$metadata.type', operation: 'eq', type: 'string', value: 'cf-worker' },
+      ] },
       ...(offset ? { offset } : {}),
     }),
   });

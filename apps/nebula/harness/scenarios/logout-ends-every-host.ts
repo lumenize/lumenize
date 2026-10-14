@@ -25,7 +25,7 @@
  *     scope; the logout expires every one and logs one truncation warning. *Reds if either route
  *     resolves past the bound, or the logout expires only what it resolved.*
  *
- * Limbs 2 and 4 read the stack's stdio, which a deployed target does not capture; they say so there.
+ * Limbs 2 and 4 read the Worker's logs, in both venues.
  *
  * `needsContainer = false` — auth, the Registry and Studio's shell only.
  */
@@ -37,7 +37,7 @@ import type { DevStack } from '../lib/harness';
 import { inviteViaMesh, readDevVar, waitForHost, NEW_HOST_TIMEOUT_MS, superuserEmail } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite } from '../lib/browser';
-import { waitForDebugLines, type DebugLine } from '../lib/stdio';
+import { debugLines, waitForDebugLines, type DebugLine } from '../lib/stdio';
 import {
   provisionAndLogin, refreshAccessToken, requestUniverseClaim, refreshFromPage, refreshCookie,
   setCookieHeaders,
@@ -53,7 +53,6 @@ export const bootVars = {
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
-  const observable = stack.logs !== undefined;
   const suffix = crypto.randomUUID().slice(0, 8);
   const one = testSlug('lo1');
   const two = testSlug('lo2');
@@ -119,20 +118,24 @@ export async function run(stack: DevStack): Promise<void> {
     console.error("  ✓ limb 1 — after one logout, both of L's hosts sent their reload to log in");
 
     // ── LIMB 2: the logout records whose sessions ended ────────────────────────────────────────
-    if (observable) {
-      // L's is this run's first logout. Its app invite co-minted a `.dev` membership too, so it ends
-      // three sessions; the two whose pages were open must each be named.
-      const isDone = (x: DebugLine) => x.namespace === 'nebula-auth.worker.logout' && x.message === 'logged out';
-      const all = await waitForDebugLines(stack, (a) => a.some(isDone), "L's logout completion line");
-      const op = all.find(isDone)!.data.operationId;
-      const named = all.filter((x) => x.namespace === 'nebula-auth.Registry.token.revoked' && x.data.operationId === op)
+    {
+      // L's app invite co-minted a `.dev` membership too, so the logout ends three sessions; the two
+      // whose pages were open must each be named. A deployed target is shared, so L's logout is the
+      // one that revoked L's first membership, and each revocation is a line of its own, which a
+      // deployed capture can deliver minutes apart.
+      const revoked = (x: DebugLine) => x.namespace === 'nebula-auth.Registry.token.revoked';
+      const opIn = (a: DebugLine[]) => a.find((x) => revoked(x) && x.data.subjectSub === subs[0] && x.data.reason === 'logout')?.data.operationId;
+      const namedIn = (a: DebugLine[], op: unknown) => a.filter((x) => revoked(x) && x.data.operationId === op)
         .map((x) => `${x.data.subjectSub}:${x.data.reason}`);
+      const all = await waitForDebugLines(stack, (a) => {
+        const op = opIn(a);
+        return op !== undefined && subs.every((sub) => namedIn(a, op).includes(`${sub}:logout`));
+      }, "both of L's logout's revocations").catch(() => debugLines(stack.logs()));
+      const named = namedIn(all, opIn(all));
       for (const sub of subs) {
         assert.ok(named.includes(`${sub}:logout`), `the logout's revocations must name ${sub}, reason logout: ${JSON.stringify(named)}`);
       }
       console.error('  ✓ limb 2 — the logout recorded both of L\'s subs, reason logout');
-    } else {
-      console.error('[logout-ends-every-host] limb 2: not observable on a deployed target');
     }
     await context.close();
 
@@ -203,7 +206,7 @@ export async function run(stack: DevStack): Promise<void> {
     });
     assert.equal(small.status, 401, 'two forged cookies hold no live session');
     await small.text();
-    if (observable) {
+    {
       const truncation = (ns: string) => (x: DebugLine) => x.namespace === ns && x.message === 'truncated' && x.data.received === 100;
       const all = await waitForDebugLines(stack, (a) => a.some(truncation('nebula-auth.worker.homeSummary'))
         && a.some(truncation('nebula-auth.worker.logout')), 'both routes\' truncation warnings');
@@ -217,8 +220,6 @@ export async function run(stack: DevStack): Promise<void> {
         && x.data.operationId === smallOp).map((x) => x.data.scope), [lone], 'a name that parses as no scope must be dropped unread');
       assert.equal(all.filter(truncation('nebula-auth.worker.logout')).length, 1, 'the logout must log one truncation warning');
       console.error(`  ✓ limb 4 — the summary resolved ${bound} of 100, the logout expired all 101 and warned once`);
-    } else {
-      console.error('[logout-ends-every-host] limb 4: the stdio half is not observable on a deployed target');
     }
   } finally {
     await vite.close();

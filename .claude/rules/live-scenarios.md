@@ -40,15 +40,20 @@ host-rewriting helper is a regression of this rule, whatever its JSDoc says.
 deployed target a `wrangler tail` filled in by Workers Logs (`harness/lib/deployed-logs.ts`).**
 Neither deployed channel delivers every line, and in `experiments/tail-abort/RESULTS.md` no line was
 lost by both: the tail loses each line an abort ends on an object hosting live tabs, and Workers Logs
-lags up to about ten minutes. So a limb reading the logs runs in both venues, and a new scenario
-MUST NOT guard on the capture being absent. The guards older scenarios carry come out as each is
-verified deployed.
+lags up to about ten minutes. So a limb reading the logs runs in both venues, and `DevStack.logs` is
+required: a scenario MUST NOT branch on the capture being absent.
 
 - **Lines MUST be compared by when they were logged, with `loggedAfter` (`harness/lib/stdio.ts`),
   never by position.** A deployed capture arrives one invocation at a time, when each ends, so a
   later request's lines can arrive ahead of an earlier one's.
 - **A wait for a line MUST use `LOG_WAIT_MS`**: 20 s locally, eleven minutes deployed, where a line
   only Workers Logs holds can take that long. A wait returns as soon as its line is in.
+- **A check that a line is ABSENT MUST wait for a barrier and then call `settleForAbsence()`
+  before it counts.** The barrier is a line logged after the one that must not appear; locally that
+  is enough, but deployed a line from another invocation can arrive after its barrier, so the
+  settle waits 30 s there. Where the barrier comes from the same invocation as the absent line, as
+  the Gateway's per-frame `route` line does for what the frame woke, no settle is needed:
+  `forged-continuation`'s `frameDone` is the example.
 - **A limb reading a WebSocket upgrade's own lines, the node's start and its accept, MUST read
   them after the socket closes.** Deployed, an upgrade's invocation ends only then, and so do its
   lines. `scope-hosts-its-clients` limbs 2 and 4 are the example.
@@ -67,10 +72,16 @@ tail sampled, or when a Workers Logs poll failed.
 **A limb that COUNTS log lines MUST first wait for a line its own request logs after the thing it
 counts.** The stack's stdio reaches the harness late and in bursts, so a count read too soon passes on
 a tree where the failure it looks for happened. Bit 2026-09-27: `display-names-reach-subscribers`
-passed one run in two under the mutation it was written to catch, until it waited for the accept
-request's own access-log line, which wrangler prints after the Worker's warnings. That line arriving
-also shows the capture works. A facade call prints no access-log line, so its markers carry an
-`operationId` the call mints, and the limb waits for that call's completion line instead
+passed one run in two under the mutation it was written to catch, until it waited for a line the
+accept request printed after the Worker's warnings. That line arriving also shows the capture works.
+
+**That line MUST be a debug line the same invocation logs last, never the request's access line.**
+`settleAcceptance` logs `accepted` after any failed display-name write, and `handlePendingMembership`
+logs `card answered` after any failed read. Deployed, an access line comes only from the tail, which
+drops events, and Workers Logs keeps no copy: on 2026-10-14 the tail lost all four of
+`invite-consent`'s card reads, and the limb waited eleven minutes for a line that could not come. On
+the shared target an access line can also be another run's. A facade call's markers carry an
+`operationId` the call mints, and the limb waits for that call's completion line
 (`waitForDebugLines`, `harness/lib/stdio.ts`).
 
 **A debug entry MUST be read through `debugLines` (`harness/lib/stdio.ts`), never matched line by
