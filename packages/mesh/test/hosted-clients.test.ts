@@ -19,6 +19,7 @@ import { MeshClient, type MeshClientConfig } from '../src/mesh-client';
 import { mesh } from '../src/mesh-decorator';
 import { GatewayMessageType, WS_CLOSE_GONE } from '../src/gateway-messages';
 import type { CallEnvelope } from '../src/lmz-api';
+import { rawRpcStub } from '../src/raw-rpc';
 import type { ClientHostDO, EchoDO, TestDO } from './test-worker-and-dos';
 import { loginAt, uniqueScope, type Login } from './support/login';
 
@@ -181,6 +182,17 @@ describe('a node that hosts Clients', { timeout: 20000 }, () => {
     await alice.lmz.callAsync('CLIENT_HOST_DO', h, alice.ctn<ClientHostDO>().pushTo(gone, 'lost', 'gone'));
     await vi.waitFor(async () => expect(await host.answerFor('gone')).toBe('Error: Client is not connected'), { timeout: 5000 });
     expect(marked('answered in place', (d) => d.instanceName === h)).toHaveLength(2);
+  });
+
+  // A node's call to its own name takes the same two doors, so it makes no RPC to itself either.
+  // MUTATION: route only a hosted Client's address in place → no `delivered in place` names the node.
+  it('calls itself with no RPC either way', async () => {
+    const h = uniqueScope('h');
+    const host = env.CLIENT_HOST_DO.getByName(h) as DurableObjectStub<ClientHostDO>;
+    await rawRpcStub('CLIENT_HOST_DO', h).startChainTo(h, 'self');
+    await vi.waitFor(async () => expect(await host.answerFor('self')).toBe('self'), { timeout: 5000 });
+    expect(marked('delivered in place', (d) => d.instanceName === h)).toHaveLength(1);
+    expect(marked('answered in place', (d) => d.instanceName === h)).toHaveLength(1);
   });
 
   it('stops a Client its host closes with 4410: the pending call is rejected, and it does not reconnect', async () => {

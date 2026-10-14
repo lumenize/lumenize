@@ -18,8 +18,7 @@ The rest of this file is how the capture works, then what is left.
 ## Pending
 
 1. **`dev-star-follows-the-build` deployed.** It passes locally with its install-line wait; its last deployed run predates the append-only capture. A deployed run is going.
-2. **A node's call to its own name stays in place too (Larry, 2026-10-14).** The fix for the depth error routes a node's answer to itself in place; the request leg still sends a node's call to its own name by RPC. One predicate for both legs makes "a message for this node never crosses Workers RPC" the whole rule.
-3. **Delete the guards for a venue without logs.** About 25 scenarios still branch on `stack.logs` being absent or say "not observable on a deployed target". The capture runs in both venues now, so each guarded limb runs deployed once its branch goes, and `DevStack.logs` can become required. Each needs a deployed run as it changes.
-4. **Seal the continuation the Gateway holds in memory.** The Gateway keeps a node's continuation in `#pendingCalls`, so evicting the Gateway loses the call. `tasks/archive/mesh-calls-to-and-from-clients.md` accepted that risk. The long-term fix is a sealed continuation sent down to the Client, with a memory copy kept only for the timeout. It gets its own task file through `/write-task`.
+2. **Delete the guards for a venue without logs.** About 25 scenarios still branch on `stack.logs` being absent or say "not observable on a deployed target". The capture runs in both venues now, so each guarded limb runs deployed once its branch goes, and `DevStack.logs` can become required. Each needs a deployed run as it changes.
+3. **Seal the continuation the Gateway holds in memory.** The Gateway keeps a node's continuation in `#pendingCalls`, so evicting the Gateway loses the call. `tasks/archive/mesh-calls-to-and-from-clients.md` accepted that risk. The long-term fix is a sealed continuation sent down to the Client, with a memory copy kept only for the timeout. It gets its own task file through `/write-task`.
 
 The MCP Events design talk is deferred to another session; its backlog row under Lumenize Mesh holds it.

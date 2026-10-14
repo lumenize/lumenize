@@ -214,11 +214,7 @@ export function resolveStub(env: any, calleeBindingName: string, calleeInstanceN
     : env[calleeBindingName];
 }
 
-/**
- * Whether a message to (`bindingName`, `instanceName`) is for a Client that `node` itself hosts, so
- * it goes to `node`'s own door as a method call rather than over RPC to itself. Only a Client's
- * address qualifies: a node's call to its own name keeps the RPC it has always made.
- */
+/** Whether (`bindingName`, `instanceName`) addresses a Client that `node` itself hosts. */
 function isOwnHostedClient(
   node: { lmz?: { bindingName?: string; instanceName?: string } } | undefined,
   bindingName: string, instanceName: string | undefined,
@@ -228,15 +224,17 @@ function isOwnHostedClient(
 }
 
 /**
- * Whether a fire-back to (`bindingName`, `instanceName`) is the answer to `node` itself, so it goes
- * to `node`'s own fire-back door as a method call. Over RPC, each such answer is a new invocation
- * nested inside the one that fired it, and Cloudflare refuses a call nested 16 deep: a turn
- * streaming to a tab that had gone ran its fire-backs 16 deep and lost its reaper (2026-10-14).
+ * Whether a message to (`bindingName`, `instanceName`) is for `node` itself or a Client it hosts, so
+ * it goes to `node`'s own door as a method call: a call to its request door, an answer to its
+ * fire-back door. Never over RPC, where each message to itself is a new invocation nested inside the
+ * one that sent it, and Cloudflare refuses a call nested 16 deep: a turn streaming to a tab that had
+ * gone sent its answers 16 deep and lost its reaper (2026-10-14).
  */
-function isOwnAddress(
+function isForThisNode(
   node: { lmz?: { bindingName?: string; instanceName?: string } } | undefined,
   bindingName: string, instanceName: string | undefined,
 ): boolean {
+  if (isOwnHostedClient(node, bindingName, instanceName)) return true;
   return instanceName !== undefined && node?.lmz?.bindingName === bindingName && node.lmz.instanceName === instanceName;
 }
 
@@ -268,8 +266,8 @@ async function dispatchEnvelope(
 
   let ack: any;
   try {
-    if (isOwnHostedClient(nodeInstance, calleeBindingName, calleeInstanceName)) {
-      // A push to a Client this node hosts reaches its socket through the node's own door.
+    if (isForThisNode(nodeInstance, calleeBindingName, calleeInstanceName)) {
+      // A call to this node, or a push to a Client it hosts, goes through the node's own door.
       log.debug('delivered in place', {
         bindingName: calleeBindingName, instanceName: calleeInstanceName, method: methodOf(remoteChain),
       });
@@ -1036,7 +1034,7 @@ export async function fireResponse(
   let ack: any;
   try {
     const { bindingName, instanceName } = response.returnAddr;
-    if (local && (isOwnHostedClient(local, bindingName, instanceName) || isOwnAddress(local, bindingName, instanceName))) {
+    if (local && isForThisNode(local, bindingName, instanceName)) {
       // The asker is this node or a Client it hosts, so the answer goes to its own door from here.
       log.debug('answered in place', { bindingName, instanceName });
       ack = await local.__handleResponse(fireEnvelope);
