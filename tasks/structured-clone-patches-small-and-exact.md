@@ -263,3 +263,25 @@ Each phase leaves `npm run test:code` green, and Phase 3 onward also `npx tsc --
 - `preprocess.ts`'s header paragraph on aliases is rewritten for pointers; the rest of each header is Phase 4's.
 - `defaultEncodeBody` and `defaultDeencodeBody` in `web-api-encoding.ts` had no caller before this build; Phase 2's body work deletes them.
 - `packages/rpc/test/lumenize-rpc-do.test.ts`'s header names `#preprocessResult`, which no longer exists; it predates this build.
+
+### Phase 2 (2026-10-14)
+
+**What landed.** A Map or Set whose keys are all strings or all numbers takes the object form, `keyType: "number"` marking the second; an array of distinct strings over `ARRAY_OBJECT_FORM_MIN_BYTES` (256) takes it too; `null` and a hole are tags; binary is base64 of the view's own window (`src/base64.ts`); a request's or response's `headers` and `body` both go through one field callback; and the decoder refuses every shape rule 10 lists, a function tag carrying more than its name included. `packages/mesh/test/client-gateway.test.ts`'s undecodable answer is rebuilt on a `base64` that is not base64.
+
+**Gate:** `npm run test:code` passes. `packages/structured-clone` is at 55 files and 1,315 tests, 2 of them skipped: the Node-only `Buffer.from('hi')` case in the workers and chromium projects.
+
+**For the human:**
+
+- **A DataView travels as its own bytes, with no `byteOffset` or `byteLength`,** as I said at the Phase 1 hand-off, and the decoder refuses an `arraybuffer` naming either. That refusal is what "a `DataView` window outside its buffer" in criterion 10 now tests.
+- **A `subtype` that names no typed array still decodes as a `Uint8Array` of its bytes.** Rule 10 does not list `subtype`, and `test/hostile-payloads.test.ts` already pins that fallback for `Map`, `WebSocket` and the rest, so I kept it.
+
+**Retro:**
+
+- **The criterion's "skip holes in the element check" mutation exposed a line that could not matter.** A hole reads as `undefined`, which the string check already refuses, so my `Object.hasOwn(value, i)` beside it decided nothing. It is gone; the mutation that reds is iterating with `every`, which skips holes, and the comment on `isLongDistinctStringList` now says so.
+- **Bytes now travel in the platform's byte order**, as native `structuredClone` copies them, where the old number arrays were order-free. Workers, browsers and Node on x86 and ARM are all little-endian.
+- **Base64 is checked against one pattern before any decoder sees it**, so `atob` in Node and `Uint8Array.fromBase64` where a runtime has it refuse the same strings.
+- **Mutations:** all 21 named for criteria 3, 4, 5, 9, 10, 11 and 12 were caught, each by the test meant to catch it, and so were 12 more on refusal rows the criteria name no mutation for: both or neither form, the member marker, a needless escape, an unescaped index, a function's extra keys, entries that are not pairs, `keyType` beside entries, a body's `$ref` to its own request, a `$ref` to a Map's `object`, a JSON `null`, an `arraybuffer` window, and a byte count that is not whole elements.
+
+**Close-out:**
+
+- Phase 1's close-out item is done: `defaultEncodeBody` and `defaultDeencodeBody` are deleted from `web-api-encoding.ts`.

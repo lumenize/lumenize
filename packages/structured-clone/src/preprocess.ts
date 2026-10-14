@@ -36,6 +36,7 @@ import {
 import type { RequestSync } from './request-sync';
 import type { ResponseSync } from './response-sync';
 import type { JsonValue } from './merge-patch';
+import { bytesToBase64 } from './base64';
 
 // A step from the value's root, for naming where an unencodable object sits
 // in a DataCloneError's message.
@@ -57,6 +58,67 @@ function escapeKey(k: string): string {
 export function escapePointerSegment(segment: string): string {
   if (segment.indexOf('~') === -1 && segment.indexOf('/') === -1) return segment;
   return segment.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
+// An array index: a canonical integer string from "0" to "4294967294", the
+// keys JavaScript moves ahead of every other key in an object.
+export function isArrayIndex(key: string): boolean {
+  return /^(?:0|[1-9]\d{0,9})$/.test(key) && Number(key) <= 4294967294;
+}
+
+// A key in the object form of a Map, Set or array. One that starts with `$`,
+// or is an array index, gets one more `$`, so `"42"` keeps its place as
+// `"$42"` and a real `"$42"` is written `"$$42"`.
+function escapeMemberKey(key: string): string {
+  return key.startsWith('$') || isArrayIndex(key) ? '$' + key : key;
+}
+
+/**
+ * The plain JSON form of an array of distinct strings above this many bytes
+ * is written in object form instead, so appending or removing one string
+ * patches as one key. Measured as each string's length plus 3, its quotes
+ * and comma.
+ */
+export const ARRAY_OBJECT_FORM_MIN_BYTES = 256;
+
+// Whether every key of a Map, or every member of a Set, is a string, or every
+// one a number: the two kinds the object form can hold. An empty collection
+// counts as strings.
+function memberKind(members: Iterable<unknown>): 'string' | 'number' | null {
+  let kind: 'string' | 'number' | null = null;
+  for (const m of members) {
+    const t = typeof m;
+    if (t !== 'string' && t !== 'number') return null;
+    if (kind === null) kind = t;
+    else if (kind !== t) return null;
+  }
+  return kind ?? 'string';
+}
+
+// Whether an array takes the object form, checked in order of cost: every
+// element a string, then the size, then distinctness. Reading every index
+// rather than iterating with `every` is what keeps a holed array plain: a hole
+// reads as `undefined`, which `every` would skip.
+function isLongDistinctStringList(value: unknown[]): boolean {
+  let bytes = 0;
+  for (let i = 0; i < value.length; i++) {
+    const el = value[i];
+    if (typeof el !== 'string') return false;
+    bytes += el.length + 3;
+  }
+  if (bytes <= ARRAY_OBJECT_FORM_MIN_BYTES) return false;
+  return new Set(value).size === value.length;
+}
+
+// The object form's `object`: each member's escaped key, in order, holding
+// what `valueOf` gives for it.
+function objectForm(keys: Iterable<string | number>, valueOf: (key: any, wireKey: string) => unknown): Record<string, unknown> {
+  const object: Record<string, unknown> = {};
+  for (const key of keys) {
+    const wireKey = escapeMemberKey(String(key));
+    setOwn(object, wireKey, valueOf(key, wireKey));
+  }
+  return object;
 }
 
 // Writes an own data property. Assigning `__proto__` calls Object.prototype's
@@ -114,7 +176,7 @@ export function preprocess(data: any): JsonValue {
   // Encodes the value at one position. `owner` is the object whose encoding
   // holds the position and `suffix` is the pointer from it, `/` included.
   function encode(value: any, owner: object | null, suffix: string, path: PathStep[]): any {
-    if (value === null) return null;
+    if (value === null) return { $type: 'null' };
     if (value === undefined) return { $type: 'undefined' };
     if (typeof value === 'symbol') throw new TypeError('unable to serialize symbol');
     if (typeof value === 'string') return value;
@@ -134,22 +196,42 @@ export function preprocess(data: any): JsonValue {
   function encodeObject(value: any, path: PathStep[]): any {
     // Order matters: check most-specific subclasses before plain object.
     if (Array.isArray(value)) {
-      return value.map((item, i) => encode(item, value, `/${i}`, [...path, { type: 'index', key: i }]));
+      if (isLongDistinctStringList(value)) {
+        return { $type: 'array', object: objectForm(value, () => 1) };
+      }
+      const out: any[] = new Array(value.length);
+      for (let i = 0; i < value.length; i++) {
+        out[i] = Object.hasOwn(value, i)
+          ? encode(value[i], value, `/${i}`, [...path, { type: 'index', key: i }])
+          : { $type: 'hole' };
+      }
+      return out;
     }
     if (value instanceof Map) {
-      return {
-        $type: 'map',
-        entries: Array.from(value.entries(), ([k, v], i) => [
-          encode(k, value, `/entries/${i}/0`, path),
-          encode(v, value, `/entries/${i}/1`, path),
-        ]),
-      };
+      const kind = memberKind(value.keys());
+      if (kind === null) {
+        return {
+          $type: 'map',
+          entries: Array.from(value.entries(), ([k, v], i) => [
+            encode(k, value, `/entries/${i}/0`, path),
+            encode(v, value, `/entries/${i}/1`, path),
+          ]),
+        };
+      }
+      const object = objectForm(value.keys(), (key, wireKey) =>
+        encode(value.get(key), value, `/object/${escapePointerSegment(wireKey)}`, path));
+      return kind === 'number' ? { $type: 'map', keyType: 'number', object } : { $type: 'map', object };
     }
     if (value instanceof Set) {
-      return {
-        $type: 'set',
-        values: Array.from(value, (v, i) => encode(v, value, `/values/${i}`, path)),
-      };
+      const kind = memberKind(value);
+      if (kind === null) {
+        return {
+          $type: 'set',
+          values: Array.from(value, (v, i) => encode(v, value, `/values/${i}`, path)),
+        };
+      }
+      const object = objectForm(value as Set<string | number>, () => 1);
+      return kind === 'number' ? { $type: 'set', keyType: 'number', object } : { $type: 'set', object };
     }
     if (value instanceof Date) {
       return { $type: 'date', iso: value.toISOString() };
@@ -196,11 +278,11 @@ export function preprocess(data: any): JsonValue {
       return { $type: 'url', href: value.href };
     }
     if ((value as any).constructor?.name === 'RequestSync') {
-      const data = encodeRequestSync(value as RequestSync, (h) => encode(h, value, '/data/headers', path));
+      const data = encodeRequestSync(value as RequestSync, (field, name) => encode(field, value, `/data/${name}`, path));
       return { $type: 'request-sync', data };
     }
     if ((value as any).constructor?.name === 'ResponseSync') {
-      const data = encodeResponseSync(value as ResponseSync, (h) => encode(h, value, '/data/headers', path));
+      const data = encodeResponseSync(value as ResponseSync, (field, name) => encode(field, value, `/data/${name}`, path));
       return { $type: 'response-sync', data };
     }
     if (value instanceof Request) {
@@ -232,37 +314,19 @@ export function preprocess(data: any): JsonValue {
     ) {
       return { $type: 'bigint-object', value: (value as any).valueOf().toString() };
     }
-    // ArrayBuffer / TypedArray / DataView
+    // ArrayBuffer / TypedArray / DataView, as base64 of exactly their bytes:
+    // a view's own window, never the rest of its buffer, which for Node's
+    // `Buffer.from('hi')` is a 64 KB shared pool.
     if ((value as any).constructor?.name === 'ArrayBuffer') {
-      return {
-        $type: 'arraybuffer',
-        subtype: 'ArrayBuffer',
-        data: Array.from(new Uint8Array(value as ArrayBuffer)),
-      };
+      return { $type: 'arraybuffer', subtype: 'ArrayBuffer', base64: bytesToBase64(new Uint8Array(value)) };
     }
     if (ArrayBuffer.isView(value)) {
       // The tag names the built-in view even for a subclass, so Node's Buffer
       // travels as the Uint8Array it is rather than under a constructor name
       // that exists nowhere else.
       const subtype = Object.prototype.toString.call(value).slice(8, -1);
-      if (subtype === 'DataView') {
-        return {
-          $type: 'arraybuffer',
-          subtype,
-          data: Array.from(new Uint8Array((value as DataView).buffer)),
-          byteOffset: (value as DataView).byteOffset,
-          byteLength: (value as DataView).byteLength,
-        };
-      }
-      // Each element takes the primitive encoding, so NaN, ±Infinity and a
-      // BigInt64Array's bigints carry their tags: JSON would write the first
-      // three as `null` and throw on the last.
-      return {
-        $type: 'arraybuffer',
-        subtype,
-        data: Array.from(value as unknown as ArrayLike<number | bigint>, (el) =>
-          typeof el === 'bigint' ? { $type: 'bigint', value: el.toString() } : encodeNumber(el)),
-      };
+      const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+      return { $type: 'arraybuffer', subtype, base64: bytesToBase64(bytes) };
     }
     // Copying own keys is right only for a plain object or a class instance.
     // Anything else reaching here is a host object (CryptoKey, Blob,

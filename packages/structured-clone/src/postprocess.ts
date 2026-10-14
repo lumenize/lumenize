@@ -19,7 +19,8 @@ import {
   decodeRequestSync,
   decodeResponseSync,
 } from './web-api-encoding';
-import { setOwn, escapePointerSegment } from './preprocess';
+import { setOwn, escapePointerSegment, isArrayIndex } from './preprocess';
+import { base64ToBytes } from './base64';
 import type { JsonValue } from './merge-patch';
 
 // User-key un-escape: any wire key starting with '$$' becomes the original
@@ -75,12 +76,63 @@ function refused(reason: string): DOMException {
   return new DOMException(`Could not deserialize: ${reason}`, 'DataCloneError');
 }
 
+// A key of a Map's, Set's or array's object form, with the encoder's `$`
+// escape undone. A key the encoder would never write is refused, so two
+// spellings cannot fold into one key: a `$` whose rest is neither an array
+// index nor another `$`-key, and an array index left unescaped.
+function memberKey(wireKey: string, keyType: unknown): string | number {
+  let key = wireKey;
+  if (wireKey.startsWith('$')) {
+    key = wireKey.slice(1);
+    if (!key.startsWith('$') && !isArrayIndex(key)) throw refused(`object-form key "${wireKey}" is escaped needlessly`);
+  } else if (isArrayIndex(wireKey)) {
+    throw refused(`object-form key "${wireKey}" is an array index left unescaped`);
+  }
+  if (keyType !== 'number') return key;
+  const n = Number(key);
+  if (String(n) !== key) throw refused(`number key "${key}" is not how the encoder writes ${n}`);
+  return n;
+}
+
+// The members of a Set's or array's object form, each held by the marker 1.
+function members(encoded: any): (string | number)[] {
+  const out: (string | number)[] = [];
+  for (const k of Object.keys(encoded.object)) {
+    if (encoded.object[k] !== 1) throw refused(`member "${k}" is held by ${JSON.stringify(encoded.object[k])}, not 1`);
+    out.push(memberKey(k, encoded.keyType));
+  }
+  return out;
+}
+
+function isObjectRecord(v: unknown): boolean {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+// A Map's or Set's encoding has exactly one form: `object`, which may carry
+// `keyType: "number"`, or `listKey` (`entries` or `values`), which carries none.
+function checkCollection(v: any, listKey: 'entries' | 'values'): void {
+  const hasObject = Object.hasOwn(v, 'object');
+  if (hasObject === Object.hasOwn(v, listKey)) {
+    throw refused(`a ${v.$type} has ${hasObject ? `both object and ${listKey}` : `neither object nor ${listKey}`}`);
+  }
+  if (hasObject) {
+    if (!isObjectRecord(v.object)) throw refused(`a ${v.$type}'s object is not an object`);
+    if (Object.hasOwn(v, 'keyType') && v.keyType !== 'number') throw refused(`unknown keyType ${JSON.stringify(v.keyType)}`);
+  } else {
+    if (Object.hasOwn(v, 'keyType')) throw refused(`a ${v.$type}'s ${listKey} carries a keyType`);
+    if (!Array.isArray(v[listKey])) throw refused(`a ${v.$type}'s ${listKey} is not a list`);
+    if (listKey === 'entries' && !v.entries.every((pair: unknown) => Array.isArray(pair) && pair.length === 2)) {
+      throw refused("a map's entries are not pairs");
+    }
+  }
+}
+
 // A container at one value position of a document holding a `$ref`: the
 // object allocated for it, and the containers below it, each keyed by the
 // pointer segments that reach it from here. `step` is how many segments one
 // step down takes: one for an object, array or error property, two for a
-// Set's `values/i` or a request's `data/headers`, three for a Map's
-// `entries/i/0`, and zero where nothing below is a value position.
+// Map's `object/k`, a Set's `values/i` or a request's `data/body`, three for a
+// Map's `entries/i/0`, and zero where nothing below is a value position.
 interface Slot {
   value: any;
   step: number;
@@ -88,7 +140,7 @@ interface Slot {
 }
 
 // Marks a request or response slot whose object is built after the index
-// pass, from headers that must exist first.
+// pass, from headers and a body that must exist first.
 const PENDING = Symbol('pending');
 
 interface Decoding {
@@ -102,8 +154,10 @@ interface Decoding {
  * Decodes a value `preprocess()` encoded, with every type, cycle and shared
  * object restored.
  *
- * @throws DOMException named `DataCloneError` for a `$ref` that names no
- *   value position in the document, or that names another `$ref`.
+ * @throws DOMException named `DataCloneError` for any shape the encoder never
+ *   writes: an unknown `$type` or `keyType`, a JSON `null`, a hole outside an
+ *   array, a non-canonical object-form key, malformed base64, or a `$ref` that
+ *   names no value position in the document or names another `$ref`.
  */
 export function postprocess(data: JsonValue): any {
   if (!holdsRef(data)) return decodeAt(data, { slots: null, root: null });
@@ -114,8 +168,8 @@ export function postprocess(data: JsonValue): any {
   for (const [slot, encoded] of order) {
     if (slot.value !== PENDING) continue;
     slot.value = encoded.$type === 'request-sync'
-      ? decodeRequestSync(encoded.data, (h: any) => decodeAt(h, d))
-      : decodeResponseSync(encoded.data, (h: any) => decodeAt(h, d));
+      ? decodeRequestSync(encoded.data, (field: any) => decodeAt(field, d))
+      : decodeResponseSync(encoded.data, (field: any) => decodeAt(field, d));
   }
   for (const [slot, encoded] of order) fill(slot.value, encoded, d);
   return decodeAt(data, d);
@@ -149,10 +203,15 @@ function isRef(v: any): boolean {
   return true;
 }
 
-// The tags that decode to a primitive, so never to a slot.
+// The tags that decode to a primitive, or to a hole, so never to a slot.
+const PRIMITIVE_TAGS = new Set(['undefined', 'null', 'hole', 'bigint', 'number-special']);
+
 function isPrimitiveTag(v: any): boolean {
-  if (!isTagged(v)) return false;
-  return v.$type === 'undefined' || v.$type === 'bigint' || v.$type === 'number-special';
+  return isTagged(v) && PRIMITIVE_TAGS.has(v.$type);
+}
+
+function isHole(v: any): boolean {
+  return v !== null && typeof v === 'object' && !Array.isArray(v) && isTagged(v) && v.$type === 'hole';
 }
 
 function addChild(slot: Slot, key: string, child: Slot | null): void {
@@ -180,18 +239,22 @@ function indexAt(v: any, d: Decoding, order: [Slot, any][]): Slot | null {
   }
   switch (v.$type) {
     case 'map':
-      slot.step = 3;
-      if (Array.isArray(v.entries)) {
-        v.entries.forEach((pair: any, i: number) => {
-          if (!Array.isArray(pair)) return;
+      if (Object.hasOwn(v, 'object')) {
+        slot.step = 2;
+        for (const k of Object.keys(v.object)) {
+          addChild(slot, `object/${escapePointerSegment(k)}`, indexAt(v.object[k], d, order));
+        }
+      } else {
+        slot.step = 3;
+        v.entries.forEach((pair: any[], i: number) => {
           addChild(slot, `entries/${i}/0`, indexAt(pair[0], d, order));
           addChild(slot, `entries/${i}/1`, indexAt(pair[1], d, order));
         });
       }
       break;
     case 'set':
-      slot.step = 2;
-      if (Array.isArray(v.values)) {
+      if (Object.hasOwn(v, 'values')) {
+        slot.step = 2;
         v.values.forEach((member: any, i: number) => addChild(slot, `values/${i}`, indexAt(member, d, order)));
       }
       break;
@@ -205,9 +268,8 @@ function indexAt(v: any, d: Decoding, order: [Slot, any][]): Slot | null {
     case 'request-sync':
     case 'response-sync':
       slot.step = 2;
-      if (v.data && typeof v.data === 'object') {
-        addChild(slot, 'data/headers', indexAt(v.data.headers, d, order));
-      }
+      addChild(slot, 'data/headers', indexAt(v.data.headers, d, order));
+      addChild(slot, 'data/body', indexAt(v.data.body, d, order));
       break;
   }
   return slot;
@@ -243,7 +305,8 @@ function resolve(ref: any, d: Decoding): any {
 // indexed container as allocated (the fill pass fills it), and anything
 // else decoded here.
 function decodeAt(v: any, d: Decoding): any {
-  if (v === null || typeof v !== 'object') return v;
+  if (v === null) throw refused('a JSON null; the encoder writes {"$type":"null"}');
+  if (typeof v !== 'object') return v;
   if (isRef(v)) {
     if (d.slots === null) throw refused('a $ref in a document indexed without one');
     return resolve(v, d);
@@ -260,6 +323,10 @@ function decodePrimitiveTag(v: any): any {
   switch (v.$type) {
     case 'undefined':
       return undefined;
+    case 'null':
+      return null;
+    case 'hole':
+      throw refused('a hole outside an array');
     case 'bigint':
       return BigInt(v.value);
     default: {
@@ -273,16 +340,23 @@ function decodePrimitiveTag(v: any): any {
 }
 
 // An empty container for a value, or the whole value for a type with no
-// children. A request or response, which needs its headers to exist, is
-// built here only outside the index pass.
+// children, after checking the value has a shape the encoder writes. A
+// request or response, which needs its fields to exist, is built here only
+// outside the index pass.
 function alloc(v: any, d: Decoding, indexing: boolean): any {
   if (Array.isArray(v)) return [];
   if (!isTagged(v)) return {};
   switch (v.$type as string) {
     case 'map':
+      checkCollection(v, 'entries');
       return new Map();
     case 'set':
+      checkCollection(v, 'values');
       return new Set();
+    case 'array':
+      if (!isObjectRecord(v.object)) throw refused("an array's object is not an object");
+      if (Object.hasOwn(v, 'keyType')) throw refused(`an array carries keyType ${JSON.stringify(v.keyType)}`);
+      return [];
     case 'date':
       return new Date(v.iso);
     case 'regexp':
@@ -307,36 +381,39 @@ function alloc(v: any, d: Decoding, indexing: boolean): any {
     case 'bigint-object':
       return Object(BigInt(v.value));
     case 'arraybuffer':
-      return allocArrayBuffer(v, d);
+      return allocArrayBuffer(v);
     case 'function':
+      if (Object.keys(v).some((k) => k !== '$type' && k !== 'name')) throw refused('a function carries more than its name');
       return { name: v.name };
     case 'request-sync':
-      return indexing ? PENDING : decodeRequestSync(v.data, (h: any) => decodeAt(h, d));
     case 'response-sync':
-      return indexing ? PENDING : decodeResponseSync(v.data, (h: any) => decodeAt(h, d));
+      if (!isObjectRecord(v.data)) throw refused(`a ${v.$type} has no data`);
+      if (indexing) return PENDING;
+      return v.$type === 'request-sync'
+        ? decodeRequestSync(v.data, (field: any) => decodeAt(field, d))
+        : decodeResponseSync(v.data, (field: any) => decodeAt(field, d));
     default:
-      return { $type: v.$type };
+      throw refused(`unknown $type ${JSON.stringify(v.$type)}`);
   }
 }
 
-function allocArrayBuffer(v: any, d: Decoding): any {
-  // Built from the bytes the payload carries, never from a length it names:
-  // `new Float64Array(1e8)` would let a 30-byte message allocate 800 MB.
-  if (!Array.isArray(v.data)) {
-    throw new DOMException('Could not deserialize arraybuffer: data is not an array', 'DataCloneError');
+// Built from the bytes the payload carries, never from a length it names:
+// `new Float64Array(1e8)` would let a 30-byte message allocate 800 MB.
+function allocArrayBuffer(v: any): any {
+  if (Object.hasOwn(v, 'byteOffset') || Object.hasOwn(v, 'byteLength')) {
+    throw refused('an arraybuffer names a window; the encoder sends only the window\'s bytes');
   }
-  if (v.subtype === 'ArrayBuffer') {
-    return new Uint8Array(v.data).buffer;
-  }
-  if (v.subtype === 'DataView') {
-    const buffer = new Uint8Array(v.data).buffer;
-    return new DataView(buffer, v.byteOffset, v.byteLength);
-  }
+  const bytes = base64ToBytes(v.base64);
+  if (v.subtype === 'ArrayBuffer') return bytes.buffer;
+  if (v.subtype === 'DataView') return new DataView(bytes.buffer);
   const Ctor = (globalThis as any)[v.subtype];
   if (typeof Ctor === 'function' && Object.getPrototypeOf(Ctor) === TypedArray) {
-    return new Ctor(v.data.map((el: unknown) => decodeAt(el, d)));
+    if (bytes.length % Ctor.BYTES_PER_ELEMENT !== 0) {
+      throw refused(`${bytes.length} bytes are not a whole number of ${v.subtype} elements`);
+    }
+    return new Ctor(bytes.buffer, 0, bytes.length / Ctor.BYTES_PER_ELEMENT);
   }
-  return new Uint8Array(v.data); // fallback
+  return bytes; // a subtype that names no typed array arrives as its bytes
 }
 
 // Fills a container allocated for `encoded` with its decoded children.
@@ -344,7 +421,7 @@ function fill(container: any, encoded: any, d: Decoding): void {
   if (Array.isArray(encoded)) {
     container.length = encoded.length;
     for (let i = 0; i < encoded.length; i++) {
-      if (Object.hasOwn(encoded, i)) container[i] = decodeAt(encoded[i], d);
+      if (!isHole(encoded[i])) container[i] = decodeAt(encoded[i], d);
     }
     return;
   }
@@ -354,39 +431,28 @@ function fill(container: any, encoded: any, d: Decoding): void {
   }
   switch (encoded.$type as string) {
     case 'map':
-      for (const [k, v] of encoded.entries) container.set(decodeAt(k, d), decodeAt(v, d));
+      if (Object.hasOwn(encoded, 'object')) {
+        for (const k of Object.keys(encoded.object)) {
+          container.set(memberKey(k, encoded.keyType), decodeAt(encoded.object[k], d));
+        }
+      } else {
+        for (const [k, v] of encoded.entries) container.set(decodeAt(k, d), decodeAt(v, d));
+      }
       return;
     case 'set':
-      for (const v of encoded.values) container.add(decodeAt(v, d));
+      if (Object.hasOwn(encoded, 'object')) {
+        for (const m of members(encoded)) container.add(m);
+      } else {
+        for (const v of encoded.values) container.add(decodeAt(v, d));
+      }
+      return;
+    case 'array':
+      for (const m of members(encoded)) container.push(m);
       return;
     case 'error':
       fillError(container, encoded, d);
       return;
-    case 'function':
-      for (const k of Object.keys(encoded)) {
-        if (k === '$type' || k === 'name') continue;
-        setOwn(container, unescapeKey(k), decodeAt(encoded[k], d));
-      }
-      container.name = encoded.name;
-      return;
-    case 'date':
-    case 'regexp':
-    case 'url':
-    case 'headers':
-    case 'boolean-object':
-    case 'number-object':
-    case 'string-object':
-    case 'bigint-object':
-    case 'arraybuffer':
-    case 'request-sync':
-    case 'response-sync':
-      return; // whole from `alloc`
     default:
-      // An unknown tag decodes as a plain object that keeps its `$type`.
-      for (const k of Object.keys(encoded)) {
-        if (k === '$type') continue;
-        setOwn(container, unescapeKey(k), decodeAt(encoded[k], d));
-      }
-      return;
+      return; // whole from `alloc`
   }
 }

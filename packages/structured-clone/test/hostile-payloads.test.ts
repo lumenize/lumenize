@@ -11,10 +11,13 @@
  * - restore `(globalThis as any)[name] || Error` in `errorClassNamed`
  * - drop the `Object.getPrototypeOf(Ctor) === TypedArray` conjunct in `allocArrayBuffer`
  * - make `setOwn` assign `__proto__` rather than define it
- * - drop the `Array.isArray(v.data)` check in `allocArrayBuffer`
+ * - drop the `typeof base64 !== 'string'` check in `base64ToBytes`
  * - on a pointer that misses the index, walk the parsed document instead
  * - fill a `$ref`'s target when the `$ref` is resolved, rather than in the fill pass
  * - key the index by each container's whole pointer rather than its own segment
+ * - restore the decoder's `default:` branch, which kept an unknown `$type` as data
+ * - read an unknown `keyType` as strings
+ * - decode a number key with `Number` and no canonical check
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -101,7 +104,7 @@ describe('an encoded typed array names a global that is not a typed array', () =
   it.each(presentHere(['Map', 'WebSocket', 'Image', 'Audio', 'Function', 'Buffer']))(
     'subtype %s decodes to a Uint8Array of the same bytes',
     (subtype) => {
-      const arr = parse(wire({ $type: 'arraybuffer', subtype, data: [104, 105] }));
+      const arr = parse(wire({ $type: 'arraybuffer', subtype, base64: 'aGk=' }));
 
       expect(Object.getPrototypeOf(arr)).toBe(Uint8Array.prototype);
       expect(Array.from(arr)).toEqual([104, 105]);
@@ -110,7 +113,7 @@ describe('an encoded typed array names a global that is not a typed array', () =
 
   it('constructs nothing for subtype Tripwire', () => {
     const before = constructed;
-    const arr = parse(wire({ $type: 'arraybuffer', subtype: 'Tripwire', data: [1] }));
+    const arr = parse(wire({ $type: 'arraybuffer', subtype: 'Tripwire', base64: 'AQ==' }));
 
     expect(constructed).toBe(before);
     expect(Object.getPrototypeOf(arr)).toBe(Uint8Array.prototype);
@@ -154,12 +157,19 @@ describe('a wire key named __proto__', () => {
   });
 });
 
-describe('an encoded arraybuffer whose data is a length, not bytes', () => {
-  it.each(['Float64Array', 'ArrayBuffer', 'DataView'])('subtype %s is refused, not allocated', (subtype) => {
-    const payload = wire({ $type: 'arraybuffer', subtype, data: 1_000_000 });
+describe('an encoded arraybuffer whose bytes are not base64', () => {
+  it.each([
+    ['a length rather than bytes', { subtype: 'Float64Array', base64: 1_000_000 }, /base64 is not a string/],
+    ['bytes as a number array', { subtype: 'ArrayBuffer', data: [1, 2, 3] }, /base64 is not a string/],
+    ['text that is not base64', { subtype: 'Uint8Array', base64: 'not base64!' }, /base64 is not base64/],
+    ['base64 missing its padding', { subtype: 'Uint8Array', base64: 'AQI' }, /base64 is not base64/],
+    ['7 bytes for a Float64Array', { subtype: 'Float64Array', base64: 'AQIDBAUGBw==' }, /not a whole number of Float64Array elements/],
+    ['a DataView window outside its buffer', { subtype: 'DataView', base64: 'AQID', byteOffset: 8, byteLength: 1_000_000 }, /names a window/],
+  ])('is refused, not allocated: %s', (_, fields, message) => {
+    const payload = wire({ $type: 'arraybuffer', ...fields });
 
     expect(() => parse(payload)).toThrow(DOMException);
-    expect(() => parse(payload)).toThrow(/data is not an array/);
+    expect(() => parse(payload)).toThrow(message);
   });
 });
 
@@ -239,5 +249,52 @@ describe('a document a hostile sender sized to blow up the index', () => {
     for (let i = 0; i < 19_999; i++) {
       if (decoded[i].next !== decoded[i + 1]) expect.fail(`element ${i} does not hold element ${i + 1}`);
     }
+  });
+});
+
+describe('a shape the encoder never writes', () => {
+  it.each([
+    ['an unknown tag', '{"$type":"not-a-tag","x":1}', /unknown \$type "not-a-tag"/],
+    ['a Map whose keyType is bigint', '{"$type":"map","keyType":"bigint","object":{"$1":"a"}}', /unknown keyType "bigint"/],
+    ['a Set whose keyType is unknown', '{"$type":"set","keyType":"date","object":{"a":1}}', /unknown keyType "date"/],
+    ['a Map with both object and entries', '{"$type":"map","object":{},"entries":[]}', /both object and entries/],
+    ['a Map with neither form', '{"$type":"map"}', /neither object nor entries/],
+    ['a Set with neither form', '{"$type":"set"}', /neither object nor values/],
+    ["a Map's entries that are not pairs", '{"$type":"map","entries":[[1]]}', /entries are not pairs/],
+    ['a keyType beside entries', '{"$type":"map","keyType":"number","entries":[]}', /carries a keyType/],
+    ['a Set member held by 2', '{"$type":"set","object":{"a":2}}', /held by 2, not 1/],
+    ['an array member held by true', '{"$type":"array","object":{"a":true}}', /held by true, not 1/],
+    ['an object-form key escaped needlessly', '{"$type":"map","object":{"$x":1}}', /escaped needlessly/],
+    ['an array index left unescaped', '{"$type":"map","object":{"42":1}}', /left unescaped/],
+    ['a number key spelled 0x10', '{"$type":"map","keyType":"number","object":{"0x10":1}}', /not how the encoder writes 16/],
+    ['a number key spelled -0', '{"$type":"set","keyType":"number","object":{"-0":1}}', /not how the encoder writes 0/],
+    ['a function carrying more than its name', '{"$type":"function","name":"f","x":1}', /more than its name/],
+    ['a JSON null', '{"a":null}', /a JSON null/],
+    ['a hole outside an array', '{"a":{"$type":"hole"}}', /hole outside an array/],
+  ])('is refused, directly and through a forward $ref: %s', (_, payload, message) => {
+    const before = constructed;
+
+    for (const doc of [payload, `[{"$ref":"#/1"},${payload}]`]) {
+      expect(() => parse(doc)).toThrow(DOMException);
+      expect(() => parse(doc)).toThrow(message);
+    }
+    expect(constructed).toBe(before);
+  });
+
+  it('is refused at the top level: a bare JSON null', () => {
+    expect(() => parse('null')).toThrow(/a JSON null/);
+  });
+
+  it("is refused when a $ref names a Map's encoding rather than a value in it", () => {
+    expect(() => parse('{"tags":{"$type":"map","object":{"a":{}}},"r":{"$ref":"#/tags/object"}}'))
+      .toThrow(/names no value/);
+  });
+
+  it.each([
+    ['request', '{"$type":"request-sync","data":{"url":"https://example.com/","method":"POST","headers":{"$type":"headers","entries":[]},"body":{"$ref":"#"}}}'],
+    ['response', '{"$type":"response-sync","data":{"status":200,"statusText":"","headers":{"$type":"headers","entries":[]},"body":{"$ref":"#"}}}'],
+  ])("is refused when a %s's body is a $ref to itself", (_, payload) => {
+    expect(() => parse(payload)).toThrow(DOMException);
+    expect(() => parse(payload)).toThrow(/being built/);
   });
 });

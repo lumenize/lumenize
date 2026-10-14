@@ -1423,10 +1423,10 @@ describe('ClientGateway, on a host node', () => {
       ws.addEventListener('message', (event: MessageEvent) => {
         const msg = JSON.parse(event.data as string);
         if (msg.type !== GatewayMessageType.INCOMING_CALL) return;
-        // An arraybuffer whose bytes are not an array: structured-clone refuses to decode it.
+        // An arraybuffer whose bytes are not base64: structured-clone refuses to decode it.
         ws.send(JSON.stringify({
           type: GatewayMessageType.INCOMING_CALL_RESPONSE, callId: msg.callId, success: true,
-          result: { json: { $type: 'arraybuffer', subtype: 'ArrayBuffer', data: 'not_an_array' }, meta: {} },
+          result: { $type: 'arraybuffer', subtype: 'ArrayBuffer', base64: 'not base64!' },
         }));
       });
 
@@ -1434,7 +1434,7 @@ describe('ClientGateway, on a host node', () => {
         .toEqual({ $ack: true });
       const { result } = await outcomeAt('exec_op_undecodable_recorder', 'undecodable');
       expect({ name: result.name, message: result.message })
-        .toEqual({ name: 'DataCloneError', message: 'Could not deserialize arraybuffer: data is not an array' });
+        .toEqual({ name: 'DataCloneError', message: 'Could not deserialize arraybuffer: base64 is not base64' });
       ws.close();
     });
 

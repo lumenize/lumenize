@@ -23,41 +23,20 @@ export function headersToArray(headers: Headers): [string, string][] {
   return entries;
 }
 
-/**
- * Default Headers encoder - creates inline array format (no alias tracking)
- * 
- * Used when encodeRequest/encodeResponse are called standalone.
- * For full cycle/alias support, the main encoder injects a custom callback.
- */
-function defaultEncodeHeaders(headers: Headers): [string, string][] {
-  return headersToArray(headers);
+/** A request's or response's field that goes through a field callback. */
+export type SyncField = 'headers' | 'body';
+
+// Used when the functions below are called standalone: headers as
+// `[name, value]` pairs, and the body as it is, for a carrier such as Workers
+// RPC that clones it. `preprocess` passes its own callback, which encodes
+// both fields like any other value.
+function defaultEncodeField(value: any, field: SyncField): any {
+  return field === 'headers' ? headersToArray(value) : value;
 }
 
-/**
- * Default body encoder - creates inline array format (no alias tracking)
- * 
- * Used when encodeRequest/encodeResponse are called standalone.
- * For full cycle/alias support, the main encoder injects a custom callback.
- */
-function defaultEncodeBody(body: ArrayBuffer): number[] {
-  return Array.from(new Uint8Array(body));
-}
-
-/**
- * Default Headers decoder - reconstructs from inline array format
- */
-function defaultDeencodeHeaders(data: any): Headers {
-  if (data instanceof Headers) return data;
+function defaultDecodeField(data: any, field: SyncField): any {
+  if (field === 'body' || data instanceof Headers) return data;
   return new Headers(data);
-}
-
-/**
- * Default body decoder - reconstructs from inline array format
- */
-function defaultDeencodeBody(data: any): ArrayBuffer {
-  if (data instanceof ArrayBuffer) return data;
-  if (Array.isArray(data)) return new Uint8Array(data).buffer;
-  return data;
 }
 
 // ============================================================================
@@ -75,18 +54,18 @@ import { ResponseSync } from './response-sync.js';
  * Workers RPC or Cloudflare Queues.
  * 
  * @param request - RequestSync instance
- * @param [encodeHeaders] - Optional callback to encode Headers (for cycle/alias tracking)
+ * @param [encodeField] - Encodes the headers and the body
  * @returns Plain object suitable for RPC/Queue transmission
  */
 export function encodeRequestSync(
   request: RequestSync,
-  encodeHeaders: (h: Headers) => any = defaultEncodeHeaders
+  encodeField: (value: any, field: SyncField) => any = defaultEncodeField
 ): any {
   return {
     url: request.url,
     method: request.method,
-    headers: encodeHeaders(request.headers),
-    body: request.body, // Direct access to stored body
+    headers: encodeField(request.headers, 'headers'),
+    body: encodeField(request.body, 'body'),
   };
 }
 
@@ -97,7 +76,7 @@ export function encodeRequestSync(
  * an RPC call or Queue message to reconstruct the RequestSync object.
  * 
  * @param data - Encoded request data
- * @param [decodeHeaders] - Optional callback to decode Headers (for cycle/alias tracking)
+ * @param [decodeField] - Decodes the headers and the body
  * @returns RequestSync instance
  * 
  * @example
@@ -111,12 +90,12 @@ export function encodeRequestSync(
  */
 export function decodeRequestSync(
   data: any,
-  decodeHeaders: (h: any) => Headers = defaultDeencodeHeaders
+  decodeField: (data: any, field: SyncField) => any = defaultDecodeField
 ): RequestSync {
   return new RequestSync(data.url, {
     method: data.method,
-    headers: decodeHeaders(data.headers),
-    body: data.body,
+    headers: decodeField(data.headers, 'headers'),
+    body: decodeField(data.body, 'body'),
   });
 }
 
@@ -128,18 +107,18 @@ export function decodeRequestSync(
  * Workers RPC or Cloudflare Queues.
  * 
  * @param response - ResponseSync instance
- * @param [encodeHeaders] - Optional callback to encode Headers (for cycle/alias tracking)
- * @returns Plain object suitable for RPC/Queue transmission`
+ * @param [encodeField] - Encodes the headers and the body
+ * @returns Plain object suitable for RPC/Queue transmission
  */
 export function encodeResponseSync(
   response: ResponseSync,
-  encodeHeaders: (h: Headers) => any = defaultEncodeHeaders
+  encodeField: (value: any, field: SyncField) => any = defaultEncodeField
 ): any {
   return {
     status: response.status,
     statusText: response.statusText,
-    headers: encodeHeaders(response.headers),
-    body: response.body, // Direct access to stored body
+    headers: encodeField(response.headers, 'headers'),
+    body: encodeField(response.body, 'body'),
   };
 }
 
@@ -150,7 +129,7 @@ export function encodeResponseSync(
  * an RPC call or Queue message to reconstruct the ResponseSync object.
  * 
  * @param data - Encoded response data
- * @param [decodeHeaders] - Optional callback to decode Headers (for cycle/alias tracking)
+ * @param [decodeField] - Decodes the headers and the body
  * @returns ResponseSync instance
  * 
  * @example
@@ -164,11 +143,11 @@ export function encodeResponseSync(
  */
 export function decodeResponseSync(
   data: any,
-  decodeHeaders: (h: any) => Headers = defaultDeencodeHeaders
+  decodeField: (data: any, field: SyncField) => any = defaultDecodeField
 ): ResponseSync {
-  return new ResponseSync(data.body, {
+  return new ResponseSync(decodeField(data.body, 'body'), {
     status: data.status,
     statusText: data.statusText,
-    headers: decodeHeaders(data.headers),
+    headers: decodeField(data.headers, 'headers'),
   });
 }
