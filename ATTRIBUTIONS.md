@@ -9,16 +9,16 @@ This file acknowledges code that has been copied, adapted, or used as inspiratio
 - **Purpose**: Provided inspiration for structured clone algorithm approach and cycle/alias detection using WeakMap.
 - **Date Added**: 2025-01-30
 - **Author**: Andrea Giammarchi (@WebReflection)
-- **Note**: We implemented our own algorithm from scratch with a different serialization format (tuple-based with `$lmz` references), but were inspired by @ungap/structured-clone's approach to handling cycles and type detection.
+- **Note**: We implemented our own algorithm from scratch with a different serialization format (one nested JSON document with inline `$type` tags and `$ref` pointers), but were inspired by @ungap/structured-clone's approach to handling cycles and type detection.
 
 ## Cap'n Web (Inspiration)
 - **Source**: https://github.com/cloudflare/capnweb
 - **License**: Apache-2.0 (https://github.com/cloudflare/capnweb/blob/main/LICENSE)
-- **Used In**: `packages/structured-clone/` (inspired tuple format)
-- **Purpose**: Inspired our tuple-based serialization format `["type", data]` for human-readable, self-describing JSON serialization.
+- **Used In**: `packages/structured-clone/` (inspired inline type tags)
+- **Purpose**: Inspired our self-describing JSON serialization, in which every value beyond plain JSON names its own type.
 - **Date Added**: 2025-01-30
 - **Author**: Cloudflare
-- **Note**: Cap'n Web uses a tuple format without cycles/aliases. We adopted the tuple approach but extended it with `["$lmz", index]` references to support cycles and aliases.
+- **Note**: Cap'n Web uses a tuple format without cycles/aliases. We tag a value with an inline `{ "$type": … }` object rather than a tuple, and add `{ "$ref": "#/…" }` pointers for cycles and shared objects.
 
 ## Cloudflare Actors - Alarms Package
 - **Source**: https://github.com/cloudflare/actors/tree/e910e86ac1567fe58e389d1938afbdf1e53750ff/packages/alarms

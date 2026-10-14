@@ -27,7 +27,7 @@ import TypeSupportTable from '@site/docs/_partials/_type-support-table.mdx';
 - **Platform Independent**: Works in Node.js, browsers, Deno, Bun, and Cloudflare Workers
 - **Full Type Support**: All primitives, special numbers (`NaN`, `Infinity`, `-Infinity`, `-0`), built-in types (`Date`, `RegExp`, `Map`, `Set`), typed arrays (a subclass such as Node's `Buffer` arrives as its built-in type, as with native `structuredClone()`), and Web API objects (via RequestSync/ResponseSync)
 - **Error Fidelity**: Preserves stack traces, `cause` chains, custom properties, and subclass types (including custom Error classes!)
-- **Circular References**: Automatically handled — shared and cyclic subgraphs are hoisted into `meta.aliases` and referenced by `{ $ref: id }`
+- **Circular References**: Automatically handled — an object reached a second time is written as `{ "$ref": "#/owner" }`, a pointer to where it was first written, and decodes as the same object
 - **Zero Dependencies**: No external packages required
 - **Synchronous API**: No async/await needed for serialization
 
@@ -186,6 +186,48 @@ expect(restored.incomingRequest).toBeInstanceOf(RequestSync);
 
 **Note:** Use `RequestSync`/`ResponseSync` instead of native `Request`/`Response` for synchronous body access and serialization support.
 
+## The Encoding
+
+`stringify()` writes JSON that any JSON tool can read, shaped so that an [RFC 7396](https://www.rfc-editor.org/rfc/rfc7396) merge patch changes one thing in one place:
+
+- **Plain data stays plain.** An object, array, string, number or boolean is written as itself.
+- **Every other type is an inline tag**, `{ "$type": …, … }`. A key of your own that starts with `$` is written with one more, so `{ $type: 'x' }` round-trips as itself.
+- **A Map or Set whose keys are all strings, or all numbers, is written as an object**, so adding one entry patches one key. Its order is kept. A Map with mixed keys keeps a list of `entries`.
+- **A long list of distinct strings is written the same way**, so appending or removing one id patches one key. A short list, or one with repeats, stays a plain array.
+- **`null` is a tag too.** RFC 7396 reads a JSON `null` as "delete this key", so the encoding never contains one.
+- **Binary is base64** of exactly the view's bytes.
+- **An object reached a second time is a [JSON Reference](https://datatracker.ietf.org/doc/html/draft-pbryan-zyp-json-ref-03)**, `{ "$ref": "#/owner" }`, whose [JSON Pointer](https://www.rfc-editor.org/rfc/rfc6901) names where it was first written.
+
+```typescript @check-example packages/structured-clone/test/for-docs/encoding.test.ts
+expect(stringify({ title: 'Ship it' })).toBe('{"title":"Ship it"}');
+expect(stringify(new Map([['pro', 25]]))).toBe('{"$type":"map","object":{"pro":25}}');
+expect(stringify(new Set(['a', 'b']))).toBe('{"$type":"set","object":{"a":1,"b":1}}');
+expect(stringify({ b: null })).toBe('{"b":{"$type":"null"}}');
+expect(stringify(new Uint8Array([1, 2, 3]))).toBe('{"$type":"arraybuffer","subtype":"Uint8Array","base64":"AQID"}');
+
+const owner = { name: 'Alice' };
+expect(stringify({ owner, reviewer: owner })).toBe('{"owner":{"name":"Alice"},"reviewer":{"$ref":"#/owner"}}');
+```
+
+### Patching a stored value
+
+`diff()` compares two encodings and answers `{ kind: 'same' }`, `{ kind: 'patches', patches }` or `{ kind: 'full' }`. Apply the patches in order with `applyMergePatch()`, or with SQLite's `json_patch()`:
+
+```typescript @check-example packages/structured-clone/test/for-docs/encoding.test.ts
+const before = preprocess({ title: 'Ship it', tags: new Map([['urgent', true]]) });
+const after = preprocess({ title: 'Ship it', tags: new Map([['urgent', true], ['q4', true]]) });
+
+const answer = diff(before, after);
+expect(answer).toEqual({ kind: 'patches', patches: [{ tags: { object: { q4: true } } }] });
+
+const patched = answer.kind === 'patches'
+  ? answer.patches.reduce((target, patch) => applyMergePatch(target, patch), before)
+  : after;
+expect([...postprocess(patched).tags.keys()]).toEqual(['urgent', 'q4']);
+```
+
+A patch can add and delete keys but never move one, so it keeps every Map's, Set's and array's order and not a plain object's. When a Map, Set or long list changes order, `diff()` sets it again whole. Under a plain object it deletes the collection in one patch and sets it in a second. Inside an array, the array is replaced, as RFC 7396 replaces every changed array. At the top, or inside another Map, it answers `full`, and you send the value whole. An order that matters belongs in a Map or an array.
+
 ## Advanced API
 
 The package provides a three-tier API for different use cases:
@@ -223,7 +265,7 @@ Binary formats are generally smaller, but this implementation is generally faste
 ## Attribution
 
 Inspired by:
-- **SuperJSON** (nested-document + meta sidecar shape) - https://github.com/blitz-js/superjson
+- **SuperJSON** (one nested JSON document rather than a flat table of objects) - https://github.com/blitz-js/superjson
 - **Cap'n Web** (inline-tagged special types) - https://github.com/cloudflare/capnweb
 - **@ungap/structured-clone** (cycle detection) - https://github.com/ungap/structured-clone by Andrea Giammarchi
 

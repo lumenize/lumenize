@@ -1,6 +1,6 @@
 /**
- * Core functionality tests
- * Tests structured clone with tuple-based $lmz format
+ * Core functionality tests: every supported type round-trips through
+ * `stringify` and `parse`.
  */
 
 import { describe, it, expect } from 'vitest';

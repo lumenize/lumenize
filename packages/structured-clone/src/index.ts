@@ -1,34 +1,36 @@
 /**
  * @lumenize/structured-clone
  *
- * Object-based $lmz format for structured cloning with full cycle / alias /
- * special-type preservation and RFC 7396 JSON Merge Patch support.
+ * Structured cloning to JSON, with cycles, shared objects and every special
+ * type preserved, in an encoding an RFC 7396 merge patch addresses one change
+ * at a time.
  *
- * Wire shape (W4):
- *   - `{ json, meta }` — `json` is the encoded document, mostly native JSON
- *     for cycle-free common-case data. `meta.aliases` holds shared/cyclic
- *     subgraphs when they exist.
- *   - Special types (Date, Map, Set, Error, RegExp, Headers, URL, etc.)
- *     are encoded as inline `{ $type, ...payload }` tags.
- *   - Patches over this shape are typically <100 bytes for single-field
- *     mutations on documents of 10k+ nodes; see
- *     `experiments/structured-clone-object-format/RESULTS.md` for the
- *     benchmark-driven rationale.
+ * The encoding:
+ *   - Plain JSON values are written as themselves.
+ *   - Every other type is an inline `{ $type, ...payload }` tag, and a user
+ *     key starting with `$` gets one more `$`.
+ *   - A Map or Set whose keys are all strings, or all numbers, is
+ *     `{ $type, object }` with its keys in order, and so is an array of
+ *     distinct strings over 256 bytes; anything else keeps a list.
+ *   - `null` and a sparse array's hole are tags, so no JSON `null` appears.
+ *   - Binary is base64 of the view's own bytes.
+ *   - An object reached a second time is `{ $ref: "#/…" }`, a JSON Reference
+ *     to where it was first written.
  *
  * Supported types:
  *   - Primitives: string, number, boolean, null, undefined, bigint
- *   - Special numbers: NaN, Infinity, -Infinity
- *   - Objects: Object, Array, Date, RegExp, Map, Set, Error
+ *   - Special numbers: NaN, Infinity, -Infinity, -0
+ *   - Objects: Object, Array (holes included), Date, RegExp, Map, Set, Error
  *   - TypedArrays + ArrayBuffer + DataView
  *   - Web API: RequestSync, ResponseSync, Headers, URL
- *   - Cycles and aliases fully preserved via `meta.aliases`
+ *   - Cycles and shared objects, with identity, through `$ref` pointers
  *
  * Class instances arrive as plain objects, as with native structuredClone().
  * Any other object without an encoder (CryptoKey, Blob, streams, WeakMap, …)
  * throws a `DataCloneError` rather than arriving as an empty impostor.
  *
  * Inspired by:
- *   - SuperJSON (nested-document + meta sidecar shape)
+ *   - SuperJSON (one nested JSON document rather than a flat table of objects)
  *   - Cap'n Web (inline-tagged special types)
  *   - @ungap/structured-clone (cycle detection algorithm)
  */
@@ -67,8 +69,7 @@ export function parse(value: string): any {
 export { preprocess } from './preprocess';
 export { postprocess } from './postprocess';
 
-// RFC 7396 JSON Merge Patch — primitives for per-mutation sync over the
-// object-based wire format. Hand-rolled (~120 LOC, no deps).
+// RFC 7396 JSON Merge Patch over the encoding — hand-rolled, no deps.
 export { applyMergePatch, diff } from './merge-patch';
 export type { JsonValue, MergePatch, Diff, DiffSame, DiffPatches, DiffFull } from './merge-patch';
 

@@ -24,7 +24,7 @@ Lumenize Mesh is a **peer mesh network** where Durable Objects, Workers, and cli
 
 ### Comparison with Cap'n Web
 
-[Cap'n Web](https://github.com/cloudflare/capnweb) uses a similar tuple-based encoding but has more traditional client/server tendencies. Workers, RpcTargets, Durable Objects, and especially Clients are all coded in different ways. The type support for calls from Clients is a subset of the types that Workers RPC supports. In Lumenize Mesh, Workers, DOs, and Clients are all coded the same way (extend the correct base class). All have access to the same `LmzApi`. Calls all support the same rich types.
+[Cap'n Web](https://github.com/cloudflare/capnweb) uses a tuple-based encoding and has more traditional client/server tendencies. Workers, RpcTargets, Durable Objects, and especially Clients are all coded in different ways. The type support for calls from Clients is a subset of the types that Workers RPC supports. In Lumenize Mesh, Workers, DOs, and Clients are all coded the same way (extend the correct base class). All have access to the same `LmzApi`. Calls all support the same rich types.
 
 ---
 
@@ -51,84 +51,7 @@ Communication between `LumenizeClient` ↔ `LumenizeClientGateway` uses WebSocke
 
 ## Serialization Format
 
-### The `$lmz` Intermediate Format
-
-Lumenize uses a tuple-based format inspired by Cap'n Web, combined with cycle/alias support.
-
-```typescript @skip-check
-interface LmzIntermediate {
-  root: any;      // Entry point (primitive tuple or ["$lmz", index])
-  objects: any[]; // Array of complex objects
-}
-```
-
-### Encoding Rules
-
-#### Primitives (Inline Tuples)
-
-Primitives encode inline without going into the `objects` array:
-
-| Type | Encoding | Example |
-|------|----------|---------|
-| `null` | `["null"]` | `["null"]` |
-| `undefined` | `["undefined"]` | `["undefined"]` |
-| `string` | `["string", value]` | `["string", "hello"]` |
-| `number` | `["number", value]` | `["number", 42]` |
-| `boolean` | `["boolean", value]` | `["boolean", true]` |
-| `bigint` | `["bigint", string]` | `["bigint", "9007199254740993"]` |
-| `NaN` | `["number", "NaN"]` | `["number", "NaN"]` |
-| `Infinity` | `["number", "Infinity"]` | `["number", "Infinity"]` |
-| `-Infinity` | `["number", "-Infinity"]` | `["number", "-Infinity"]` |
-| `Date` | `["date", isoString]` | `["date", "2024-01-15T10:30:00.000Z"]` |
-| `RegExp` | `["regexp", {source, flags}]` | `["regexp", {"source": "\\d+", "flags": "g"}]` |
-
-#### Complex Objects (Referenced)
-
-Complex objects go into the `objects` array and are referenced by index:
-
-```json
-{
-  "root": ["$lmz", 0],
-  "objects": [
-    ["array", [["string", "a"], ["string", "b"]]]
-  ]
-}
-```
-
-| Type | Tuple Format |
-|------|--------------|
-| `Array` | `["array", [...items]]` |
-| `Object` | `["object", {...properties}]` |
-| `Map` | `["map", [[key, value], ...]]` |
-| `Set` | `["set", [...values]]` |
-| `Error` | `["error", {name, message, stack?, cause?, ...custom}]` |
-| `Headers` | `["headers", [[key, value], ...]]` |
-| `URL` | `["url", {href}]` |
-| `ArrayBuffer` | `["arraybuffer", {type, data}]` |
-| `TypedArray` | `["arraybuffer", {type: "Uint8Array", data}]` |
-
-#### Cycles and Aliases
-
-When the same object appears multiple times, subsequent references use `["$lmz", index]`:
-
-```javascript @skip-check
-const obj = { name: "shared" };
-const data = { a: obj, b: obj };  // obj appears twice
-
-// Encodes as:
-{
-  "root": ["$lmz", 0],
-  "objects": [
-    ["object", {
-      "a": ["$lmz", 1],
-      "b": ["$lmz", 1]  // Same reference
-    }],
-    ["object", { "name": ["string", "shared"] }]
-  ]
-}
-```
-
-Cycles work the same way — the postprocessor builds objects in two passes to resolve forward references.
+Every chain, result handler continuation, result and error travels as the encoding `@lumenize/structured-clone` writes: plain JSON where the value is plain, an inline `{"$type": …}` tag for every other type, and `{"$ref": "#/…"}` for an object reached a second time. [The encoding](../structured-clone/index.mdx#the-encoding) describes it in full.
 
 ---
 
@@ -215,7 +138,7 @@ Every `__executeOperation` and `__handleResponse` answers its caller with an ack
 { $ack: true }
 
 // Refused at admission (preserves custom Error properties)
-{ $error: LmzIntermediate }  // preprocess(error)
+{ $error: JsonValue }  // preprocess(error)
 ```
 
 The framework's private single-hop transport reads the acknowledgement, and runs the caller's result handler continuation on the spot only for a refusal:
@@ -266,8 +189,8 @@ const GatewayMessageType = {
   loadId: string,            // Minted once per Client; the answer echoes it
   binding: string,           // Target binding name
   instance?: string,         // Target instance (DO only)
-  chain: LmzIntermediate,    // Preprocessed operation chain
-  handler: LmzIntermediate,  // Preprocessed result handler continuation, which travels
+  chain: JsonValue,          // Preprocessed operation chain
+  handler: JsonValue,        // Preprocessed result handler continuation, which travels
   onErrorOnly?: boolean      // The node fires the handler back only with an Error
   // No callContext: the Gateway builds all of it from the socket's verified identity
 }
@@ -282,7 +205,7 @@ The Gateway writes the envelope's `response` descriptor itself — `kind`, and t
   type: 'response',
   callId: string,
   loadId: string,            // The Client drops an answer whose loadId is not its own
-  chain: LmzIntermediate,    // The Client's continuation, filled with the value or the Error
+  chain: JsonValue,          // The Client's continuation, filled with the value or the Error
   callContext: {
     callChain: NodeIdentity[],  // Its last hop is the node that answered, or refused
     originAuth?: OriginAuth,
@@ -298,7 +221,7 @@ It comes from the node's fire-back to the Gateway's `__handleResponse`, or, when
 {
   type: 'incoming_call',
   callId: string,
-  chain: LmzIntermediate,    // Preprocessed
+  chain: JsonValue,          // Preprocessed
   callContext: {
     callChain: NodeIdentity[],
     originAuth?: OriginAuth,
@@ -314,8 +237,8 @@ It comes from the node's fire-back to the Gateway's `__handleResponse`, or, when
   type: 'incoming_call_response',
   callId: string,
   success: boolean,
-  result?: LmzIntermediate,  // Preprocessed
-  error?: LmzIntermediate    // Preprocessed
+  result?: JsonValue,        // Preprocessed
+  error?: JsonValue          // Preprocessed
 }
 ```
 
@@ -420,7 +343,7 @@ Continuations can be nested. The special markers `$result` and `$error` are subs
 
 ### TODO: Consistency Audit
 
-The current format is clean tuple-based, but a consistency audit should verify:
+A consistency audit should verify:
 - [ ] All type names follow same convention
 - [ ] No legacy marker-based encoding remains
 - [ ] Wrapper types (`Boolean`, `Number`, `String` objects) are handled consistently
@@ -441,6 +364,6 @@ WebSocket messages could benefit from optional compression for large operation c
 
 ## References
 
-- [Cap'n Web Protocol](https://github.com/cloudflare/capnweb/blob/main/protocol.md) — Inspiration for tuple format
+- [Cap'n Web Protocol](https://github.com/cloudflare/capnweb/blob/main/protocol.md) — Inspiration for inline-tagged types
 - [@ungap/structured-clone](https://github.com/ungap/structured-clone) — Inspiration for cycle/alias handling
 - [Workers RPC](https://developers.cloudflare.com/workers/runtime-apis/rpc/) — Cloudflare's native RPC

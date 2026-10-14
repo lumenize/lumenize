@@ -4,12 +4,12 @@
 **Depends on**:
 - W4 wire format + `diff` / `applyMergePatch` utilities — shipped in [PR #11](https://github.com/lumenize/lumenize/pull/11) (merge commit `260c242`)
 - DAG normalization (originally Phase 3 of the wire-format task) — ✅ shipped 2026-05-16, archived at [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md)
-- **A format a merge patch can address — NOT shipped (found 2026-10-14), and now a pre-alpha must-have** ahead of the wipe: [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md). Maps, Sets and aliases still encode in shapes that make a one-entry change patch the whole collection, and a patch loses a `null`, a `__proto__` key, or the order of a Map, Set or long array.
+- **A format a merge patch can address — ✅ shipped 2026-10-14** by [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md), ahead of the wipe. A Map, Set or long id list patches one entry at a time, a shared object is a `$ref` pointer, and a patch keeps a `null`, a `__proto__` key, and every Map's, Set's and array's order.
 **Related**: [tasks/archive/nebula-frontend.md](../archive/nebula-frontend.md) "DAG-binding update strategies" Options C and D — both became cheaper after W4 shipped.
 
 ## Goal
 
-Use the W4 wire format + RFC 7396 (JSON Merge Patch) primitives to send per-mutation deltas over the wire, replacing full-snapshot sends. Two use cases:
+Use the structured-clone encoding + RFC 7396 (JSON Merge Patch) primitives to send per-mutation deltas over the wire, replacing full-snapshot sends. Two use cases:
 
 1. **DAG-tree fanout sync** — every Star pushes its DAG to every connected client on every mutation. With 1k typical (10k worst-case) nodes per Star and many connected clients per Star, full-snapshot resends don't scale. Was the original motivating use case (Phase 4 of the wire-format task).
 2. **Per-resource read sync** — when a client `read`s a resource it already has a snapshot for, server sends a patch from the last-known ETag instead of a full snapshot. Secondary use case but the plumbing largely overlaps.
@@ -19,16 +19,16 @@ Most plumbing is common; the DAG path adds a few specifics (per-Star fanout, sna
 ## Why on hold (post-demo)
 
 - The demo ships with **Option 0** for DAG (eTag-bump-and-pull per [tasks/archive/nebula-frontend.md](../archive/nebula-frontend.md)) and full-snapshot reads — both functional, just not bandwidth-optimal.
-- W4 + `diff` + `applyMergePatch` are already in place. The foundation is done once the pre-alpha format fix above lands, and this task is then purely the integration into Nebula's fanout / read paths.
+- The encoding, `diff` and `applyMergePatch` are in place, so this task is purely the integration into Nebula's fanout / read paths.
 - Worth picking up once a real workload exposes the scale concern: 1k-node DAG full-resends saturating bandwidth, or large resources read often where most reads return "unchanged."
 
 ## Foundation (already shipped)
 
 From [PR #11](https://github.com/lumenize/lumenize/pull/11):
 
-- W4 object-based wire format produced by `preprocess()`, consumed by `postprocess()` — `{ json, meta }` shape. ⚠️ **Not yet RFC 7396-friendly for Maps, Sets or aliases** (corrected 2026-10-14; this line used to claim no tuple arrays for Map entries). A Map is still `{"$type":"map","entries":[[k, v], …]}`, a Set is one `values` array, and alias ids are a traversal counter. Measured on the org tree's shape at 10,000 nodes: adding a leaf patches to 104,655 B gzipped against a 111,447 B snapshot. The fix and the measurements are in [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md).
-- `diff(beforeW4, afterW4)` → RFC 7396 patch.
-- `applyMergePatch(beforeW4, patch)` → afterW4.
+- The encoding `preprocess()` writes and `postprocess()` reads, made patchable by [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md): a Map is `{"$type":"map","object":{…}}` and a Set likewise, a shared object is `{"$ref":"#/…"}`, and `null` is a tag. On the org tree's shape at 1,000 nodes, adding a leaf patches to 217 B against a 187,714 B snapshot.
+- `diff(before, after)` → `{ kind: 'same' }`, `{ kind: 'patches', patches }` (one, or two when a collection under a plain object changed order) or `{ kind: 'full' }`.
+- `applyMergePatch(before, patch)` → the next encoding, one patch at a time; SQLite's `json_patch` gives the same result.
 - Both exported from `@lumenize/structured-clone`.
 - RFC 7396 Appendix A conformance suite passes.
 
@@ -60,9 +60,9 @@ If 10 mutations happen in 50 ms, do we send 10 patches or 1 coalesced patch? Lik
 
 ### Where the previous state lives (diff source-of-truth)
 
-To compute `diff(prev, new)` for fanout, the server needs the *immediately previous* W4 snapshot. The DAG normalization that landed pre-demo solved the *in-memory* shape but didn't decide *where* the previous state lives. Three options, in order of recommendation:
+To compute `diff(prev, new)` for fanout, the server needs the *immediately previous* encoded snapshot. The DAG normalization that landed pre-demo solved the *in-memory* shape but didn't decide *where* the previous state lives. Three options, in order of recommendation:
 
-**C — In-memory snapshot reference (recommended, simplest).** Keep current row-level storage. Maintain a `#lastFanoutSnapshot: W4 | null` reference on the OrgTree class (or in Star). Flow:
+**C — In-memory snapshot reference (recommended, simplest).** Keep current row-level storage. Maintain a `#lastFanoutSnapshot: JsonValue | null` reference on the OrgTree class (or in Star). Flow:
 1. Mutation happens → invalidate state cache (current behavior).
 2. Next access rebuilds state from rows (current behavior).
 3. On fanout: compute `newSnapshot = preprocess(state)` (needed anyway to send), `patch = diff(lastFanoutSnapshot, newSnapshot)`, fan out.
@@ -79,7 +79,7 @@ Pros vs C:
 
 Cons / unknowns:
 - **Storage growth**: every version retained as a full blob. At ~30–50 KB serialized per 1k-node DAG, mutation rate × retention determines GB-month cost. Probably noise at typical ontology mutation rates.
-- **Per-row size cap**: DO SQL row size limit isn't documented as a specific number that I've verified. SQLite supports up to 1 GB rows; Cloudflare may cap lower. A 10k-node W4 blob could plausibly hit a real cap. If it does, multi-row chunking erodes the "1 read" benefit.
+- **Per-row size cap**: DO SQL row size limit isn't documented as a specific number that I've verified. SQLite supports up to 1 GB rows; Cloudflare may cap lower. A 10k-node encoded blob could plausibly hit a real cap. If it does, multi-row chunking erodes the "1 read" benefit.
 - Writes are 1 row but the row is *large* — billing is per-row not per-byte, so this is mostly fine, but worth confirming nothing in the pricing model penalizes large rows.
 
 **B — `validFrom`/`validTo` per node/edge/permission row (most "Resources-like" but most complex).** Each mutation closes an old row and opens a new one. Reconstructing state at time T means three AS-OF queries across `Nodes`/`Edges`/`Permissions`. Storage growth comparable to A but in many small rows. Beautiful for temporal queries; expensive for cross-table coherence on every read.
@@ -92,8 +92,8 @@ Cons / unknowns:
 
 ### Server-side (Star)
 
-1. Star tracks the W4-encoded snapshot of `OrgTreeState` per ontology version (or computes lazily from the current normalized state). Snapshot ETag = content hash.
-2. On every mutation: recompute the W4 snapshot, compute `patch = diff(prev, new)` once.
+1. Star tracks the encoded snapshot of `OrgTreeState` per ontology version (or computes lazily from the current normalized state). Snapshot ETag = content hash.
+2. On every mutation: recompute the encoded snapshot, compute `diff(prev, new)` once.
 3. Fanout: send `{ patch, fromETag, toETag }` to every subscribed client.
 4. If a subscriber's known ETag doesn't match `prev`'s ETag → send a full snapshot instead.
 

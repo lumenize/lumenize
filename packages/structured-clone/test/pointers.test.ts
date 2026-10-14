@@ -9,7 +9,7 @@
  * - skip `~` escaping in `escapePointerSegment`, or escape `/` before `~`
  * - refuse every `__proto__` segment
  * - resolve a `$ref` only from containers already filled
- * - emit the `{ json, meta }` wrapper
+ * - wrap the encoding in an outer object
  */
 
 import { describe, it, expect } from 'vitest';

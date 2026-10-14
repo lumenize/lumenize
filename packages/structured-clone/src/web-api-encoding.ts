@@ -1,14 +1,11 @@
 /**
- * Web API object encoding utilities
- * 
- * Provides tuple-style encoding for Request, Response, Headers, and URL objects.
- * 
- * Most users should use `stringify()`/`parse()` which handle Web API objects automatically.
- * These utilities are for when you need explicit control over encoding (e.g., custom
- * encoding pipelines, queue storage, or DO persistence with specific formats).
- * 
- * The encoding functions accept callbacks for handling nested objects like Headers,
- * allowing you to return references (e.g., ["$lmz", index]) or inline data as needed.
+ * Encodes RequestSync and ResponseSync as plain objects, and decodes them.
+ *
+ * Most users should use `stringify()`/`parse()`, which handle them
+ * automatically. Each function takes a callback for the headers and the body:
+ * `preprocess` passes one that encodes both like any other value, and the
+ * defaults leave the body as it is, for a carrier such as Workers RPC that
+ * clones it.
  */
 
 /**

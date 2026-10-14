@@ -1,28 +1,15 @@
 /**
- * W4 object-based $lmz format preprocessing.
+ * Encoding: a value to JSON that `postprocess` decodes back to it.
  *
- * Replaces the prior tuple-based `{ root, objects[] }` format with a
- * SuperJSON-style `{ json, meta }` shape that's amenable to RFC 7396
- * (JSON Merge Patch) diffs. See experiments/structured-clone-object-format/RESULTS.md
- * for the benchmark-driven rationale and per-mutation patch sizes.
- *
- * Wire shape (cycle-free common case):
- *   - Plain JSON values (string, number, boolean, null, arrays of those,
- *     objects with string keys) sit natively in `json` with no wrapper.
- *   - Special types are encoded inline as `{ $type: "<tag>", ...payload }`.
- *   - User keys that start with `$` are escaped to `$<key>` on the wire and
- *     un-escaped on decode.
- *   - `meta` is `{}` for cycle-free graphs with no special-type-by-path
- *     tracking needed.
- *
- * Cycles and aliases:
- *   - An object is written in full where the walk first reaches it, and
- *     every later occurrence becomes `{ $ref: "#/owner" }`, a JSON Reference
- *     to that first place in the encoding.
+ * One depth-first walk: a plain object in property order, a Map, Set or
+ * array in insertion order. Each object is written in full where the walk
+ * first reaches it, and every later occurrence, a cycle included, becomes
+ * `{ $ref: "#/owner" }`, a JSON Reference whose pointer runs through the
+ * encoding, escaped keys and all.
  *
  * Special-type tags emitted:
- *   undefined, bigint, number-special (NaN/Infinity/-Infinity/-0),
- *   date, regexp, map, set, error, headers, url, arraybuffer (covers
+ *   undefined, null, hole, bigint, number-special (NaN/Infinity/-Infinity/-0),
+ *   date, regexp, map, set, array, error, headers, url, arraybuffer (covers
  *   ArrayBuffer/DataView/TypedArray), boolean-object, number-object,
  *   string-object, bigint-object, request-sync, response-sync, function.
  *

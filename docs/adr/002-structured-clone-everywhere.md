@@ -20,7 +20,9 @@ While Mesh users are coders, Nebula's user-developers often have no coding exper
 - cycles and aliases, with **identity preserved** — the same object referenced twice deserializes as the same object
 - extensions beyond the spec: Errors with stack traces and custom properties (the carrier for Mesh's typed-error design), Web API objects (Request, Response, Headers, URL)
 
-"Surface" means all of them: wire format, storage, validation (`toTypeScript()` is cycle-aware), diff/patch (RFC 7396 adapted to the W4 format), history. **A new surface that only handles JSON is not done.** This is what licenses the docs to promise "write the same way you'd write any in-memory JS object."
+"Surface" means all of them: wire format, storage, validation (`toTypeScript()` is cycle-aware), diff/patch (RFC 7396 over the codec's encoding), history. **A new surface that only handles JSON is not done.** This is what licenses the docs to promise "write the same way you'd write any in-memory JS object."
+
+**The diff/patch surface takes one exception: a patch keeps a plain object's properties and values, but not their key order.** A fresh read of `{ title, dueDate, status }` keeps that order. A copy patched from `{ title, status }` reads `title, status, dueDate`, so two readers of one version may see its keys in different orders. Every Map's, Set's and array's order survives a patch, so an order that matters belongs in one of those.
 
 ## Alternatives considered
 
@@ -29,6 +31,7 @@ While Mesh users are coders, Nebula's user-developers often have no coding exper
 | JSON-only value space | Silent corruption (Date→string, Map→`{}`, `undefined` drops). The user least equipped to debug serialization is exactly Nebula's target user. |
 | Ecosystem serializers (superjson, devalue, Cap'n Web's serialization) | Partial type coverage, missing or partial cycle/alias identity, dependency risk. (Cap'n Web's format did inform the readable-format research.) |
 | Supported subset with warnings | Violates the no-footguns principle; "sometimes works" is worse than either extreme. |
+| Diff/patch keeps a plain object's key order too | A resource's value is a plain object at its root, so every change that rebuilt it in schema order would send the whole value. And JavaScript moves integer keys first, so that order was never wholly the writer's. |
 
 ## Consequences
 
@@ -38,5 +41,5 @@ While Mesh users are coders, Nebula's user-developers often have no coding exper
 - The value-space promise is separable from the wire encoding — the encoding can be swapped without relitigating which values must round-trip, so the promise, not the format, is the stable part.
 
 ### Negative
-- Every new surface pays a structured-clone tax: it must go through `@lumenize/structured-clone` (or prove full round-trip) rather than adopting off-the-shelf JSON tooling. RFC 7396 had to be adapted; validation needed cycle-aware program generation.
-- Wire and storage payloads are a custom encoding — external tools inspecting them see the W4 format, not plain JSON.
+- Every new surface pays a structured-clone tax: it must go through `@lumenize/structured-clone` (or prove full round-trip) rather than adopting off-the-shelf JSON tooling. RFC 7396 needed collection forms that patch one entry at a time; validation needed cycle-aware program generation.
+- Wire and storage payloads are a custom encoding: external tools see plain JSON only where the value is plain, and `$type` tags and `$ref` pointers everywhere else.
