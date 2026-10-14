@@ -161,9 +161,9 @@ export type AddressRow = {
 /** The distinct delivery addresses a clear dropped — one notice per client, however many rows. */
 export type DroppedAddress = { clientAddress: string };
 
-/** A resource subscribe's answer: the snapshot a reader gets, or the node a denied subscriber is
- *  told it cannot read. */
-export type ResourceSubscribeOutcome = { snapshot: Snapshot } | { deniedNodes: [string] };
+/** A resource subscribe's answer: the snapshot a reader gets, the node a denied subscriber is
+ *  told it cannot read, or why the subscribe was refused, which the caller is told as an Error. */
+export type ResourceSubscribeOutcome = { snapshot: Snapshot } | { deniedNodes: [string] } | { refused: string };
 
 export class Subscriptions {
   #ctx: DurableObjectState;
@@ -221,8 +221,10 @@ export class Subscriptions {
    * read permission decides; then the type the caller named must match. A reader gets the current
    * snapshot. A caller who cannot read gets `{ deniedNodes: [nodeId] }` and a row, so the next
    * update tells it again — and if it named the wrong type, it is refused with a message naming
-   * only the type it asked for, since the resource's real type is not its to read. An
-   * unauthenticated caller is refused. A refusal writes no row.
+   * only the type it asked for, since the resource's real type is not its to read. These refusals
+   * come back as `{ refused }` rather than a throw: a client asking for a row a wipe or a delete
+   * removed is the caller's to hear about, not an error in this node. An unauthenticated caller is
+   * refused with a throw. A refusal writes no row.
    */
   subscribeResource(
     resourceType: string,
@@ -235,18 +237,18 @@ export class Subscriptions {
     } catch (e) {
       if (!(e instanceof PermissionDeniedError)) throw e;
       if (this.#snapshots.currentTypeName(resourceId) !== resourceType) {
-        throw new Error(`Resource '${resourceId}' is not a '${resourceType}'`);
+        return { refused: `Resource '${resourceId}' is not a '${resourceType}'` };
       }
       this.#insertResource(resourceId, clientAddress);
       return { deniedNodes: [e.nodeId] };
     }
     if (snapshot === null) {
-      throw new Error(`Resource '${resourceId}' not found — cannot subscribe before create`);
+      return { refused: `Resource '${resourceId}' not found — cannot subscribe before create` };
     }
     if (snapshot.meta.typeName !== resourceType) {
-      throw new Error(
-        `Resource type mismatch: '${resourceId}' is type '${snapshot.meta.typeName}', requested '${resourceType}'`,
-      );
+      return {
+        refused: `Resource type mismatch: '${resourceId}' is type '${snapshot.meta.typeName}', requested '${resourceType}'`,
+      };
     }
     this.#insertResource(resourceId, clientAddress);
     return { snapshot };

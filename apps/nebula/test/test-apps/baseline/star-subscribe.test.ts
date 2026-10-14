@@ -11,6 +11,7 @@
  * override captures (`lastResourceResult`), because the client drops keys it does not read.
  */
 import { describe, it, expect, vi } from 'vitest';
+import { setDebugSink, clearDebugSink, type DebugLogOutput } from '@lumenize/debug';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/resources';
 import type { Snapshot, TransactionResult, SubscriberRow } from '@lumenize/resources';
@@ -109,10 +110,21 @@ describe('star-subscribe', () => {
     const { client } = await adminClient(star);
     const missingId = crypto.randomUUID();
 
-    client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', missingId);
-    const err = await waitForError(client);
-    expect(err).toContain('not found');
-    expect(err).toContain('subscribe before create');
+    // The refusal is the caller's to hear, so the Star logs it as a warning: an error line would
+    // raise a Workers Issue every time a wiped Star's restored rows ask again.
+    const entries: DebugLogOutput[] = [];
+    setDebugSink((e) => entries.push(e));
+    try {
+      client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', missingId);
+      const err = await waitForError(client);
+      expect(err).toContain('not found');
+      expect(err).toContain('subscribe before create');
+    } finally {
+      clearDebugSink();
+    }
+    const logged = entries.filter((e) => e.namespace === 'nebula.Resources.doSubscribe'
+      && (e.data as { resourceId?: string } | undefined)?.resourceId === missingId);
+    expect(logged.map((e) => [e.level, e.message])).toEqual([['warn', 'subscribe refused']]);
 
     // A refusal writes no row.
     client.callStarInspectSubscribers(star);

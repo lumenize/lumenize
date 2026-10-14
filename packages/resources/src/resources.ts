@@ -1154,7 +1154,8 @@ export class Resources {
   /**
    * Register a resource subscriber and push what it may see: the current snapshot to a reader,
    * `{ deniedNodes: [nodeId] }` to one who cannot read it (ADR-008 — told, not refused), and an
-   * Error for a refused subscribe ({@link Subscriptions.subscribeResource} says which refuse). The
+   * Error for a refused subscribe ({@link Subscriptions.subscribeResource} says which refuse), which
+   * is logged as a warning, since the caller's request is what it reports. The
    * first snapshot takes the same reaper as every later update, so a tab gone by then loses its row
    * at once.
    *
@@ -1169,6 +1170,16 @@ export class Resources {
     const tab = [splitAddress(clientAddress)];
     try {
       const outcome = this.#subscriptions.subscribeResource(resourceType, resourceId, clientAddress);
+      if ('refused' in outcome) {
+        // A warning, not an error: the caller asked for a row that is not there or not that type,
+        // which it hears below, and an error line would raise a Workers Issue for it.
+        debug('nebula.Resources.doSubscribe').warn('subscribe refused', {
+          clientAddress, resourceType, resourceId, reason: outcome.refused,
+        });
+        this.#send(tab, this.#ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, new Error(outcome.refused)),
+          this.#ctn<ResourcesHost>().resourcesResults.onPushUndelivered('subscribe error'));
+        return;
+      }
       // Marker: one per registered resource subscribe, stamped with the client — the ask-again
       // test counts these to show a tree change re-subscribes only what was denied.
       debug('nebula.Resources.subscribers').debug('subscribe-resource', {
