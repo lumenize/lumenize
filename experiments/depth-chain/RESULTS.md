@@ -15,3 +15,13 @@
 1. **The depth limit is 16 nested calls.** Cloudflare does not document it.
 2. **A Client's answer resets the chain in today's Gateway.** Code awaiting a promise that a WebSocket event resolves runs in that event's context, so its RPC starts from that event's depth. Firing back from the answer's own event (`fresh`) changes nothing.
 3. **So the 2026-10-13 error came from somewhere else.** A delivery that ends with no Client answer, because there is no socket, a grace period runs out, or the 30 s timeout fires, fires back from the invocation that started it, and nothing resets the depth there. A chain of node-to-node fire-backs, each handler calling on from inside the last, through such a delivery is the remaining candidate. It is unmeasured.
+
+## What the 2026-10-13 error was (found 2026-10-14)
+
+It recurred on `test-nebula` during `resubscribe-when-lost`, whose limb 1 closes a Studio tab while a turn streams to it, and its failure line, which now names its chain, read `to: GALAXY/<galaxy>` with a chain of just that Galaxy and its Client. Workers Logs, queried by the trace id, showed the rest:
+
+1. **Each chunk the Galaxy pushed to the gone tab came back as a self-RPC.** The Gateway delivers a node's call to a Client the node hosts in place, but sent the answer, here `ClientDisconnectedError`, to the node's own `__handleResponse` through a stub, so each answer was a new invocation.
+2. **Each new invocation sat one level inside the last.** The thirteen chunk answers after the close ran as thirteen `__handleResponse` invocations, each nested in the one before, and every chunk after the thirteenth failed with the depth error, logged from inside the last. Why the turn's loop kept continuing inside the newest invocation is not established; the nesting itself is what the logs show.
+3. **The failed answers included the reaper's**, so the tab's subscriber row was never dropped, which is how the scenario failed.
+
+The fix, in `@lumenize/mesh`: the Gateway hands the answer to its host's own door in place, as a node already does for a Client it hosts, so no answer to a node from itself crosses an RPC.

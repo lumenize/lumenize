@@ -116,6 +116,13 @@ export interface ClientGatewayHost {
    * RPC would.
    */
   __executeOperation(envelope: CallEnvelope): Promise<any>;
+  /** The host node's identity, which a fire-back's return address is compared with. */
+  readonly lmz: { bindingName?: string; instanceName?: string };
+  /**
+   * The host node's own fire-back door. The answer to the host's call to one of its Clients goes
+   * through it as a method call, never as an RPC from the host to itself.
+   */
+  __handleResponse(envelope: CallEnvelope): Promise<any>;
 }
 
 /**
@@ -480,9 +487,11 @@ export class ClientGateway {
     }
     // `originAuth` and `originRequest` are the envelope's, never the attachment's: the answer goes
     // back on the node's chain, under the node's claims.
+    // The host is passed as the door that may take the answer: a call the host made to its own
+    // Client is answered in place, never by an RPC from the host to itself.
     await fireResponse(
       answerer, this.#env, envelope.callContext, envelope.response, outcome, isError,
-      'ClientGateway', `${answerer.bindingName}/${answerer.instanceName}`,
+      'ClientGateway', `${answerer.bindingName}/${answerer.instanceName}`, this.#host,
     );
   }
 

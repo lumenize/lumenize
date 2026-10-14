@@ -228,6 +228,19 @@ function isOwnHostedClient(
 }
 
 /**
+ * Whether a fire-back to (`bindingName`, `instanceName`) is the answer to `node` itself, so it goes
+ * to `node`'s own fire-back door as a method call. Over RPC, each such answer is a new invocation
+ * nested inside the one that fired it, and Cloudflare refuses a call nested 16 deep: a turn
+ * streaming to a tab that had gone ran its fire-backs 16 deep and lost its reaper (2026-10-14).
+ */
+function isOwnAddress(
+  node: { lmz?: { bindingName?: string; instanceName?: string } } | undefined,
+  bindingName: string, instanceName: string | undefined,
+): boolean {
+  return instanceName !== undefined && node?.lmz?.bindingName === bindingName && node.lmz.instanceName === instanceName;
+}
+
+/**
  * The ONE awaited transport hop — collapses the old `callRaw*` trio for the
  * `call()` path. Sends the envelope to the callee's `__executeOperation`, which **acks
  * EARLY** (as soon as it is admitted, before the remote chain runs). The caller holds
@@ -978,7 +991,8 @@ export async function fireResponse(
   isError: boolean,
   nodeTypeName: string,
   callee: string,
-  /** The answering node, when its own door may take the answer: a Client it hosts asked. */
+  /** The answering node, when its own door may take the answer: a Client it hosts asked, or the
+   *  node did, as when its Gateway answers for a Client the node called. */
   local?: { lmz: { bindingName?: string; instanceName?: string }; __handleResponse(envelope: CallEnvelope): Promise<any> },
 ): Promise<void> {
   const log = debug('lmz.mesh.lmzApi.fireResponse');
@@ -1022,8 +1036,8 @@ export async function fireResponse(
   let ack: any;
   try {
     const { bindingName, instanceName } = response.returnAddr;
-    if (local && isOwnHostedClient(local, bindingName, instanceName)) {
-      // The asker is a Client this node hosts, so its answer goes down its socket from here.
+    if (local && (isOwnHostedClient(local, bindingName, instanceName) || isOwnAddress(local, bindingName, instanceName))) {
+      // The asker is this node or a Client it hosts, so the answer goes to its own door from here.
       log.debug('answered in place', { bindingName, instanceName });
       ack = await local.__handleResponse(fireEnvelope);
     } else {

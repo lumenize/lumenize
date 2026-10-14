@@ -158,6 +158,10 @@ describe('a node that hosts Clients', { timeout: 20000 }, () => {
     await expect(alice.lmz.callAsync('CLIENT_HOST_DO', h, host.guarded())).rejects.toThrow('Guard: hosts only');
   });
 
+  // Both legs stay in place, the push's answer included, whether the Client answered or had no socket
+  // to answer on. Over RPC each answer was a new invocation nested in the one that sent it, and a
+  // turn streaming to a closed tab nested them until Cloudflare refused the sixteenth, deployed only.
+  // MUTATION: drop the host from the Gateway's `fireResponse` → no `answered in place` names the host.
   it('pushes to its own Client and answers its Client\'s call with no RPC to itself', async () => {
     const h = uniqueScope('h');
     using alice = await connect(h);
@@ -170,6 +174,13 @@ describe('a node that hosts Clients', { timeout: 20000 }, () => {
     await alice.lmz.callAsync('CLIENT_HOST_DO', h, alice.ctn<ClientHostDO>().pushTo(name, 'pushed', 'own'));
     await vi.waitFor(async () => expect(await host.answerFor('own')).toBe('pushed!'), { timeout: 5000 });
     expect(marked('delivered in place', (d) => d.instanceName === name)).toHaveLength(1);
+    expect(marked('answered in place', (d) => d.instanceName === h)).toHaveLength(1);
+
+    // A Client with no socket and no grace period is answered at once, by the host's own door.
+    const gone = `${h}/${alice.lmz.instanceName.split('.')[0]}.gone`;
+    await alice.lmz.callAsync('CLIENT_HOST_DO', h, alice.ctn<ClientHostDO>().pushTo(gone, 'lost', 'gone'));
+    await vi.waitFor(async () => expect(await host.answerFor('gone')).toBe('Error: Client is not connected'), { timeout: 5000 });
+    expect(marked('answered in place', (d) => d.instanceName === h)).toHaveLength(2);
   });
 
   it('stops a Client its host closes with 4410: the pending call is rejected, and it does not reconnect', async () => {
