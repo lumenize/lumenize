@@ -13,7 +13,10 @@
  * - write a property's `null` as JSON `null`, or a hole as one
  * - encode binary as a number array, from `.buffer` rather than the view's window,
  *   or with one spread into `String.fromCharCode`
- * - copy a request's `body` raw
+ * - check base64 with a pattern that repeats a group of four, which overflows
+ *   the regex stack on a few megabytes
+ * - copy a request's `body` raw, or leave a body out of the index
+ * - build requests and responses in document order rather than when first needed
  */
 
 import { describe, it, expect } from 'vitest';
@@ -230,6 +233,15 @@ describe('binary', () => {
     expect(restored[bytes.length - 1]).toBe((bytes.length - 1) % 251);
   });
 
+  it('round-trips 8 MiB, past where a backtracking base64 check overflows', () => {
+    const bytes = new Uint8Array(8 << 20);
+    bytes[bytes.length - 1] = 7;
+
+    const restored = roundTrip(bytes);
+    expect(restored.length).toBe(bytes.length);
+    expect(restored[bytes.length - 1]).toBe(7);
+  });
+
   it.runIf(isNode)("sends Node's Buffer.from('hi') as its two bytes, not its pool", () => {
     const hi = (globalThis as any).Buffer.from('hi');
     // The dangerous shape: a view onto a larger shared buffer.
@@ -287,6 +299,41 @@ describe("a request's or response's body", () => {
     expect(restored.body).toBeInstanceOf(ArrayBuffer);
     expect(restored.text()).toBe('hi');
     expect(restored.status).toBe(201);
+  });
+
+  it('keeps a shared object first written in a body, referenced through data/body', () => {
+    const s = { id: 's' };
+    const value = { req: new RequestSync('https://example.com/', { method: 'POST', body: s }), later: s };
+
+    expect(preprocess(value)).toMatchObject({ later: { $ref: '#/req/data/body' } });
+    const restored = roundTrip(value);
+    expect(restored.later).toBe(restored.req.body);
+  });
+
+  it('keeps a body that is itself a response, in a document holding a $ref', () => {
+    const shared = { id: 's' };
+    const value = {
+      req: new RequestSync('https://example.com/', { method: 'POST', body: new ResponseSync('hi') as any }),
+      a: shared,
+      b: shared,
+    };
+
+    const restored = roundTrip(value);
+    expect(restored.req.body).toBeInstanceOf(ResponseSync);
+    expect((restored.req.body as unknown as ResponseSync).text()).toBe('hi');
+  });
+
+  it("decodes a body's $ref to a request later in the document", () => {
+    const first = new RequestSync('https://example.com/first');
+    const value = { a: first, b: new RequestSync('https://example.com/second', { method: 'POST', body: first as any }) };
+    const encoded = preprocess(value) as any;
+    // A patch can put `b` ahead of `a`; the $ref must resolve either way.
+    const reordered = JSON.stringify({ b: encoded.b, a: encoded.a });
+
+    expect(encoded.b.data.body).toEqual({ $ref: '#/a' });
+    const restored = parse(reordered);
+    expect(restored.b.body).toBe(restored.a);
+    expect(restored.a.url).toBe('https://example.com/first');
   });
 
   it('keeps an object body, Map and all', () => {

@@ -3,9 +3,9 @@
  *
  * Most users should use `stringify()`/`parse()`, which handle them
  * automatically. Each function takes a callback for the headers and the body:
- * `preprocess` passes one that encodes both like any other value, and the
- * defaults leave the body as it is, for a carrier such as Workers RPC that
- * clones it.
+ * `preprocess` and `postprocess` pass ones that encode and decode both like
+ * any other value, and the defaults leave the body as it is, for a carrier
+ * such as Workers RPC that clones it.
  */
 
 /**
@@ -46,9 +46,7 @@ import { ResponseSync } from './response-sync.js';
 /**
  * Encode RequestSync to plain object for RPC/Queue transmission.
  * 
- * This is a synchronous alternative to encodeRequest() that works with
- * RequestSync objects. Use this when you need to send a request over
- * Workers RPC or Cloudflare Queues.
+ * Use this to send a request over Workers RPC or Cloudflare Queues.
  * 
  * @param request - RequestSync instance
  * @param [encodeField] - Encodes the headers and the body
@@ -99,9 +97,7 @@ export function decodeRequestSync(
 /**
  * Encode ResponseSync to plain object for RPC/Queue transmission.
  * 
- * This is a synchronous alternative to encodeResponse() that works with
- * ResponseSync objects. Use this when you need to send a response over
- * Workers RPC or Cloudflare Queues.
+ * Use this to send a response over Workers RPC or Cloudflare Queues.
  * 
  * @param response - ResponseSync instance
  * @param [encodeField] - Encodes the headers and the body

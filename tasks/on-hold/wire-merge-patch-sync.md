@@ -4,7 +4,7 @@
 **Depends on**:
 - W4 wire format + `diff` / `applyMergePatch` utilities — shipped in [PR #11](https://github.com/lumenize/lumenize/pull/11) (merge commit `260c242`)
 - DAG normalization (originally Phase 3 of the wire-format task) — ✅ shipped 2026-05-16, archived at [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md)
-- **A format a merge patch can address — ✅ shipped 2026-10-14** by [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md), ahead of the wipe. A Map, Set or long id list patches one entry at a time, a shared object is a `$ref` pointer, and a patch keeps a `null`, a `__proto__` key, and every Map's, Set's and array's order.
+- **A format a merge patch can address — ✅ built 2026-10-14** by [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md), ahead of the wipe. A Map, Set or long id list patches one entry at a time, a shared object is a `$ref` pointer, and a patch keeps a `null`, a `__proto__` key, and every Map's, Set's and array's order.
 **Related**: [tasks/archive/nebula-frontend.md](../archive/nebula-frontend.md) "DAG-binding update strategies" Options C and D — both became cheaper after W4 shipped.
 
 ## Goal
@@ -26,7 +26,7 @@ Most plumbing is common; the DAG path adds a few specifics (per-Star fanout, sna
 
 From [PR #11](https://github.com/lumenize/lumenize/pull/11):
 
-- The encoding `preprocess()` writes and `postprocess()` reads, made patchable by [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md): a Map is `{"$type":"map","object":{…}}` and a Set likewise, a shared object is `{"$ref":"#/…"}`, and `null` is a tag. On the org tree's shape at 1,000 nodes, adding a leaf patches to 217 B against a 187,714 B snapshot.
+- The encoding `preprocess()` writes and `postprocess()` reads, made patchable by [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md): a Map is `{"$type":"map","object":{…}}` and a Set likewise, a shared object is `{"$ref":"#/…"}`, and `null` is a tag. Its § *Build notes* records the measured patch sizes.
 - `diff(before, after)` → `{ kind: 'same' }`, `{ kind: 'patches', patches }` (one, or two when a collection under a plain object changed order) or `{ kind: 'full' }`.
 - `applyMergePatch(before, patch)` → the next encoding, one patch at a time; SQLite's `json_patch` gives the same result.
 - Both exported from `@lumenize/structured-clone`.
@@ -36,7 +36,7 @@ From [PR #11](https://github.com/lumenize/lumenize/pull/11):
 
 ### ETag as the correlation key
 
-Both use cases use an **ETag chain**: `{ patch, fromETag, toETag }`. Receiver applies patch iff `currentETag === fromETag`. On any mismatch (or apply failure, or postprocess-produces-wrong-ETag), receiver requests a full snapshot.
+Both use cases use an **ETag chain**: `{ patch, fromETag, toETag }`. ⚠️ `diff` now answers `same`, a list of patches, or `full`, so the envelope carries a list, or the full value ([nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 14* designs it). Receiver applies patch iff `currentETag === fromETag`. On any mismatch (or apply failure, or postprocess-produces-wrong-ETag), receiver requests a full snapshot.
 
 **Decided 2026-10-14 (Larry): a subscription push is the same for every subscriber.** A client whose eTag does not match the push's base sends a read with its last eTag and gets a patch bridging the versions it missed. For a resource, ADR-004 keeps every version, so the base is usually still stored; the exception is the coalescing window, which overwrites a same-actor version in place within the hour, and that read answers with the full value. The retention strategies below are for the org tree, whose state keeps no history.
 
@@ -65,7 +65,7 @@ To compute `diff(prev, new)` for fanout, the server needs the *immediately previ
 **C — In-memory snapshot reference (recommended, simplest).** Keep current row-level storage. Maintain a `#lastFanoutSnapshot: JsonValue | null` reference on the OrgTree class (or in Star). Flow:
 1. Mutation happens → invalidate state cache (current behavior).
 2. Next access rebuilds state from rows (current behavior).
-3. On fanout: compute `newSnapshot = preprocess(state)` (needed anyway to send), `patch = diff(lastFanoutSnapshot, newSnapshot)`, fan out.
+3. On fanout: compute `newSnapshot = preprocess(state)` (needed anyway to send), `diff(lastFanoutSnapshot, newSnapshot)`, fan out.
 4. `lastFanoutSnapshot = newSnapshot`.
 
 No storage changes, no new abstractions. Drift-proof. The "previous snapshot" is a single in-memory reference, refreshed on every fanout. Eviction → `lastFanoutSnapshot` is null → first fanout after wake sends full snapshot (acceptable; rare event).
@@ -97,7 +97,7 @@ Cons / unknowns:
 3. Fanout: send `{ patch, fromETag, toETag }` to every subscribed client.
 4. If a subscriber's known ETag doesn't match `prev`'s ETag → send a full snapshot instead.
 
-**DAG normalization (shipped 2026-05-16, archive: [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md))** was the hard prerequisite for this work. Without it, the inline `parentIds[]` / `childIds[]` arrays would have forced whole-array replacement under merge-patch on every edge change — defeating the diff. With normalized `{ nodes, edges, permissions }`, adding a node is two key flips (one new node entry + one new edge entry) — once the pre-alpha format fix encodes `OrgTreeState`'s Map and Set as objects. Until then, each is one array and the flip replaces it whole.
+**DAG normalization (shipped 2026-05-16, archive: [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md))** was the hard prerequisite for this work. Without it, the inline `parentIds[]` / `childIds[]` arrays would have forced whole-array replacement under merge-patch on every edge change — defeating the diff. With normalized `{ nodes, edges, permissions }`, adding a node is two key flips (one new node entry + one new edge entry), now that the encoding writes `OrgTreeState`'s Map and Set as objects.
 
 ### Client-side (NebulaClient)
 
@@ -129,7 +129,7 @@ Extend `org-tree.test.ts` (or add `org-tree-sync.test.ts`):
 ### Server-side
 
 1. On `read(rt, rid, knownETag)`: if current ETag matches `knownETag`, return `{ status: 'unchanged', eTag }` — zero-cost path.
-2. If ETags differ: try to compute `patch = diff(versionAt(knownETag), current)`. Return `{ patch, fromETag, toETag }`.
+2. If ETags differ: try to compute `diff(versionAt(knownETag), current)`. Return `{ patch, fromETag, toETag }`.
 3. If `versionAt(knownETag)` isn't materializable (beyond retention window) → return full snapshot.
 
 ### Client-side
@@ -223,7 +223,7 @@ Estimated effort: ~150–300 LOC + tests. Phase-3-adjacent; Phase 3 code is fres
 
 - **Patch-history retention concrete N for resources.** Memory budget vs. cache hit rate.
 - **Subscriptions on resources** — do they use the same patch fanout as DAG, or stay read-only? If subscriptions land, the DAG and Resource paths converge.
-- **Permissions-only DAG changes** — should produce a tiny patch (`{ permissions: { "42": { "alice": "admin" } } }`). Measured 2026-10-14 at 10,000 nodes: 5,744 B gzipped under today's Map encoding, 71 B with plain objects. [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md)'s size criteria cover it.
+- **Permissions-only DAG changes** — produce a tiny patch, `{"permissions":{"object":{"<nodeId>":{"object":{"<sub>":"admin"}}}}}`. [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md) § *Build notes* records the measured size.
 - **Patch generation cost** — `diff` is O(snapshot size). Acceptable for 1k-10k node DAGs. Watch for surprises at the high end.
 - **Compression interaction** — WS `permessage-deflate` is on by default for `compatibility_date >= 2023-08-15` (verified via the workerd#4091 thread; Lumenize is at `2026-03-12`). Patches compress less aggressively than uniform snapshots; raw bytes matter slightly more here than for snapshots.
 

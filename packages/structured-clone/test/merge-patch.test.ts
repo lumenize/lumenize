@@ -11,6 +11,7 @@
  * - a bare bracket read in `diff` or in `applyMergePatch`
  * - plain assignment in `diff`, in the deep copy, or in `applyMergePatch`
  * - drop the prototype check, so two Dates diff to nothing
+ * - drop the scalar check, so a function or bigint lands in a patch
  */
 
 import { describe, it, expect } from 'vitest';
@@ -243,6 +244,27 @@ describe('every key is data to diff and applyMergePatch', () => {
     expect(() => diff(new Date(0), new Date(1))).toThrow(TypeError);
     // @ts-expect-error a Map is not JSON
     expect(() => applyMergePatch({}, { m: new Map([['a', 1]]) })).toThrow(TypeError);
+  });
+
+  it('refuses a value JSON cannot hold', () => {
+    // @ts-expect-error a function is not JSON
+    expect(() => diff({ a: 1 }, { a: () => 1 })).toThrow(/Not JSON: a function/);
+    // @ts-expect-error a bigint is not JSON
+    expect(() => applyMergePatch({}, { a: 1n })).toThrow(/Not JSON: a bigint/);
+    // @ts-expect-error undefined is not JSON
+    expect(() => diff({ a: undefined }, { a: 1 })).toThrow(/Not JSON: a undefined/);
+  });
+
+  it('a reordered Map under an own __proto__ key is deleted and set again as data', () => {
+    const holding = (map: Map<string, number>) =>
+      Object.defineProperty({}, '__proto__', { value: map, enumerable: true, writable: true, configurable: true });
+    const after = holding(new Map([['b', 1], ['a', 0]]));
+    const { answer, restore } = patchThrough(holding(new Map([['a', 0], ['b', 1]])), after);
+
+    expect(answer.kind === 'patches' && answer.patches.length).toBe(2);
+    const restored = restore();
+    expect(Object.getPrototypeOf(restored)).toBe(Object.prototype);
+    expect(shape(restored)).toEqual(shape(after));
   });
 
   it('types an encode, diff, apply and decode round trip with no cast', () => {

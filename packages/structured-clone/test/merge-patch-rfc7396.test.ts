@@ -8,7 +8,7 @@
  * Every conforming implementation of `applyMergePatch()` must produce
  * the expected RESULT for each (ORIGINAL, PATCH) pair. The RFC does not
  * define `diff()` — that's an implementation choice — but we additionally
- * round-trip check that `applyMergePatch(before, diff(before, after))`
+ * round-trip check that applying `diff(before, after)`'s patches to `before`
  * yields `after`, which is the sync correctness property our consumers
  * actually rely on.
  *
@@ -55,7 +55,7 @@ describe('RFC 7396 Appendix A conformance', () => {
   });
 });
 
-describe('RFC 7396 round-trip: apply(before, diff(before, after)) === after', () => {
+describe('RFC 7396 round-trip: applying diff(before, after) to before gives after', () => {
   // Every Appendix A vector also serves as a round-trip case — `after` is
   // `result`. We don't expect our `diff()` to produce the same patch the
   // RFC shows (the spec only defines `apply`, not the canonical diff form),

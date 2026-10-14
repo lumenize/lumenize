@@ -7,7 +7,7 @@
  *
  * The codec and the patch functions are pure, so these need no running system.
  *
- * Mutations, each of which reds a test here:
+ * Mutations, each of which reds a test here or, where it says so, `tsc`:
  * - skip the order check, so a mid-array edit is one patch and decodes out of order
  * - stop at the first order change in an object
  * - compare members without their order inside an array
@@ -17,11 +17,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { postprocess, applyMergePatch, type Diff, type JsonValue } from '../src/index.js';
+import { postprocess, applyMergePatch, type Diff, type JsonValue, type MergePatch } from '../src/index.js';
 import { patchThrough, patchBytes, shape } from './patching.js';
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const step = (n: number) => `Step ${String(n).padStart(2, '0')}: ${'stir gently and wait until it thickens '.slice(0, 50)}`;
+// About 60 characters each: "Step 00: " and 50 more.
+const step = (n: number) => `Step ${String(n).padStart(2, '0')}: ${'stir gently and wait until the custard thickens and coats a spoon'.slice(0, 50)}`;
 
 interface Case {
   name: string;
@@ -29,6 +30,7 @@ interface Case {
   after: unknown;
   kind: Diff['kind'];
   patches?: number;
+  exactly?: MergePatch[];
 }
 
 // Each pair is a value before and after one edit, with the answer `diff` owes.
@@ -47,7 +49,7 @@ const CASES: Case[] = [
     before: map('a', 'b'), after: new Map([['b', 1], ['a', 0]]) },
   { name: 'the same reorder in a Map inside another Map', kind: 'full',
     before: new Map([['outer', map('a', 'b')]]), after: new Map([['outer', new Map([['b', 1], ['a', 0]])]]) },
-  { name: 'a plain object rebuilt with a key in the middle', kind: 'patches', patches: 1,
+  { name: 'a plain object rebuilt with a key in the middle', kind: 'patches', patches: 1, exactly: [{ dueDate: 'd' }],
     before: { title: 't', status: 's' }, after: { title: 't', dueDate: 'd', status: 's' } },
   { name: 'a reordered Map beside a changed sibling', kind: 'patches', patches: 2,
     before: { m: map('a', 'b'), n: 1 }, after: { m: new Map([['b', 1], ['a', 0]]), n: 2 } },
@@ -73,6 +75,10 @@ const CASES: Case[] = [
     after: { m: new Map<unknown, unknown>([['k', shared], [1, 'one']]), later: shared } },
   { name: 'a catch-up from {a, b} to {b, a} in one diff', kind: 'patches', patches: 2,
     before: { m: map('a', 'b') }, after: { m: new Map([['b', 1], ['a', 0]]) } },
+  { name: "a catch-up's first step, deleting a", kind: 'patches', patches: 1,
+    before: { m: map('a', 'b') }, after: { m: new Map([['b', 1]]) } },
+  { name: "a catch-up's second step, adding a back", kind: 'patches', patches: 1,
+    before: { m: new Map([['b', 1]]) }, after: { m: new Map([['b', 1], ['a', 0]]) } },
 ];
 
 describe('a change of order', () => {
@@ -81,6 +87,7 @@ describe('a change of order', () => {
 
     expect(answer.kind).toBe(c.kind);
     if (answer.kind === 'patches') expect(answer.patches).toHaveLength(c.patches!);
+    if (c.exactly) expect(answer).toEqual({ kind: 'patches', patches: c.exactly });
     expect(shape(restore())).toEqual(shape(c.after));
   });
 
@@ -88,7 +95,7 @@ describe('a change of order', () => {
     const recipe = CASES[0];
     const { bytes } = patchThrough(recipe.before, recipe.after);
 
-    expect(bytes).toBeLessThanOrEqual(1.2 * JSON.stringify(editedSteps).length);
+    expect(bytes).toBeLessThanOrEqual(1.2 * JSON.stringify(steps).length);
   });
 
   it('keeps a shared object one object when its pointer moves', () => {

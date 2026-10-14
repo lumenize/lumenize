@@ -186,6 +186,7 @@ describe('a $ref that names no value in the document', () => {
     ['a pointer with no #', '[{"$ref":"/1"},{}]'],
     ['the numeric form the format used to write', '[{"$ref":0},{}]'],
     ['an array index written with a leading zero', '[{"$ref":"#/01"},{}]'],
+    ["a Map's encoding rather than a value in it", '{"tags":{"$type":"map","object":{"a":{}}},"r":{"$ref":"#/tags/object"}}'],
   ])('is refused: %s', (_, payload) => {
     const before = prototypeKeys();
 
@@ -285,15 +286,11 @@ describe('a shape the encoder never writes', () => {
     expect(() => parse('null')).toThrow(/a JSON null/);
   });
 
-  it("is refused when a $ref names a Map's encoding rather than a value in it", () => {
-    expect(() => parse('{"tags":{"$type":"map","object":{"a":{}}},"r":{"$ref":"#/tags/object"}}'))
-      .toThrow(/names no value/);
-  });
-
   it.each([
     ['request', '{"$type":"request-sync","data":{"url":"https://example.com/","method":"POST","headers":{"$type":"headers","entries":[]},"body":{"$ref":"#"}}}'],
     ['response', '{"$type":"response-sync","data":{"status":200,"statusText":"","headers":{"$type":"headers","entries":[]},"body":{"$ref":"#"}}}'],
-  ])("is refused when a %s's body is a $ref to itself", (_, payload) => {
+    ['request, through a second request', '{"a":{"$type":"request-sync","data":{"url":"https://a.example/","method":"POST","headers":{"$type":"headers","entries":[]},"body":{"$ref":"#/b"}}},"b":{"$type":"request-sync","data":{"url":"https://b.example/","method":"POST","headers":{"$type":"headers","entries":[]},"body":{"$ref":"#/a"}}}}'],
+  ])('is refused when a body leads back to its own %s', (_, payload) => {
     expect(() => parse(payload)).toThrow(DOMException);
     expect(() => parse(payload)).toThrow(/being built/);
   });

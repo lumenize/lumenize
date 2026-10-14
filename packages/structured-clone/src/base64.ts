@@ -9,9 +9,20 @@
 // Arguments per `String.fromCharCode` call, well under every engine's limit.
 const CHUNK = 0x8000;
 
-// Padded standard base64, the only form the encoder writes. Checked before
-// decoding so every runtime refuses the same strings, whichever decoder it has.
-const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+// Padded standard base64, the only form the encoder writes, checked before
+// decoding so every runtime refuses the same strings, whichever decoder it
+// has. It looks for one bad character rather than matching the string in
+// groups of four, since a repeated group backtracks once per group and
+// overflows V8's regex stack on a few megabytes.
+const NOT_BASE64 = /[^A-Za-z0-9+/=]/;
+
+function isPaddedBase64(text: string): boolean {
+  if (text.length % 4 !== 0 || NOT_BASE64.test(text)) return false;
+  // Padding is one `=` or two at the very end, and nowhere else.
+  const padding = text.indexOf('=');
+  if (padding === -1) return true;
+  return padding === text.length - 1 || (padding === text.length - 2 && text[text.length - 1] === '=');
+}
 
 export function bytesToBase64(bytes: Uint8Array): string {
   const native = (bytes as any).toBase64;
@@ -31,7 +42,7 @@ export function base64ToBytes(base64: unknown): Uint8Array {
   if (typeof base64 !== 'string') {
     throw new DOMException('Could not deserialize arraybuffer: base64 is not a string', 'DataCloneError');
   }
-  if (!BASE64.test(base64)) {
+  if (!isPaddedBase64(base64)) {
     throw new DOMException('Could not deserialize arraybuffer: base64 is not base64', 'DataCloneError');
   }
   const native = (Uint8Array as any).fromBase64;

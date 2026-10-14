@@ -66,8 +66,9 @@ export type Diff = DiffSame | DiffPatches | DiffFull;
 /**
  * Applies one RFC 7396 merge patch to a target, without mutating it.
  *
- * @throws TypeError for an object whose prototype is neither
- *   `Object.prototype` nor `null`, such as a decoded `Date` or `Map`.
+ * @throws TypeError for a value JSON cannot hold: an object whose prototype is
+ *   neither `Object.prototype` nor `null`, such as a decoded `Date` or `Map`,
+ *   or a function, bigint, symbol or `undefined`.
  */
 export function applyMergePatch(target: JsonValue, patch: MergePatch): JsonValue {
   if (!isJsonObject(patch)) return deepClone(patch);
@@ -93,8 +94,9 @@ export function applyMergePatch(target: JsonValue, patch: MergePatch): JsonValue
  * orders them any other way, the collection is set again whole: under a plain
  * object by two patches, and at the root or inside a Map by `{ kind: 'full' }`.
  *
- * @throws TypeError for an object whose prototype is neither
- *   `Object.prototype` nor `null`, such as a decoded `Date` or `Map`.
+ * @throws TypeError for a value JSON cannot hold: an object whose prototype is
+ *   neither `Object.prototype` nor `null`, such as a decoded `Date` or `Map`,
+ *   or a function, bigint, symbol or `undefined`.
  */
 export function diff(before: JsonValue, after: JsonValue): Diff {
   if (jsonEqual(before, after, false)) return { kind: 'same' };
@@ -179,8 +181,18 @@ function isJsonObject(v: unknown): v is JsonObject {
   return true;
 }
 
+// Refuses a value JSON cannot hold: a function, bigint, symbol or undefined.
+function checkScalar(v: unknown): void {
+  const type = typeof v;
+  if (type === 'function' || type === 'bigint' || type === 'symbol' || type === 'undefined') {
+    throw new TypeError(`Not JSON: a ${type}`);
+  }
+}
+
 // `ordered` is true for a collection's members, whose key order counts.
 function jsonEqual(x: JsonValue, y: JsonValue, ordered: boolean): boolean {
+  checkScalar(x);
+  checkScalar(y);
   if (x === y) return true;
   if (Array.isArray(x) || Array.isArray(y)) {
     if (!Array.isArray(x) || !Array.isArray(y) || x.length !== y.length) return false;
@@ -203,6 +215,7 @@ function jsonEqual(x: JsonValue, y: JsonValue, ordered: boolean): boolean {
 }
 
 function deepClone<T extends JsonValue>(v: T): T {
+  checkScalar(v);
   if (v === null || typeof v !== 'object') return v;
   if (Array.isArray(v)) return v.map((x) => deepClone(x)) as T;
   if (!isJsonObject(v)) return v;

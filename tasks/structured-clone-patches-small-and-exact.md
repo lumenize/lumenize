@@ -266,7 +266,7 @@ Each phase leaves `npm run test:code` green, and Phase 3 onward also `npx tsc --
 
 ### Phase 2 (2026-10-14)
 
-**What landed.** A Map or Set whose keys are all strings or all numbers takes the object form, `keyType: "number"` marking the second; an array of distinct strings over `ARRAY_OBJECT_FORM_MIN_BYTES` (256) takes it too; `null` and a hole are tags; binary is base64 of the view's own window (`src/base64.ts`); a request's or response's `headers` and `body` both go through one field callback; and the decoder refuses every shape rule 10 lists, a function tag carrying more than its name included. `packages/mesh/test/client-gateway.test.ts`'s undecodable answer is rebuilt on a `base64` that is not base64.
+**What landed.** A Map or Set whose keys are all strings or all numbers takes the object form, `keyType: "number"` marking the second; an array of distinct strings over `PLAIN_STRING_LIST_MAX_BYTES` (256) takes it too; `null` and a hole are tags; binary is base64 of the view's own window (`src/base64.ts`); a request's or response's `headers` and `body` both go through one field callback; and the decoder refuses every shape rule 10 lists, a function tag carrying more than its name included. `packages/mesh/test/client-gateway.test.ts`'s undecodable answer is rebuilt on a `base64` that is not base64.
 
 **Gate:** `npm run test:code` passes. `packages/structured-clone` is at 55 files and 1,315 tests, 2 of them skipped: the Node-only `Buffer.from('hi')` case in the workers and chromium projects.
 
@@ -292,7 +292,7 @@ Each phase leaves `npm run test:code` green, and Phase 3 onward also `npx tsc --
 
 **Gate:** `npx tsc --noEmit -p packages/structured-clone` passes; `packages/structured-clone` is at 58 files and 1,420 tests, 4 skipped, the Node-only `Buffer` and SQLite cases in the workers and chromium projects.
 
-**Measured patch sizes,** against each criterion's bound: a leaf on the 1,000-node org tree 217 B (300), a grant 127 B (150), one Set edge 90 B (120), one entry of a 1,000-entry `Map<number, string>` 33 B (100), appending to a 500-id list 65 B and removing its fourth 68 B (100), a shared pair ahead of 200 shared rows 118 B (500), and the recipe's mid-array edit 697 B, 1.12 times `JSON.stringify(steps)` (1.2). The org tree's snapshot is 187,714 B.
+**Measured patch sizes,** against each criterion's bound: a leaf on the 1,000-node org tree 217 B (300), a grant 127 B (150), one Set edge 90 B (120), one entry of a 1,000-entry `Map<number, string>` 33 B (100), appending to a 500-id list 65 B and removing its fourth 68 B (100), a shared pair ahead of 200 shared rows 118 B (500), and the recipe's mid-array edit 829 B, 1.11 times `JSON.stringify(steps)` (1.2), with steps of 59 characters (corrected after the verifier panel: the first fixture's steps were 48 characters, measured against the edited list). The org tree's snapshot is 187,714 B.
 
 **For the human:** nothing.
 
@@ -304,3 +304,25 @@ Each phase leaves `npm run test:code` green, and Phase 3 onward also `npx tsc --
 - **Mutations:** all 17 caught, each by the test meant to catch it. Declaring the answers as type aliases fails `tsc` with an unused `@ts-expect-error` in `test/merge-patch.test.ts`.
 
 **Close-out:** `merge-patch.ts`'s header is rewritten for the format that ships, which removes the last `Phase 1` handle from `src/`; the other headers are Phase 4's.
+
+### The verifier panel and its fixes (2026-10-14)
+
+**Verdicts.** Four read-only verifiers, one per phase. Phases 1 and 3 conformed, with minor findings. Phases 2 and 4 did not: Phase 2 for two round-trip defects no suite covered, and Phase 4 because ADR-002 was still over its prose budget. Every fix below has a test, and each test reds under the mutation named beside it.
+
+**Fixed:**
+
+- **A typed array over about 3.2 MiB no longer decoded** (Phase 2). The base64 check matched the string in groups of four, and each group pushes a backtrack entry, so V8's regex stack overflowed with a `RangeError`. `base64.ts` now looks for one character outside the alphabet and checks the padding by position. An 8 MiB round trip is tested; the grouped pattern reds it.
+- **A request whose body was a request or response decoded wrong or was refused** once the document held a `$ref` (Phase 2). Requests and responses were built in document order, so an inner one was still a placeholder when the outer one took it as a body, and a body's `$ref` to one later in the document was refused. `postprocess.ts`'s `build` now makes each one on first need, depth-first, and still refuses a body that leads back to its own request. Tests: a response as a body, a body's `$ref` to a request a reordered document puts after it, and two requests whose bodies point at each other. Building in document order reds the first two; the third pins that the refusal survived the change.
+- **Nothing tested the body's place in the index** (Phase 2). A shared object first written in a body is now referenced as `#/req/data/body` with `toBe`; leaving the body out of the index reds it.
+- **An Error own key needing escape had no pointer test** (Phase 1). `pointers.test.ts` adds `$x` and `a/b`; a raw segment at the Error site reds it.
+- **Rule 9 refused only foreign prototypes** (Phase 3). `diff` and `applyMergePatch` now also refuse a function, bigint, symbol or `undefined`; dropping the check reds the new test.
+- **The two writes for a reordered collection had no `__proto__` test** (Phase 3). A reordered Map under an own `__proto__` key now patches as data; plain assignment there reds it.
+- **Criterion 13's fixtures drifted** (Phase 3): steps are now about 60 characters and the bound is against `JSON.stringify(steps)`; the rebuilt plain object asserts its exact patch, `[{ dueDate: 'd' }]`; and the catch-up's two steps join the SQLite parity list.
+- **Wording:** `postprocess`'s `@throws` lists the shapes it refuses instead of claiming all of them; `copyResultForWire`'s JSDoc says which kinds it copies; `ARRAY_OBJECT_FORM_MIN_BYTES`, whose bound was exclusive, is `PLAIN_STRING_LIST_MAX_BYTES` and module-local; `index.ts`'s header and `index.mdx` no longer overstate what is written as itself or which Maps keep `entries`; `web-api-encoding.ts` names `postprocess`'s callback and drops two references to functions that no longer exist; `tasks/on-hold/wire-merge-patch-sync.md` loses its last stale format claims and points at these notes rather than restating counts; and the `#/tags/object` row joins the table that checks `Object.prototype`.
+- **ADR-002's prose:** the sentences this build wrote are within budget, and the file's average is 23.6 words against 22, down from 28.4 before the build. What remains is the ADR's original prose.
+
+**For the human:**
+
+- **ADR-002 is still over its sentence budget on its original prose.** `/build-task` scopes the gate to what a build wrote, which is met; `prose-voice.md` says a touched file is brought within budget, which would mean rewriting sentences of an accepted ADR this build never touched. I left them.
+- **A JSON `null` inside a tag's payload decodes rather than being refused:** `{"$type":"date","iso":null}` gives 1970-01-01. Rule 10's list is met, since it names a bare `null` at a value position. Refusing nulls in payloads too would mean checking every tag's fields; I recommend leaving it.
+- **rpc passes a Date, typed array or Error in a result by reference.** A later call in the same batch that mutates one changes the earlier call's answer, where the old round trip took a snapshot. rpc is test-only, so I left it and said so in the JSDoc.

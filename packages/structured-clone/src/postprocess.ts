@@ -137,11 +137,15 @@ interface Slot {
   value: any;
   step: number;
   children: Map<string, Slot> | null;
+  // A request's or response's encoding, kept until `build` makes the object.
+  encoded?: any;
 }
 
-// Marks a request or response slot whose object is built after the index
-// pass, from headers and a body that must exist first.
+// A request or response slot whose object is not built yet, because its
+// constructor takes its headers and body, and one whose object is being
+// built now.
 const PENDING = Symbol('pending');
+const BUILDING = Symbol('building');
 
 interface Decoding {
   // The slot allocated for each container, keyed by its JSON object; null
@@ -154,10 +158,13 @@ interface Decoding {
  * Decodes a value `preprocess()` encoded, with every type, cycle and shared
  * object restored.
  *
- * @throws DOMException named `DataCloneError` for any shape the encoder never
- *   writes: an unknown `$type` or `keyType`, a JSON `null`, a hole outside an
- *   array, a non-canonical object-form key, malformed base64, or a `$ref` that
- *   names no value position in the document or names another `$ref`.
+ * @throws DOMException named `DataCloneError` for these shapes the encoder
+ *   never writes: an unknown `$type` or `keyType`, a Map or Set with both forms
+ *   or neither, a member marker other than 1, a JSON `null` at a value
+ *   position, a hole outside an array, a non-canonical object-form key,
+ *   malformed base64, a request or response body that leads back to itself,
+ *   or a `$ref` that has sibling keys, names no value position in the
+ *   document, or names another `$ref`.
  */
 export function postprocess(data: JsonValue): any {
   if (!holdsRef(data)) return decodeAt(data, { slots: null, root: null });
@@ -165,12 +172,7 @@ export function postprocess(data: JsonValue): any {
   const d: Decoding = { slots: new Map(), root: null };
   const order: [Slot, any][] = [];
   d.root = indexAt(data, d, order);
-  for (const [slot, encoded] of order) {
-    if (slot.value !== PENDING) continue;
-    slot.value = encoded.$type === 'request-sync'
-      ? decodeRequestSync(encoded.data, (field: any) => decodeAt(field, d))
-      : decodeResponseSync(encoded.data, (field: any) => decodeAt(field, d));
-  }
+  for (const [slot] of order) build(slot, d);
   for (const [slot, encoded] of order) fill(slot.value, encoded, d);
   return decodeAt(data, d);
 }
@@ -224,6 +226,7 @@ function addChild(slot: Slot, key: string, child: Slot | null): void {
 function indexAt(v: any, d: Decoding, order: [Slot, any][]): Slot | null {
   if (v === null || typeof v !== 'object' || isRef(v) || isPrimitiveTag(v)) return null;
   const slot: Slot = { value: alloc(v, d, true), step: 0, children: null };
+  if (slot.value === PENDING) slot.encoded = v;
   d.slots!.set(v, slot);
   order.push([slot, v]);
 
@@ -297,7 +300,22 @@ function resolve(ref: any, d: Decoding): any {
     }
   }
   if (slot === null) throw refused(`$ref "${pointer}" names no value in the document`);
-  if (slot.value === PENDING) throw refused(`$ref "${pointer}" names a request or response being built`);
+  return build(slot, d);
+}
+
+// The object for a slot, building a request or response the first time one
+// is needed, after its headers and body, so a body that is itself a request
+// or response, or a `$ref` to one later in the document, is built first.
+// A body that leads back to the request or response being built is refused.
+function build(slot: Slot, d: Decoding): any {
+  if (slot.value === BUILDING) throw refused('a body leads back to the request or response being built');
+  if (slot.value !== PENDING) return slot.value;
+  slot.value = BUILDING;
+  const { $type, data } = slot.encoded;
+  slot.value = $type === 'request-sync'
+    ? decodeRequestSync(data, (field: any) => decodeAt(field, d))
+    : decodeResponseSync(data, (field: any) => decodeAt(field, d));
+  slot.encoded = undefined;
   return slot.value;
 }
 
@@ -312,7 +330,7 @@ function decodeAt(v: any, d: Decoding): any {
     return resolve(v, d);
   }
   const slot = d.slots?.get(v);
-  if (slot !== undefined) return slot.value;
+  if (slot !== undefined) return build(slot, d);
   if (isPrimitiveTag(v)) return decodePrimitiveTag(v);
   const value = alloc(v, d, false);
   fill(value, v, d);

@@ -6,12 +6,14 @@
  * at a time.
  *
  * The encoding:
- *   - Plain JSON values are written as themselves.
+ *   - An object, array, string, number or boolean is written as itself.
  *   - Every other type is an inline `{ $type, ...payload }` tag, and a user
  *     key starting with `$` gets one more `$`.
- *   - A Map or Set whose keys are all strings, or all numbers, is
- *     `{ $type, object }` with its keys in order, and so is an array of
- *     distinct strings over 256 bytes; anything else keeps a list.
+ *   - A Map or Set whose keys are all strings, or all numbers (marked
+ *     `keyType: "number"`), is `{ $type, object }` with its keys in order, a
+ *     key that starts with `$` or is an array index taking one more `$`. So
+ *     is an array of distinct strings over 256 bytes; anything else keeps a
+ *     list.
  *   - `null` and a sparse array's hole are tags, so no JSON `null` appears.
  *   - Binary is base64 of the view's own bytes.
  *   - An object reached a second time is `{ $ref: "#/…" }`, a JSON Reference

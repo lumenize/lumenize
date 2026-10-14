@@ -60,13 +60,11 @@ function escapeMemberKey(key: string): string {
   return key.startsWith('$') || isArrayIndex(key) ? '$' + key : key;
 }
 
-/**
- * The plain JSON form of an array of distinct strings above this many bytes
- * is written in object form instead, so appending or removing one string
- * patches as one key. Measured as each string's length plus 3, its quotes
- * and comma.
- */
-export const ARRAY_OBJECT_FORM_MIN_BYTES = 256;
+// The most bytes a list of distinct strings may take as a plain JSON array;
+// one past it takes the object form, so appending or removing one string
+// patches as one key. Measured as each string's length plus 3, its quotes and
+// comma.
+const PLAIN_STRING_LIST_MAX_BYTES = 256;
 
 // Whether every key of a Map, or every member of a Set, is a string, or every
 // one a number: the two kinds the object form can hold. An empty collection
@@ -93,7 +91,7 @@ function isLongDistinctStringList(value: unknown[]): boolean {
     if (typeof el !== 'string') return false;
     bytes += el.length + 3;
   }
-  if (bytes <= ARRAY_OBJECT_FORM_MIN_BYTES) return false;
+  if (bytes <= PLAIN_STRING_LIST_MAX_BYTES) return false;
   return new Set(value).size === value.length;
 }
 

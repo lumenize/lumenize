@@ -330,9 +330,11 @@ async function processIncomingOperations(
  * Copies a method's result for the wire. Every function becomes a remote
  * function marker whose operation chain leads back to it, and every class
  * instance becomes a plain object carrying its prototype's methods and getter
- * values. The copy is taken as the call returns, so a later call in the same
- * batch cannot change this call's answer, and an object reached twice, or
- * through a cycle, is copied once.
+ * values. Plain objects, arrays, class instances, Maps and Sets are copied as
+ * the call returns, so a later call in the same batch cannot change them in
+ * this call's answer; a Date, typed array, Error or other type structured-clone
+ * encodes whole is passed as it is. An object reached twice, or through a
+ * cycle, is copied once.
  *
  * A Map key or value, or a Set member, adds no step to the chain, since an
  * operation chain has no step into a Map or Set: a function there gets the

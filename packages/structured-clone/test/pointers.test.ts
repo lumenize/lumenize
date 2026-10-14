@@ -34,6 +34,8 @@ describe('a shared object', () => {
     ['a Set member', (s: object) => ({ set: new Set([s]), later: s }), '#/set/values/0', (r: any) => [...r.set][0]],
     ["an Error's cause", (s: object) => ({ e: new Error('m', { cause: s }), later: s }), '#/e/cause', (r: any) => r.e.cause],
     ["an Error's own property", (s: object) => ({ e: Object.assign(new Error('m'), { detail: s }), later: s }), '#/e/detail', (r: any) => r.e.detail],
+    ["an Error's own property the encoder escapes, $x", (s: object) => ({ e: Object.assign(new Error('m'), { $x: s }), later: s }), '#/e/$$x', (r: any) => r.e.$x],
+    ["an Error's own property a/b", (s: object) => ({ e: Object.assign(new Error('m'), { 'a/b': s }), later: s }), '#/e/a~1b', (r: any) => r.e['a/b']],
     ['the empty key', (s: object) => ({ '': s, later: s }), '#/', (r: any) => r['']],
   ])('first written under %s is referenced by that place', (_, build, pointer, firstPlace) => {
     const value = build(shared());
