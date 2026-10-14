@@ -1,0 +1,14 @@
+{
+  "name": "experiment-tail-abort",
+  "private": true,
+  "type": "module",
+  "//": "Deploy-only probe: does wrangler tail deliver the event of a Durable Object invocation that ends in ctx.abort, when other work on the object is still in flight? See RESULTS.md.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "drive": "node scripts/drive.mjs",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "wrangler": "4.147.0"
+  }
+}

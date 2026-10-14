@@ -19,7 +19,8 @@
     "experiments/preview-self-binding",
     "experiments/email-quota-probe",
     "experiments/workers-issues",
-    "experiments/depth-chain"
+    "experiments/depth-chain",
+    "experiments/tail-abort"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
