@@ -18,15 +18,17 @@ const OWN = '1b7d0000';
 const NEW = '9c41e000';
 
 describe('decideReloadRequest', () => {
-  // Mutation: each arm flipped reds its own row.
+  // Mutation: each arm flipped reds its own row; comparing only the guard's `for` reds the
+  // page that moved on.
   it.each([
-    ['a request naming the build the page runs stays', { requested: OWN, own: OWN, refreshedFor: undefined }, 'stay'],
-    ['a request naming another build, guard unset, refreshes', { requested: NEW, own: OWN, refreshedFor: undefined }, 'refresh'],
-    ['the same request with the guard set for it stays', { requested: NEW, own: OWN, refreshedFor: NEW }, 'stay'],
-    ['a guard set for an older build does not stop a newer one', { requested: NEW, own: OWN, refreshedFor: 'aaaa0000' }, 'refresh'],
-    ['a request naming no build reloads', { requested: undefined, own: OWN, refreshedFor: undefined }, 'reload'],
-    ['a request naming no build reloads even with the guard set', { requested: undefined, own: OWN, refreshedFor: OWN }, 'reload'],
-    ['a page whose meta names no build refreshes for any named one', { requested: NEW, own: undefined, refreshedFor: undefined }, 'refresh'],
+    ['a request naming the build the page runs stays', { requested: OWN, own: OWN, guard: undefined }, 'stay'],
+    ['a request naming another build, guard unset, refreshes', { requested: NEW, own: OWN, guard: undefined }, 'refresh'],
+    ['the same request with the guard set for it stays', { requested: NEW, own: OWN, guard: { for: NEW, from: OWN } }, 'stay'],
+    ['a guard set for an older build does not stop a newer one', { requested: NEW, own: OWN, guard: { for: 'aaaa0000', from: OWN } }, 'refresh'],
+    ['a request for the build the guard refreshed for, from a page that has since moved, refreshes', { requested: NEW, own: 'cccc0000', guard: { for: NEW, from: OWN } }, 'refresh'],
+    ['a request naming no build reloads', { requested: undefined, own: OWN, guard: undefined }, 'reload'],
+    ['a request naming no build reloads even with the guard set', { requested: undefined, own: OWN, guard: { for: OWN, from: 'aaaa0000' } }, 'reload'],
+    ['a page whose meta names no build refreshes for any named one', { requested: NEW, own: undefined, guard: undefined }, 'refresh'],
   ] as const)('%s', (_name, input, expected) => {
     expect(decideReloadRequest(input)).toBe(expected);
   });
@@ -65,7 +67,7 @@ describe('answerReloadRequests — a frame answers only its parent, at the origi
         [{ type: 'lumenize:loaded', id: 'r8', build: OWN }, STUDIO],
       ]);
       expect(hook.mock.calls).toEqual([[{ reason: 'build-stale', clientVersion: OWN, currentVersion: NEW }]]);
-      expect(storage.getItem('lmz.build-reloaded-for')).toBe(NEW);
+      expect(storage.getItem('lmz.build-reloaded-for')).toBe(JSON.stringify({ for: NEW, from: OWN }));
     } finally {
       remove();
     }

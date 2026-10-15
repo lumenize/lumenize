@@ -35,7 +35,7 @@ The rest of this ADR takes each version in turn: what it names, who chooses it f
 
 **It is the digest of the `index.html` a build produced, such as `9c41e0…`, and it names the page's code.** Vite puts a hash of each file it bundles into that file's name, such as `assets/index-4f3a2b1c.js`, and `index.html` loads each one by that name, so its digest changes whenever the code does. It is known when the build lands, needs no commit, and needs no counter.
 
-**A Star's host serves the build its Galaxy calls current, the one whose ontology version the Star runs.** When a page learns its build version is no longer current, it reloads onto that build. It reloads once per build version, so a reload that brings back the old page, from a stale cache say, does not start another.
+**A Star's host serves the build its Galaxy calls current, the one whose ontology version the Star runs.** When a page learns its build version is no longer current, it reloads onto that build. It reloads at most once from one build to another, so a reload that brings back the old page, from a stale cache say, does not start another, while a page that has since moved to a third build reloads again.
 
 **So the two versions move apart.** Jennifer adding `dueDate` to `Deal` moves both. Changing the Save button's label moves only the build version: pages move onto the new code, and the Star installs nothing.
 

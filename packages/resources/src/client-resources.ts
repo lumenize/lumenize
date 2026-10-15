@@ -21,6 +21,7 @@ import type { AuthClaims } from '@lumenize/mesh/client';
 import { isOntologyStaleError, NoOntologyInstalledError } from './errors';
 import type { OntologyStaleError } from './errors';
 import { decideStale } from './stale-decision';
+import { guardFor, readReloadGuard, writeReloadGuard } from './reload-guard';
 import type { StaleAction } from './stale-decision';
 import {
   createConflictOutcomeEngine,
@@ -204,7 +205,7 @@ export interface OntologyStaleInfo {
  * What a page framed in Studio hands `onShouldRefreshUI` when Studio names a build other than the
  * one the page was served (ADR-024's build version). `clientVersion` is the `buildVersion` in the
  * page's `nebula-scope` meta, `''` when it names none; `currentVersion` is the build `.dev` serves
- * now. The page's client calls the hook at most once per build in a tab.
+ * now. The page's client calls the hook at most once from one build to another in a tab.
  */
 export interface BuildStaleInfo {
   reason: 'build-stale';
@@ -326,15 +327,16 @@ export interface ClientResourcesOptions {
   resourceHostBinding?: string;
   /** How long a subscribe waits for its first push; Mesh's default when absent. */
   subscribeTimeoutMs?: number;
-  /** Called when the host names a version other than this page's, at most once per version in
-   *  a tab: a guard records the version it reloaded for in {@link sessionStorage}. */
+  /** Called when the host names a version other than this page's, at most once from one version
+   *  to another in a tab: a guard records in {@link sessionStorage} the version it reloaded for
+   *  and the one the page ran. */
   onShouldRefreshUI?: (info: OntologyStaleInfo | BuildStaleInfo) => void;
-  /** Where the reload guard records the version it last reloaded the tab for: the Client's own
+  /** Where the reload guard records the reload it last asked for: the Client's own
    *  `sessionStorage` option, else the page's. */
   sessionStorage?: Storage;
 }
 
-/** The `sessionStorage` key the reload guard writes: the version it last reloaded the tab for. */
+/** The `sessionStorage` key the ontology reload guard writes (`ReloadGuard`). */
 const RELOADED_FOR_KEY = 'lmz.ontology-reloaded-for';
 
 /** The page's `sessionStorage`, or nothing outside a browser or where reading it throws, as a
@@ -667,7 +669,7 @@ export class ClientResources {
    * Send a request-and-answer op — a transaction, a read or a node invite — and decide a stale
    * answer (ADR-024). A `checking` answer, given while the host asks what is current, sends the op
    * again shortly, up to its retries. Every stale answer is decided in {@link #handleStale}, so a
-   * page on an old build reloads, once per version.
+   * page on an old build reloads, once from one version to another.
    */
   async #versioned<T>(send: () => Promise<T>): Promise<{ value: T } | { stale: OntologyStaleError }> {
     for (let attempt = 0; ; attempt++) {
@@ -1315,8 +1317,8 @@ export class ClientResources {
    * transaction, read and node-invite answers through {@link #versioned}, and the resource, query
    * and roster pushes through {@link #onPushStale}. {@link decideStale} says what to do; this does
    * it. A reload goes through the app's `onShouldRefreshUI` behind a guard that records, in
-   * `sessionStorage`, the version it reloaded for, so a tab reloads once per version and a loop on
-   * one version stops. A restore subscribes again. The caller retries or settles the op.
+   * `sessionStorage`, the version it reloaded for and the one the page ran, so a loop between one
+   * pair stops and a page that has since moved is reloaded again. A restore subscribes again. The caller retries or settles the op.
    */
   #handleStale(err: OntologyStaleError, retriesLeft: boolean): StaleAction {
     const action = decideStale({
@@ -1325,23 +1327,18 @@ export class ClientResources {
       retriesLeft,
       named: err.currentVersion,
       own: this.#ontologyVersion,
-      reloadedFor: this.#reloadedFor(),
+      guard: readReloadGuard(this.#sessionStorage, RELOADED_FOR_KEY),
     });
     if (action !== 'retry') {
       log.debug('stale answer', { action, named: err.currentVersion, own: this.#ontologyVersion, notice: err.notice === true });
     }
     if (action === 'reload') {
-      try { this.#sessionStorage?.setItem(RELOADED_FOR_KEY, err.currentVersion); } catch { /* storage blocked */ }
+      writeReloadGuard(this.#sessionStorage, RELOADED_FOR_KEY, guardFor(err.currentVersion, this.#ontologyVersion));
       this.#dispatchOntologyStale(err.clientVersion, err.currentVersion);
     } else if (action === 'restore') {
       this.#restoreSubscriptions();
     }
     return action;
-  }
-
-  /** The version the reload guard last reloaded this tab for, if storage holds one. */
-  #reloadedFor(): string | undefined {
-    try { return this.#sessionStorage?.getItem(RELOADED_FOR_KEY) ?? undefined; } catch { return undefined; }
   }
 
   /**

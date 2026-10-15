@@ -1,3 +1,6 @@
+import { guardHolds } from './reload-guard';
+import type { ReloadGuard } from './reload-guard';
+
 /**
  * What a Client does with a stale answer (ADR-024): one decision for every place one arrives — a
  * transaction's answer, a read's or a node invite's refusal, and the resource, query and roster
@@ -24,13 +27,13 @@ export interface StaleInput {
   named: string;
   /** The version this page was built against. */
   own: string | undefined;
-  /** The version the reload guard last reloaded this tab for, if any. */
-  reloadedFor: string | undefined;
+  /** The reload this tab last asked for, if any: the version it was for and the one the tab ran. */
+  guard: ReloadGuard | undefined;
 }
 
 /**
- * Anything naming another version reloads the page, once per version, so the guard stops only a
- * loop on that same version. A notice naming the page's own version, or none, means its
+ * Anything naming another version reloads the page, once from one version to another, so the guard
+ * stops only a loop between that same pair. A notice naming the page's own version, or none, means its
  * subscriptions were dropped, so it subscribes again. A refusal naming none restores nothing: on a
  * Star with nothing installed, every tenant before a publish, a restore would ask again and be
  * refused again every couple of seconds.
@@ -38,7 +41,7 @@ export interface StaleInput {
 export function decideStale(input: StaleInput): StaleAction {
   if (!input.notice && input.checking && input.retriesLeft) return 'retry';
   if (input.named !== '' && input.named !== input.own) {
-    return input.reloadedFor === input.named ? 'resolve' : 'reload';
+    return guardHolds(input.guard, input.named, input.own) ? 'resolve' : 'reload';
   }
   return input.notice ? 'restore' : 'resolve';
 }

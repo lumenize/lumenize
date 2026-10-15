@@ -48,6 +48,7 @@ import { NebulaClient } from '../nebula-client';
 import { deploymentOriginOfPage, platformOriginOf } from '@lumenize/mesh/client';
 import type { NebulaStoreAdapter, ResourceSubscription, SubscriberListSubscription, OntologyStaleInfo, BuildStaleInfo, NebulaClientConfig } from '../nebula-client';
 import { decideReloadRequest } from './reload-request';
+import { guardFor, readReloadGuard, writeReloadGuard } from '../reload-guard';
 
 /** The common shape the factory holds + disposes: a `ResourceSubscription`/profile handle (error-surface
  *  via `.snapshot`) OR a subscriber-list roster handle (via `.ready`). Both are `Disposable`. */
@@ -785,7 +786,7 @@ export type CreateNebulaClientConfig<TConfig extends NebulaClientConfig = Nebula
     platformOrigin?: string;
     /** Defaults, in a frame only, to the `parentOrigin` the serving layer put in `nebula-scope`. */
     parentOrigin?: string;
-    /** Called when the page is on an old build, at most once per version in a tab: the host named
+    /** Called when the page is on an old build, at most once from one version to another in a tab: the host named
      *  another ontology version (`OntologyStaleInfo`), or Studio, framing this page, named another
      *  build (`BuildStaleInfo`). `undefined`/`null` → the default `window.location.reload()`;
      *  pass an explicit `() => {}` to opt out. */
@@ -811,7 +812,8 @@ export interface FactoryResult<C extends NebulaClient = NebulaClient> {
 
 /**
  * Default `onShouldRefreshUI`: a full reload at the page's own URL, which fetches the build `.dev`
- * serves. Each caller guards it to once per version in a tab, so it needs no guard of its own.
+ * serves. Each caller guards it to once from one version to another in a tab, so it needs no guard
+ * of its own.
  */
 function defaultOnShouldRefreshUI(_info: OntologyStaleInfo | BuildStaleInfo): void {
   if (typeof window !== 'undefined') window.location.reload();
@@ -903,7 +905,7 @@ function pageSessionStorage(): Storage | undefined {
   try { return (globalThis as { sessionStorage?: Storage }).sessionStorage; } catch { return undefined; }
 }
 
-/** The `sessionStorage` key the build guard writes: the build it last asked the app to refresh for. */
+/** The `sessionStorage` key the build guard writes (`ReloadGuard`). */
 const BUILD_REFRESHED_FOR_KEY = 'lmz.build-reloaded-for';
 
 /**
@@ -911,7 +913,7 @@ const BUILD_REFRESHED_FOR_KEY = 'lmz.build-reloaded-for';
  * version). It posts `{ type: 'lumenize:loaded', build }` to its parent at once, so Studio learns a
  * client is there, then echoes each request's `id` with the build it runs before acting on it as
  * {@link decideReloadRequest} says: stay, hand the app's `onShouldRefreshUI` a `BuildStaleInfo`
- * once per build in the tab, or, for a request naming no build, reload. It obeys only a message
+ * once from one build to another in the tab, or, for a request naming no build, reload. It obeys only a message
  * from `window.parent` at `parentOrigin`, as Studio reads only its own frame. Returns the
  * listener's removal.
  */
@@ -930,13 +932,12 @@ export function answerReloadRequests(opts: {
     if (data?.type !== 'lumenize:reload') return;
     loaded(data.id);
     const requested = typeof data.build === 'string' ? data.build : undefined;
-    let refreshedFor: string | undefined;
-    try { refreshedFor = sessionStorage?.getItem(BUILD_REFRESHED_FOR_KEY) ?? undefined; } catch { /* storage blocked */ }
-    const action = decideReloadRequest({ requested, own: buildVersion, refreshedFor });
+    const guard = readReloadGuard(sessionStorage, BUILD_REFRESHED_FOR_KEY);
+    const action = decideReloadRequest({ requested, own: buildVersion, guard });
     if (action === 'reload') {
       window.location.reload();
     } else if (action === 'refresh') {
-      try { sessionStorage?.setItem(BUILD_REFRESHED_FOR_KEY, requested!); } catch { /* storage blocked */ }
+      writeReloadGuard(sessionStorage, BUILD_REFRESHED_FOR_KEY, guardFor(requested!, buildVersion));
       try {
         onShouldRefreshUI({ reason: 'build-stale', clientVersion: buildVersion ?? '', currentVersion: requested! });
       } catch (err) {

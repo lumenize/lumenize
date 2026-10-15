@@ -2,15 +2,16 @@
  * Two Client behaviours behind a stale answer that a running page cannot pin down (ADR-024):
  *
  *   - **The reload guard** lives in the Client, around whatever `onShouldRefreshUI` the app
- *     installed, and records in the tab's `sessionStorage` the version it reloaded for. Two
- *     Clients sharing one tab's storage call the app's handler once for a version, and again for
- *     the next one.
+ *     installed, and records in the tab's `sessionStorage` the version it reloaded for and the one
+ *     the page ran. Two Clients sharing one tab's storage call the app's handler once for a
+ *     version, and again for the next one, or for the same one from a page that has since moved.
  *   - **A `checking` answer is retried by the op it answered, and by no other.** A subscription let
  *     go drops its answer without reloading, and an established subscription a restore sent is
  *     sent again until the Star installs.
  *
- * In-lane rather than `/live`: two Clients on one injected storage, and a Star whose ask is held
- * outstanding, are states no page can produce on demand. `dev-star-follows-the-build` limbs 6, 7
+ * In-lane rather than `/live`: two Clients on one injected storage, a reload that lands past the
+ * version it was for, and a Star whose ask is held outstanding, are states no page can produce on
+ * demand. `dev-star-follows-the-build` limbs 6, 7
  * and 9 drive the same decisions through real pages.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -47,7 +48,7 @@ function committed(outcome: TransactionOutcome): void {
 }
 
 describe('the reload guard', () => {
-  // Mutations: let `decideStale` ignore `reloadedFor` (the second Client calls too); keep the guard
+  // Mutations: let `decideStale` ignore the guard (the second Client calls too); keep the guard
   // in a field per Client rather than the storage (likewise); record a constant rather than the
   // version (the third, naming a new version, never calls).
   it('calls the app\'s handler once per version, across the Clients of one tab', async () => {
@@ -82,6 +83,43 @@ describe('the reload guard', () => {
     expect(calls[1]).toEqual({ reason: 'ontology-stale', clientVersion: 'v2', currentVersion: 'v3' });
 
     for (const c of [first, second, third]) c[Symbol.dispose]();
+  });
+
+  // Mutation: compare only the guard's `for`, and the tab now on v3 stays put → the second call
+  // never comes.
+  it('calls it again for a version it once reloaded for, from a page that has since moved', async () => {
+    const star = uniqueStar();
+    const browser = new Browser();
+    const tab = browser.context(pageOf(star)).sessionStorage;
+    const calls: Array<OntologyStaleInfo | BuildStaleInfo> = [];
+    const extra = { sessionStorage: tab, onShouldRefreshUI: (info: OntologyStaleInfo | BuildStaleInfo) => { calls.push(info); } };
+
+    // The installer holds no subscription, so no install tells it anything.
+    const installer = (await adminClientAt(NebulaClientTest, browser, star, star, EMAIL, 'v1')).client;
+    await install(installer, star, 'v1');
+    const id = crypto.randomUUID();
+    committed(await installer.resources.transaction({
+      [id]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'one' } },
+    }));
+    const page = (await createInvitedClient(NebulaClientTest, browser, star, star, EMAIL, 'v1', extra)).client;
+    await page.resources.subscribe('TestResource', id).snapshot;
+
+    // The tab reloads from v1 for v2.
+    await install(installer, star, 'v2');
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    page[Symbol.dispose]();
+
+    // The reload landed on a page built against v3, which the Star then installs.
+    await install(installer, star, 'v3');
+    const later = (await createInvitedClient(NebulaClientTest, browser, star, star, EMAIL, 'v3', extra)).client;
+    await later.resources.subscribe('TestResource', id).snapshot;
+
+    // The Star returns to v2: the guard names v2, but from v1, and this page runs v3.
+    await install(installer, star, 'v2');
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[1]).toEqual({ reason: 'ontology-stale', clientVersion: 'v3', currentVersion: 'v2' });
+
+    for (const c of [installer, later]) c[Symbol.dispose]();
   });
 });
 

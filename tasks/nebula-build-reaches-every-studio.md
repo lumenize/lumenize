@@ -234,9 +234,9 @@ Each phase leaves `npm run type-check` and `npm test` green, and its changed sou
 
 ## Build notes
 
-**Open for Larry.** No decision; notes that need none:
+**Open for Larry.** No decision. Two reads before the archive: § *Phase Retro*, and ADR-024's amended sentence on reloading (§ *Both reload guards key on the pair*).
 
-Notes: Studio's one extra reload of a page with no client (Phase 4); the `.draft` Star and the newest `.dev` row, and the record from served bytes (§ *The verifier panel*); the certificate stalls and the bodied-GET fix (§ *The deployed pass*).
+Notes that need nothing: Studio's one extra reload of a page with no client (Phase 4); the `.draft` Star and the newest `.dev` row, and the record from served bytes (§ *The verifier panel*); the certificate stalls and the bodied-GET fix (§ *The deployed pass*); the import allow-list the type check no longer enforces (§ *The type check reads the real types*).
 
 ### Phase 1 — a build lands on `.dev` only when it is previewed (2026-10-14)
 
@@ -392,6 +392,23 @@ Larry's answer to the hand-off's first decision: keep holding back a build with 
 - `codegen-gate.test.ts` moved from the `dev-studio` project to `offline`, which has a disk; the offline scorer calls the build box's `checkVueSfc` on the scaffold app, so the two can no longer drift. Its `Phase 1` describe names went, as task handles in source.
 - `backlog.md`'s row on deriving the contract is closed. `nebula-pre-alpha.md`'s Vapor item no longer lists the contract, and `/build-task`'s new example says the check now reads the real types.
 - Verified: `packages/ts-runtime-parser-validator` 214 passed; `apps/nebula` 1088 passed (1083 + 5); seven mutations of `sfc-check.ts` and three of the engine, each red on its own test; `drive.ts all` with Docker, 67 of 67 in 55.4 min, on an image rebuilt with the new check.
+
+### Both reload guards key on the pair (2026-10-15)
+
+Larry's answer to the hand-off's second decision (§ *Decisions*).
+
+**For Larry:**
+
+- **Both guards record `{ for, from }` and stay put only while both hold.** One helper, `packages/resources/src/reload-guard.ts`, reads and writes it, and `decideStale` and `decideReloadRequest` both ask its `guardHolds`. A value the old guard stored, a bare version string, reads as no guard, so a tab holding one refreshes once more.
+- **ADR-024's sentence on reloading changed**, from "once per build version" to "at most once from one build to another … while a page that has since moved to a third build reloads again". The sentence is yours to re-voice. `api-reference.md`'s `onShouldRefreshUI` row says the same, regenerated into `platform-embed.ts`.
+
+**Retro:**
+
+- The revert case is in-lane, since a reload landing past the version it was for, followed by a Star returning to that version, is a race no page produces on demand. `stale-guard-and-retry.test.ts` builds it with Clients sharing one tab's storage. It passed on first write, and comparing only the guard's `for` reds it, as it reds the matching row in each decision table.
+
+**Close-out:**
+
+- Verified: `packages/resources` 19 passed (17 + 2); `apps/nebula` 1090 passed (1088 + 2); three mutations, each red on its own test; `drive.ts all --fast`, 56 of 56 in 30.7 min; with Docker, `dev-star-follows-the-build`, `build-reaches-every-studio`, `dev-tab-frame` and `star-serves-current-ontology`.
 
 ## Phase Retro
 
