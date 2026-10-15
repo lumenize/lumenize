@@ -19,8 +19,9 @@
 //   - TOOL_ARGS_VALIDATOR_MODULE changed → bump TOOL_ARGS_BUNDLE_ID
 //     (src/tool-args-constants.ts).
 //   - CHAT_ONTOLOGY_SEED_ROW changed → bump CHAT_MESSAGE_ONTOLOGY_VERSION
-//     (src/chat-constants.ts) — the chat loader id derives from the installed label,
-//     and an already-seeded Galaxy keeps serving its installed row regardless.
+//     (src/chat-constants.ts) — the chat loader id derives from the installed label. An
+//     already-seeded Galaxy installs the new row the first time a client pinned to the new
+//     label asks, since the plane installs its source's row on a mismatch.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';

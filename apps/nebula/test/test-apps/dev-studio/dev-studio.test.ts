@@ -15,6 +15,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
+import { asCaller } from './as-caller';
 import { preprocess } from '@lumenize/structured-clone';
 import { requireDominionHere } from '@lumenize/mesh';
 import { ROOT_NODE_ID } from '@lumenize/resources/client';
@@ -37,11 +38,11 @@ const uniqueGalaxyScope = () => `u${crypto.randomUUID().slice(0, 8)}.app`;
 /** The version a source hashes to — the same `git.hashBlob` the Galaxy computes. */
 const versionOf = async (types: string) => (await git.hashBlob({ object: types })).oid;
 
-// Direct in-DO call — returns the method's result. For LOCAL methods (no cross-DO): the mesh
-// early-ack path returns {$ack}, not the result, and these methods read only this.ctx/this.env
-// (no callContext), so a direct in-DO call is faithful and gets the return value.
+// Direct in-DO call, which returns the method's result where the mesh's early-ack path returns
+// only {$ack}. It runs under an admin's call context (`asCaller`), since a landing records its
+// `ServedBuild` under the caller's claims and a call with none records nothing.
 const inDO = (binding: any, instance: string, fn: (inst: any) => unknown) =>
-  (runInDurableObject as any)(binding.getByName(instance), fn);
+  (runInDurableObject as any)(binding.getByName(instance), (inst: any) => asCaller(instance, () => fn(inst)));
 
 // Fire a method through the REAL early-ack receive path (claims injected in the envelope, the
 // isolated-DO norm) so its cross-DO `lmz.call` effects PROPAGATE callContext. Returns the {$ack};

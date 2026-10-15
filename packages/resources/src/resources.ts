@@ -1038,21 +1038,23 @@ export class Resources {
   }
 
   /**
-   * Server-internal **create-if-absent** (D-session): idempotently seed a fixed
-   * platform Resource (the Galaxy's default `Session`) with NO client-facing result
-   * delivery. A live snapshot already present → no-op. A first create still fans out
-   * to any subscribers (mirrors {@link doTransaction}'s post-commit hook; originator
-   * `''` — a server seed has no client origin). The caller must be in an authed
-   * context with `write` on `nodeId`.
+   * Server-internal **create-if-absent**: write a resource only host code composes, with NO
+   * client-facing result delivery. A live snapshot already present → no-op. A create fans out to
+   * every subscriber (mirrors {@link doTransaction}'s post-commit hook; originator `''`, so the
+   * caller's own tabs hear it too). Its callers are a Galaxy's agent reply and the `ServedBuild`
+   * a landing records.
    *
-   * ✅ **Confined, via the ordinary path — no special-casing here.** This method holds no admin
-   * check of its own: it goes through `Snapshots.transaction` → `OrgTree.requirePermission`, which
-   * is confinement point 1. So a seed written under an admin's call has passage **iff that admin's page's host, `aud`, covers THIS host** — the
-   * same rule as every other caller. See tasks/archive/nebula-confine-admin-bypass.md.
+   * It runs under the caller's `callContext`, which stamps the subject. ✅ **Confined, via the
+   * ordinary path — no special-casing here.** Without `pinnedAtDoor` it goes through
+   * `Snapshots.transaction` → `OrgTree.requirePermission`, which is confinement point 1, so a
+   * write under an admin's call has passage **iff that admin's page's host, `aud`, covers THIS
+   * host** — the same rule as every other caller (tasks/archive/nebula-confine-admin-bypass.md).
+   * With `pinnedAtDoor` that check is skipped, because the door that admitted the work decided.
+   * `actor` and `pinnedAtDoor` are server-composed only (`TransactionOpts`).
    */
   async ensureResource(
     resourceId: string, typeName: string, nodeId: string, value: Record<string, unknown>,
-    opts: { actor?: { sub: string; profileId: string }; pinnedAtPost?: true } = {},
+    opts: { actor?: { sub: string; profileId: string }; pinnedAtDoor?: true } = {},
   ): Promise<void> {
     if (this.#snapshots.read(resourceId)) return; // idempotent: a live snapshot exists
     const { version, facet } = this.installedOntology();
@@ -1068,7 +1070,7 @@ export class Resources {
         },
         // Server-composed only — see snapshots.ts TransactionOpts (the trust fence).
         actor: opts.actor,
-        ...(opts.pinnedAtPost ? { pinnedAtPost: true as const } : {}),
+        ...(opts.pinnedAtDoor ? { pinnedAtDoor: true as const } : {}),
         stillCurrent: () => this.#generation === generation,
       },
     );

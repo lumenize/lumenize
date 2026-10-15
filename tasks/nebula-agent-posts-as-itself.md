@@ -47,16 +47,16 @@ The rest of this file covers what changes, how a held post is run, the two steps
 
 **Adapted:**
 
-- **`commitAgentMessage`** writes the agent as the subject, without the `actor` and `pinnedAtPost` options it passes today.
+- **`commitAgentMessage`** writes the agent as the subject, without the `actor` and `pinnedAtDoor` options it passes today.
 - **`#onChatCommitted`** still starts one turn at a time; a post it skips is now held, and a turn's end releases one or starts the agent's own turn.
 - **Studio's byline and avatar stack**, which `App.vue` builds from `deriveParticipants`' list of the subject and the `act` chain, joined with *for*.
 - **What Studio shows under a post that waits.** `App.vue` resets a post's 90 s idle window only on chunks replying to that post, so a post waiting behind another person's turn shows *thinking…*, then *failed*. The comment there justifies it by saying a skipped post is never answered, which this task makes false. `deriveTurnDisplay` gains a waiting state, held while another post's turn streams. The change is Studio's alone; nothing on the server changes for it.
 - **The tool contract in `codegen-loop.ts`**, which gains the rule that the agent addresses the person and asks before acting on anything it was not asked directly. The agent's own turn gets instructions of its own, since the contract's first rule tells the model to act with tools that turn is not offered.
-- **`security.md`'s bullet on a turn's authority**, which says the reply commits under the verdict pinned at the post. The reply no longer needs it, and a held post's turn carries the verdict pinned at its post through the wait.
+- **`security.md`'s bullet on the verdict of the door that admitted the work**, which covers a turn's reply and the `ServedBuild` a landing records. The reply no longer needs it; the landing keeps it, and a held post's turn carries the verdict pinned at its post through the wait.
 - **`docs/vision/auth.md` § *When the agent acts***, amended on 2026-10-10, whose sentence on the turn the agent starts gains taking up a held post.
 - **What asserts the old attribution:** `four-party-chat`, which checks the reply's `act.sub` is the agent and its `sub` the poster; `child3-post.test.ts`; and `first-app-built`'s fourth limb. Each inverts, which `calibration.md` §3(b) says to expect.
 
-**Removed:** `pinnedAtPost` in `TransactionOpts`, whose only production caller is `commitAgentMessage`.
+**Kept:** `pinnedAtDoor` and `actor` on `ensureResource`. A landing passes both for the `ServedBuild` it records ([nebula-build-reaches-every-studio.md](nebula-build-reaches-every-studio.md)), a turn's landing naming the poster with the platform as actor, so each keeps a production caller once `commitAgentMessage` stops passing them.
 
 **Kept as they are:** a turn a person's post starts, which runs inside their call exactly as today; one turn at a time; and the generation deadline.
 
@@ -117,8 +117,7 @@ The rest of this file covers what changes, how a held post is run, the two steps
    - **Recommendation:** one reply, with `replyTo` the latest post it answers, and Studio stops waiting for a post when an agent message lands whose `replyTo` is that post or a later one. Jennifer's reply, whose `replyTo` is her own earlier post, then leaves Austen waiting. One reply reads like a person answering two people at once, and nothing about `Message`'s stored shape changes.
 3. **What does the byline say once the agent is the subject?** Today *Lumenize for Jennifer*, built from the subject and the `act` chain.
    - **Recommendation:** *Lumenize, re: Jennifer*, naming the author of the post in `replyTo`, so the chat keeps showing whom the agent answered. Beat: *Lumenize* alone, which drops it.
-4. **Does `ensureResource`'s `actor` option stay?** `commitAgentMessage` is its only production caller, so after this task nothing passes it.
-   - **Recommendation:** keep it. `docs/vision/auth.md` describes an agent write on a person's behalf as *this human, via the agent*, and the first agent tool that writes a resource, rather than source, needs exactly that stamp.
+4. **Does `ensureResource`'s `actor` option stay?** Settled 2026-10-15: it stays. A turn's landing passes it for the `ServedBuild` it records, the stamp `docs/vision/auth.md` gives an agent write on a person's behalf, *this human, via the agent*, so it keeps a production caller after this task.
 5. **How does the Galaxy know which posts are still pending? (step 2)** `onStart`'s check needs it, and so does Studio, to know when to stop showing a post as waiting.
    - **(a) Derive it from the thread.** A human post is pending while no agent message's `replyTo` is that post or a later one, the rule question 2 recommends, and also while the agent's latest message names it as left held. One rule then serves `onStart`, the end of a turn, and Studio.
    - **(b) Store which posts have been processed**, a set the Galaxy writes as it takes up or answers each post.

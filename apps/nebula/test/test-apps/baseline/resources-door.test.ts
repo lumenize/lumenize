@@ -379,7 +379,7 @@ describe('the door derives the caller\'s own address — a trailing one is ignor
     const mid = uuid();
     const out = await client.lmz.callAsync(host.binding, host.scope,
       (client.ctn() as any).resources.transaction(host.version, uuid(), { [mid]: host.createOp() },
-        { actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB }, pinnedAtPost: true })) as TransactionResult;
+        { actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB }, pinnedAtDoor: true })) as TransactionResult;
     expect(out.ok).toBe(true);
     const snap = await client.resources.read('Message', mid) as Snapshot;
     expect(snap.meta.actingToken.sub).toBe(client.claims.sub);

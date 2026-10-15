@@ -156,7 +156,7 @@ describe('the source entries sit at the chat floor', () => {
     // 2026-09-06): the scripted model pauses two seconds before its reply, the OWNER revokes
     // the member's chat-node write inside that window, and the agent reply commits
     // regardless. Observed on the owner's subscription — the member's own read goes with the
-    // grant, which the tail proves. Mutation: drop `pinnedAtPost` from `commitAgentMessage`
+    // grant, which the tail proves. Mutation: drop `pinnedAtDoor` from `commitAgentMessage`
     // → the commit is refused at the chat node, no reply lands, the wait reds.
     const scope = uniqueScope();
     const { owner, member, payload, grantWrite } = await ownerAndMember(scope);

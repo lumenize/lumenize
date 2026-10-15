@@ -56,7 +56,11 @@
  *     build that changes the string and leaves a type finding in `App.vue` is held back, so the
  *     served page keeps the old string and its meta's `buildVersion` stays the clean build's
  *     `indexSha256`. Building again with `{ "preview": true }` serves the new string under the new
- *     digest. *Reds when `.dev` serves `/workspace/dist/`, or reads `buildVersion` from it.*
+ *     digest. Studio's own client, subscribed to `ServedBuild where chat == DEFAULT_CHAT_ID`, reads
+ *     the newest row through its render window after each build: the clean build's digest, the
+ *     same after the held-back build, and the new one after the previewed rebuild. *Reds when
+ *     `.dev` serves `/workspace/dist/`, or reads `buildVersion` from it, and when a landing
+ *     records no `ServedBuild`, or records one for a held-back build.*
  *
  * `needsContainer = true` — every build runs in the build container.
  */
@@ -64,7 +68,7 @@ import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { uniqueTestEmail, waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources/client';
-import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, StudioClient } from '@lumenize/nebula/client';
+import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, StudioClient } from '@lumenize/nebula/client';
 import type { Galaxy, Star } from '@lumenize/nebula';
 import type { NodeInviteAck } from '@lumenize/resources';
 import type { DevStack, Driver } from '../lib/harness';
@@ -620,13 +624,39 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── LIMB 10: a held-back build changes nothing anyone sees ──────────────────────────────
     // Last, because a build left with a finding holds back every build after it.
+    const served = studio.client.resources.subscribeQuery({
+      queryType: 'parentChild', typeName: 'ServedBuild', field: 'chat', value: DEFAULT_CHAT_ID,
+    });
+    disposers.push(() => served[Symbol.dispose]());
+    await within(30_000, served.ready);
+    /** The newest `ServedBuild`'s build, read through the render window as Studio reads it. */
+    const newestServed = async (): Promise<string | undefined> => {
+      const id = served.resourceIds.at(-1);
+      if (!id) return undefined;
+      served.setRenderWindow([id]);
+      const snap = await studio.client.resources.read('ServedBuild', id) as { value?: { buildVersion?: string } } | null;
+      return snap?.value?.buildVersion;
+    };
+    /** The newest row once it names `want`, or what it named when the wait ran out. */
+    const servedAfter = async (want: string | undefined): Promise<string | undefined> => {
+      const deadline = Date.now() + 15_000;
+      let seen = await newestServed();
+      while (seen !== want && Date.now() < deadline) {
+        await sleep(250);
+        seen = await newestServed();
+      }
+      return seen;
+    };
     await write('src/App.vue', appShowing(MARK_LANDED));
     const clean = await build();
+    const servedClean = await servedAfter(clean.bundle.indexSha256);
     const cleanHtml = await servedHtml();
     assert.ok(clean.preview.refreshed && clean.bundle.indexSha256 && servedBuildVersion(cleanHtml) === clean.bundle.indexSha256,
       `the clean build should land and be served: ${JSON.stringify(clean.preview)}, meta ${servedBuildVersion(cleanHtml)}`);
     await write('src/App.vue', appShowing(MARK_HELD, true));
     const held = await build();
+    await sleep(3_000); // a row the held-back build wrongly recorded would arrive within this
+    const servedHeld = await newestServed();
     const heldHtml = await servedHtml();
     const heldScript = await servedScript(heldHtml);
     record('limb 10 — a build with a type finding is held back, and .dev serves the last landing',
@@ -637,6 +667,7 @@ export async function run(stack: DevStack): Promise<void> {
       `the page shows ${heldScript.includes(MARK_HELD) ? 'the HELD string' : heldScript.includes(MARK_LANDED) ? 'the landed string' : 'neither string'}; ` +
       `meta buildVersion ${servedBuildVersion(heldHtml) === clean.bundle.indexSha256 ? "is the clean build's" : `is ${servedBuildVersion(heldHtml)}`}`);
     const previewed = await build({ preview: true });
+    const servedPreviewed = await servedAfter(previewed.bundle.indexSha256);
     const previewedHtml = await servedHtml();
     const previewedScript = await servedScript(previewedHtml);
     record('limb 10 — building again with { "preview": true } serves the new string under the new digest',
@@ -644,6 +675,12 @@ export async function run(stack: DevStack): Promise<void> {
         && previewed.bundle.indexSha256 !== clean.bundle.indexSha256 && servedBuildVersion(previewedHtml) === previewed.bundle.indexSha256,
       `preview ${JSON.stringify(previewed.preview)}; the page ${previewedScript.includes(MARK_HELD) ? 'shows' : 'does NOT show'} the new string; ` +
       `meta buildVersion ${servedBuildVersion(previewedHtml) === previewed.bundle.indexSha256 ? "is the new build's" : `is ${servedBuildVersion(previewedHtml)}`}`);
+    record("limb 10 — Studio's ServedBuild names each landing, and not the held-back build",
+      servedClean === clean.bundle.indexSha256 && servedHeld === clean.bundle.indexSha256
+        && servedPreviewed === previewed.bundle.indexSha256,
+      `newest row after the clean build ${servedClean === clean.bundle.indexSha256 ? 'names it' : `names ${servedClean}`}; ` +
+      `after the held-back build ${servedHeld === clean.bundle.indexSha256 ? 'still the clean one' : `names ${servedHeld}`}; ` +
+      `after the previewed rebuild ${servedPreviewed === previewed.bundle.indexSha256 ? 'names it' : `names ${servedPreviewed}`}`);
 
     const open = results.filter((r) => !r.ok);
     assert.equal(open.length, 0,

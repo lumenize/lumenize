@@ -100,12 +100,14 @@ export interface TransactionOpts {
    *  validation's `await`, the one place a commit can pause, so a commit that paused across a
    *  wipe writes nothing into the rebuilt tables and throws {@link WipedMidTransactionError}. */
   stillCurrent?: () => boolean;
-  /** The DOOR's verdict covers this commit: the caller was admitted at the post that
-   *  triggered a turn, and the turn finishes under the authority it started with — a
-   *  grant revoked or a token expired mid-turn does not refuse its reply (Larry,
-   *  2026-09-06). Step 8's per-op DAG check is skipped. SERVER-COMPOSED ONLY, the same
-   *  trust fence as `actor`: only the host-only `ensureResource` supplies it. */
-  pinnedAtPost?: true;
+  /** The DOOR's verdict covers this commit: the caller was admitted at whichever door let the
+   *  work in, and it finishes under the authority it started with — a grant revoked or a token
+   *  expired since does not refuse it. For a turn the door is the post that triggered it, and
+   *  its reply commits under that verdict (Larry, 2026-09-06); for a build it is `buildNow`'s
+   *  chat-floor check, and the `ServedBuild` its landing creates commits under that verdict.
+   *  Step 8's per-op DAG check is skipped. SERVER-COMPOSED ONLY, the same trust fence as
+   *  `actor`: only the host-only `ensureResource` supplies it. */
+  pinnedAtDoor?: true;
 }
 
 /** Allow-list pick for the wire — see {@link WireActingToken}. */
@@ -424,7 +426,7 @@ export class Snapshots {
     facet: ParserValidator,
     opts: TransactionOpts = {},
   ): Promise<TransactionResult> {
-    const { onMutations, actor, pinnedAtPost, stillCurrent } = opts;
+    const { onMutations, actor, pinnedAtDoor, stillCurrent } = opts;
     // Empty ops — no-op
     const entries = Object.entries(ops);
     if (entries.length === 0) return { ok: true, eTags: {} };
@@ -621,7 +623,7 @@ export class Snapshots {
       const permErrors: Record<string, TransactionError> = {};
       for (const [resourceId, op] of entries) {
         const current = authoritative.get(resourceId) ?? null;
-        if (pinnedAtPost) continue; // the door decided at the post — see TransactionOpts
+        if (pinnedAtDoor) continue; // the door that admitted the work decided — see TransactionOpts
         try {
           switch (op.op) {
             case 'create':

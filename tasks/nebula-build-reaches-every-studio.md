@@ -267,3 +267,21 @@ Each phase leaves `npm run type-check` and `npm test` green, and its changed sou
 **Close-out:**
 
 - Verified with `packages/resources`' suite (17), `apps/nebula`'s (1064 passed) and `dev-tab-frame` with Docker. The frame's code runs only in a page framed with a named parent, which no container-free scenario builds, so the `--fast` sweep runs once at Phase 3's gate and covers both phases.
+
+### Phase 3 — each landing records its build in a `.dev` `ServedBuild` (2026-10-15)
+
+**For Larry:**
+
+- **The landing's broadcast has no originator to matter.** The *write as caller* Decision says the landing reuses `ensureResource` because it "broadcasts a create with no originator, so the requester's Studio hears it too". The broadcast does carry no originator, but for a create at a fresh id it reaches nobody: no tab subscribes to an id before it exists, and Studio learns the row from the query's rerun, which takes no originator at all. Removing the broadcast outright left every `ServedBuild` test green, so the Phase 3 mutation note's *caller's address as originator* cannot red, and none was written for it. The requester still hears its own landing, by the query. Nothing to change; the Decision's reason is the query, not the originator.
+- **The `dev-studio` lane's direct calls now carry an admin's call context.** Its builds ran in-DO with none, so sixteen landings logged `served build not recorded` and differed from production's. `test/test-apps/dev-studio/as-caller.ts` runs each `inDO` callback under a covering admin's claims through Mesh's internal context store, imported by path. It restores the claims the code below the door reads; the door itself, passage and the guard, stays skipped, as `runInDurableObject` always has. The criterion asked for "calls that carry claims, so they run the production path"; a mesh envelope only acks, so the report a test reads could not come back through one.
+- **`ensureResource`'s JSDoc named a `Session` seed that no longer exists**, and a task handle. Both are gone; it now names its two callers and says what `pinnedAtDoor` skips.
+
+**Retro:**
+
+- All four `served-build.test.ts` cases passed on first write, and all six mutations reddened their own case. The first version of the bump mutation, the label alone, reddened every case: with the seed row still at `chat-message-v2`, every client pinned to `chat-message-v1` was stale. Changing the label and the seed row's version together isolated the bump case.
+- `security.md`'s turn-authority bullet is now stated by its structure, the door that admitted the work, so the landing joins the turn without a second rule.
+
+**Close-out:**
+
+- `nebula-agent-posts-as-itself.md` amended in this commit: it keeps `pinnedAtDoor` and `actor`, with the landing as their caller, and its open question 4 is settled.
+- Verified: `packages/resources` (17), `apps/nebula` (1068 passed, no `served build not recorded` anywhere in the run), `dev-star-follows-the-build` with Docker, and `drive.ts all --fast`, 55 of 55 in 24.5 min, which also covers Phase 2's frame code.

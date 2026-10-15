@@ -25,6 +25,7 @@
  * DAG-granted, and the per-op check lives inside the plane.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { addressOf, mesh, rawRpc, splitAddress } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { Workspace } from '@cloudflare/computer';
@@ -142,6 +143,14 @@ type BuildJobOpts = { ontology?: { version: string } };
 /** The seam's placeholder `preview` — {@link Galaxy.#buildAndLand} overwrites it with the
  *  landing's outcome, so a faked `build()` never decides one either. */
 const PREVIEW_UNDECIDED = { refreshed: false, why: 'not decided at the build layer' };
+
+/**
+ * Entered around a triggered turn's loop and nowhere else, so a landing tells a turn's build from
+ * a direct `buildNow` by where it runs, never by anything a caller sends ({@link Galaxy}'s
+ * `#recordServedBuild`). A direct `buildNow` arrives on a request of its own, outside it, even
+ * while a turn runs.
+ */
+const turnContext = new AsyncLocalStorage<true>();
 
 /** The `.dev` Star's served copy: the build a landing copied out of `/workspace/dist/`. It sits
  *  outside `/workspace`, so the model's paths (`assertModelPath`) never reach it and git never
@@ -453,7 +462,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    *  A hung-call backstop and nothing else. It is NOT an authorization bound: a
    *  triggered turn runs detached under the POSTER's claims as verified at the post, and
    *  finishes under them whatever happens to the token or the grant meanwhile — the
-   *  reply commits with the door's verdict pinned (`TransactionOpts.pinnedAtPost`). It
+   *  reply commits with the door's verdict pinned (`TransactionOpts.pinnedAtDoor`). It
    *  went from 300 s to 840 s on 2026-09-06 when the round cap went to 32, and the same
    *  day Larry retired the older "must stay under the access TTL" coupling, which had
    *  tied a liveness knob to the token window for no property the design wants. */
@@ -850,7 +859,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * Land a build {@link decideLanding} let through, in an order that leaves `.dev` serving one
    * whole build at every moment: check the compiled row, copy the build's files from
    * `/workspace/dist/` to {@link DEV_SERVED_DIR} with `index.html` last, make the row the `.dev`
-   * Star's at once after it, then remove what the build no longer has. A page served mid-copy gets
+   * Star's at once after it, record the build as `.dev`'s newest `ServedBuild`, then remove what
+   * the build no longer has. A page served mid-copy gets
    * the old `index.html`, whose hashed assets are still there, or the new one, and the row follows
    * `index.html` immediately, so no page is served old code pinned at the new ontology version.
    *
@@ -892,9 +902,30 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       return { refreshed: false, why: 'the build could not be copied to where .dev serves it — build again' };
     }
     if (row) this.ctx.storage.kv.put(DEV_ONTOLOGY_ROW_KEY, row);
+    await this.#recordServedBuild(report.bundle.indexSha256!);
     await this.#pruneServed(files);
     log.info('landed', { instanceName, version: ontologyVersion, files: files.length });
     return landed;
+  }
+
+  /**
+   * Record a landed build as `.dev`'s newest `ServedBuild`, which every Studio on the app hears
+   * through its query on the chat. A fresh id each time, so a row a participant forged or deleted
+   * never keeps the next landing from being the newest. It is written as the build's caller:
+   * inside a turn ({@link turnContext}) the poster, with the platform as actor, the record every
+   * agent write carries; outside, the direct `buildNow` caller, with no actor. Either way under
+   * the verdict of the door that admitted the build (`pinnedAtDoor`), the post or `buildNow`'s
+   * `requireChatWrite`, since `.dev` has already moved and nothing may refuse the record now. A
+   * failure is logged and the landing stands: `.dev` serves the build either way.
+   */
+  async #recordServedBuild(buildVersion: string): Promise<void> {
+    try {
+      await this.#resources.ensureResource(crypto.randomUUID(), 'ServedBuild', CHAT_NODE_ID,
+        { chat: DEFAULT_CHAT_ID, star: 'dev', buildVersion },
+        { ...(turnContext.getStore() ? { actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB } } : {}), pinnedAtDoor: true });
+    } catch (e) {
+      debug('nebula.Galaxy.landing').error('served build not recorded', { instanceName: this.lmz.instanceName, buildVersion, error: e });
+    }
   }
 
   /** Copy one built file, workspace-relative under `dist/`, to {@link DEV_SERVED_DIR} when it is
@@ -1321,6 +1352,12 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * returns to the caller's `callAsync`. `preview` is the model's call on whether a build with
    * type findings lands, or whether a clean one is held back ({@link decideLanding}); a changed
    * `src/ontology.d.ts` rides the job, and its row becomes the `.dev` Star's when the build lands.
+   * `preview` is the only option passed on, so nothing a caller sends decides how its landing is
+   * recorded.
+   *
+   * Every in-process caller has already passed the chat floor: the loop's `build` tool runs inside
+   * a turn whose post passed the Message create's DAG `write` at the chat node, the same check
+   * `requireChatWrite` makes here, and the landing records under that verdict.
    */
   @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
   buildNow(opts: { preview?: boolean } = {}): Promise<BuildReport> {
@@ -1428,7 +1465,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
-        this.#chatTurn(userMessageId, content),
+        turnContext.run(true, () => this.#chatTurn(userMessageId, content)),
         new Promise<void>((resolve) => {
           deadlineTimer = setTimeout(() => {
             debug('nebula.Galaxy.trigger').error('turn failed: generation exceeded the deadline', {
@@ -1722,7 +1759,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // The turn finishes under the authority it STARTED with: the door admitted the post,
     // and that verdict covers the reply — a grant revoked mid-turn does not refuse it.
     await this.#resources.ensureResource(messageId, 'Message', nodeId, value, {
-      actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB }, pinnedAtPost: true,
+      actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB }, pinnedAtDoor: true,
     });
   }
 
@@ -1731,7 +1768,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * the caller's own address and check each op themselves. Chat participants are non-admin, so
    * there is no guard on the door: each op's DAG check at the chat node is the gate, and a
    * transaction's has no `actor` argument, so a client cannot forge `act: { sub: NEBULA_SUB }` —
-   * only the server-internal `commitAgentMessage` supplies one.
+   * only host code calling `ensureResource` supplies one: the agent's reply and a turn's landing.
    */
   @mesh() // open to a descendant Star's member: each member behind the door checks itself
   get resources(): ResourcesRequests {

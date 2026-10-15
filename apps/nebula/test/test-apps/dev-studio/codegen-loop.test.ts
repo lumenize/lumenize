@@ -20,6 +20,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
+import { asCaller } from './as-caller';
 import { setDebugSink, clearDebugSink, type DebugLogOutput } from '@lumenize/debug';
 import {
   runCodegenLoop,
@@ -642,10 +643,11 @@ describe('structural guard: the loop names no install/wipe sink', () => {
 const uniqueGalaxyScope = () => `u${crypto.randomUUID().slice(0, 8)}.app`;
 const VALID_ONTOLOGY = `interface Todo { title: string; done: boolean; }`;
 
-// Direct in-DO call — returns the method's result. The loop is LOCAL now (compile/
-// validate/git in-DO, no cross-DO recorder), so this is faithful and gets the value.
+// Direct in-DO call, which returns the method's result where the mesh's early-ack path returns
+// only {$ack}. It runs under an admin's call context (`asCaller`), since a landing records its
+// `ServedBuild` under the caller's claims and a call with none records nothing.
 const inDO = (binding: any, instance: string, fn: (inst: any) => unknown) =>
-  (runInDurableObject as any)(binding.getByName(instance), fn);
+  (runInDurableObject as any)(binding.getByName(instance), (inst: any) => asCaller(instance, () => fn(inst)));
 const tc = toolCall;
 const aiResp = resp;
 
