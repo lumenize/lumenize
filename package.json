@@ -21,7 +21,8 @@
     "experiments/workers-issues",
     "experiments/depth-chain",
     "experiments/tail-abort",
-    "experiments/do-read-cache"
+    "experiments/do-read-cache",
+    "experiments/do-alarm-retry"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
