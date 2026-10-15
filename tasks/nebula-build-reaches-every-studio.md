@@ -411,6 +411,26 @@ Larry's answer to the hand-off's second decision (§ *Decisions*).
 - Verified: `packages/resources` 19 passed (17 + 2); `apps/nebula` 1090 passed (1088 + 2); three mutations, each red on its own test; `drive.ts all --fast`, 56 of 56 in 30.7 min; with Docker, `dev-star-follows-the-build`, `build-reaches-every-studio`, `dev-tab-frame` and `star-serves-current-ontology`.
 - Deployed, with the type check's image change: `test-nebula` redeployed at `e9ab648`, and `build-box`, `first-app-built`, `dev-star-follows-the-build`, `build-reaches-every-studio` and `dev-tab-frame` passed. `first-app-built`'s turn wrote `src/nebula.ts` as well as the ontology and `App.vue` and landed clean in 10 rounds, so the check read a model-edited `nebula.ts`. Workers Issues since the deploy: the standing `scope-deleted`, and `teardown failed` with *Durable Object reset because its code was updated*, recurring since 2026-10-14 and not listed among `live.md`'s standing issues. A teardown reaching an object still on pre-deploy code would explain it; that was not traced.
 
+### A sweep reruns only what has not passed (2026-10-15)
+
+Built at Larry's request from the retro's "the gates are long", for the overnight case: a sweep that fails part way, then runs whole again after each fix.
+
+**For Larry:**
+
+- **`drive.ts all --rerun` runs only the scenarios with no pass on the tree in front of it.** Every sweep records each scenario's verdict as it finishes, in `results-{venue}.json` beside the durations the sweep already keeps, against three hashes: the code the stack runs, the harness's own code, and the scenario's file. A rerun on the same tree skips each scenario that passed from the file it has now; any edit to the code or the harness reruns everything. Locally the code includes Studio's source and the boot config; deployed it is a clean deploy's commit, which `/_version` confirms, and a dirty deploy keeps nothing.
+- **`live.md` now says to rerun after a sweep fails or stops**, and that a scenario passing on a rerun with nothing changed is a flake, reported as one.
+- **The first real use found a flake.** `studio-signed-out-landing` failed in a `--fast` sweep on an unchanged tree, with an `ERR_ABORTED` page load beside its three expected 401s, and passed on the rerun, which named it a flake. It had passed in both earlier sweeps that day. It is recorded here and not chased.
+
+**Retro:**
+
+- Driven by hand: a `--fast` sweep (55 of 56, the flake above), then `--rerun` ran that one scenario in 0.2 min against 25.4, a second `--rerun` ran none, an edit to one scenario's comment reran that scenario alone, and an edit under `apps/nebula/src` made it run everything.
+- That last run, stopped by a signal, showed a defect: the scenario the stop cut short was recorded as a failure, so a later pass would have been called a flake. A scenario that ends after a stop is no longer recorded.
+- One of seven mutations of `sweep-record.ts` survived because the line it hit was not needed: an "absent" marker for a missing path, when creating the path changes the hash anyway. The line went, and the test now pins a path that names a single file.
+
+**Close-out:**
+
+- Verified: `sweep-record.test.ts` 11 passed, each mutation red on its own test; `apps/nebula` 1101 passed (1090 + 11); on the final tree a `--fast --rerun` ran all 56, since the harness had changed, and 55 passed in 25.3 min. The 56th, `forged-continuation`, timed out opening the email-test Worker's socket (`tooling/email-test/src/client.ts`), and passed on a rerun that named it a flake: a second flake, outside Nebula.
+
 ## Phase Retro
 
 1. **What did we learn?**
@@ -421,7 +441,7 @@ Larry's answer to the hand-off's second decision (§ *Decisions*).
 
 2. **What did we struggle with?**
    - **Three of nine limb mutations survived on their first run, all for timing in the scenario rather than in the code:** a mark on the iframe's first `about:blank`, a reload that beat limb 3's mark, and a reap line from another tab. Each fix built the shape the limb was about, and two became rules in `live-scenarios.md`.
-   - **The gates are long.** Two full Docker sweeps of about 37 minutes, a `--fast` sweep of 25, about forty single-scenario runs for mutations, and a deployed pass.
+   - **The gates are long.** Two full Docker sweeps of about 37 minutes, a `--fast` sweep of 25, about forty single-scenario runs for mutations, and a deployed pass. The time was not wasted while Larry worked alongside; the risk is an unattended night in which a sweep fails part way and runs whole again, which `drive.ts all --rerun` now removes (question 5).
 
 3. **Did any tests fail unexpectedly?**
    - Phase 1's suite: two files the phase did not touch encoded the old reply and `why` strings.
@@ -439,3 +459,4 @@ Larry's answer to the hand-off's second decision (§ *Decisions*).
 5. **Process changes?**
    - Two rules added to `live-scenarios.md`: a wait for one client's line matches its id, and a mark on a frame waits for the frame's own document.
    - Added to `/build-task`'s implement step: when a phase turns an advisory signal into a gate, as Phase 1 did for type findings, run what the docs teach through what the gate reads (here the SFC contract) before the phase closes. It would have found the contract's gaps in Phase 1 instead of at the panel.
+   - `drive.ts all --rerun` (Larry, 2026-10-15): every sweep records each scenario's verdict against the code, the harness and the scenario's file, and a rerun on the same tree runs only what has no pass, naming any flake. `live.md` says to rerun after a sweep fails or stops, never to sweep again whole.

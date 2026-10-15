@@ -41,6 +41,22 @@ there MUST be a complete, type-checked write. Since 2026-09-06 the sweep DETECTS
 trusting the rule: it fingerprints the watched tree and re-checks it around every scenario, so a
 tainted sweep exits non-zero instead of reading as a real one.
 
+**After a sweep fails or stops, the next run SHOULD be `drive.ts all --rerun`, never another full
+sweep.** Every sweep records each scenario's verdict against three things: the code the stack
+runs, the harness's own code, and the scenario's file (`harness/lib/sweep-record.ts`). A rerun on
+the same tree runs only the scenarios with no pass from the file they have now. So a fix confined
+to one scenario's file turns a 55-minute Docker sweep into that scenario's few minutes, and a sweep
+that a signal or a crash ended resumes where it stopped. An edit to the code or the harness changes
+the tree, and the rerun then runs everything on its own, so it is never the wrong command after a
+red. Every pass it keeps was recorded on the tree in front of it, so a rerun counts at a closing
+gate exactly as a full sweep does.
+
+- **A scenario that fails, then passes on a rerun with nothing changed, is a flake, and the rerun
+  names it.** It MUST be reported as a flake where the sweep's result is reported, and MUST NOT be
+  read as a pass that cancels the failure: retrying a red away is how a quiet failure survives.
+- **Deployed, the tree is the commit the target was deployed from**, which `/_version` confirms. A
+  redeploy of the same commit keeps the passes, and a deploy carrying uncommitted changes keeps none.
+
 ## `/live` is the DEFAULT tier for behavioural coverage (2026-07-30)
 
 **The `/live` scenario MUST be written first. You MAY drop to the vitest-plugin lane when the behaviour is

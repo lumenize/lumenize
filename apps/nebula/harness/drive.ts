@@ -4,6 +4,7 @@
  *   npx tsx apps/nebula/harness/drive.ts [scenario]   # default: message-roundtrip
  *   npx tsx apps/nebula/harness/drive.ts all          # sweep EVERY scenario, one boot each
  *   npx tsx apps/nebula/harness/drive.ts all --fast   # …skipping the ones that need Docker
+ *   npx tsx apps/nebula/harness/drive.ts all --rerun  # …only those without a pass on this tree
  *   HARNESS_DEBUG=1 npx tsx apps/nebula/harness/drive.ts   # stream wrangler-dev stdio
  *   HARNESS_LOG_WAIT_MS=60000 …                           # give up on a missing log line sooner
  *
@@ -27,6 +28,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { bootDevStack, HAS_DOCKER, readDevVar, type DevStack } from './lib/harness';
 import { stopOrphanedContainers } from './lib/containers';
+import { HARNESS_PATHS, LOCAL_STACK_EXTRA_PATHS, hashPaths, isFlake, namesToRerun, readRecord, scenarioPath, writeRecord } from './lib/sweep-record';
+import type { ScenarioVerdict, SweepRecord } from './lib/sweep-record';
 import { hostOrigin } from '@lumenize/mesh/client';
 import { cloudflareCertificateApi, packNamesGalaxy } from '../src/certificate';
 import { isStaleTestAccount, sweepStaleTestAccounts, sweepStaleTestPacks } from './lib/test-scopes';
@@ -270,8 +273,16 @@ const SCENARIOS: Record<string, Scenario> = {
  * with no record starts first too, so a new one cannot become the run's long tail. On 2026-10-07 the
  * 20-minute `deleted-on-cloudflare` started last at concurrency 2 and kept the run going long after
  * everything else had finished.
+ *
+ * `--rerun` RUNS ONLY WHAT HAS NOT PASSED ON THE TREE IN FRONT OF IT. Every sweep records each
+ * scenario's verdict as it finishes, against the code the stack runs, the harness's own code and
+ * the scenario's file (`lib/sweep-record.ts`). A rerun on the same tree skips each scenario that
+ * passed from the file it has now, so a fix confined to a scenario reruns that scenario, and a sweep
+ * stopped part way resumes where it stopped. Any edit to the code or the harness changes the tree,
+ * and a rerun then runs everything. A scenario that failed on a tree and passes when run again on it
+ * is reported as a flake, never as a fix.
  */
-async function sweep(fast: boolean, concurrency: number): Promise<void> {
+async function sweep(fast: boolean, concurrency: number, rerun: boolean): Promise<void> {
   const deployed = Boolean(process.env.HARNESS_TARGET_URL);
   if (concurrency > 1 && !deployed) {
     console.error('[harness] --concurrency needs HARNESS_TARGET_URL: a local sweep boots a wrangler dev per scenario and clears workerd between them');
@@ -286,7 +297,6 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
   const { mkdirSync, writeFileSync, readdirSync, readFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join, resolve, dirname } = await import('node:path');
-  const { createHash } = await import('node:crypto');
   const registered = Object.keys(SCENARIOS)
     .filter((n) => !fast || (SCENARIOS[n].needsContainer ?? true) === false);
   // PARKED scenarios are reported, never omitted — a limb held back by absence is a limb nobody
@@ -298,34 +308,41 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
   try { durations = JSON.parse(readFileSync(durationsFile, 'utf8')) as Record<string, number>; } catch { /* first sweep on this venue */ }
   // Longest first, a scenario with no record before any (stable, so ties keep registration order).
   if (concurrency > 1) names.sort((a, b) => (durations[b] ?? Infinity) - (durations[a] ?? Infinity));
-  const logDir = join(tmpdir(), 'lumenize-sweep', new Date().toISOString().replace(/[:.]/g, '-'));
-  mkdirSync(logDir, { recursive: true });
-  console.error(`[harness] sweeping ${names.length} scenario(s)${fast ? ' (container-free only)' : ''} — each one's output kept under ${logDir}`);
-  for (const n of parked) console.error(`⏭️  ${n.padEnd(26)} PARKED — ${SCENARIOS[n].skip}`);
-  console.error('');
-
   // The watched tree: the Worker's own source, the packages it bundles, and the container
   // image's context, hashed by CONTENT. A modification time also moves when an editor or a tool
   // saves a file unchanged, which tripped this once with nothing edited (2026-10-04).
   const repoRoot = resolve(dirname(process.argv[1]!), '..', '..', '..');
   const watched = ['apps/nebula/src', 'apps/nebula/container',
     ...readdirSync(join(repoRoot, 'packages')).map((p) => `packages/${p}/src`)];
-  const fingerprint = (): string => {
-    const h = createHash('sha1');
-    const walk = (dir: string): void => {
-      let entries: import('node:fs').Dirent[];
-      try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
-      for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-        if (e.name === 'node_modules' || e.name === '.wrangler' || e.name === 'dist') continue;
-        const full = join(dir, e.name);
-        if (e.isDirectory()) walk(full);
-        else if (e.isFile()) { h.update(`${full}\n`); h.update(readFileSync(full)); }
-      }
-    };
-    for (const w of watched) walk(join(repoRoot, w));
-    return h.digest('hex');
-  };
+  const fingerprint = (): string => hashPaths(repoRoot, watched);
   const booted = fingerprint();
+
+  // What this sweep's passes are evidence about, and with `--rerun` the scenarios still owed one.
+  const recordFile = join(tmpdir(), 'lumenize-sweep', `results-${deployed ? 'deployed' : 'local'}.json`);
+  const record = readRecord(recordFile);
+  const harnessHash = hashPaths(repoRoot, HARNESS_PATHS);
+  const tree = deployed
+    ? await deployedTree(process.env.HARNESS_TARGET_URL!, record, harnessHash, repoRoot)
+    : { id: `local:${hashPaths(repoRoot, [...watched, ...LOCAL_STACK_EXTRA_PATHS])}:${harnessHash}` };
+  const fileHashOf = (name: string): string => hashPaths(repoRoot, [scenarioPath(name)]);
+  const verdicts: Record<string, ScenarioVerdict> =
+    tree.id !== undefined && record?.tree === tree.id ? { ...record.scenarios } : {};
+  let toRun = names;
+  if (tree.id === undefined) {
+    console.error(`[harness] no verdict from this sweep is kept for --rerun: ${tree.why}`);
+  } else if (rerun && record?.tree !== tree.id) {
+    console.error('[harness] --rerun: the code or the harness changed since the last sweep on this venue, so every scenario runs');
+  } else if (rerun) {
+    toRun = namesToRerun(names, record, tree.id, fileHashOf);
+    console.error(`[harness] --rerun: ${names.length - toRun.length} passed on this tree already, so ${toRun.length} run`);
+  }
+  const flakes: string[] = [];
+
+  const logDir = join(tmpdir(), 'lumenize-sweep', new Date().toISOString().replace(/[:.]/g, '-'));
+  mkdirSync(logDir, { recursive: true });
+  console.error(`[harness] sweeping ${toRun.length} scenario(s)${fast ? ' (container-free only)' : ''} — each one's output kept under ${logDir}`);
+  for (const n of parked) console.error(`⏭️  ${n.padEnd(26)} PARKED — ${SCENARIOS[n].skip}`);
+  console.error('');
   let taintedFrom: string | undefined;
   const checkTree = (name: string): void => {
     if (taintedFrom === undefined && fingerprint() !== booted) {
@@ -409,6 +426,13 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
     const detail = ok ? '' : (/^(?:AssertionError|\w*Error):.*$/m.exec(out)?.[0] ?? '(see the kept output)').slice(0, 120);
     checkTree(name); // an edit DURING this scenario taints it too
     const tainted = taintedFrom !== undefined;
+    // A scenario that ends after a stop was cut short by it, so its result is evidence of nothing.
+    if (!tainted && stoppedBy === undefined && tree.id !== undefined) {
+      const file = fileHashOf(name);
+      if (isFlake(verdicts[name], file, ok)) flakes.push(name);
+      verdicts[name] = { ok, file, at: new Date().toISOString() };
+      writeRecord(recordFile, { tree: tree.id, scenarios: verdicts });
+    }
     results.push({ name, ok, secs: ((Date.now() - t0) / 1000).toFixed(1), detail, tainted });
     durations[name] = Math.round((Date.now() - t0) / 1000);
     writeFileSync(durationsFile, JSON.stringify(durations, null, 2));
@@ -416,7 +440,7 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
     if (!ok && process.env.HARNESS_DEBUG) console.error(out);
     if (packs) peakPacks = Math.max(peakPacks, (await packs().catch(() => [])).length);
   };
-  const queue = [...names];
+  const queue = [...toRun];
   await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
     for (let name = queue.shift(); name !== undefined && stoppedBy === undefined; name = queue.shift()) {
       const next = name;
@@ -445,7 +469,11 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
 
   const failed = results.filter((r) => !r.ok);
   const wall = ((Date.now() - sweepStarted) / 60_000).toFixed(1);
-  console.log(`\n[harness] ${results.length - failed.length}/${results.length} passed${parked.length > 0 ? `, ${parked.length} parked` : ''} in ${wall} min, ${concurrency} at a time`);
+  const passedEarlier = names.length - toRun.length;
+  console.log(`\n[harness] ${results.length - failed.length}/${results.length} passed${passedEarlier > 0 ? `, ${passedEarlier} more passed earlier on this tree` : ''}${parked.length > 0 ? `, ${parked.length} parked` : ''} in ${wall} min, ${concurrency} at a time`);
+  for (const n of flakes) {
+    console.log(`  ⚠️  ${n} — failed on this tree before and passed now, from the same file: a flake. Say so where the sweep is reported; never retry it away`);
+  }
   for (const n of parked) console.log(`  ⏭️  ${n} — PARKED, not run: ${SCENARIOS[n].skip}`);
   for (const f of failed) console.log(`  ❌ ${f.name} — ${f.detail}\n     output: ${join(logDir, `${f.name}.log`)}`);
   if (failed.length > 0) console.log(`  (every scenario's full output is under ${logDir})`);
@@ -458,7 +486,7 @@ async function sweep(fast: boolean, concurrency: number): Promise<void> {
   }
   if (failed.length > 0 || taintedFrom !== undefined) process.exitCode = 1;
   if (stoppedBy !== undefined) {
-    console.log(`\n🛑 the sweep was stopped by ${stoppedBy}: ${names.length - results.length - parked.length} scenario(s) never started`);
+    console.log(`\n🛑 the sweep was stopped by ${stoppedBy}: ${toRun.length - results.length} scenario(s) never started; \`all --rerun\` resumes it`);
     process.exitCode = 130;
   }
 }
@@ -531,6 +559,30 @@ function appPacks(): (() => Promise<Array<{ id: string; hosts: string[] }>>) | u
     .filter((p) => p.hosts.some((h) => h.replace(/^\*\./, '').split('.').length >= zoneDepth + 2));
 }
 
+/**
+ * The tree a deployed sweep's passes are evidence about: the commit the target was deployed from,
+ * which `/_version` confirms without naming it, and the harness's own code. A deploy carrying
+ * uncommitted changes has no commit that names it, so no verdict on it is kept for a rerun.
+ */
+async function deployedTree(
+  target: string, record: SweepRecord | undefined, harnessHash: string, repoRoot: string,
+): Promise<{ id?: string; why?: string }> {
+  const { spawnSync } = await import('node:child_process');
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).stdout.trim();
+  const recorded = record?.tree.startsWith('deployed:') ? record.tree.split(':')[1] : undefined;
+  for (const sha of new Set([recorded, head].filter((s): s is string => Boolean(s)))) {
+    let answer: { match?: boolean; dirty?: boolean };
+    try {
+      answer = await (await fetch(new URL(`/_version?sha=${sha}`, target))).json() as typeof answer;
+    } catch (e) {
+      return { why: `the target's /_version did not answer (${(e as Error).message})` };
+    }
+    if (answer.dirty) return { why: 'the target was deployed with uncommitted changes, which no commit names' };
+    if (answer.match) return { id: `deployed:${sha}:${harnessHash}` };
+  }
+  return { why: "the target runs neither HEAD nor the last sweep's commit" };
+}
+
 /** The deployed test target's stack id, which keys its run's shared app (`lib/shared-app-record.ts`). */
 const DEPLOYED_STACK_ID = `deployed:${TEST_ORIGIN}`;
 
@@ -576,7 +628,7 @@ async function main(): Promise<void> {
       process.exitCode = 2;
       return;
     }
-    return sweep(argv.includes('--fast'), concurrency);
+    return sweep(argv.includes('--fast'), concurrency, argv.includes('--rerun'));
   }
 
   const scenario = SCENARIOS[name];
