@@ -129,6 +129,8 @@ export async function run(stack: DevStack): Promise<void> {
       const report = await driver.client.lmz.callAsync('GALAXY', galaxy, driver.client.ctn<Galaxy>().buildNow(),
         { timeoutMs: BUILD_CALL_TIMEOUT_MS }) as BuildReport;
       assert.ok(report.bundle.ran && report.bundle.ok === true, `the dev tab's app must build: ${JSON.stringify(report.bundle).slice(0, 400)}`);
+      // A build with type findings is held back and lands nothing, so the fixture stays clean.
+      assert.ok(report.preview.refreshed, `the dev tab's app must land on .dev: ${report.preview.why}`);
 
       const context = await countingContext();
       const page = await context.newPage();

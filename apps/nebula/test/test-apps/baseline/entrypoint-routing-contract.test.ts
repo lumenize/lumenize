@@ -8,9 +8,10 @@
  * `index.ts` re-exports `entrypoint as default`).
  *
  * The dev Star's leg is end-to-end: a page load on its host forwards to the owning GALAXY on the
- * page track, whose serve answers from its own VFS — a seeded `dist/index.html` comes back with the
- * server-derived `nebula-scope` meta, the deployment's origin and the caching pin, framed by the
- * galaxy's Studio alone. Capable-of-failing: the positive anchors (the auth route's own 400, the
+ * page track, whose serve answers from the copy the last landing made — a build landed through
+ * `buildNow` comes back with the server-derived `nebula-scope` meta, its build version, the
+ * deployment's origin and the caching pin, framed by the galaxy's Studio alone. The build runs over
+ * this lane's faked job (`fake-build.ts`), so the landing above it runs unchanged. Capable-of-failing: the positive anchors (the auth route's own 400, the
  * served 200) prove the Worker isn't just 404ing everything, so the 404s below are a real split.
  *
  * This lane binds no assets, so a page the assets layer would serve (Studio, the auth app's
@@ -22,6 +23,7 @@ import type { Galaxy } from '@lumenize/nebula';
 import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import { universeAdminClient, ORIGIN, pageOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
+import type { GalaxyTest } from './index';
 
 describe('entrypoint routing contract — exhaustive + collision-free', () => {
   // Positive anchor 1: the platform host DOES route an API path — so the 404s below are a genuine
@@ -45,19 +47,22 @@ describe('entrypoint routing contract — exhaustive + collision-free', () => {
     expect((await claim(pageOf('acme.crm'))).status).toBe(404);
   });
 
-  // Positive anchor 2 — the dev Star's page, end to end: seed a dist into the Galaxy's VFS through
-  // the real mesh write, then load the page UNGATED (no Authorization — browsers send none on
-  // document loads; that is the design, not an omission).
-  it("a page load on the dev Star's host serves the built app from the Galaxy VFS", async () => {
+  // Positive anchor 2 — the dev Star's page, end to end: land a build through the Galaxy's own
+  // entry, then load the page UNGATED (no Authorization — browsers send none on document loads;
+  // that is the design, not an omission).
+  // Mutations: serve `.dev` from `/workspace/dist/` (the inversion reds), or read `buildVersion`
+  // from anything but the served `index.html` (its check reds).
+  it("a page load on the dev Star's host serves the build that last landed, from the Galaxy's copy", async () => {
     const scope = `erc-${crypto.randomUUID().slice(0, 8)}.app`;
     const { client } = await universeAdminClient(
       NebulaClientTest, new Browser(), scope, scope, 'serve@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
       { resourceHostBinding: 'GALAXY' },
     );
-    const html = '<!doctype html><html><head><title>app</title></head><body>BUILT</body></html>';
-    await client.lmz.callAsync('GALAXY', scope, client.ctn<Galaxy>().writeSource('dist/index.html', html));
-    await client.lmz.callAsync('GALAXY', scope,
-      client.ctn<Galaxy>().writeSource('dist/assets/index-AbCdEf12.js', 'console.log(1)'));
+    await client.lmz.callAsync('GALAXY', scope, client.ctn<GalaxyTest>().setBuildFaultsForTest(
+      { distFiles: { 'assets/index-AbCdEf12.js': 'console.log(1)' } }));
+    const report = await client.lmz.callAsync('GALAXY', scope, client.ctn<Galaxy>().buildNow({}));
+    expect(report.preview).toEqual({ refreshed: true, why: 'clean build, landed' });
+    const built = report.bundle as { indexSha256: string };
 
     const star = pageOf(`${scope}.dev`);
     const res = await new Browser().fetch(`${star}/`);
@@ -65,25 +70,59 @@ describe('entrypoint routing contract — exhaustive + collision-free', () => {
     expect(res.headers.get('Cache-Control')).toBe('no-store');
     expect(res.headers.get('Content-Security-Policy')).toBe(`frame-ancestors ${pageOf(scope)}`);
     const body = await res.text();
-    expect(body).toContain('BUILT');
-    // Server-derived page meta (never request-supplied): the dev Star, framed by its galaxy's Studio.
+    // Server-derived page meta (never request-supplied): the dev Star, framed by its galaxy's Studio,
+    // naming the build it was served.
     expect(body).toContain('name="nebula-scope"');
     expect(body).toContain('"dev":true');
     expect(body).toContain(`"parentOrigin":"${pageOf(scope)}"`);
+    expect(body).toContain(`"buildVersion":"${built.indexSha256}"`);
     expect(body).toContain('name="lumenize-origin"');
 
     // A hashed asset serves as itself, immutable; a deep link SPA-falls-back to the shell.
     const asset = await new Browser().fetch(`${star}/assets/index-AbCdEf12.js`);
     expect(asset.status).toBe(200);
+    expect(await asset.text()).toBe('console.log(1)');
     expect(asset.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
     const deep = await new Browser().fetch(`${star}/invoices/42`);
     expect(deep.status).toBe(200);
-    expect(await deep.text()).toContain('BUILT');
+    expect(await deep.text()).toContain(`"buildVersion":"${built.indexSha256}"`);
+
+    // The inversion: a chat-floor write into the working tree's `dist/` changes nothing `.dev`
+    // serves. Only a landing does.
+    await client.lmz.callAsync('GALAXY', scope, client.ctn<Galaxy>().writeSource(
+      'dist/index.html', '<!doctype html><html><head></head><body>WRITTEN</body></html>'));
+    const after = await (await new Browser().fetch(`${star}/`)).text();
+    expect(after).not.toContain('WRITTEN');
+    expect(after).toContain(`"buildVersion":"${built.indexSha256}"`);
 
     // A NON-`.dev` star has no served tier yet (the published dist-prod/ is deferred).
     const prodStar = await new Browser().fetch(`${pageOf(`${scope}.tenant`)}/`);
     expect(prodStar.status).toBe(404);
 
+    client[Symbol.dispose]();
+  });
+
+  // vite copies `public/` unchanged, so a file can keep a name that looks hashed and change its
+  // bytes; the landing copies by content. In this lane because the build seam writes exact files,
+  // where a real build would need a fixture image.
+  // Mutation: copy only the files `/dist-dev/` lacks by name, and the second fetch reds.
+  it('a landing copies a file whose bytes changed, though its name looks hashed', async () => {
+    const scope = `erc-${crypto.randomUUID().slice(0, 8)}.app`;
+    const { client } = await universeAdminClient(
+      NebulaClientTest, new Browser(), scope, scope, 'assets@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
+      { resourceHostBinding: 'GALAXY' },
+    );
+    const logo = 'assets/logo-a1b2c3d4.png';
+    const landWith = async (bytes: string) => {
+      await client.lmz.callAsync('GALAXY', scope, client.ctn<GalaxyTest>().setBuildFaultsForTest({ distFiles: { [logo]: bytes } }));
+      const report = await client.lmz.callAsync('GALAXY', scope, client.ctn<Galaxy>().buildNow({}));
+      expect(report.preview.refreshed).toBe(true);
+    };
+    const star = pageOf(`${scope}.dev`);
+    await landWith('first');
+    expect(await (await new Browser().fetch(`${star}/${logo}`)).text()).toBe('first');
+    await landWith('second');
+    expect(await (await new Browser().fetch(`${star}/${logo}`)).text()).toBe('second');
     client[Symbol.dispose]();
   });
 

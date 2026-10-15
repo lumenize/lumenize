@@ -695,9 +695,11 @@ describe('integration — real Galaxy loop (probe replays a script)', () => {
       expect(result.stop).toBe('complete');
       expect(spy).toHaveBeenCalledTimes(1);
       expect(spy).toHaveBeenCalledWith({ preview: true }); // the model's override rides the entry
-      // …and the override DECIDED: the probe's faked bundle is ok, so the report says refreshed.
+      // …and the build landed. The probe's faked bundle is clean, so the flag changes nothing
+      // here; what it does to a build with findings is `decideLanding`'s table
+      // (ontology-landing.test.ts).
       const rec = result.toolCalls.find((t: { name: string }) => t.name === 'build');
-      expect(rec.result.preview).toEqual({ refreshed: true, why: "refreshed on the model's override" });
+      expect(rec.result.preview).toEqual({ refreshed: true, why: 'clean build, landed' });
     } finally {
       spy.mockRestore();
     }
@@ -1014,38 +1016,6 @@ describe('Workers-AI REST envelope unwrap feeds parseModelTurn', () => {
   });
 });
 
-// ─── The preview decision (every arm — pure, exported for exactly this) ─────────
-import { decidePreview } from '../../../src/galaxy';
+// The preview decision's table moved to `test/ontology-landing.test.ts`, beside `decideLanding`, which absorbed it.
 import { SKIPPED_FOR_ONTOLOGY } from '../../../src/build-report';
 import git from 'isomorphic-git';
-
-describe('decidePreview — refresh-on-clean by default; the model may override; a failed bundle is structural', () => {
-  it('clean build → refreshes by default', () => {
-    expect(decidePreview(cleanReport())).toEqual({ refreshed: true, why: 'clean build' });
-  });
-
-  it('findings → withheld by default; override true refreshes; override false declines a CLEAN build', () => {
-    const withFindings = findingsReport(['src/App.vue(1,1): error TS2322: x']);
-    expect(decidePreview(withFindings).refreshed).toBe(false);
-    expect(decidePreview(withFindings).why).toContain('type findings');
-    expect(decidePreview(withFindings, true)).toEqual({ refreshed: true, why: "refreshed on the model's override" });
-    expect(decidePreview(cleanReport(), false)).toEqual({ refreshed: false, why: 'the model declined to refresh the preview' });
-  });
-
-  it('a failed ontology step skips the bundle, so not even the override refreshes, and the why says what to fix', () => {
-    const ontologyFailed = cleanReport({
-      ontology: { ran: true, ok: false, tail: 'boom' }, bundle: { ran: false, why: SKIPPED_FOR_ONTOLOGY },
-    });
-    expect(decidePreview(ontologyFailed)).toEqual({ refreshed: false, why: `bundle did not run (${SKIPPED_FOR_ONTOLOGY}) — there is no new dist` });
-    expect(decidePreview(ontologyFailed, true).refreshed).toBe(false);
-  });
-
-  it('no dist is STRUCTURAL — even override:true cannot refresh from a failed or never-run bundle', () => {
-    const bundleFailed = cleanReport({ bundle: { ran: true, ok: false, tail: 'rolldown died' } });
-    expect(decidePreview(bundleFailed, true)).toEqual({ refreshed: false, why: 'bundle failed — there is no dist to refresh the preview from' });
-    const bundleSkipped = cleanReport({ bundle: { ran: false, why: 'the build job did not run' } });
-    const skipped = decidePreview(bundleSkipped, true);
-    expect(skipped.refreshed).toBe(false);
-    expect(skipped.why).toContain('bundle did not run');
-  });
-});

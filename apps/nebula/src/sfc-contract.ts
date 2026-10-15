@@ -10,8 +10,11 @@
 
 /**
  * The Nebula client API surface the generated `App.vue` targets. Mirrors the real
- * public API (`client.resources.{transaction,subscribe,read,write,createAndSubscribe}`,
- * `client.claims`, the reactive `store`, `ready`); `OperationDescriptor` is copied
+ * public API that `website/docs/nebula/api-reference.md` teaches (`client.resources.*`, the
+ * client's own `dispose`/`logout`/`orgTree`/`subscribe*`, `client.claims`, the reactive `store`,
+ * `ready`). ⚠️ A documented call missing here is a FALSE finding, and a build with findings is
+ * held back from `.dev` unless the model previews it, so a gap here holds back correct code;
+ * loose types beat absent ones. `OperationDescriptor` is copied
  * verbatim from the frontend's conflict-outcome `EngineOp` so a bad union literal
  * (`op: 'set'`) fails to type-check exactly as it would against the live client.
  * Mount at the path the app's relative `./nebula` import resolves to.
@@ -34,15 +37,42 @@ export interface ResourceSubscription {
   [Symbol.dispose](): void;
 }
 
+/** The one query shape: equality on a single to-one relationship field. */
+export interface QueryDescriptor {
+  queryType: 'parentChild';
+  typeName: string;
+  field: string;
+  value: string;
+  orderBy?: 'validFrom';
+}
+
+export interface QuerySubscription {
+  readonly ready: Promise<void>;
+  readonly resourceIds: string[];
+  readonly deniedNodes: string[];
+  setRenderWindow(resourceIds: string[]): void;
+  onChange(cb: () => void): void;
+  [Symbol.dispose](): void;
+}
+
 export interface Client {
   readonly claims: { sub: string; [k: string]: unknown };
   resources: {
-    transaction(ops: Record<string, OperationDescriptor>): Promise<TransactionOutcome>;
+    transaction(ops: Record<string, OperationDescriptor>, options?: Record<string, unknown>): Promise<TransactionOutcome>;
     subscribe(resourceType: string, resourceId: string): ResourceSubscription;
-    read(resourceType: string, resourceId: string): Promise<{ value: unknown; eTag: string } | null>;
+    unsubscribe(resourceType: string, resourceId: string): void;
+    subscribeQuery(query: QueryDescriptor, options?: { renderGraceMs?: number }): QuerySubscription;
+    read(resourceType: string, resourceId: string, options?: { ontologyVersion?: string }): Promise<{ value: unknown; eTag: string } | null>;
     write(resourceType: string, resourceId: string, opts?: { quietMs?: number }): void;
     createAndSubscribe(resourceType: string, resourceId: string, nodeId: string, value: unknown): ResourceSubscription;
+    onTransactionResourceResolution(resourceType: string, handler: (resourceId: string, resolution: any) => any, options?: Record<string, unknown>): void;
+    transactionDebounce(resourceType: string, opts: { quietMs?: number; maxWaitMs?: number; fields?: Record<string, { quietMs?: number; maxWaitMs?: number }> }): void;
   };
+  orgTree: Record<string, (...args: any[]) => Promise<any>>;
+  subscribeProfile(profileId: string): { [Symbol.dispose](): void; [k: string]: unknown };
+  subscribeQuerySubscribers(query: QueryDescriptor): { [Symbol.dispose](): void; [k: string]: unknown };
+  dispose(): void;
+  logout(): Promise<void>;
 }
 
 export const client: Client;

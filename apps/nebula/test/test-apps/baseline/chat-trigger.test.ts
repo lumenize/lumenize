@@ -18,7 +18,8 @@
  *    write warms, before the build cycle; the hint warms a no-tool-calls turn and a
  *    teardown follows; a verdict landing after the turn warms nothing; hint plus write is
  *    still one warm. T8: the reply is the model's own text, the fixed strings only when
- *    it is empty.
+ *    it is empty. T8b: a turn whose last build did not land says so in the Galaxy's own line,
+ *    and `Updated the preview.` appears only when it landed.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
@@ -29,6 +30,7 @@ import type { Snapshot } from '@lumenize/resources';
 import { NEBULA_SUB } from '@lumenize/mesh/auth';
 import { universeAdminClient, createSubject, createInvitedClient } from '../../test-helpers';
 import { StudioClientTest } from './index';
+import type { GalaxyTest } from './index';
 
 const uniqueChatScope = () => `ctr-${crypto.randomUUID().slice(0, 8)}.app`;
 const chatQuery = {
@@ -330,7 +332,8 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     // Mutation: keep the hardwired "Updated the preview." → the first two red.
     expect(await turn(complete('Added the counter you asked for.', true), 'add a counter')).toBe('Added the counter you asked for.');
     expect(await turn(complete('Nothing to change here.', false), 'anything to fix?')).toBe('Nothing to change here.');
-    expect(await turn(complete('', true), 'add another')).toBe('Updated the preview.');
+    // Files changed but nothing was built, so nothing anyone sees changed.
+    expect(await turn(complete('', true), 'add another')).toBe('Saved the changes; nothing was built, so the preview is unchanged.');
     expect(await turn(complete('', false), 'and now?')).toBe('Done — no changes.');
     expect(await turn([round('Just chatting.')], 'hi')).toBe('Just chatting.');
     // The failure stops too — "every stop": a `loop-detected` turn (identical text twice,
@@ -355,6 +358,50 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     ];
     expect(await turn(loopedSilent, 'and again')).toBe("I couldn't finish cleanly — see the thought process.");
 
+    client[Symbol.dispose]();
+  });
+
+  // The scripted turn builds over the faked job (`fake-build.ts`), whose `findings` stand in for a
+  // real type error, so the landing runs unchanged. The baseline lane, because which build ends a
+  // turn is the model's choice, and a scripted model makes it certain.
+  // Mutations: append the line on every turn (the landed cases red), on none (the held-back cases
+  // red), or let the fallback ignore the landing (the first case reds on a held-back build).
+  it("T8b: a turn whose last build did not land says so, and claims an update only when it landed", async () => {
+    const scope = uniqueChatScope();
+    const { client } = await devClient(scope);
+    using sub = client.resources.subscribeQuery(chatQuery); await sub.ready;
+    let n = 0;
+    const built = (content: string, buildArgs: object = {}) => {
+      n += 1;
+      return [
+        { choices: [{ message: { content: '', reasoning_content: '', tool_calls: [
+          { id: `w${n}`, type: 'function', function: { name: 'write_file', arguments: JSON.stringify({ path: 'src/App.vue', content: `<template><p>${n}</p></template>` }) } },
+        ] } }] },
+        { choices: [{ message: { content: '', reasoning_content: '', tool_calls: [
+          { id: `b${n}`, type: 'function', function: { name: 'build', arguments: JSON.stringify(buildArgs) } },
+        ] } }] },
+        { choices: [{ message: { content, reasoning_content: '', tool_calls: [
+          { id: `c${n}`, type: 'function', function: { name: 'mark_complete', arguments: '{}' } },
+        ] } }] },
+      ];
+    };
+    const faults = (f: object) => client.lmz.callAsync('GALAXY', scope, client.ctn<GalaxyTest>().setBuildFaultsForTest(f));
+    const contentOf = async (q: string) => (((await agentReplies(client, sub.resourceIds)).get(q)!).value as { content?: string }).content;
+    const turn = async (script: unknown[], text: string) => {
+      await seedScript(client, scope, script);
+      const q = await client.postUserMessage(text);
+      await vi.waitFor(async () => { expect((await agentReplies(client, sub.resourceIds)).get(q)).toBeTruthy(); }, { timeout: 15000 });
+      return contentOf(q);
+    };
+    const HELD = 'The preview was not updated: the last build was held back for its type findings.';
+    await faults({});
+    expect(await turn(built(''), 'add a counter')).toBe('Updated the preview.');
+    await faults({ findings: ['src/App.vue(1,1): error TS2322: Type x is not assignable to type y.'] });
+    expect(await turn(built(''), 'add a title')).toBe(HELD);
+    expect(await turn(built('Added the title.'), 'add a subtitle')).toBe(`Added the title.\n\n${HELD}`);
+    // The model's call lands it anyway, and nothing is appended.
+    expect(await turn(built('Landed it; the finding is a checker blind spot.', { preview: true }), 'ship it'))
+      .toBe('Landed it; the finding is a checker blind spot.');
     client[Symbol.dispose]();
   });
 

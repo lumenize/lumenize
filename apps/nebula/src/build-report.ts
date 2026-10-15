@@ -27,11 +27,12 @@ export interface JobReport {
   /** `ran: false` when the host passed no ontology version (no `.d.ts` change);
    *  `rowPath` names where the compiled row landed in the mount. */
   ontology: StepResult & { rowPath?: string };
-  /** ADVISORY — deliberately no `ok`, so nothing can read it as a gate. `checked` is
-   *  what tsc actually looked at: a file written, checked and unimplicated is KNOWN
-   *  CLEAN. */
+  /** ADVISORY — deliberately no `ok`: a finding never stops the bundle, and it decides only
+   *  the landing's default, which the model's `{ "preview": true }` overrides (`decideLanding`).
+   *  `checked` is what tsc actually looked at: a file written, checked and unimplicated is
+   *  KNOWN CLEAN. */
   typeCheck: { ran: boolean; checked: string[]; findings: Finding[] };
-  /** `!ok` ⇒ there is no `dist`, so nothing to refresh the preview from (structural, not policy). */
+  /** `!ok` ⇒ there is no `dist`, so nothing to land on `.dev` (structural, not policy). */
   /** `indexSha256` (hex) is the built `dist/index.html`'s digest when the bundle ran clean —
    *  the host's arrival check compares it against the VFS so a STALE dist from an earlier
    *  build cannot pass for the fresh one (a pull that applied nothing left exactly that). */
@@ -51,10 +52,12 @@ export interface JobReport {
  * the model.
  *
  * `container` is the job/exec itself (`!ok` ⇒ infra — but a tail naming the build
- * timeout means retrying unchanged will time out again); `preview` says whether the
- * `.dev` preview refreshed and always carries a why, so a preview that did not refresh
- * is never silent. (Named for what the flag decides — the dev preview's reload; the
- * product's *publish*, the shipped tag served to tenant Stars, is not this.)
+ * timeout means retrying unchanged will time out again); `preview` says whether the build
+ * landed: `refreshed: true` means `.dev` now serves this build and its Star runs its types, and
+ * `false` means the build is served nowhere and `.dev` still serves the last one that landed. It
+ * always carries a why, so a build that did not land is never silent. (Named for what the
+ * model's call decides — what the dev preview shows; the product's *publish*, the shipped tag
+ * served to tenant Stars, is not this.)
  */
 export type BuildReport = JobReport & {
   container: StepResult;

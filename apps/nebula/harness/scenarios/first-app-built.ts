@@ -98,10 +98,11 @@ function galaxyMarkers(raw: string): GalaxyMarker[] {
 
 const chatQuery = { queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
 
-/** The latest durable agent reply's manifest — what the model's turn actually did — for
+/** The latest durable agent reply and its manifest — what the model's turn actually did — for
  *  attributing a red: a stop with no successful build is the model's; a refreshed preview
- *  beside a 404 is a dist that never arrived (`tasks/backlog.md`'s `build-box` row). */
-async function latestAgentManifest(stack: DevStack, galaxy: string, session: { accessToken: string; sub: string }): Promise<string> {
+ *  beside a 404 is a dist that never arrived (`tasks/backlog.md`'s `build-box` row). A build
+ *  the turn ended on that was held back landed nothing, which `heldBack` says. */
+async function latestAgentTurn(stack: DevStack, galaxy: string, session: { accessToken: string; sub: string }): Promise<{ manifest: string; reply: string; heldBack: boolean }> {
   const driver = await connectDriver(stack, { scope: galaxy, session });
   try {
     using sub = driver.client.resources.subscribeQuery(chatQuery); await sub.ready;
@@ -111,14 +112,16 @@ async function latestAgentManifest(stack: DevStack, galaxy: string, session: { a
       if (snap && deriveKind(snap.meta.actingToken) === 'agent') replies.push({ at: String((snap.meta as { validFrom?: string }).validFrom ?? ''), v: snap.value as Record<string, unknown> });
     }
     const last = replies.sort((a, b) => a.at.localeCompare(b.at)).at(-1);
-    if (!last) return 'no agent reply found';
+    if (!last) return { manifest: 'no agent reply found', reply: '', heldBack: false };
     const cg = last.v.codegen as { stop?: string; rounds?: number; appliedPaths?: string[]; toolCalls?: Array<{ name: string; result?: unknown; error?: string }> } | undefined;
     const builds = (cg?.toolCalls ?? []).filter((t) => t.name === 'build');
     const lastBuild = builds.at(-1);
-    const r = lastBuild?.result as { preview?: { refreshed?: boolean; why?: string }; steps?: unknown } | undefined;
-    return `stop=${cg?.stop} rounds=${cg?.rounds} applied=${(cg?.appliedPaths ?? []).join(',') || '-'} builds=${builds.length}` +
-      ` reply=${JSON.stringify(String(last.v.content ?? '').slice(0, 200))}` +
-      (lastBuild ? (lastBuild.error ? ` lastBuild=error: ${lastBuild.error}` : ` lastBuild.preview=${JSON.stringify(r?.preview ?? null)} steps=${String(JSON.stringify(r?.steps ?? null)).slice(0, 400)}`) : '');
+    const r = lastBuild?.result as { preview?: { refreshed?: boolean; why?: string }; typeCheck?: { findings?: unknown[] } } | undefined;
+    const reply = String(last.v.content ?? '');
+    const manifest = `stop=${cg?.stop} rounds=${cg?.rounds} applied=${(cg?.appliedPaths ?? []).join(',') || '-'} builds=${builds.length}` +
+      ` reply=${JSON.stringify(reply.slice(0, 200))}` +
+      (lastBuild ? (lastBuild.error ? ` lastBuild=error: ${lastBuild.error}` : ` lastBuild.preview=${JSON.stringify(r?.preview ?? null)} findings=${JSON.stringify(r?.typeCheck?.findings ?? null).slice(0, 1200)}`) : '');
+    return { manifest, reply, heldBack: !!lastBuild && !lastBuild.error && r?.preview?.refreshed === false };
   } finally {
     driver.dispose();
   }
@@ -339,6 +342,29 @@ export async function run(stack: DevStack): Promise<void> {
     console.error('  ✓ limb 4 — no failure banner survived the turn; the agent\'s reply stacks actor over subject');
 
     // ── LIMB 5: the preview serves the BUILT app ──────────────────────────────────────────────
+    // The build turn's manifest, printed on every run: on a red it says whether a build ever
+    // succeeded (a stop with no refreshed preview is the model's) or the dist never arrived
+    // (refreshed, then a 404); on a green it is the record of what the turn did. Read first,
+    // because a turn may end on a build held back for its type findings, which lands nothing:
+    // then its reply must say so, and the build is previewed by hand before `.dev` is read.
+    const owner = { accessToken: provisioned.accessToken, sub: provisioned.sub };
+    const turn = await latestAgentTurn(stack, galaxy, owner)
+      .catch((e: unknown) => ({ manifest: `manifest unavailable: ${e instanceof Error ? e.message : String(e)}`, reply: '', heldBack: false }));
+    const manifest = turn.manifest;
+    console.error(`  · the build turn's reply: ${manifest}`);
+    if (turn.heldBack) {
+      assert.match(turn.reply, /The preview was not updated: /,
+        `a turn that ended on a held-back build must say so in its reply: ${manifest}`);
+      const driver = await connectDriver(stack, { scope: galaxy, session: owner });
+      try {
+        const previewed = await driver.client.lmz.callAsync('GALAXY', galaxy,
+          driver.client.ctn<Galaxy>().buildNow({ preview: true }), { timeoutMs: 240_000 }) as { preview: { refreshed: boolean; why: string } };
+        assert.ok(previewed.preview.refreshed, `previewing the held-back build landed nothing: ${previewed.preview.why}`);
+      } finally {
+        driver.dispose();
+      }
+      console.error('  · the turn ended on a held-back build, said so, and was previewed with { "preview": true }');
+    }
     const previewUrl = `${vite.scopeUrl(`${galaxy}.dev`)}/`;
     const expectedBase = '<meta name="nebula-scope"';
     let served: { status: number; body: string } | undefined;
@@ -351,12 +377,6 @@ export async function run(stack: DevStack): Promise<void> {
       await new Promise((r) => setTimeout(r, 2000));
     }
     const capture = await captureArtifacts(inst, 'first-app-built');
-    // The build turn's manifest, printed on every run: on a red it says whether a build ever
-    // succeeded (a stop with no refreshed preview is the model's) or the dist never arrived
-    // (refreshed, then a 404); on a green it is the record of what the turn did.
-    const manifest = await latestAgentManifest(stack, galaxy, { accessToken: provisioned.accessToken, sub: provisioned.sub })
-      .catch((e: unknown) => `manifest unavailable: ${e instanceof Error ? e.message : String(e)}`);
-    console.error(`  · the build turn's reply: ${manifest}`);
     if (!(served && served.body.includes(expectedBase))) {
       assert.fail(`the preview did not serve a built app from the Galaxy's VFS — expected the injected ` +
         `${expectedBase} at ${previewUrl}, got status ${served?.status} (${served?.body.length ?? 0} bytes). ` +

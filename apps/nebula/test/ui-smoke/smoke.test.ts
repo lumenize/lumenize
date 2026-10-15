@@ -26,7 +26,7 @@ import type { Browser, BrowserContext, Page } from 'playwright';
 import { uniqueTestEmail } from '@lumenize/email-test/client';
 import { provisionAndLogin, scopeOriginFrom } from '../lib/email-login';
 import { HAS_DOCKER } from './gates';
-import { launchChromium, loginToStudio } from './helpers';
+import { launchChromium, loginToStudio, previewLastBuild } from './helpers';
 
 /** Dedicated test scope — `test-` prefix is the reaper's auto-reap marker. Must pass
  *  Mesh's `isValidSlug` (no leading, trailing or consecutive hyphens, at most 30
@@ -45,6 +45,8 @@ describe.runIf(HAS_DOCKER)('Studio UI smoke (wrangler dev + Docker)', () => {
   let testToken: string;
   /** Authenticated context, shared by the narrative steps + the wipe teardown. */
   let authed: { ctx: BrowserContext; page: Page } | null = null;
+  /** The owner's session from the claim, so the codegen step can preview a held-back build. */
+  let ownerSession: { refreshToken: string; authScope: string } | null = null;
 
   beforeAll(async () => {
     viteBaseUrl = inject('viteBaseUrl');
@@ -95,7 +97,7 @@ describe.runIf(HAS_DOCKER)('Studio UI smoke (wrangler dev + Docker)', () => {
     //    creates the workspace galaxy beneath it — global-setup wipes `.wrangler/state`, so
     //    every run claims fresh. Login never mints; this is what creates the membership the
     //    in-UI form's magic link needs, by the same path a real user's first visit does.
-    await provisionAndLogin({ baseUrl: workerBaseUrl, scope: TEST_SCOPE, email: ADMIN_EMAIL, testToken });
+    ownerSession = (await provisionAndLogin({ baseUrl: workerBaseUrl, scope: TEST_SCOPE, email: ADMIN_EMAIL, testToken })).session;
 
     // 1–4. The login form on the platform host, the emailed link followed as sent, Continue, and
     //      Home, which fast-forwards an account holding one app straight into that app's Studio
@@ -167,10 +169,13 @@ describe.runIf(HAS_DOCKER)('Studio UI smoke (wrangler dev + Docker)', () => {
       previewErrors.push(`requestfailed: ${req.url().slice(-80)} ${req.failure()?.errorText ?? ''}`);
     });
 
-    // Snapshot the preview src; a completed chat turn appends a ?t= cache-buster
+    // Snapshot the preview src; a build that lands appends a ?t= cache-buster
     // (App.vue reloadPreview), so its appearance proves the full
-    // chat → Galaxy codegen → build → /app preview loop ran.
+    // chat → Galaxy codegen → build → /app preview loop ran. A turn whose last build was held
+    // back for its type findings lands nothing and says so in its reply instead; then the
+    // build is previewed by hand and Studio's Reload button bumps the src.
     const srcBefore = await page.locator('iframe[title="Preview"]').getAttribute('src');
+    const HELD_BACK = 'The preview was not updated: ';
 
     await page.getByPlaceholder('Describe a change…').fill('Make a simple counter with an increment button');
     await page.getByPlaceholder('Describe a change…').press('Enter');
@@ -179,13 +184,27 @@ describe.runIf(HAS_DOCKER)('Studio UI smoke (wrangler dev + Docker)', () => {
     // check + vite build — every check runs in the box now) can take a while (cold
     // container + FUSE mount on the first build). Generous timeout.
     await page.waitForFunction(
-      (prev) => {
+      ([prev, heldBack]) => {
         const src = document.querySelector('iframe[title="Preview"]')?.getAttribute('src') ?? '';
-        return src.includes('?t=') && src !== prev;
+        return (src.includes('?t=') && src !== prev) || (document.body.textContent ?? '').includes(heldBack!);
       },
-      srcBefore,
+      [srcBefore, HELD_BACK],
       { timeout: 180_000, polling: 500 },
     );
+    if ((await page.getByText(HELD_BACK).count()) > 0) {
+      const previewed = await previewLastBuild({ workerBaseUrl, session: ownerSession!, scope: TEST_SCOPE });
+      expect(previewed.refreshed, `previewing the held-back build landed nothing: ${previewed.why}`).toBe(true);
+      const srcHeld = await page.locator('iframe[title="Preview"]').getAttribute('src');
+      await page.getByTitle('Reload preview').click();
+      await page.waitForFunction(
+        (prev) => {
+          const src = document.querySelector('iframe[title="Preview"]')?.getAttribute('src') ?? '';
+          return src.includes('?t=') && src !== prev;
+        },
+        srcHeld,
+        { timeout: 30_000, polling: 250 },
+      );
+    }
 
     // The regenerated app actually RENDERS in the container-served preview — catches the
     // blank-`<script setup>` bug (sfc-compile-needs-bindingmetadata) AND proves the container

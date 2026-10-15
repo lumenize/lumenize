@@ -102,7 +102,7 @@ describe('the chat history in the prompt', () => {
     expect(history).toBeDefined();
     // (f) turn one's request text, its speaker label, the agent's content and its appliedPaths.
     expect(history).toContain('- human 1: Build me a wishlist app.');
-    expect(history).toMatch(/- agent: Updated the preview\. \[stop=complete rounds=2 applied=src\/App\.vue sourceCommit=[0-9a-f]{7}\]/);
+    expect(history).toMatch(/- agent: Saved the changes; nothing was built, so the preview is unchanged\. \[stop=complete rounds=2 applied=src\/App\.vue sourceCommit=[0-9a-f]{7}\]/);
     // Never the tool calls' args (400 lines of App.vue) and never the thought panel.
     expect(t2.system).not.toContain('line 7 of a long App.vue');
     expect(t2.system).not.toContain('thinking hard');
@@ -122,7 +122,7 @@ describe('the chat history in the prompt', () => {
     // entry → red. Drop the speaker → the owner's line and a peer's aside are one string.
     const [a, b] = [uniqueScope(), uniqueScope()];
     const bundles: string[] = [];
-    for (const [scope, script] of [[a, writeThenComplete(FOUR_HUNDRED_LINES)], [b, [round('Updated the preview.')]]] as const) {
+    for (const [scope, script] of [[a, writeThenComplete(FOUR_HUNDRED_LINES)], [b, [round('Saved the changes; nothing was built, so the preview is unchanged.')]]] as const) {
       const { client } = await devClient(scope);
       using sub = client.resources.subscribeQuery(chatQuery); await sub.ready;
       await seed(client, scope, [...script]);

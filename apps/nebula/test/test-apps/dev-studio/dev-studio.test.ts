@@ -81,6 +81,10 @@ const fire = (
 const devRowVersion = (galaxy: string) => inDO(env.GALAXY, galaxy, (s) =>
   s.ctx.storage.kv.get(DEV_ROW_KEY)?.version ?? null) as Promise<string | null>;
 
+/** The `index.html` `.dev` serves: the copy the last landing made outside `/workspace`. */
+const servedIndex = (galaxy: string) => inDO(env.GALAXY, galaxy, (s) =>
+  s.workspaceFs().readFile('/dist-dev/index.html', 'utf8').catch(() => null)) as Promise<string | null>;
+
 /** One real `buildNow`, in-DO, with the faked job doing `faults` until they are set again. */
 const build = (galaxy: string, faults?: object) => inDO(env.GALAXY, galaxy, (s) => {
   if (faults) s.setBuildFaultsForTest(faults);
@@ -117,7 +121,9 @@ describe('the .dev Star runs the last landed build\'s row; nothing else moves it
   });
 
   // Mutations: drop the hash check in `#land` (the mislabeled and stale cases red), skip the
-  // store (every case reds), or store the file by spreading it (the dressed case reds). `decideLanding`'s own conjuncts are mutated in its table
+  // store (every case reds), store the file by spreading it (the dressed case reds), or copy the
+  // build to `/dist-dev/` before the row's check (the mislabeled and stale cases red on the served
+  // page, which each of them changes). `decideLanding`'s own conjuncts are mutated in its table
   // (`test/ontology-landing.test.ts`), since arrival here also requires the bundle.
   it('a build that does not land leaves the row where it was, and the next good build lands', async () => {
     const galaxy = uniqueGalaxyScope();
@@ -145,20 +151,32 @@ describe('the .dev Star runs the last landed build\'s row; nothing else moves it
     expect(await devRowVersion(galaxy)).toBe(v2);
 
     // A file changed between the host's hash and the compile: the types do not hash to the version.
+    // The build also changes the page, so a copy made before the check would show on `.dev`.
+    const servedBefore = await servedIndex(galaxy);
+    expect(servedBefore).toBeTruthy();
+    const ROW_REFUSED = { refreshed: false, why: 'the compiled types do not match the version the build was asked for — build again' };
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V3));
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource('src/App.vue', '<template>mislabeled</template>'));
     const mislabeled = await build(galaxy, { compileTypes: TODO_V1 });
     expect(mislabeled.bundle).toMatchObject({ ran: true, ok: true });
+    expect(mislabeled.preview).toEqual(ROW_REFUSED);
     expect(await devRowVersion(galaxy)).toBe(v2);
+    expect(await servedIndex(galaxy)).toBe(servedBefore);
 
     // A stale row file: the compile reported success, but ROW_PATH holds an earlier build's row.
     await inDO(env.GALAXY, galaxy, (s) =>
       s.workspaceFs().writeFile(`/workspace/${ROW_PATH}`, JSON.stringify(s.ctx.storage.kv.get(DEV_ROW_KEY))));
-    await build(galaxy, { loseRow: true });
+    await inDO(env.GALAXY, galaxy, (s) => s.writeSource('src/App.vue', '<template>stale</template>'));
+    const stale = await build(galaxy, { loseRow: true });
+    expect(stale.preview).toEqual(ROW_REFUSED);
     expect(await devRowVersion(galaxy)).toBe(v2);
+    expect(await servedIndex(galaxy)).toBe(servedBefore);
 
     // A row file the build dressed: its types hash to the version, but it carries another label
     // and a key of its own. The stored row is the hash and the four fields, nothing more.
-    await build(galaxy, { dressRow: { version: 'planted', planted: true } });
+    const dressed = await build(galaxy, { dressRow: { version: 'planted', planted: true } });
+    expect(dressed.preview.refreshed).toBe(true);
+    expect(await servedIndex(galaxy)).not.toBe(servedBefore); // the page lands with its row
     const stored = await inDO(env.GALAXY, galaxy, (s) => s.ctx.storage.kv.get(DEV_ROW_KEY)) as Record<string, unknown>;
     expect(stored.version).toBe(v3);
     expect(Object.keys(stored).sort()).toEqual(['relationships', 'types', 'validatorBundle', 'version']);

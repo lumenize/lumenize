@@ -317,7 +317,7 @@ async function waitForConnected(client: NebulaClient, timeoutMs: number): Promis
  * login and never reaches `connectDriver`.
  */
 export async function connectDriver<C extends NebulaClient = NebulaClient>(
-  stack: Omit<DevStack, 'logs'>,
+  stack: Pick<DevStack, 'baseUrl' | 'origin'>,
   opts: {
     scope: string;
     /**

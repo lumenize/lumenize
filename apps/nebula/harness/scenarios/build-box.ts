@@ -88,6 +88,12 @@ export async function run(stack: DevStack): Promise<void> {
           `the mount served nothing (the WS_ROOT contract in build-report.ts): ${bundleTail(b1).slice(0, 300)}`,
       });
     }
+    // The seed builds clean, so its first build lands. A seed that grew a type finding would hold
+    // back the first build of every scenario that builds it, which reads as a 404 wherever `.dev`
+    // is read; here it reds by name.
+    assert.deepEqual(b1.typeCheck.findings, [],
+      `the seed's first build has type findings: ${JSON.stringify(b1.typeCheck.findings).slice(0, 400)}`);
+    assert.equal(b1.preview.refreshed, true, `the seed's first build should land: ${b1.preview.why}`);
 
     // ── LIMB 2: a SECOND sequential cycle on the SAME Galaxy instance — catches the
     //           missing-monitor wedge (`.running` stale-true → the second start throws,
@@ -198,7 +204,7 @@ export async function run(stack: DevStack): Promise<void> {
     await onPlatform.text();
 
     // ── A broken source fails the BUNDLE step (their code — never the container step),
-    //    preview says why it did not refresh, and last-good dist serves throughout ──
+    //    preview says why it did not refresh, and the last landed build serves throughout ──
     await client.lmz.callAsync('GALAXY', SCOPE,
       client.ctn<Galaxy>().writeSource('src/App.vue', '<script setup>this is not vue</scr'));
     const bad = await buildNow();
@@ -209,7 +215,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(bad.preview.refreshed, false, 'a failed bundle can never refresh the preview');
     assert.ok(bad.preview.why.length > 0, 'a preview that did not refresh always says why');
     const stillServes = await fetch(`${starPage}/`);
-    assert.equal(stillServes.status, 200, 'last-good dist/ must keep serving through a failed build');
+    assert.equal(stillServes.status, 200, 'the last landed build must keep serving through a failed build');
     await client.lmz.callAsync('GALAXY', SCOPE, client.ctn<Galaxy>().writeSource('src/App.vue',
       '<script setup lang="ts"></script>\n<template><main>fixed</main></template>\n'));
     const fixed = await buildNow();

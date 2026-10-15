@@ -52,6 +52,11 @@
  *     list subscription each end `ontology-stale` within the retry window, and locally the tenant
  *     logs no `ask` in the six seconds after they end. *Reds when an op keeps retrying after its
  *     retries run out, or when a refusal naming no version restores.*
+ * 10. **A held-back build changes nothing anyone sees.** A clean build lands a visible string; a
+ *     build that changes the string and leaves a type finding in `App.vue` is held back, so the
+ *     served page keeps the old string and its meta's `buildVersion` stays the clean build's
+ *     `indexSha256`. Building again with `{ "preview": true }` serves the new string under the new
+ *     digest. *Reds when `.dev` serves `/workspace/dist/`, or reads `buildVersion` from it.*
  *
  * `needsContainer = true` — every build runs in the build container.
  */
@@ -157,6 +162,17 @@ const APP_WITH_MARK = `<script setup lang="ts">
 </template>
 `;
 
+/** Limb 10's two strings, and an `App.vue` showing one, with a type finding when `finding`. */
+const MARK_LANDED = 'limb-ten-landed-string';
+const MARK_HELD = 'limb-ten-held-back-string';
+const appShowing = (mark: string, finding = false) => `<script setup lang="ts">
+${finding ? "const count: number = 'not a number';\n" : ''}</script>
+
+<template>
+  <main class="p-8"><h1 class="text-2xl font-bold">${mark}</h1>${finding ? '<p>{{ count }}</p>' : ''}</main>
+</template>
+`;
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Whether `check` holds within `ms`, polled. */
 const until = async (ms: number, check: () => boolean): Promise<boolean> => {
@@ -184,7 +200,9 @@ const staleOrNot = (e: unknown) => (e as Error).name === 'OntologyStaleError' ? 
 
 type BuildReportLike = {
   ontology: { ran: boolean; ok?: boolean; tail?: string };
-  bundle: { ran: boolean; ok?: boolean; why?: string; tail?: string };
+  typeCheck: { findings: string[] };
+  bundle: { ran: boolean; ok?: boolean; why?: string; tail?: string; indexSha256?: string };
+  preview: { refreshed: boolean; why: string };
 };
 
 export async function run(stack: DevStack): Promise<void> {
@@ -225,11 +243,17 @@ export async function run(stack: DevStack): Promise<void> {
     const galaxyCall = <T>(chain: unknown, timeoutMs = 30_000): Promise<T> =>
       studio.client.lmz.callAsync('GALAXY', galaxy, chain as any, { timeoutMs }) as Promise<T>;
     const write = (path: string, content: string) => galaxyCall(studio.client.ctn<Galaxy>().writeSource(path, content));
-    const build = () => galaxyCall<BuildReportLike>(studio.client.ctn<Galaxy>().buildNow(), BUILD_TIMEOUT_MS);
+    const build = (opts: { preview?: boolean } = {}) =>
+      galaxyCall<BuildReportLike>(studio.client.ctn<Galaxy>().buildNow(opts), BUILD_TIMEOUT_MS);
     const servedHtml = async (): Promise<string> => (await fetch(`${scopeUrlOf(stack, dev)}/`)).text();
     const servedScript = async (html: string): Promise<string> => {
       const asset = /(assets\/[^"']+\.js)/.exec(html)?.[1];
       return asset ? (await fetch(`${scopeUrlOf(stack, dev)}/${asset}`)).text() : '';
+    };
+    /** The `buildVersion` the served page's `nebula-scope` meta carries. */
+    const servedBuildVersion = (html: string): string | undefined => {
+      const content = /<meta name="nebula-scope" content='([^']*)'>/.exec(html)?.[1];
+      return content ? (JSON.parse(content.replace(/&#39;/g, "'")) as { buildVersion?: string }).buildVersion : undefined;
     };
 
     /** A page on `scope`'s host pinned to `version`, as the app's own client is built against it.
@@ -519,7 +543,10 @@ export async function run(stack: DevStack): Promise<void> {
     await write('src/nebula.ts', NEBULA_TS_LOGGING_RELOADS);
     await write('src/App.vue', appListing(pipelineId));
     const appBuild = await build();
-    assert.ok(appBuild.bundle.ok, `the listing app should bundle: ${JSON.stringify(appBuild).slice(0, 600)}`);
+    // It must land too: a type finding holds a build back from `.dev`, and the page below would
+    // then wait on an app `.dev` never served.
+    assert.ok(appBuild.bundle.ok && appBuild.preview.refreshed,
+      `the listing app should bundle and land: ${JSON.stringify({ preview: appBuild.preview, findings: appBuild.typeCheck.findings }).slice(0, 600)}`);
     // In the owner's browser, beside Studio's page and not framed by it.
     const top = await owner.page.context().newPage();
     const reloadLines: string[] = [];
@@ -590,6 +617,33 @@ export async function run(stack: DevStack): Promise<void> {
       const after = asks.filter((l) => loggedAfter(l, f1) && loggedAfter(f2, l)).length;
       return [during >= 1 && after === 0, `${during} asks while the ops retried, ${after} in the six seconds after`];
     });
+
+    // ── LIMB 10: a held-back build changes nothing anyone sees ──────────────────────────────
+    // Last, because a build left with a finding holds back every build after it.
+    await write('src/App.vue', appShowing(MARK_LANDED));
+    const clean = await build();
+    const cleanHtml = await servedHtml();
+    assert.ok(clean.preview.refreshed && clean.bundle.indexSha256 && servedBuildVersion(cleanHtml) === clean.bundle.indexSha256,
+      `the clean build should land and be served: ${JSON.stringify(clean.preview)}, meta ${servedBuildVersion(cleanHtml)}`);
+    await write('src/App.vue', appShowing(MARK_HELD, true));
+    const held = await build();
+    const heldHtml = await servedHtml();
+    const heldScript = await servedScript(heldHtml);
+    record('limb 10 — a build with a type finding is held back, and .dev serves the last landing',
+      held.typeCheck.findings.length > 0 && held.bundle.ok === true && held.preview.refreshed === false
+        && heldScript.includes(MARK_LANDED) && !heldScript.includes(MARK_HELD)
+        && servedBuildVersion(heldHtml) === clean.bundle.indexSha256 && held.bundle.indexSha256 !== clean.bundle.indexSha256,
+      `${held.typeCheck.findings.length} findings, bundle ok=${held.bundle.ok}; preview ${JSON.stringify(held.preview)}; ` +
+      `the page shows ${heldScript.includes(MARK_HELD) ? 'the HELD string' : heldScript.includes(MARK_LANDED) ? 'the landed string' : 'neither string'}; ` +
+      `meta buildVersion ${servedBuildVersion(heldHtml) === clean.bundle.indexSha256 ? "is the clean build's" : `is ${servedBuildVersion(heldHtml)}`}`);
+    const previewed = await build({ preview: true });
+    const previewedHtml = await servedHtml();
+    const previewedScript = await servedScript(previewedHtml);
+    record('limb 10 — building again with { "preview": true } serves the new string under the new digest',
+      previewed.preview.refreshed === true && previewedScript.includes(MARK_HELD)
+        && previewed.bundle.indexSha256 !== clean.bundle.indexSha256 && servedBuildVersion(previewedHtml) === previewed.bundle.indexSha256,
+      `preview ${JSON.stringify(previewed.preview)}; the page ${previewedScript.includes(MARK_HELD) ? 'shows' : 'does NOT show'} the new string; ` +
+      `meta buildVersion ${servedBuildVersion(previewedHtml) === previewed.bundle.indexSha256 ? "is the new build's" : `is ${servedBuildVersion(previewedHtml)}`}`);
 
     const open = results.filter((r) => !r.ok);
     assert.equal(open.length, 0,

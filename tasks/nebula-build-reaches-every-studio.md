@@ -229,3 +229,27 @@ Each phase leaves `npm run type-check` and `npm test` green, and its changed sou
 - **Studio's URL carrying the preview's path:** the row on reflecting `activeScope` in the URL, in `backlog.md` § *Nebula Studio UI*.
 - **A richer login notice,** with a kind, a status, a reason and a recheck of Studio's session: the login-notice row in the same section.
 - **The loop warning the model at `mark_complete` on a held-back build:** § *Decisions*, to be added if turns often end that way.
+
+## Build notes
+
+### Phase 1 — a build lands on `.dev` only when it is previewed (2026-10-14)
+
+**For Larry:**
+
+- **A turn that changes files and never builds now ends `Saved the changes; nothing was built, so the preview is unchanged.`** The task said only that `Updated the preview.` appears when the last build landed, which left the no-build case without a sentence; the old fallback claimed a preview that had not moved.
+- **The SFC contract was missing most of the client surface `api-reference.md` teaches, and this phase made that gap hold builds back.** `NEBULA_API_DTS` in `apps/nebula/src/sfc-contract.ts` listed five `client.resources` methods and no `subscribeQuery`, so a list view drew a false finding. Findings were advisory until now; with a held-back default, a correct app that lists anything stays off `.dev` until the model previews it. `dev-star-follows-the-build` limb 8 found it: its list app was held back and its page waited on an app `.dev` never served. The contract now carries every documented `client.*` call, loosely typed where the doc's types are rich, and `codegen-gate.test.ts` pins the list case. Deriving the contract from the client's own types would remove the class rather than patch it, and is proposed as a backlog row at close-out.
+- **The asset test names a different file than the criterion.** It changes the bytes of `assets/index-AbCdEf12.js` through `BuildFaults.distFiles` rather than `public/assets/logo-a1b2c3d4.png`. The property is the same: a landing copies by content, never by a name that looks hashed.
+
+- **`first-app-built`'s real turn ended on a held-back build in the sweep.** The model stopped `loop-detected` after 23 rounds and 5 builds, the last held back for type findings; the reply carried the line, and the scenario's preview-anyway landed it. Which findings held it back went unrecorded, since the manifest printed a `steps` field the report does not have; it now prints the last build's findings. If they prove false, the contract gap above is wider than the client surface, and Vue's shim in the same file is the next suspect.
+
+**Verified:** `drive.ts all` with Docker, 65 of 65 in 35.9 min; the ui-smoke lane, 8 of 8; `apps/nebula`'s `npm test`, 1061 passed, its three failures being Phase 2's frontend tests written ahead of their code and left out of this commit. Limb 10 reds alone when `.dev` serves `/workspace/dist/` and when `buildVersion` is read from `/workspace/dist/index.html`, each a run of its own.
+
+**Retro:**
+
+- Two test files the phase did not otherwise touch encoded the old strings, `history-bundle.test.ts` the old fallback and `codegen-loop.test.ts` the override's `why`. Only the full suite found them.
+- The phase's own rule about scenarios whose fixtures carry findings anticipated a fixture at fault. The first finding that held a scenario back was the contract's, on correct code.
+
+**Close-out:**
+
+- `decidePreview` is gone; its rows live in `ontology-landing.test.ts`'s `decideLanding` table.
+- `connectDriver` takes `Pick<DevStack, 'baseUrl' | 'origin'>`, so the ui-smoke lane can preview a held-back build through it.

@@ -7,7 +7,11 @@
  */
 import type { Browser, BrowserContext, Page } from 'playwright';
 import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
-import { scopeOriginFrom } from '../lib/email-login';
+import type { Galaxy } from '@lumenize/nebula';
+import { refreshAccessToken, scopeOriginFrom, type EmailSession } from '../lib/email-login';
+import { connectDriver } from '../../harness/lib/harness';
+// @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with `npm run dev`.
+import { LOCAL_ORIGIN } from '../../scripts/local-config.mjs';
 
 export { launchChromium } from '../../harness/lib/browser';
 
@@ -50,4 +54,26 @@ export async function loginToStudio(opts: {
   await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
 
   return { ctx, page };
+}
+
+/**
+ * Build the Galaxy at `scope` again with `{ "preview": true }`, which a person reading a held-back
+ * turn's reply asks for, from a client of the same person on the Galaxy's own host. Only that
+ * client is told the build landed, so the page's Studio learns of it from its Reload button.
+ */
+export async function previewLastBuild(opts: {
+  workerBaseUrl: string;
+  session: Pick<EmailSession, 'refreshToken' | 'authScope'>;
+  scope: string;
+}): Promise<{ refreshed: boolean; why: string }> {
+  const { workerBaseUrl, session, scope } = opts;
+  const token = await refreshAccessToken(workerBaseUrl, session, scope);
+  const driver = await connectDriver({ baseUrl: workerBaseUrl, origin: LOCAL_ORIGIN }, { scope, session: token });
+  try {
+    const report = await driver.client.lmz.callAsync('GALAXY', scope,
+      driver.client.ctn<Galaxy>().buildNow({ preview: true }), { timeoutMs: 240_000 }) as { preview: { refreshed: boolean; why: string } };
+    return report.preview;
+  } finally {
+    driver.dispose();
+  }
 }

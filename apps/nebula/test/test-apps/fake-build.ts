@@ -29,6 +29,10 @@ export interface BuildFaults {
   onCompiled?: () => void;
   /** Then wait this long before the bundle, so a second build can be asked for meanwhile. */
   holdMs?: number;
+  /** The type check's findings, as the SFC check would report a real TS error. */
+  findings?: string[];
+  /** More files the bundle writes under `dist/`, by relative path, as vite copies `public/`. */
+  distFiles?: Record<string, string>;
 }
 
 async function sha256Hex(text: string): Promise<string> {
@@ -57,7 +61,7 @@ export async function fakeBuildJob(
   }
   faults.onCompiled?.();
   if (faults.holdMs) await new Promise((r) => setTimeout(r, faults.holdMs));
-  const typeCheck = { ran: true, checked: ['src/App.vue'], findings: [] };
+  const typeCheck = { ran: true, checked: ['src/App.vue'], findings: faults.findings ?? [] };
   let bundle: BuildReport['bundle'];
   if (ontology.ran && ontology.ok === false) {
     bundle = { ran: false, why: SKIPPED_FOR_ONTOLOGY };
@@ -70,7 +74,12 @@ export async function fakeBuildJob(
     const html = `<!doctype html><html><head></head><body>${await sha256Hex(app)}</body></html>`;
     await fs.mkdir(wsPath('dist'), { recursive: true });
     await fs.writeFile(wsPath('dist/index.html'), html);
-    bundle = { ran: true, ok: true, indexSha256: await sha256Hex(html), files: ['index.html'] };
+    const extra = Object.entries(faults.distFiles ?? {});
+    for (const [rel, content] of extra) {
+      if (rel.includes('/')) await fs.mkdir(wsPath(`dist/${rel.slice(0, rel.lastIndexOf('/'))}`), { recursive: true });
+      await fs.writeFile(wsPath(`dist/${rel}`), content);
+    }
+    bundle = { ran: true, ok: true, indexSha256: await sha256Hex(html), files: ['index.html', ...extra.map(([rel]) => rel)] };
   }
   return {
     container: { ran: true, ok: true },

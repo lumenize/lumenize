@@ -45,7 +45,7 @@ import { GATEWAY_PREFIX, ScopedMeshDO, requireDominionHere } from '@lumenize/mes
 // stores, and does not build). No value import of the compile half may return here;
 // scripts/check-worker-graph.mjs is the tripwire.
 import type { OntologyVersionRow } from './ontology-compile';
-import { REPORT_MARKER, ROW_PATH, WS_ROOT, wsPath } from './build-report';
+import { REPORT_MARKER, ROW_PATH, WS_ROOT, stepFailed, wsPath } from './build-report';
 import { withHeartbeat } from './turn-heartbeat';
 import { assembleStream } from './model-stream';
 import { TURN_HEARTBEAT_MS } from './turn-liveness';
@@ -139,53 +139,71 @@ const BUILD_TIMEOUT_MS = 180_000;
 /** Per-cycle job options: the host-computed ontology version, when the `.d.ts` changed. */
 type BuildJobOpts = { ontology?: { version: string } };
 
-/** The seam's placeholder `preview` — {@link Galaxy.#buildAndAnnounce} overwrites it
- *  with the real decision, so a faked `build()` never decides the refresh either. */
+/** The seam's placeholder `preview` — {@link Galaxy.#buildAndLand} overwrites it with the
+ *  landing's outcome, so a faked `build()` never decides one either. */
 const PREVIEW_UNDECIDED = { refreshed: false, why: 'not decided at the build layer' };
 
+/** The `.dev` Star's served copy: the build a landing copied out of `/workspace/dist/`. It sits
+ *  outside `/workspace`, so the model's paths (`assertModelPath`) never reach it and git never
+ *  tracks it; the exec's sync still carries it into each build box, as any root-level write. */
+const DEV_SERVED_DIR = '/dist-dev';
+
 /**
- * The preview decision — default: refresh the `.dev` preview only on a clean build;
- * the MODEL may override to refresh alongside findings it judges harmless (the task's
- * refresh-is-the-model's-call decision). What it can never override is a failed (or
- * never-run) bundle: there is no `dist`, so nothing to refresh from — structural, not
- * policy. Pure and exported so every arm is unit-testable; the announce layer
- * (`#buildAndAnnounce`) is its only production caller.
+ * Whether a build LANDS on `.dev` — the moment `.dev` starts serving it, its compiled types become
+ * the `.dev` Star's, and Studio hears of it. The model's call on the preview is part of it: a clean
+ * build lands by default, one with type findings only on the model's `{ "preview": true }`, and none
+ * on `{ "preview": false }`. What no call overrides is a build that cannot be served: a bundle that
+ * failed or never ran, one whose `index.html` digest is missing (its arrival cannot be checked), a
+ * `dist` that did not arrive, or types that did not compile. Its result IS the report's `preview`
+ * step, so the model reads one reason. Pure and exported so every arm is unit-testable.
  */
-export function decidePreview(report: BuildReport, override?: boolean): BuildReport['preview'] {
+export function decideLanding(
+  report: BuildReport, opts: { arrived: boolean; ontologyVersion?: string; preview?: boolean },
+): BuildReport['preview'] {
   if (!(report.bundle.ran && report.bundle.ok === true)) {
     const why = report.bundle.ran
-      ? 'bundle failed — there is no dist to refresh the preview from'
+      ? 'bundle failed — there is no dist to serve'
       : `bundle did not run (${(report.bundle as { why: string }).why}) — there is no new dist`;
     return { refreshed: false, why };
   }
-  if (override === true) {
-    return { refreshed: true, why: 'refreshed on the model\'s override' };
+  if (!report.bundle.indexSha256) {
+    return { refreshed: false, why: 'the bundle reported no digest of its index.html, so its arrival cannot be checked — build again' };
   }
-  if (override === false) {
-    return { refreshed: false, why: 'the model declined to refresh the preview' };
+  if (!opts.arrived) {
+    return { refreshed: false, why: 'the built dist did not arrive back from the container (sync pull incomplete) — build again' };
   }
-  if (report.typeCheck.findings.length > 0) {
-    return { refreshed: false, why: 'type findings — preview refresh withheld by default (the model may override)' };
+  if (opts.ontologyVersion !== undefined && !(report.ontology.ran && report.ontology.ok === true)) {
+    return { refreshed: false, why: 'the ontology compile did not succeed' };
   }
-  return { refreshed: true, why: 'clean build' };
+  if (opts.preview === false) {
+    return { refreshed: false, why: 'held back on the model\'s { "preview": false }, so .dev still serves the last previewed build' };
+  }
+  if (report.typeCheck.findings.length > 0 && opts.preview !== true) {
+    return { refreshed: false, why: 'type findings — held back, so .dev still serves the last previewed build; build again with { "preview": true } to land it anyway' };
+  }
+  return {
+    refreshed: true,
+    why: report.typeCheck.findings.length > 0 ? 'landed on the model\'s { "preview": true }' : 'clean build, landed',
+  };
 }
 
 /**
- * Whether a build LANDS: the moment the `.dev` Star's types move with the page it serves. A build
- * lands when its bundle succeeded and its `dist` arrived; when the host passed it an ontology
- * version, the compile must have run and succeeded too, so a page never lands over types that did
- * not compile. A withheld preview refresh does not stop a landing, since the page is served from
- * the new `dist` either way. Pure and exported so every arm is unit-testable.
+ * The line a turn's reply ends with when its last build did not land, or `undefined` when it landed
+ * or the turn built nothing. It is the Galaxy's own sentence, appended whatever the model wrote, so
+ * a turn never ends saying "done" while the preview silently shows the last build. Pure and
+ * exported so the reply's two readers of it, the line and the `Updated the preview.` fallback,
+ * agree, and so every arm is unit-testable.
  */
-export function decideLanding(
-  report: BuildReport, opts: { arrived: boolean; ontologyVersion?: string },
-): { lands: boolean; why: string } {
-  if (!(report.bundle.ran && report.bundle.ok === true)) return { lands: false, why: 'the bundle did not succeed' };
-  if (!opts.arrived) return { lands: false, why: 'the built dist did not arrive' };
-  if (opts.ontologyVersion !== undefined && !(report.ontology.ran && report.ontology.ok === true)) {
-    return { lands: false, why: 'the ontology compile did not succeed' };
-  }
-  return { lands: true, why: opts.ontologyVersion !== undefined ? 'landed with its ontology' : 'landed, ontology unchanged' };
+export function heldBackLine(lastBuild: BuildReport | undefined): string | undefined {
+  if (!lastBuild || lastBuild.preview.refreshed) return undefined;
+  const reason = stepFailed(lastBuild.container)
+    ? 'the build box could not run the last build'
+    : !(lastBuild.bundle.ran && lastBuild.bundle.ok === true)
+      ? 'the last build did not bundle'
+      : lastBuild.typeCheck.findings.length > 0
+        ? 'the last build was held back for its type findings'
+        : `the last build did not land (${lastBuild.preview.why})`;
+  return `The preview was not updated: ${reason}.`;
 }
 
 /**
@@ -282,6 +300,19 @@ export function isStuckFlagText(text: string): boolean {
 /** The LAST `n` chars — build/exec output is bounded from the tail, where the error is. */
 function tail(text: string, n: number): string {
   return text.length > n ? text.slice(-n) : text;
+}
+
+/** The SHA-256 of `bytes`, as lowercase hex — the form the build job reports `indexSha256` in. */
+async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** True when two byte arrays hold the same bytes. */
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 // ─── The chat floor + the path rule (the source entries' own guards) ────────
@@ -660,10 +691,11 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   /**
    * Serve the built app from this DO's own VFS to a page on one of this Galaxy's Star hosts. The
    * page track names the Star in {@link PUBLIC_SCOPE_HEADER}, and it must be one of this Galaxy's:
-   * `.dev` serves the working tree's current build (`/dist`, the only tier pre-alpha); any other
-   * star is the published `dist-prod/` tier (deferred — 404 until it exists). `serve.ts` owns the
-   * match-first/SPA/caching/containment contract; the page meta is injected here because only this
-   * side knows the routed identity (never request-supplied — the wrong-Star footgun guard).
+   * `.dev` serves {@link DEV_SERVED_DIR}, the copy the last landing made, so a build the model held
+   * back is served nowhere; any other star is the published `dist-prod/` tier (deferred — 404 until
+   * it exists). `serve.ts` owns the match-first/SPA/caching/containment contract; the page meta is
+   * injected here because only this side knows the routed identity (never request-supplied — the
+   * wrong-Star footgun guard).
    */
   async #serveBuiltApp(request: Request, url: URL): Promise<Response> {
     const star = request.headers.get(PUBLIC_SCOPE_HEADER) ?? '';
@@ -681,16 +713,15 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // The page's own path, served at the root of its host.
     const pagePath = url.pathname.slice(PUBLIC_PREFIX.length) || '/';
     const page = new Request(new URL(`${pagePath}${url.search}`, url), request);
+    // The bytes of the `index.html` this serve read, kept for its build version.
+    let indexBytes = null as Uint8Array<ArrayBuffer> | null;
     const res = await serveApp(
       page,
-      { directory: '/dist', not_found_handling: 'single-page-application', base: '/' },
+      { directory: DEV_SERVED_DIR, not_found_handling: 'single-page-application', base: '/' },
       async (path) => {
-        try {
-          const stream = await (await this.#workspace()).fs.readFile(wsPath(path));
-          return new Uint8Array(await new Response(stream).arrayBuffer());
-        } catch {
-          return null; // any read failure is a miss — the SPA fallback owns it
-        }
+        const bytes = await this.#readBytes(path); // an absolute VFS path, outside `/workspace`
+        if (path === `${DEV_SERVED_DIR}/index.html`) indexBytes = bytes;
+        return bytes; // a miss is null — the SPA fallback owns it
       },
     );
     if (res === null) return new Response('Not Found', { status: 404 });
@@ -712,6 +743,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         // indistinguishable from a real version to every reader, and the scaffold's
         // `createNebulaClient` threw on it — a freshly generated preview blanked at mount.
         ontologyVersion: this.#devOntologyRow()?.version,
+        // The build version (ADR-024): the digest of the `index.html` this page was served, the
+        // same digest the build job reported as `bundle.indexSha256`. Computed from the file
+        // rather than stored, so it names exactly what the page received.
+        buildVersion: indexBytes ? await sha256Hex(indexBytes) : undefined,
       }).replace(/'/g, '&#39;'); // the meta rides a single-quoted attribute
       return new HTMLRewriter()
         .on('head', {
@@ -734,10 +769,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * report; a predecessor's failure never poisons the chain).
    *
    * This is the overridable SEAM (a test double fakes the container here), so it owns
-   * the build and nothing else — {@link #buildAndAnnounce} owns the preview decision
-   * and the reload push, one level up, where a faked success announces exactly like a
-   * real one. The seam's report carries a placeholder `preview` the layer above
-   * overwrites.
+   * the build and nothing else — {@link #buildAndLand} owns the landing and the reload push,
+   * one level up, where a faked success lands exactly like a real one. The seam's report
+   * carries a placeholder `preview` the layer above overwrites.
    */
   protected build(opts: BuildJobOpts = {}): Promise<BuildReport> {
     const run = this.#buildChain.then(() => this.#buildOnce(opts));
@@ -746,16 +780,16 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   }
 
   /**
-   * A build plus its landing, its preview decision and its announcement — **the only way
-   * callers should build.** The codegen loop's `build` tool (through the `buildNow` entry)
-   * and a direct `buildNow()` both go through here. A build that refreshes the preview tells
-   * whoever asked for it (see {@link announceBuildToRequester}), and that belongs to the EVENT
-   * (new `dist` in the VFS) rather than to whichever caller produced it.
+   * A build plus its landing and its announcement — **the only way callers should build.**
+   * The codegen loop's `build` tool (through the `buildNow` entry) and a direct `buildNow()`
+   * both go through here. A build that lands tells whoever asked for it (see
+   * {@link announceBuildToRequester}), and that belongs to the EVENT rather than to whichever
+   * caller produced it.
    *
    * When `src/ontology.d.ts` differs from the `.dev` Star's current row, its version rides
    * the job, and the row the job compiles becomes current when the build lands
-   * ({@link decideLanding}). So the `.dev` Star runs what was just built, and nothing a build
-   * compiles reaches any other Star.
+   * ({@link decideLanding}). So the `.dev` Star runs the last build the model previewed, and
+   * nothing a build compiles reaches any other Star.
    *
    * Queued whole: a build compared before the one ahead of it landed would read the old row, so a
    * file reverted between two builds would leave the newer row current over the older source.
@@ -779,22 +813,20 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // A clean report does not prove the dist ARRIVED: the vendor's post-exec pull
     // swallows its own failure (outcome resolves `status: "pending"`, applied 0, no
     // throw), and local materialize-mode change detection can miss vite's last writes
-    // on the bracket — either way the serve would 404 behind a "clean build". The
+    // on the bracket — either way the landing would copy a stale or empty dist. The
     // DELIVERY fix is upstream: the job never empties `dist` (job.ts says why the pull
     // lost the empty-then-rewrite), and {@link #buildOnce} verifies arrival by digest
-    // before its teardown. This check is the backstop that keeps the residual loss loud
-    // instead of a silent 404, and the landing reads it. It runs whether or not a
-    // container ran, so the test seams write the dist they report.
+    // before its teardown. This check is the backstop that keeps the residual loss loud,
+    // and the landing reads it. It runs whether or not a container ran, so the test seams
+    // write the dist they report.
     const arrived = report.bundle.ran && report.bundle.ok === true
       && await this.#distArrived(report.bundle.indexSha256);
-    await this.#land(report, { arrived, ontologyVersion: jobOpts.ontology?.version });
-    let preview = decidePreview(report, opts.preview);
-    if (preview.refreshed && !arrived) {
-      preview = {
-        refreshed: false,
-        why: 'the built dist did not arrive back from the container (sync pull incomplete) — retry the build',
-      };
-    }
+    const ontologyVersion = jobOpts.ontology?.version;
+    let preview = decideLanding(report, { arrived, ontologyVersion, preview: opts.preview });
+    if (preview.refreshed) preview = await this.#land(report, preview, ontologyVersion);
+    debug('nebula.Galaxy.landing').info('decided', {
+      instanceName: this.lmz.instanceName, lands: preview.refreshed, why: preview.why, version: ontologyVersion,
+    });
     if (preview.refreshed) this.announceBuildToRequester();
     return { ...report, preview };
   }
@@ -815,38 +847,96 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   }
 
   /**
-   * Make the build's compiled row current for the `.dev` Star, if the build landed
-   * ({@link decideLanding}) with an ontology version. The row is read back from the mount and
-   * stored only when its own types hash to the version the host asked for: a stale row file from
-   * an earlier build, or a file a chat write changed between the host's hash and the job's
-   * compile, would otherwise land a validator under the wrong version, and the Star's Worker
-   * Loader cache keys on the version. The hash is the whole check, since a version IS the hash of
-   * its types, so the label the file carries is never read. The stored row is built from its named
-   * fields, never spread from the file. A refusal lands nothing and is logged; the next build
-   * recompiles.
+   * Land a build {@link decideLanding} let through, in an order that leaves `.dev` serving one
+   * whole build at every moment: check the compiled row, copy the build's files from
+   * `/workspace/dist/` to {@link DEV_SERVED_DIR} with `index.html` last, make the row the `.dev`
+   * Star's at once after it, then remove what the build no longer has. A page served mid-copy gets
+   * the old `index.html`, whose hashed assets are still there, or the new one, and the row follows
+   * `index.html` immediately, so no page is served old code pinned at the new ontology version.
+   *
+   * The row is stored only when its own types hash to the version the host asked for: a stale row
+   * file from an earlier build, or one a chat write changed between the host's hash and the job's
+   * compile, would otherwise land a validator under the wrong version, and the Star's Worker Loader
+   * cache keys on the version. The hash is the whole check, since a version IS the hash of its
+   * types, so the label the file carries is never read; the stored row is built from its named
+   * fields, never spread from the file. A refused step lands nothing and returns why.
    */
-  async #land(report: BuildReport, opts: { arrived: boolean; ontologyVersion?: string }): Promise<void> {
-    const log = debug('nebula.Galaxy.ontology');
-    const landing = decideLanding(report, opts);
-    log.debug('landing', { instanceName: this.lmz.instanceName, lands: landing.lands, why: landing.why, version: opts.ontologyVersion });
-    if (!landing.lands || opts.ontologyVersion === undefined) return;
-    const expected = opts.ontologyVersion;
-    try {
-      const file = JSON.parse(await (await this.#workspace()).fs.readFile(wsPath(ROW_PATH), 'utf8')) as OntologyVersionRow;
-      const { oid } = await git.hashBlob({ object: file.types });
-      if (oid !== expected) {
-        log.warn('landing refused: the compiled row does not match the version asked for', {
-          instanceName: this.lmz.instanceName, expected, typesHash: oid,
-        });
-        return;
+  async #land(
+    report: BuildReport, landed: BuildReport['preview'], ontologyVersion: string | undefined,
+  ): Promise<BuildReport['preview']> {
+    const log = debug('nebula.Galaxy.landing');
+    const instanceName = this.lmz.instanceName;
+    let row: OntologyVersionRow | undefined;
+    if (ontologyVersion !== undefined) {
+      try {
+        const file = JSON.parse(await (await this.#workspace()).fs.readFile(wsPath(ROW_PATH), 'utf8')) as OntologyVersionRow;
+        const { oid } = await git.hashBlob({ object: file.types });
+        if (oid !== ontologyVersion) {
+          log.warn('refused: the compiled row does not match the version asked for', {
+            instanceName, expected: ontologyVersion, typesHash: oid,
+          });
+          return { refreshed: false, why: 'the compiled types do not match the version the build was asked for — build again' };
+        }
+        row = { version: ontologyVersion, types: file.types, validatorBundle: file.validatorBundle, relationships: file.relationships };
+      } catch (e) {
+        log.error('refused: the compiled row could not be read', { instanceName, expected: ontologyVersion, error: e });
+        return { refreshed: false, why: 'the compiled ontology row could not be read — build again' };
       }
-      const row: OntologyVersionRow = {
-        version: expected, types: file.types, validatorBundle: file.validatorBundle, relationships: file.relationships,
-      };
-      this.ctx.storage.kv.put(DEV_ONTOLOGY_ROW_KEY, row);
-      log.info('landed', { instanceName: this.lmz.instanceName, version: expected });
+    }
+    const files = report.bundle.files ?? ['index.html'];
+    try {
+      for (const f of files) if (f !== 'index.html') await this.#copyToServed(f);
+      await this.#copyToServed('index.html');
     } catch (e) {
-      log.error('landing failed', { instanceName: this.lmz.instanceName, expected, error: e });
+      log.error('refused: the build could not be copied', { instanceName, error: e });
+      return { refreshed: false, why: 'the build could not be copied to where .dev serves it — build again' };
+    }
+    if (row) this.ctx.storage.kv.put(DEV_ONTOLOGY_ROW_KEY, row);
+    await this.#pruneServed(files);
+    log.info('landed', { instanceName, version: ontologyVersion, files: files.length });
+    return landed;
+  }
+
+  /** Copy one built file, workspace-relative under `dist/`, to {@link DEV_SERVED_DIR} when it is
+   *  absent there or its bytes differ. Compared by content, never by name: vite copies `public/`
+   *  files unchanged, and a name that merely looks hashed can carry new bytes. */
+  async #copyToServed(rel: string): Promise<void> {
+    const fs = (await this.#workspace()).fs;
+    const bytes = await this.#readBytes(wsPath(`dist/${rel}`));
+    if (bytes === null) throw new Error(`built file missing: dist/${rel}`);
+    const target = `${DEV_SERVED_DIR}/${rel}`;
+    const served = await this.#readBytes(target);
+    if (served && sameBytes(served, bytes)) return;
+    if (rel.includes('/')) await fs.mkdir(target.slice(0, target.lastIndexOf('/')), { recursive: true });
+    else await fs.mkdir(DEV_SERVED_DIR, { recursive: true });
+    await fs.writeFile(target, bytes);
+  }
+
+  /** Remove from {@link DEV_SERVED_DIR} every file the landed build does not have. */
+  async #pruneServed(files: string[]): Promise<void> {
+    const keep = new Set(files);
+    const fs = (await this.#workspace()).fs;
+    const walk = async (rel: string): Promise<void> => {
+      let entries: Array<{ name: string; isDirectory: boolean }>;
+      try { entries = await fs.readdir(rel ? `${DEV_SERVED_DIR}/${rel}` : DEV_SERVED_DIR); } catch { return; }
+      for (const e of entries) {
+        const r = rel ? `${rel}/${e.name}` : e.name;
+        if (e.isDirectory) { await walk(r); continue; }
+        if (!keep.has(r)) {
+          try { await fs.rm(`${DEV_SERVED_DIR}/${r}`, { force: true }); } catch { /* best effort */ }
+        }
+      }
+    };
+    await walk('');
+  }
+
+  /** A file's bytes from this Galaxy's VFS, by absolute path, or `null` when it cannot be read. */
+  async #readBytes(path: string): Promise<Uint8Array<ArrayBuffer> | null> {
+    try {
+      const stream = await (await this.#workspace()).fs.readFile(path);
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    } catch {
+      return null;
     }
   }
 
@@ -920,7 +1010,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         // dist with the dist-less VFS and then found nothing (measured that day: `ls` on
         // the miss showed an empty directory). The miss is designed away in the job
         // (`--emptyOutDir=false` — job.ts says why); what remains is this record and the
-        // preview gate in {@link #buildAndAnnounce} reporting a loss loudly.
+        // landing in {@link #buildAndLand} refusing a dist that did not arrive, loudly.
         if (steps.bundle.ran && steps.bundle.ok === true) {
           if (await this.#distArrived(steps.bundle.indexSha256)) {
             await this.#pruneDist(steps.bundle.files);
@@ -967,9 +1057,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     }
   }
 
-  /** Did the built `dist` land in this DO's VFS? The delivery check behind the
-   *  pre-teardown arrival check in {@link #buildOnce} and the preview gate in
-   *  {@link #buildAndAnnounce}. With `expectedSha256` (the job's digest of the
+  /** Did the built `dist` arrive in this DO's VFS? The delivery check behind the
+   *  pre-teardown arrival check in {@link #buildOnce} and the landing in
+   *  {@link #buildAndLand}. With `expectedSha256` (the job's digest of the
    *  `index.html` it wrote) the check is for THAT dist: a stale one from an earlier
    *  build reads as not arrived, which a presence check let through on 2026-09-06
    *  (a pull that applied nothing, and the previous build's dist answering for it). */
@@ -979,9 +1069,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       // is UTF-8, so re-encoding is byte-exact and the digest matches the job's.
       const text = await (await this.#workspace()).fs.readFile(wsPath('dist/index.html'), 'utf8');
       if (!expectedSha256) return true;
-      const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
-      const hex = Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
-      return hex === expectedSha256;
+      return await sha256Hex(new TextEncoder().encode(text)) === expectedSha256;
     } catch {
       return false;
     }
@@ -1230,9 +1318,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * drive-verification surface (`harness/scenarios/build-box.ts` proves the
    * sequential/overlap/teardown contract through it — the model's own `build` calls are
    * not deterministically drivable). Same latch, same ephemeral cycle; the report
-   * returns to the caller's `callAsync`. `preview` is the model's override
-   * ({@link decidePreview}); a changed `src/ontology.d.ts` rides the job, and its row becomes
-   * the `.dev` Star's when the build lands ({@link decideLanding}).
+   * returns to the caller's `callAsync`. `preview` is the model's call on whether a build with
+   * type findings lands, or whether a clean one is held back ({@link decideLanding}); a changed
+   * `src/ontology.d.ts` rides the job, and its row becomes the `.dev` Star's when the build lands.
    */
   @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
   buildNow(opts: { preview?: boolean } = {}): Promise<BuildReport> {
@@ -1456,8 +1544,15 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // what the history bundle carries as "the agent's reply" — with the fixed strings only
     // when it is empty (a `mark_complete` with no words, a bound that tripped mid-sentence).
     const text = result.output.trim();
+    // A turn whose last build did not land says so in our own words, whatever the model wrote,
+    // so it never reads as done while the preview still shows the last build.
+    const heldBack = result.stop === 'build-unavailable' ? undefined : heldBackLine(result.lastBuild);
     const fallback = result.stop === 'complete'
-      ? (result.appliedPaths.length > 0 ? 'Updated the preview.' : 'Done — no changes.')
+      ? (result.appliedPaths.length === 0
+          ? 'Done — no changes.'
+          : result.lastBuild?.preview.refreshed
+            ? 'Updated the preview.'
+            : heldBack ? '' : 'Saved the changes; nothing was built, so the preview is unchanged.')
       : result.stop === 'no-tool-calls'
         ? 'See the thought process.'
         : result.stop === 'build-unavailable'
@@ -1465,7 +1560,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
           : result.stop === 'error'
             ? `I couldn't finish — ${result.detail}. Try again in a moment.`
             : "I couldn't finish cleanly — see the thought process.";
-    const reply = text || fallback;
+    const reply = [text || fallback, heldBack].filter(Boolean).join('\n\n');
 
     // The tool-calling loop carries the generated code in `write_file` *args*, not the
     // model's reply text — so surface the final content of each written file here, else the

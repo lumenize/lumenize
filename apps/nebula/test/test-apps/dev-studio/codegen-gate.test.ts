@@ -132,6 +132,26 @@ describe('Phase 1 — SFC Rung-1 gate: Pass 2 (semantic type-check, the op:set h
     // spurious Pass-2 error (e.g. unresolved 'vue'/'./nebula'/crypto) would fail it.
     expect(compileSource('src/App.vue', APP_GOOD)).toEqual({ ok: true });
   });
+
+  it('a list view on the documented query surface type-checks clean', () => {
+    // A documented call the contract lacks is a false finding, and a build with findings is held
+    // back from `.dev` unless the model previews it, so correct code would not reach the preview.
+    // Mutation: drop `subscribeQuery` from NEBULA_API_DTS → red.
+    const listing = `<script setup lang="ts">
+import { onMounted, ref } from 'vue';
+import { client } from './nebula';
+
+const deals = ref(-1);
+onMounted(() => {
+  const list = client.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Deal', field: 'pipeline', value: 'p1' });
+  list.setRenderWindow(list.resourceIds.slice(0, 25));
+  list.onChange(() => { deals.value = list.resourceIds.length; });
+});
+</script>
+
+<template><p>{{ deals }}</p></template>`;
+    expect(compileSource('src/App.vue', listing)).toEqual({ ok: true });
+  });
 });
 
 describe('Phase 1 — dispatch: non-compiled paths', () => {
