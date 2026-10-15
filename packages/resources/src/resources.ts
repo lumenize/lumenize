@@ -1039,10 +1039,11 @@ export class Resources {
 
   /**
    * Server-internal **create-if-absent**: write a resource only host code composes, with NO
-   * client-facing result delivery. A live snapshot already present → no-op. A create fans out to
-   * every subscriber (mirrors {@link doTransaction}'s post-commit hook; originator `''`, so the
-   * caller's own tabs hear it too). Its callers are a Galaxy's agent reply and the `ServedBuild`
-   * a landing records.
+   * client-facing result delivery. A live snapshot already present → no-op. A create fans out as
+   * {@link doTransaction}'s post-commit hook does, with originator `''`; at a fresh id no tab
+   * subscribes to the resource yet, so its subscribers hear it through the query rerun, which
+   * takes no originator. Its callers are a Galaxy's agent reply and the `ServedBuild` a landing
+   * records.
    *
    * It runs under the caller's `callContext`, which stamps the subject. ✅ **Confined, via the
    * ordinary path — no special-casing here.** Without `pinnedAtDoor` it goes through

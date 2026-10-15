@@ -84,6 +84,12 @@ the shared target an access line can also be another run's. A facade call's mark
 `operationId` the call mints, and the limb waits for that call's completion line
 (`waitForDebugLines`, `harness/lib/stdio.ts`).
 
+**A wait for a line about one client MUST match that client's id, never count lines of the kind.**
+Another client's line of the same kind can arrive in the window, deployed especially, and pass for
+it. Bit 2026-10-15: `build-reaches-every-studio` limb 2 counted reap lines after pausing P's Studio,
+took limb 3's closed tab's reap for P's, and passed under a mutation that stopped P re-subscribing;
+it now matches P's tab id, which the page keeps under `lmz_tab`.
+
 **A debug entry MUST be read through `debugLines` (`harness/lib/stdio.ts`), never matched line by
 line.** wrangler prints each entry as a multi-line JSON block, its `namespace` and its `data` on
 different lines, so a test for both on one line is false on every tree. Bit 2026-10-06:
@@ -103,6 +109,13 @@ whose `bootVars` named six other namespaces. With `nebula.Galaxy.model` added, a
 ## Timing a limb against the code it drives
 
 **A limb's page MUST act only after its connection is up, as an app waits on the factory's `ready`.** A page that acts sooner has its first ops sent twice, once queued and once by the first connection's restore, and the second copy can answer what the code under test was holding. Bit 2026-10-11: a gate's resend survived its mutation for exactly that reason.
+
+**A mark on a frame's window measures a navigation only once the frame holds the document the limb
+means.** An iframe starts at `about:blank`, and its first real load clears whatever was set there.
+Bit 2026-10-15: `build-reaches-every-studio` limb 5b marked a frame before its first load and read
+the load as Studio's fallback, passing at 2.1 s under a mutation that made the fallback wait 10 s. A
+limb MUST wait for the frame's own origin first, and SHOULD count loads per tab in `sessionStorage`
+where a reload can come before the mark.
 
 **A limb's wait MUST sit well inside any bound the code under test has.** A backstop that fires within the limb's wait rescues the mutation it exists to catch. Bit 2026-10-12: a version gate's 30 s bound reopened a stranded gate inside a 30 s wait, so a real wedge passed; the wait is now 15 s, and the correct path answers in about half a second.
 

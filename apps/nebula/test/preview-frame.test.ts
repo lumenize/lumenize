@@ -96,8 +96,22 @@ describe('decidePreviewFrame', () => {
     expect(actions).toEqual(['ask:r1:b1', 'set-address', 'none']);
   });
 
-  it('never forces a frame that echoed, whatever build its echo names', () => {
-    // Mutation: fall back on an echo naming another build (a frame showing a banner) → red.
+  it('a fresh loaded after the one resend clears the request, so its window forces nothing', () => {
+    // Mutation: keep a landing's pending request across a fresh load → its window sets the address
+    // of a frame that has just shown it has a client → red.
+    const { actions, state } = run({}, [
+      { type: 'value', build: 'b1', id: 'r1' },
+      { type: 'loaded', at: 1, resendId: 'r2' },
+      { type: 'loaded', at: 2, resendId: 'x' },
+      { type: 'no-echo', id: 'r2' },
+    ]);
+    expect(actions).toEqual(['ask:r1:b1', 'ask:r2:b1', 'none', 'none']);
+    expect(state.pending).toBeUndefined();
+  });
+
+  it('an echo clears the request, so nothing forces a frame that answered', () => {
+    // The echo carries the frame's build, which this decision never reads: a frame that answered
+    // decided for itself, banner or not. Mutation: keep the request after its echo → red.
     const { actions } = run({}, [
       { type: 'value', build: 'b2', id: 'r1' },
       { type: 'loaded', id: 'r1', at: 1, resendId: 'x' },

@@ -248,7 +248,7 @@ this path.
 
 ### The topology, which is what makes this tractable
 
-Every well-known driver — Playwright, Puppeteer, Stagehand, browser-use — is **outside-in**: a Node or Python process driving a browser it owns over CDP. We are the opposite, and better placed than that sounds. Studio's page holds the user-developer's live client, the preview is a **same-origin** iframe, and a DO can already push to the page: `NebulaClient` carries about six `@mesh()` methods DOs call through the Gateway (`deliverPreviewReady`, `handleOrgTreeUpdate`, `handleProfileUpdate`). So the control channel exists, and **Studio's page is the browser panel** — the model reaches the DOM the way Claude Code reaches Chrome, with mesh where CDP would be.
+Every well-known driver — Playwright, Puppeteer, Stagehand, browser-use — is **outside-in**: a Node or Python process driving a browser it owns over CDP. We are the opposite, and better placed than that sounds. Studio's page holds the user-developer's live client, the preview is a **same-origin** iframe, and a DO can already push to the page: `NebulaClient` carries about six `@mesh()` methods DOs call through the Gateway (`handleResourceUpdate`, `handleOrgTreeUpdate`, `handleProfileUpdate`). So the control channel exists, and **Studio's page is the browser panel** — the model reaches the DOM the way Claude Code reaches Chrome, with mesh where CDP would be.
 
 Same-origin also means **nothing is injected into the generated app**. `iframe.contentDocument` gives the parent `querySelector`, `.click()`, `.value =` and `dispatchEvent` outright. The missing piece is not access, it is *addressability*.
 

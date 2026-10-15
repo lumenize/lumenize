@@ -105,7 +105,9 @@ describe('createNebulaClient in a frame with no session', () => {
     document.head.appendChild(m);
     vi.spyOn(window, 'top', 'get').mockReturnValue({} as Window);
     const posts: string[] = [];
+    let firstBuild: unknown;
     vi.spyOn(window.parent, 'postMessage').mockImplementation((msg: unknown) => {
+      if (posts.length === 0) firstBuild = (msg as { build?: unknown }).build;
       posts.push((msg as { type: string }).type);
     });
     const { ready, dispose } = createNebulaClient({
@@ -118,6 +120,7 @@ describe('createNebulaClient in a frame with no session', () => {
       await ready.catch(() => { /* the login-required path, which this test is about */ });
       await vi.waitFor(() => expect(posts).toContain('lumenize:login-required'));
       expect(posts.indexOf('lumenize:loaded')).toBe(0);
+      expect(firstBuild).toBe(OWN); // read from the page's own meta by the factory
       expect(posts.indexOf('lumenize:login-required')).toBeGreaterThan(0);
     } finally {
       await dispose();

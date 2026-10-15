@@ -27,13 +27,18 @@ export type OperationDescriptor =
   | { op: 'move'; typeName: string; nodeId: string; eTag?: string }
   | { op: 'delete'; typeName: string; eTag?: string };
 
-export type TransactionOutcome = {
-  kind: 'committed' | 'conflict' | 'rejected' | 'infrastructure-error';
-  resources: Record<string, unknown>;
-};
+/** The documented five-kind outcome (api-reference § TransactionOutcome). */
+export type TransactionOutcome =
+  | { kind: 'committed'; resources: Record<string, unknown> }
+  | { kind: 'rejected'; retryable: boolean; resources: Record<string, unknown> }
+  | { kind: 'timeout'; retryable: true }
+  | { kind: 'infrastructure-error'; retryable: true; error: Error }
+  | { kind: 'ontology-stale'; retryable: false; clientVersion: string; currentVersion: string };
 
 export interface ResourceSubscription {
-  snapshot: Promise<{ value: unknown; eTag: string } | null>;
+  readonly snapshot: Promise<{ value: unknown; eTag: string; meta?: Record<string, any> } | null>;
+  readonly deniedNodes: string[];
+  onChange(cb: () => void): void;
   [Symbol.dispose](): void;
 }
 
@@ -56,7 +61,13 @@ export interface QuerySubscription {
 }
 
 export interface Client {
-  readonly claims: { sub: string; [k: string]: unknown };
+  readonly claims: {
+    sub: string;
+    aud?: string;
+    profileId?: string;
+    access?: { scopeAdmin?: boolean; authScope?: string; [k: string]: unknown };
+    [k: string]: unknown;
+  };
   resources: {
     transaction(ops: Record<string, OperationDescriptor>, options?: Record<string, unknown>): Promise<TransactionOutcome>;
     subscribe(resourceType: string, resourceId: string): ResourceSubscription;
@@ -99,9 +110,44 @@ declare module 'vue' {
   export function watchEffect(effect: () => void): () => void;
   export function onMounted(cb: () => void): void;
   export function onUnmounted(cb: () => void): void;
+  export function onBeforeMount(cb: () => void): void;
+  export function onBeforeUnmount(cb: () => void): void;
+  export function onBeforeUpdate(cb: () => void): void;
+  export function onUpdated(cb: () => void): void;
+  export function onErrorCaptured(cb: (...args: any[]) => any): void;
   export function nextTick(cb?: () => void): Promise<void>;
+  export function shallowRef<T>(value: T): Ref<T>;
+  export function shallowReactive<T extends object>(target: T): T;
+  export function readonly<T>(target: T): Readonly<T>;
+  export function toRef(source: any, key?: any): Ref<any>;
+  export function toRefs<T extends object>(object: T): { [K in keyof T]: Ref<T[K]> };
+  export function toValue<T>(source: T | Ref<T> | (() => T)): T;
+  export function unref<T>(ref: T | Ref<T>): T;
+  export function isRef(value: unknown): value is Ref<any>;
+  export function markRaw<T>(value: T): T;
+  export function toRaw<T>(value: T): T;
+  export function provide(key: any, value: any): void;
+  export function inject<T = any>(key: any, defaultValue?: T): T;
+  export function useTemplateRef<T = any>(key: string): Ref<T | null>;
+  export function useId(): string;
+  export function useAttrs(): Record<string, unknown>;
+  export function useSlots(): Record<string, any>;
+  export function defineComponent(options: any): any;
+  export function defineAsyncComponent(loader: any): any;
+  export function h(...args: any[]): any;
   export type Component = any;
   export type DefineComponent = any;
+}
+// The checker's lib predates explicit resource management, which the docs teach (\`using\`,
+// \`[Symbol.dispose]()\`), so its symbol is declared here as lib.esnext.disposable declares it.
+interface SymbolConstructor {
+  readonly dispose: unique symbol;
+  readonly asyncDispose: unique symbol;
+}
+// A component file is checked on its own, so an import of a sibling \`.vue\` resolves here.
+declare module '*.vue' {
+  const component: any;
+  export default component;
 }
 // <script setup> compiler macros — auto-available, no import (Vue rewrites them).
 declare function defineProps<T = {}>(): Readonly<T>;
@@ -113,10 +159,12 @@ declare function defineSlots<T = Record<string, any>>(): T;
 declare function withDefaults<T, D>(props: T, defaults: D): T;
 `;
 
-/** Third-party packages the seed prompt allows the model to import — declared as
- *  shorthand ambient modules (all imports become `any`) so legitimate icon imports
- *  don't produce findings. An import of any OTHER package is a real finding (the
+/** Packages the platform's guidance allows the model to import — declared as shorthand
+ *  ambient modules (all imports become `any`) so a legitimate import produces no finding:
+ *  the icons, and `@lumenize/resources/frontend`, from which the docs import `ROOT_NODE_ID`,
+ *  `buildOrgTreeView` and `textMerge`. An import of any OTHER package is a real finding (the
  *  prompt forbids it). */
 export const ALLOWED_IMPORT_SHIMS_DTS = `
 declare module 'lucide-vue-next';
+declare module '@lumenize/resources/frontend';
 `;

@@ -47,8 +47,8 @@
  *     notice naming no version takes the reload path, and when an established list answered
  *     `checking` is not sent again.*
  *  8. **A top-level page on the `.dev` host reloads once per build.** The app's own `nebula.ts`
- *     logs a console line from `onShouldRefreshUI` and reloads; the page is neither framed in
- *     Studio nor the build's requester. After each of two builds a second client sends one op, so
+ *     logs a console line from `onShouldRefreshUI` and reloads; the page is not framed in Studio,
+ *     so no Studio asks it to reload. After each of two builds a second client sends one op, so
  *     the Star installs, and the page logs one line and reloads, once per build. *Reds with a
  *     guard that records that it reloaded rather than for which version.*
  *  9. **On a tenant Star the wait ends, and nothing keeps asking.** A transaction, a read and a
@@ -445,6 +445,30 @@ export async function run(stack: DevStack): Promise<void> {
     const frameAt = async () => (await (await ownerFrame())?.evaluate(() => ({
       path: location.pathname, marked: (window as unknown as { __mark?: boolean }).__mark === true,
     })).catch(() => undefined));
+    // Positive control first: the frame must hold a page with a client that answers, so a Wipe that
+    // asked it would keep the sub-path and only one that sets the address lands at the root. Limb
+    // 1's page has no client, so after limb 2's landing Studio waits out its echo window and then
+    // sets the address; the probe waits for that. It names the frame's own build, since another
+    // build would refresh the frame and none would reload it.
+    let ownBuild: string | undefined;
+    let answered = false;
+    for (const deadline = Date.now() + 30_000; !answered && Date.now() < deadline;) {
+      ownBuild = await (await ownerFrame())?.evaluate(() => {
+        const content = document.querySelector('meta[name="nebula-scope"]')?.getAttribute('content');
+        return content ? (JSON.parse(content) as { buildVersion?: string }).buildVersion : undefined;
+      }).catch(() => undefined);
+      answered = ownBuild !== undefined && await owner.page.evaluate(async ([devOrigin, build]) => {
+        const frame = document.querySelector('iframe[title="Preview"]') as HTMLIFrameElement;
+        // Inline listeners only: a named function here gains a bundler helper the page lacks.
+        return new Promise<boolean>((resolve) => {
+          const id = `wipe-control-${Math.random()}`;
+          addEventListener('message', (e) => { if ((e.data as { id?: string } | null)?.id === id) resolve(true); });
+          frame.contentWindow!.postMessage({ type: 'lumenize:reload', id, build }, devOrigin!);
+          setTimeout(() => resolve(false), 2_000);
+        });
+      }, [new URL(vite.scopeUrl(dev)).origin, ownBuild] as const);
+      if (!answered) await sleep(1_000);
+    }
     await (await ownerFrame())?.evaluate(() => {
       history.pushState({}, '', '/limb-four');
       (window as unknown as { __mark?: boolean }).__mark = true;
@@ -460,7 +484,8 @@ export async function run(stack: DevStack): Promise<void> {
       afterWipe = await frameAt();
     }
     record("limb 4 — the owner's Wipe moves the frame to the Star's root",
-      beforeWipe?.path === '/limb-four' && beforeWipe.marked && afterWipe?.path === '/' && !afterWipe.marked,
+      answered && beforeWipe?.path === '/limb-four' && beforeWipe.marked && afterWipe?.path === '/' && !afterWipe.marked,
+      `the frame ${answered ? 'answered a request' : `did NOT answer a request (its build ${ownBuild ?? 'unreadable'}, at ${(await ownerFrame())?.url()}; console: ${JSON.stringify(owner.consoleErrors.slice(-4)).slice(0, 400)})`}; ` +
       `before ${JSON.stringify(beforeWipe)}; after ${JSON.stringify(afterWipe)}`);
 
     // ── LIMB 5: a version change on `.dev` counts the rows its validator refuses ────────────
@@ -652,7 +677,8 @@ export async function run(stack: DevStack): Promise<void> {
     });
     disposers.push(() => served[Symbol.dispose]());
     await within(30_000, served.ready);
-    /** The newest `ServedBuild`'s build, read through the render window as Studio reads it. */
+    /** The newest `ServedBuild`'s build: the window holds the newest row, as Studio's does, and
+     *  its value is read by id. Every row here is `.dev`'s, so the newest is `.dev`'s newest. */
     const newestServed = async (): Promise<string | undefined> => {
       const id = served.resourceIds.at(-1);
       if (!id) return undefined;
@@ -673,6 +699,7 @@ export async function run(stack: DevStack): Promise<void> {
     await write('src/App.vue', appShowing(MARK_LANDED));
     const clean = await build();
     const servedClean = await servedAfter(clean.bundle.indexSha256);
+    const rowsAfterClean = served.resourceIds.length;
     const cleanHtml = await servedHtml();
     assert.ok(clean.preview.refreshed && clean.bundle.indexSha256 && servedBuildVersion(cleanHtml) === clean.bundle.indexSha256,
       `the clean build should land and be served: ${JSON.stringify(clean.preview)}, meta ${servedBuildVersion(cleanHtml)}`);
@@ -698,12 +725,17 @@ export async function run(stack: DevStack): Promise<void> {
         && previewed.bundle.indexSha256 !== clean.bundle.indexSha256 && servedBuildVersion(previewedHtml) === previewed.bundle.indexSha256,
       `preview ${JSON.stringify(previewed.preview)}; the page ${previewedScript.includes(MARK_HELD) ? 'shows' : 'does NOT show'} the new string; ` +
       `meta buildVersion ${servedBuildVersion(previewedHtml) === previewed.bundle.indexSha256 ? "is the new build's" : `is ${servedBuildVersion(previewedHtml)}`}`);
+    // The previewed landing is the barrier: once its row is the newest, a row the held-back build
+    // recorded, however late it arrived, is among the rows listed. Counted rather than matched by
+    // digest, since the previewed rebuild of the same source has the held-back build's digest.
+    const heldRecorded = served.resourceIds.length !== rowsAfterClean + 1;
     record("limb 10 — Studio's ServedBuild names each landing, and not the held-back build",
       servedClean === clean.bundle.indexSha256 && servedHeld === clean.bundle.indexSha256
-        && servedPreviewed === previewed.bundle.indexSha256,
+        && servedPreviewed === previewed.bundle.indexSha256 && !heldRecorded,
       `newest row after the clean build ${servedClean === clean.bundle.indexSha256 ? 'names it' : `names ${servedClean}`}; ` +
       `after the held-back build ${servedHeld === clean.bundle.indexSha256 ? 'still the clean one' : `names ${servedHeld}`}; ` +
-      `after the previewed rebuild ${servedPreviewed === previewed.bundle.indexSha256 ? 'names it' : `names ${servedPreviewed}`}`);
+      `after the previewed rebuild ${servedPreviewed === previewed.bundle.indexSha256 ? 'names it' : `names ${servedPreviewed}`}; ` +
+      `${served.resourceIds.length - rowsAfterClean} row(s) since the clean build, one expected`);
 
     const open = results.filter((r) => !r.ok);
     assert.equal(open.length, 0,

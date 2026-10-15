@@ -81,13 +81,10 @@ export function decidePreviewFrame(
         // An echo: a client is there, and it decided. Never force a frame that answered.
         return { state: state.pending?.id === event.id ? { ...state, pending: undefined } : state, action: NONE };
       }
-      // A fresh load. A pending button request is answered by the load itself, and resending it
-      // would reload the frame again.
-      const after: PreviewFrameState = {
-        ...state,
-        lastLoadedAt: event.at,
-        pending: state.pending?.kind === 'button' ? undefined : state.pending,
-      };
+      // A fresh load: a client is there, and the page it loaded is the one `.dev` serves now. Any
+      // pending request is answered by the load itself, a button's included, whose resend would
+      // reload the frame again; only the current build is asked once more.
+      const after: PreviewFrameState = { ...state, lastLoadedAt: event.at, pending: undefined };
       if (state.build === undefined || state.resentFor === state.build) return { state: after, action: NONE };
       const request: PendingRequest = { id: event.resendId, build: state.build, kind: 'landing' };
       return { state: { ...after, resentFor: state.build, pending: request }, action: { kind: 'ask', request } };

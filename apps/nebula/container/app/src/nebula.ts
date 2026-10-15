@@ -8,7 +8,7 @@
  * the shell (the ontology version this app was built against, whether it is the dev Star, the
  * Studio origin a framed page reports to, and the build the page was served) and
  * `<meta name="lumenize-origin">`. This file passes the ontology version; the factory reads the
- * rest itself.
+ * platform's origin, the Studio origin and the build itself.
  *
  * ⚠️ Neither the seed's `App.vue` nor its `main.ts` imports this file, so the seed's page has no
  * client: it boots standalone, which lets the image self-validate vite without the factory, and

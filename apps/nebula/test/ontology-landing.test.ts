@@ -9,10 +9,12 @@
  * drives the landing through a real build and a real Star.
  */
 import { describe, it, expect } from 'vitest';
-import { decideLanding, heldBackLine, isDevStarCall } from '../src/galaxy';
+import { completedTurnFallback, decideLanding, heldBackLine, isDevStarCall } from '../src/galaxy';
 import { SKIPPED_FOR_ONTOLOGY } from '../src/build-report';
 import type { BuildReport } from '../src/build-report';
 
+const HELD_FOR_FINDINGS = 'type findings — held back, so .dev still serves the last previewed build; build again with { "preview": true } to land it anyway';
+const NOT_ARRIVED = 'the built dist did not arrive back from the container (sync pull incomplete) — build again';
 const report = (over: Partial<BuildReport> = {}): BuildReport => ({
   container: { ran: true, ok: true },
   ontology: { ran: true, ok: true },
@@ -25,7 +27,6 @@ const report = (over: Partial<BuildReport> = {}): BuildReport => ({
 describe('decideLanding', () => {
   const findings = ['src/App.vue(1,1): error TS2322: x'];
   const withFindings = report({ typeCheck: { ran: true, checked: ['src/App.vue'], findings } });
-  const HELD_FOR_FINDINGS = 'type findings — held back, so .dev still serves the last previewed build; build again with { "preview": true } to land it anyway';
   // Mutations: drop the bundle, digest, arrival or compile conjunct, the `{ preview: false }` arm,
   // or the findings arm; each reds its own rows, on `refreshed` as well as on `why`.
   it.each([
@@ -51,8 +52,9 @@ describe('decideLanding', () => {
       arrived: true, version: undefined, preview: true, refreshed: false,
       why: 'the bundle reported no digest of its index.html, so its arrival cannot be checked — build again' },
     { name: 'a bundle that did not arrive',
-      r: report(), arrived: false, version: 'v', preview: undefined, refreshed: false,
-      why: 'the built dist did not arrive back from the container (sync pull incomplete) — build again' },
+      r: report(), arrived: false, version: 'v', preview: undefined, refreshed: false, why: NOT_ARRIVED },
+    { name: 'a bundle with findings that did not arrive, even on { preview: true }',
+      r: withFindings, arrived: false, version: 'v', preview: true, refreshed: false, why: NOT_ARRIVED },
     { name: 'a clean build that arrived, with its ontology',
       r: report(), arrived: true, version: 'v', preview: undefined, refreshed: true, why: 'clean build, landed' },
     { name: 'a clean build that arrived, the ontology file unchanged',
@@ -85,8 +87,11 @@ describe('heldBackLine', () => {
       r: report({ typeCheck: { ran: true, checked: [], findings: ['x'] }, preview: { refreshed: true, why: 'landed on override' } }),
       line: undefined },
     { name: 'a build held back for its type findings',
-      r: report({ typeCheck: { ran: true, checked: [], findings: ['x'] }, preview: { refreshed: false, why: 'type findings — held back' } }),
+      r: report({ typeCheck: { ran: true, checked: [], findings: ['x'] }, preview: { refreshed: false, why: HELD_FOR_FINDINGS } }),
       line: 'The preview was not updated: the last build was held back for its type findings.' },
+    { name: 'a build with findings refused for another reason names that reason, not the findings',
+      r: report({ typeCheck: { ran: true, checked: [], findings: ['x'] }, preview: { refreshed: false, why: NOT_ARRIVED } }),
+      line: `The preview was not updated: the last build did not land (${NOT_ARRIVED}).` },
     { name: 'a clean build held back on { preview: false }',
       r: report({ preview: { refreshed: false, why: 'held back on the model\'s { "preview": false }' } }),
       line: 'The preview was not updated: the last build did not land (held back on the model\'s { "preview": false }).' },
@@ -102,6 +107,22 @@ describe('heldBackLine', () => {
       line: 'The preview was not updated: the last build did not land (the compiled types do not match the version the build was asked for — build again).' },
   ])('$name', ({ r, line }) => {
     expect(heldBackLine(r)).toBe(line);
+  });
+});
+
+describe('completedTurnFallback', () => {
+  // What a completed turn says when the model wrote nothing. Mutations: read `appliedPaths` before
+  // the landing and the preview-only row reds; drop the held-back arm and its row gains a sentence
+  // beside the Galaxy's own line.
+  it.each([
+    { name: 'a build that landed, with files written', applied: 2, r: report({ preview: { refreshed: true, why: 'clean build, landed' } }), text: 'Updated the preview.' },
+    { name: 'a build that landed with no file written, as a preview-it-anyway turn',
+      applied: 0, r: report({ preview: { refreshed: true, why: "landed on the model's { \"preview\": true }" } }), text: 'Updated the preview.' },
+    { name: 'a held-back build, whose line says why', applied: 1, r: report({ preview: { refreshed: false, why: HELD_FOR_FINDINGS } }), text: '' },
+    { name: 'files written and nothing built', applied: 1, r: undefined, text: 'Saved the changes; nothing was built, so the preview is unchanged.' },
+    { name: 'nothing written and nothing built', applied: 0, r: undefined, text: 'Done — no changes.' },
+  ])('$name', ({ applied, r, text }) => {
+    expect(completedTurnFallback(applied, r)).toBe(text);
   });
 });
 

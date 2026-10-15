@@ -52,7 +52,7 @@ The rest of this file covers what exists today, the design, its decisions, and w
 - **The loop's tool table.** `LOOP_TOOL_ENTRIES` in `apps/nebula/src/galaxy.ts` names every Galaxy entry a tool may reach, and the resource-surface test asserts each sits at the chat floor, which is DAG `write` at the chat node, the check `requireChatWrite` makes. *Adapted:* it gains `provision` and `invite`. The chat-floor assertion stays, since each method a tool names still sits there, and the JSDoc says what a tool reaches may need more.
 - **Three ways to wipe the dev Star.** Studio's Wipe button calls `Star.resetDevData()` with Studio's Galaxy-host token, which for Austen has no passage into `.dev`, and reports success anyway. `Galaxy.applyOntology({ wipe })` checks dominion over `.dev` and writes `wipeOnInstall` on its row, and the install wipes. The harness's reset helper calls `resetDevData`. Nothing in Studio calls `applyOntology`; harness scenarios call it without the flag, and two tests call it with the flag. *Left behind:* the button, `applyOntology` with its flag, check and the `wipeOnInstall` it writes, and `resetDevData` with its harness helper; provisioning becomes the one path. The three scenarios that call `applyOntology` apply through a build instead.
 - **The turn trigger.** `#onChatCommitted` in `galaxy.ts` starts a turn for each human post on the chat node, but skips one that arrives while a turn runs, behind the in-memory `#turnInFlight` flag. *Adapted:* when a turn ends, posts that arrived during it get a reply from a turn the agent starts, which has no tools.
-- **The agent's reply.** `commitAgentMessage` writes it with the poster as subject and `agent:lumenize` as actor, behind `pinnedAtPost`, whose only production caller it is. `deriveKind` in `participants.ts` calls a message the agent's only when its outermost `act` names the agent, and `Snapshots.#buildActingToken` throws on a write with no caller, since `projectActingToken` reads `claims.sub` off `undefined`. *Adapted:* every agent message names `agent:lumenize` as its subject with no `act`, `deriveKind` reads the subject too, and Snapshots takes a subject the server supplies, beside the actor it supplies today; `pinnedAtPost` goes.
+- **The agent's reply.** `commitAgentMessage` writes it with the poster as subject and `agent:lumenize` as actor, behind `pinnedAtDoor` (until 2026-10-15 `pinnedAtPost`), which a landing's `ServedBuild` also passes ([nebula-build-reaches-every-studio.md](nebula-build-reaches-every-studio.md)). `deriveKind` in `participants.ts` calls a message the agent's only when its outermost `act` names the agent, and `Snapshots.#buildActingToken` throws on a write with no caller, since `projectActingToken` reads `claims.sub` off `undefined`. *Adapted:* every agent message names `agent:lumenize` as its subject with no `act`, `deriveKind` reads the subject too, and Snapshots takes a subject the server supplies, beside the actor it supplies today; `pinnedAtPost` goes.
 - **Who may invite.** `AuthFacade.invite` admits a caller whose host is the target, so today Austen, a plain member of `acme.crm`, may invite anyone into `acme.crm`. *Adapted:* into a Galaxy only dominion invites, so her invite is refused; into a Star, peers still invite.
 - **The `.dev` membership an invite mints beside the Galaxy's.** `issueInvites` in `auth-registry.ts` sets its admin bit only when the inviter has dominion over the Galaxy. *Adapted:* with every Galaxy inviter an admin, the branch that mints it without the bit is dead and goes, and an invitee who already holds a plain `.dev` membership is promoted, since `#mintIdentity` returns an existing row unchanged.
 - **Passage for a chain a node started.** `claimsForPassage`, which `ScopedMeshDO`'s passage step calls, treats such a chain as a plain member of the starting node's scope, so a Galaxy's own chain has no passage into its Stars. *Adapted:* a Galaxy's chain is the admin of its own `.dev` Star and of nothing else.
@@ -179,7 +179,7 @@ A `ref` is a handle local to the procedure. `root` is reserved and names the Sta
   - `security.md`'s rule that a derived session never logs out through the originating one, which gains the persona page as its second case.
   - The JSDoc of `Profile.#requireOwnerOrAdmin`, restated as the invariant § *Current state* names.
   - `apps/nebula/platform/skills/define-ontology/SKILL.md` step 6, which becomes: the preview runs the new types after the build, and a change that removes or retypes a field existing data uses asks to provision.
-  - The JSDoc of `AuthFacade.invite`, `Resources.invite`, `issueInvites`, `#buildAndAnnounce`, `getCurrentOntology`, the Galaxy's file header, `LOOP_TOOL_ENTRIES`, `#onChatCommitted`, `handleRefreshToken`, `requireDominionHere`, `NEBULA_SUB`, `commitAgentMessage`, `deriveKind` and the header of `participants.ts`.
+  - The JSDoc of `AuthFacade.invite`, `Resources.invite`, `issueInvites`, `#queueBuild` (until 2026-10-15 `#buildAndAnnounce`), `getCurrentOntology`, the Galaxy's file header, `LOOP_TOOL_ENTRIES`, `#onChatCommitted`, `handleRefreshToken`, `requireDominionHere`, `NEBULA_SUB`, `commitAgentMessage`, `deriveKind` and the header of `participants.ts`.
   - The header of `apps/nebula/src/codegen-loop.ts`, which calls the loop's lack of any install or wipe path a guarantee. `provision` ends that, so the header changes in the phase that adds the tool, and its `D2` handle becomes prose.
 - **Milestone:** pre-alpha, deploy gate. Jennifer and Austen are the first users of it.
 
@@ -379,7 +379,7 @@ Location:
 Finding:
 - **The fence claim is false.** The row says a breaking version "installs nothing" off `.dev`. The only fence is D23: `#install` sets `wipes = Boolean(installed && row.wipeOnInstall)`, and `#wipe` throws off `.dev`. This task deletes `wipeOnInstall`, so every compiled row installs on any tenant that pulls it.
 - **"Nothing is published" protects nothing.** `getCurrentOntology` is a bare `@mesh()` and serves the latest applied row, published or not.
-- **"Held back only for the wipe bit" is false.** `#buildAndAnnounce`'s JSDoc and the codegen-loop header call the held-back append the D2 line: an autonomous tool can build but never install. The build append ends that line, not `provision`.
+- **"Held back only for the wipe bit" is false.** `#buildAndAnnounce`'s JSDoc (now `#queueBuild`'s) and the codegen-loop header call the held-back append the D2 line: an autonomous tool can build but never install. The build append ends that line, not `provision`.
 - **What actually holds today:** only `#serveBuiltApp`'s 404 off `.dev`. Item 4's demand trigger reopens it.
 - **Item 4 goes stale.** Its "D23 fences it" sentence becomes false, and this task does not amend it.
 - **A backlog trigger has tripped.** The row "Studio: breaking-ontology-change → deterministic Reset-data/Revert prompt" says "never via the LLM". After this task, step 6's model judgment is the only breaking-change detection on `.dev`, and the task file cites neither.
@@ -411,7 +411,7 @@ Finding:
 - **`replyTo`:** `commitAgentMessage` requires a single `replyTo`. App.vue's `replyLanded` and the stream re-arm both key on `replyTo === lastPostedId`. One combined reply settles at most one poster, and the others stay on 'failed' or wait forever (calibration §12, §13).
   - Provisioning's outcome and the admin-kind invite outcome have the same gap.
   - Which posts count as "posted during it" is undefined.
-- **Write:** dropping `pinnedAtPost` removes the Step 8 skip. The file must say that a server-supplied subject skips Step 8.
+- **Write:** dropping `pinnedAtPost` removes the Step 8 skip. The file must say that a server-supplied subject skips Step 8. *(Settled 2026-10-15: the flag, renamed `pinnedAtDoor`, stays, since a landing's `ServedBuild` passes it; [nebula-agent-posts-as-itself.md](nebula-agent-posts-as-itself.md) keeps it.)*
 - **The backstop is false.** "A tool given to it by mistake finds no `sub`" does not hold. `readSource`, `writeSource` and `buildNow` run in-process past the decorator and check no claims, so a `write_file` would commit source under nobody's claims.
 - **The criterion is unobservable.** "Offered no tool" has nothing to read, because `codegen` records `toolCalls`, not the tools offered.
 
@@ -477,7 +477,7 @@ Finding:
   - `child3-post.test.ts:203-207`
 
 Suggestion:
-- Decide whether any agent write keeps the actor, such as the admin invite's rows or Item 6's sub-agent. If none does, delete `actor` along with `pinnedAtPost`.
+- Decide whether any agent write keeps the actor, such as the admin invite's rows or Item 6's sub-agent. If none does, delete `actor` along with `pinnedAtPost`. *(Settled 2026-10-15: a turn's landing keeps both, as `actor` and `pinnedAtDoor`, for the `ServedBuild` it records.)*
 - Narrow auth.md to what is true: writes carry the poster's claims, and the reply's `codegen.toolCalls` plus its `replyTo` record what the agent did and for whom.
 - State the byline after the change. Recommended: "Lumenize, re: {poster of `replyTo`}", with a criterion for it.
 - List the five consumers, and mark the `four-party-chat` assertions as inverted (calibration §3(b)).
@@ -576,7 +576,7 @@ Suggestion:
      - **JSDoc:** `Resources.wipe`, `Resources.#install`, `generationDeadlineMs` and `get resources`.
    - Suggestion:
      - Add all of these, and regenerate the embedded `.platform/docs` copies.
-     - Replace the hand-kept list with a grep the phase runs: `-rnwE 'applyOntology|wipeOnInstall|resetDevData|pinnedAtPost|Apply'` over apps, packages, website/docs, .claude and docs. Each hit is changed or kept on purpose.
+     - Replace the hand-kept list with a grep the phase runs: `-rnwE 'applyOntology|wipeOnInstall|resetDevData|Apply'` over apps, packages, website/docs, .claude and docs. Each hit is changed or kept on purpose.
 
 6. **Future state's "one place that changes" is false again.** (spec-hygiene, scope-discipline)
    - Location: § *Future state*, second bullet.

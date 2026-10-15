@@ -125,7 +125,9 @@ describe('the .dev Star runs the last landed build\'s row; nothing else moves it
   // store (every case reds), store the file by spreading it (the dressed case reds), or copy the
   // build to `/dist-dev/` before the row's check (the mislabeled and stale cases red on the served
   // page, which each of them changes). `decideLanding`'s own conjuncts are mutated in its table
-  // (`test/ontology-landing.test.ts`), since arrival here also requires the bundle.
+  // (`test/ontology-landing.test.ts`), since arrival here also requires the bundle. In-lane, not
+  // `/live`: a scripted fault makes the planted row certain, where in production only the build's
+  // own `vite.config.ts` could write one.
   it('a build that does not land leaves the row where it was, and the next good build lands', async () => {
     const galaxy = uniqueGalaxyScope();
     const v1 = await versionOf(TODO_V1);

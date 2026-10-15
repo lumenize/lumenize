@@ -187,13 +187,17 @@ export function decideLanding(
     return { refreshed: false, why: 'held back on the model\'s { "preview": false }, so .dev still serves the last previewed build' };
   }
   if (report.typeCheck.findings.length > 0 && opts.preview !== true) {
-    return { refreshed: false, why: 'type findings — held back, so .dev still serves the last previewed build; build again with { "preview": true } to land it anyway' };
+    return { refreshed: false, why: HELD_FOR_FINDINGS };
   }
   return {
     refreshed: true,
     why: report.typeCheck.findings.length > 0 ? 'landed on the model\'s { "preview": true }' : 'clean build, landed',
   };
 }
+
+/** The `why` of a build held back for its type findings alone, which {@link heldBackLine} reads
+ *  back, so the reply names findings only when findings are what held the build. */
+const HELD_FOR_FINDINGS = 'type findings — held back, so .dev still serves the last previewed build; build again with { "preview": true } to land it anyway';
 
 /**
  * The line a turn's reply ends with when its last build did not land, or `undefined` when it landed
@@ -208,10 +212,22 @@ export function heldBackLine(lastBuild: BuildReport | undefined): string | undef
     ? 'the build box could not run the last build'
     : !(lastBuild.bundle.ran && lastBuild.bundle.ok === true)
       ? 'the last build did not bundle'
-      : lastBuild.typeCheck.findings.length > 0
+      : lastBuild.preview.why === HELD_FOR_FINDINGS
         ? 'the last build was held back for its type findings'
         : `the last build did not land (${lastBuild.preview.why})`;
   return `The preview was not updated: ${reason}.`;
+}
+
+/**
+ * What a completed turn's reply says when the model wrote none: that the preview moved, nothing
+ * at all when the build was held back (the Galaxy's own {@link heldBackLine} says why), or what
+ * the turn changed without a build. Pure and exported, so the order of these arms is a table's,
+ * not a template's (calibration §12).
+ */
+export function completedTurnFallback(appliedPaths: number, lastBuild: BuildReport | undefined): string {
+  if (lastBuild?.preview.refreshed) return 'Updated the preview.';
+  if (heldBackLine(lastBuild)) return '';
+  return appliedPaths === 0 ? 'Done — no changes.' : 'Saved the changes; nothing was built, so the preview is unchanged.';
 }
 
 /**
@@ -890,17 +906,27 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         return { refreshed: false, why: 'the compiled ontology row could not be read — build again' };
       }
     }
+    // The file list comes from a box that runs the app's own `vite.config.ts`, so a path that
+    // leaves `dist/` is refused before anything is copied.
     const files = report.bundle.files ?? ['index.html'];
+    if (files.some((f) => f.startsWith('/') || f.split('/').includes('..'))) {
+      log.warn('refused: the build reported a file outside dist/', { instanceName });
+      return { refreshed: false, why: 'the build reported a file outside dist/ — build again' };
+    }
+    let index: Uint8Array<ArrayBuffer>;
     try {
       for (const f of files) if (f !== 'index.html') await this.#copyToServed(f);
-      await this.#copyToServed('index.html');
+      index = await this.#copyToServed('index.html');
     } catch (e) {
       log.error('refused: the build could not be copied', { instanceName, error: e });
       return { refreshed: false, why: 'the build could not be copied to where .dev serves it — build again' };
     }
     if (row) this.ctx.storage.kv.put(DEV_ONTOLOGY_ROW_KEY, row);
-    await this.#recordServedBuild(report.bundle.indexSha256!);
-    await this.#pruneServed(files);
+    // Named from the bytes `.dev` now serves, the digest the page's meta carries, so the record
+    // and the page agree even if `dist/index.html` changed after the build reported its digest.
+    await this.#recordServedBuild(await sha256Hex(index));
+    // A report with no file list says nothing of what to keep, so nothing is removed.
+    if (report.bundle.files) await this.#pruneServed(files);
     log.info('landed', { instanceName, version: ontologyVersion, files: files.length });
     return landed;
   }
@@ -926,18 +952,20 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   }
 
   /** Copy one built file, workspace-relative under `dist/`, to {@link DEV_SERVED_DIR} when it is
-   *  absent there or its bytes differ. Compared by content, never by name: vite copies `public/`
-   *  files unchanged, and a name that merely looks hashed can carry new bytes. */
-  async #copyToServed(rel: string): Promise<void> {
+   *  absent there or its bytes differ, and return the bytes now served. Compared by content, never
+   *  by name: vite copies `public/` files unchanged, and a name that merely looks hashed can carry
+   *  new bytes. */
+  async #copyToServed(rel: string): Promise<Uint8Array<ArrayBuffer>> {
     const fs = (await this.#workspace()).fs;
     const bytes = await this.#readBytes(wsPath(`dist/${rel}`));
     if (bytes === null) throw new Error(`built file missing: dist/${rel}`);
     const target = `${DEV_SERVED_DIR}/${rel}`;
     const served = await this.#readBytes(target);
-    if (served && sameBytes(served, bytes)) return;
+    if (served && sameBytes(served, bytes)) return bytes;
     if (rel.includes('/')) await fs.mkdir(target.slice(0, target.lastIndexOf('/')), { recursive: true });
     else await fs.mkdir(DEV_SERVED_DIR, { recursive: true });
     await fs.writeFile(target, bytes);
+    return bytes;
   }
 
   /** Remove from {@link DEV_SERVED_DIR} every file the landed build does not have. */
@@ -1554,11 +1582,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // so it never reads as done while the preview still shows the last build.
     const heldBack = result.stop === 'build-unavailable' ? undefined : heldBackLine(result.lastBuild);
     const fallback = result.stop === 'complete'
-      ? (result.appliedPaths.length === 0
-          ? 'Done — no changes.'
-          : result.lastBuild?.preview.refreshed
-            ? 'Updated the preview.'
-            : heldBack ? '' : 'Saved the changes; nothing was built, so the preview is unchanged.')
+      ? completedTurnFallback(result.appliedPaths.length, result.lastBuild)
       : result.stop === 'no-tool-calls'
         ? 'See the thought process.'
         : result.stop === 'build-unavailable'

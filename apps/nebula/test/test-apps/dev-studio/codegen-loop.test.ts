@@ -561,7 +561,7 @@ describe('prompt assembly (re-derived for the cache) + per-call params', () => {
     const user = seenMessages[0][1] as { role: string; content: string };
     expect(user.content).toContain('interface Item');
     expect(user.content).toContain('User request');
-    // No history on turn one of a direct-probe turn (no chat, no call context) — (h)'s in-lane twin
+    // No history on turn one of a direct-probe turn, which posts no chat message — (h)'s in-lane twin
     // is the baseline history test; here it proves the bundle is omitted rather than rendered empty.
     expect(system.content).not.toContain('Chat history —');
   });

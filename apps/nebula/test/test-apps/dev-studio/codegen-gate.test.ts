@@ -152,6 +152,47 @@ onMounted(() => {
 <template><p>{{ deals }}</p></template>`;
     expect(compileSource('src/App.vue', listing)).toEqual({ ok: true });
   });
+
+  it('an app written the way the docs and the platform guidance teach type-checks clean', () => {
+    // Each line is something `website/docs/nebula` or `platform/AGENTS.md` teaches. Mutations,
+    // each red on its own: drop the `*.vue` module shim (a component import), the
+    // `@lumenize/resources/frontend` shim, `access` on `claims`, the `timeout` outcome kind,
+    // `deniedNodes` on a subscription, or `onBeforeUnmount` from the Vue shim.
+    const taught = `<script setup lang="ts">
+import { ref, onBeforeUnmount, toRefs, reactive } from 'vue';
+import DealRow from './components/DealRow.vue';
+import { ROOT_NODE_ID } from '@lumenize/resources/frontend';
+import { client } from './nebula';
+
+const isAdmin = client.claims.access?.scopeAdmin === true;
+const state = reactive({ saving: false });
+const { saving } = toRefs(state);
+const message = ref('');
+const sub = client.resources.subscribe('Deal', 'd1');
+const denied = sub.deniedNodes.length > 0;
+onBeforeUnmount(() => sub[Symbol.dispose]());
+
+async function save() {
+  saving.value = true;
+  const outcome = await client.resources.transaction({
+    d2: { op: 'create', typeName: 'Deal', nodeId: ROOT_NODE_ID, value: { title: 'x' } },
+  });
+  switch (outcome.kind) {
+    case 'committed': message.value = 'saved'; break;
+    case 'timeout': message.value = outcome.retryable ? 'try again' : ''; break;
+    case 'ontology-stale': message.value = outcome.currentVersion; break;
+    default: message.value = 'failed';
+  }
+  saving.value = false;
+}
+</script>
+
+<template>
+  <DealRow v-if="isAdmin && !denied" />
+  <button @click="save">{{ message }}</button>
+</template>`;
+    expect(compileSource('src/App.vue', taught)).toEqual({ ok: true });
+  });
 });
 
 describe('Phase 1 — dispatch: non-compiled paths', () => {

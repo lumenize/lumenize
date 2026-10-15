@@ -1,6 +1,6 @@
 # A previewed build reaches every Studio on its app
 
-**Status:** Pass 1, drafted 2026-10-12; phases not written. Two Stage 1 passes and a Stage 2 pass ran on 2026-10-13, and Larry settled the decisions they raised (§ *Decisions*). It builds the part of [ADR-024](../docs/adr/024-two-versions-keep-an-app-in-step.md)'s build version that Studio needs, absorbs fast-follow Item 8, and builds before personas, whose tab pacing runs on it.
+**Status:** Built 2026-10-14/15, all five phases, through a verifier panel and a deployed pass (§ *Build notes*); the archive waits on Larry reading the retro. Drafted 2026-10-12; two Stage 1 passes and a Stage 2 pass ran on 2026-10-13, and Larry settled the decisions they raised (§ *Decisions*). It builds the part of [ADR-024](../docs/adr/024-two-versions-keep-an-app-in-step.md)'s build version that Studio needs, absorbs fast-follow Item 8, and builds before personas, whose tab pacing runs on it.
 
 ## Objective
 
@@ -238,7 +238,7 @@ Each phase leaves `npm run type-check` and `npm test` green, and its changed sou
 
 - **A turn that changes files and never builds now ends `Saved the changes; nothing was built, so the preview is unchanged.`** The task said only that `Updated the preview.` appears when the last build landed, which left the no-build case without a sentence; the old fallback claimed a preview that had not moved.
 - **The SFC contract was missing most of the client surface `api-reference.md` teaches, and this phase made that gap hold builds back.** `NEBULA_API_DTS` in `apps/nebula/src/sfc-contract.ts` listed five `client.resources` methods and no `subscribeQuery`, so a list view drew a false finding. Findings were advisory until now; with a held-back default, a correct app that lists anything stays off `.dev` until the model previews it. `dev-star-follows-the-build` limb 8 found it: its list app was held back and its page waited on an app `.dev` never served. The contract now carries every documented `client.*` call, loosely typed where the doc's types are rich, and `codegen-gate.test.ts` pins the list case. Deriving the contract from the client's own types would remove the class rather than patch it, and is proposed as a backlog row at close-out.
-- **The asset test names a different file than the criterion.** It changes the bytes of `assets/index-AbCdEf12.js` through `BuildFaults.distFiles` rather than `public/assets/logo-a1b2c3d4.png`. The property is the same: a landing copies by content, never by a name that looks hashed.
+- **The asset test changes the bytes of `assets/logo-a1b2c3d4.png`,** where vite puts `public/assets/logo-a1b2c3d4.png`, through `BuildFaults.distFiles`, as the criterion asks. *(Corrected after the verifier panel: this note first named a different file.)*
 
 - **`first-app-built`'s real turn ended on a held-back build in the sweep.** The model stopped `loop-detected` after 23 rounds and 5 builds, the last held back for type findings; the reply carried the line, and the scenario's preview-anyway landed it. Which findings held it back went unrecorded, since the manifest printed a `steps` field the report does not have; it now prints the last build's findings. If they prove false, the contract gap above is wider than the client surface, and Vue's shim in the same file is the next suspect.
 
@@ -304,3 +304,68 @@ Each phase leaves `npm run type-check` and `npm test` green, and its changed sou
 - Gone: `announceBuildToRequester`, `deliverPreviewReady`, `onPreviewReadyUndelivered`, `StudioClient.handlePreviewReady` and `onPreviewReady`, the test subclass's capture, `build-reply.test.ts`, `nebula-client-preview-ready.test.ts`, Studio's `reloadPreview`, its `?t=` and `onVisibilityChange`. `#buildAndAnnounce` is `#queueBuild`.
 - `backlog.md`'s login-notice row: the clearing is built.
 - Verified: `preview-frame.test.ts`'s table under seven mutations; `apps/nebula` 1073 passed (1068 + 11 − 6 deleted); `drive.ts all` with Docker, 66 of 66 in 37.7 min; the ui-smoke lane, 8 of 8.
+
+### Phase 5 — what the model and the docs say about a preview matches what it does (2026-10-15)
+
+**For Larry:**
+
+- **The guidance scenarios moved, and two causes moved at once.** `first-app-built`'s real turn ended `loop-detected` with its last build held back in the Phase 1 sweep, and completed with a clean landing in this phase's sweep, after the build tool's prose changed and the SFC contract widened. The findings lines in `nebula-pre-alpha.md` § *Data-bound generation* record both runs and credit neither.
+
+**Retro:**
+
+- The deployed pass ran on `22874a6`: `build-reaches-every-studio`, `dev-tab-frame`, `build-box` and `first-app-built` passed, the last with its turn landing clean in 11 rounds. `dev-star-follows-the-build` failed at sign-up, before any of this task's code: the new app's certificate pack sat in `pending_validation` for the whole six-minute wait. The panel's fixes changed source after that pass, so the deployed pass runs again on the fixed tree.
+
+**Close-out:**
+
+- Verified: `gen-platform --check` and `gen-validator-seeds --check` in sync; the two greps print nothing on the final tree and reproduce their *Today* counts at `cd27912` (3 and 5 hits); `drive.ts all` with Docker 66 of 66, `studio-guidance-loop` 6 of 6.
+
+### The verifier panel (2026-10-15)
+
+Five read-only verifiers, one per phase. Phases 2, 3 and 5 conformed; Phases 1 and 4 each had one major. Every finding was fixed, except where noted for Larry below.
+
+**Majors, fixed:**
+
+- **Phase 1: the SFC contract still drew false findings on what the docs teach,** which a held-back default turns into correct apps kept off `.dev`. The contract now carries a `*.vue` module, so a component import resolves; `@lumenize/resources/frontend`; `claims.access`; the documented five-kind `TransactionOutcome`; `deniedNodes` and `onChange` on a subscription; the common Vue lifecycle and reactivity calls; and `Symbol.dispose`, which the checker's lib lacked. `codegen-gate.test.ts` checks an app written as the docs teach, and each of seven widenings reds it alone. The class is a backlog row: derive the contract from the client's own types.
+- **Phase 4: limb 2 counted reap lines rather than naming P's.** Deployed, limb 3's closed tab could be reaped late enough to pass as P's, and P would then hear the landing live. The limb now matches the reap to P's own tab id, which P's page keeps under `lmz_tab`, and waits with `LOG_WAIT_MS`.
+
+**Minors, fixed:** the held-back line names findings only when findings held the build back (one shared `why`); the reply's fallback is a pure `completedTurnFallback`, so a preview-it-anyway turn with no file written says `Updated the preview.`; a report listing a file outside `dist/` is refused; the `ServedBuild` is named from the bytes `.dev` now serves, so it and the page's meta cannot disagree; a fresh `loaded` and a wipe clear Studio's pending request, so its window never forces a frame that has a client; limb 10 checks no row names the held-back build once the previewed landing's row is newest; the build tool says "every Studio on the app", and `TOOL_CONTRACT` and `mark_complete` say a build not previewed is served nowhere and leave how to preview one to the tool; stale comments and JSDocs in `nebula.ts`, `createNebulaClient`, `ensureResource`, `App.vue`, `codegen-loop.test.ts` and two scenarios; every active task file that named a removed symbol.
+
+**Found while running the panel's missing mutations:**
+
+- **The Wipe check in `dev-star-follows-the-build` could not fail.** Under a Wipe that asked the frame instead of setting its address, the frame still ended at the root: it was still limb 1's page, which has no client, so Studio's fallback set the address anyway. The check now waits until the frame answers a request naming its own build, its positive control, before it marks the frame and wipes.
+- **Limb 10's new barrier check could never pass**, since the previewed rebuild of the held-back source has the held-back build's digest. It now counts the rows recorded since the clean build.
+- `dev-tab-frame`'s two notice checks each red alone: under a clear that never fires (limb 4) and under a first `loaded` posted after `login-required` (limb 5). Limb 2's restore mutation reds limb 2 with the reap keyed to P's tab id.
+
+**For Larry, from the panel:**
+
+- **The frame's build guard keys on the build it was asked for, not the pair.** A reload that lands on a newer build than the one requested leaves the guard naming a build the page never ran, so a later request for exactly that build stays put until the next landing or the Reload button. This matches the ontology guard and the "once per build" design; keying on the pair would close it.
+- **Studio reads the newest `ServedBuild` overall and accepts it only when it is `.dev`'s.** Today only `.dev` writes rows. Once the `.draft` Star records its own, Studio must read the newest `.dev` row rather than the newest row, which belongs in that task.
+- **The record from served bytes is unobservable in-lane.** The race it closes, a write to `dist/index.html` between the arrival check and the copy, cannot be produced through the build seam, so no test reds without it. It stays because the build version is defined as the digest of the page served.
+
+## Phase Retro
+
+1. **What did we learn?**
+   - **Holding back on findings turns every gap in the type checker's contract into a correct app kept off the preview.** Findings were advisory before, so the contract's missing `subscribeQuery`, `*.vue` module and `Symbol.dispose` cost nothing; under a held-back default each one gated a build. Limb 8's list app found the first, the verifier panel the rest.
+   - **A create at a fresh id reaches its subscribers only through the query rerun**, which takes no originator, so the content broadcast's originator cannot matter to a `ServedBuild`.
+   - **An `AsyncLocalStorage` store set around a turn follows its build through the landing queue,** because a promise reaction keeps the context it was registered in; a direct `buildNow` arrives on its own request and never sees it.
+   - **The frontend package is vendored into the build box's image**, so a mutation of it rebuilds the image and reaches the built app, which made frame-side mutations runnable through `/live`.
+
+2. **What did we struggle with?**
+   - **Three of nine limb mutations survived on their first run, all for timing in the scenario rather than in the code:** a mark on the iframe's first `about:blank`, a reload that beat limb 3's mark, and a reap line from another tab. Each fix built the shape the limb was about, and two became rules in `live-scenarios.md`.
+   - **The gates are long.** Two full Docker sweeps of about 37 minutes, a `--fast` sweep of 25, about forty single-scenario runs for mutations, and a deployed pass.
+
+3. **Did any tests fail unexpectedly?**
+   - Phase 1's suite: two files the phase did not touch encoded the old reply and `why` strings.
+   - Phase 1's scenario: limb 8's list app was held back, by the SFC contract's missing `subscribeQuery`, not by its own code.
+   - The verifier panel's fixes: limb 10's new barrier check could never pass, because the previewed rebuild of the held-back source has the held-back build's digest; the Wipe mutation run exposed it.
+   - Deployed: `dev-star-follows-the-build` stopped at sign-up on a certificate pack left `pending_validation` past six minutes, Cloudflare's side.
+
+4. **Impact on follow-on work?**
+   - Personas can pace its strip by `ServedBuild` values and the frame's echo, both built here.
+   - `nebula-agent-posts-as-itself.md` keeps `pinnedAtDoor` and `actor`, with the landing as their caller.
+   - A `.draft` Star must make Studio read the newest `.dev` row rather than the newest row (its backlog row says so).
+   - Two backlog rows: derive the SFC contract from the client's types, and a public Mesh seam for running in-DO code under a call context.
+
+5. **Process changes?**
+   - Two rules added to `live-scenarios.md`: a wait for one client's line matches its id, and a mark on a frame waits for the frame's own document.
+   - Proposed for `/build-task`: when a phase changes a default from advisory to gating, as Phase 1 did for type findings, list what feeds the gate (here the SFC contract) and check it against what the docs teach before the phase closes. It would have found the contract's gaps in Phase 1 instead of at the panel.

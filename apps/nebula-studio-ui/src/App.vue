@@ -415,6 +415,7 @@ function actOnFrame(action: PreviewFrameAction) {
 /** Point the frame at the Star's root, for a frame with no client to ask and after a wipe. */
 function setFrameAddress() {
   if (!activeScope || !isWorkspace(activeScope)) return;
+  frameState = { ...frameState, pending: undefined }; // the navigation answers any request in flight
   previewSrc.value = devTabUrl(activeScope);
   frameKey.value++;
 }
@@ -465,7 +466,7 @@ onUnmounted(() => window.removeEventListener("message", onFrameMessage));
 
 async function connect() {
   const n = createNebulaClient({
-    // Studio's own class: it posts to the build thread, uploads pictures, and hears build replies.
+    // Studio's own class: it posts to the build thread and uploads pictures.
     Client: StudioClient,
     ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
     ...chatPair(activeScope),

@@ -439,7 +439,7 @@ export async function run(stack: DevStack): Promise<void> {
     await new Promise((r) => setTimeout(r, 1_000)); // the frame's first `loaded` is posted as it loads
     const answered = await page.evaluate(() => (window as unknown as { __loadedFromFrame?: number }).__loadedFromFrame ?? 0);
     if (answered > 0) {
-      await markFrame();
+      assert.ok(await markFrame(), 'the reloaded preview frame could not be marked');
       await new Promise((r) => setTimeout(r, 12_000)); // past Studio's 10 s wait for an echo
       assert.ok(await frameMarked(), 'Studio moved a preview frame that runs the current build');
       console.error('  ✓ limb 6 — a reloaded Studio renders the built app and left the current frame where it was');

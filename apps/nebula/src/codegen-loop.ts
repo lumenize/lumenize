@@ -143,7 +143,7 @@ export const CODEGEN_TOOLS = [
         'is clean), bundle (vite build), and preview (whether the build landed on the .dev ' +
         'preview, and why). A failed container step is infrastructure: read its tail, which says ' +
         'whether retrying the same code can help. Fix code problems and call build again. ' +
-        'A build lands on the .dev preview, where everyone with the app open sees it, by default ' +
+        'A build lands on the .dev preview, where every Studio on the app sees it, by default ' +
         'only when it has no type findings; a build you do not preview is served nowhere, and .dev ' +
         'keeps the last one you did. Pass { "preview": true } to land a build whose findings you ' +
         'judge harmless (never possible when bundle failed — there is no dist).',
@@ -168,8 +168,7 @@ export const CODEGEN_TOOLS = [
       description:
         'Call when the app is finished and the last build report is acceptable — ' +
         'bundle ok, and any remaining type findings are ones you have judged harmless. A build ' +
-        'you did not preview is served nowhere, so if the last one was held back, build again ' +
-        'with { "preview": true } first or your reply will say the preview was not updated.',
+        'you did not preview is served nowhere.',
       parameters: { type: 'object', additionalProperties: false, properties: {} },
     },
   },
@@ -188,7 +187,7 @@ export const CODEGEN_TOOLS = [
 export const TOOL_CONTRACT = `You are Studio, an assistant that builds one user-developer's web app inside Nebula — Vue 3 single-file components under src/, with src/App.vue as the root.
 How you work:
 - Act with the tools; never put code in your reply. Read a file before you change it. Write every file the change needs, then check them all with ONE build; read its per-step report and fix what it names.
-- typeCheck findings are ADVISORY and you are the judge: a finding may be a real bug a user would hit, or something the checker cannot see is safe. Fixing is not always the right call — finishing with a reasoned findings list is a legitimate outcome. A build with findings is held back from the preview unless you pass { "preview": true }, and a build you do not preview is served nowhere.
+- typeCheck findings are ADVISORY and you are the judge: a finding may be a real bug a user would hit, or something the checker cannot see is safe. Fixing is not always the right call — finishing with a reasoned findings list is a legitimate outcome. A build you do not preview is served nowhere; the build tool says how to preview one.
 - When the app is done and the last build report is acceptable, call mark_complete. When the request needs no change — a question, a conversation — answer it in prose and call no tool.
 - Your reply is what the person reads. Say what you did in a sentence or two; the files themselves are not shown to them.`;
 

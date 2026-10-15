@@ -54,7 +54,7 @@ import type { NodeInviteAck } from '@lumenize/resources';
 import type { Frame, Page } from 'playwright';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
-import { debugLines, LOG_WAIT_MS, waitForDebugLines } from '../lib/stdio';
+import { clientIdIn, LOG_WAIT_MS, waitForDebugLines } from '../lib/stdio';
 import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
 import { refreshAccessToken } from '../../test/lib/email-login';
@@ -289,29 +289,23 @@ export async function run(stack: DevStack): Promise<void> {
     using thread = driver.client.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID });
     await thread.ready;
     const messagesBefore = thread.resourceIds.length;
-    const isReap = (l: { namespace: string; message: string; data: Record<string, unknown> }) =>
-      l.namespace === 'nebula.Resources.reap' && l.message === 'update not delivered' && l.data.name === 'ClientDisconnectedError';
-    /** A write through the ordinary door, naming the build `.dev` already serves, so no Studio is
-     *  asked to reload and no turn starts: only its push to each subscriber matters. */
-    const forge = async () => {
-      const forged = await driver.client.resources.transaction({
-        [crypto.randomUUID()]: { op: 'create', typeName: 'ServedBuild', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, star: 'dev', buildVersion: b2 } },
-      });
-      assert.equal(forged.kind, 'committed', `the door write was ${forged.kind}`);
-    };
-    // First, while P is awake, a write whose push reaps limb 3's closed tab, so the only tab a
-    // later reap can name is P's.
-    const reapsAtStart = debugLines(stack.logs()).filter(isReap).length;
-    await forge();
-    await waitForDebugLines(stack, (all) => all.filter(isReap).length > reapsAtStart, "the closed tab's reap", 15_000)
-      .catch(() => { /* its rows went with its socket */ });
-    await sleep(2_000);
-    const reapsBefore = debugLines(stack.logs()).filter(isReap).length;
+    // P's Studio is the tab whose id its page keeps under `lmz_tab`, so its reap is told from any
+    // other tab's, limb 3's closed one included, by the client id the line names.
+    const pTab = await p.page.evaluate(() => sessionStorage.getItem('lmz_tab'));
+    assert.ok(pTab, "P's Studio holds no tab id");
+    const isPsReap = (l: { namespace: string; message: string; data: Record<string, unknown> }) =>
+      l.namespace === 'nebula.Resources.reap' && l.message === 'update not delivered'
+        && l.data.name === 'ClientDisconnectedError' && clientIdIn(l.data)?.endsWith(`.${pTab}`) === true;
     const cdp = await p.page.context().newCDPSession(p.page);
     await cdp.send('Debugger.enable');
     await cdp.send('Debugger.pause');
-    await forge();
-    const reaped = await waitForDebugLines(stack, (all) => all.filter(isReap).length > reapsBefore, "the paused Studio's reap",
+    // A write through the ordinary door, naming the build `.dev` already serves, so no Studio is
+    // asked to reload and no turn starts: only its push to the paused page matters.
+    const forged = await driver.client.resources.transaction({
+      [crypto.randomUUID()]: { op: 'create', typeName: 'ServedBuild', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, star: 'dev', buildVersion: b2 } },
+    });
+    assert.equal(forged.kind, 'committed', `the door write was ${forged.kind}`);
+    const reaped = await waitForDebugLines(stack, (all) => all.some(isPsReap), "the paused Studio's reap",
       Math.max(45_000, LOG_WAIT_MS)).then(() => true, () => false);
     const b3 = await land();
     await cdp.send('Debugger.resume');

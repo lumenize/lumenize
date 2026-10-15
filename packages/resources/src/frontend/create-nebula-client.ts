@@ -970,9 +970,8 @@ export function defaultOnHostDeleted(platformOrigin: string): () => void {
  *
  * `ready` resolves on the first `'connected'` transition (token refresh complete
  * → `client.claims` populated) and **rejects** with a `LoginRequiredError` on a
- * terminal `onLoginRequired` before that — the bootstrap top-level-awaits it.
- * (The *first-connect* terminal-reject becomes fully exercisable once P9 makes
- * mesh classify first-connect auth failures; mid-session terminal works today.)
+ * terminal `onLoginRequired` before that — the bootstrap top-level-awaits it. A
+ * first connect whose refresh is refused rejects it as well as a session lost later.
  *
  * `Client` names the class to build, `NebulaClient` by default; the config and the returned
  * `client` are typed by it, so `createNebulaClient({ Client: StudioClient, chatHostBinding, … })`

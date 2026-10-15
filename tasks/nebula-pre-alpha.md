@@ -251,9 +251,22 @@ One line per observation, appended, never edited: `date · limb · pass|fail · 
 - 2026-09-25 · (g) · fail · the SCENARIO fails, for a non-model reason and a new one: making `ontologyVersion` optional let the preview app boot for the first time (2 WS upgrades against 0 before), and the newly-live client draws `subscribeTree` refused at the GALAXY — which `NebulaClientConfig`'s own JSDoc says does not host it, and which `constructionPairs` routes there for any galaxy-tier driver — plus four `refresh-token` 401s and a container `exit code: 137` that is not explained. Proven by stash: green without the change at 60.5 s, red with it at 152 s, twice on a cleaned Docker. Backlog row carries it; the limb itself was never reached
 - 2026-10-11 · (g) · fail · after `define-ontology`'s step 6 was rewritten to ask for a reset rather than an Apply, one `first-app-built` build turn wrote nothing (stop=no-tool-calls, rounds=3); the next runs wrote the ontology and the page and built twice. One sample against three passes, the 09-05 variance shape, not traced to the edit
 - 2026-10-11 · (g) · fail · one sweep run's build turn ended on a Workers AI REST 400 from the model after it wrote `src/ontology.d.ts`; the rerun passed. Provider-side, not a guidance outcome
-- 2026-10-15 · (g) · pass · the first sweep after builds with type findings were held back from `.dev`: the build turn ended `loop-detected` after 23 rounds and 5 builds, its last build held back for findings the manifest did not yet record; the reply carried the Galaxy's "The preview was not updated" line, and the scenario's preview-anyway landed it
+- 2026-10-14 · (g) · pass · the first sweep after builds with type findings were held back from `.dev`: the build turn ended `loop-detected` after 23 rounds and 5 builds, its last build held back for findings the manifest did not yet record; the reply carried the Galaxy's "The preview was not updated" line, and the scenario's preview-anyway landed it
 - 2026-10-15 · (g) · pass · second sweep, after the build tool's prose came to say a build not previewed is served nowhere and the SFC contract gained the client surface `api-reference.md` documents: the turn completed in 17 rounds and 5 builds, its last landing clean with no findings. n=2 with both changes made at once, so neither is credited
-- 2026-10-15 · (a) (b1) (b2) (c) (d) (f) (e) · pass · `studio-guidance-loop` 6 of 6 and `four-party-chat` passed with the new preview prose
+- 2026-10-15 · (a) · pass · with the build tool's new preview prose, the wishlist's `App.vue` reads and writes through `store` / `client.resources`
+- 2026-10-15 · (b1) · pass · the next turn's output honoured "no countdown timers"
+- 2026-10-15 · (b2) · pass · after ten further turns the rule is still in `AGENTS.md` (556 bytes)
+- 2026-10-15 · (c) · pass · the convention landed in `AGENTS.md`, and the reply named the file
+- 2026-10-15 · (d) · pass · the turn read `define-ontology` before `wire-a-view`, then the three docs, the ontology and the source
+- 2026-10-15 · (f) · pass · asked what was requested first, the reply named the rule
+- 2026-10-15 · (e) · pass · four-party "what does this app do so far?" named the blank shell, its one `Item` type and the placeholder `App.vue`, and invented nothing
+- 2026-10-15 · (a) · fail · third sweep, after `TOOL_CONTRACT` and `mark_complete` stopped restating how to preview a build and point at the build tool: no `App.vue` was written and nothing was asked (stop=no-tool-calls, rounds=3), the no-write shape of 2026-09-05's second pass and 2026-10-11; the two sweeps before it, on the longer wording, passed. n=3, so not attributed
+- 2026-10-15 · (b1) · fail · third sweep: not exercised, no `App.vue` that turn
+- 2026-10-15 · (c) · pass · third sweep: the convention landed in `AGENTS.md`, and the reply named the file
+- 2026-10-15 · (b2) · pass · third sweep: after ten further turns the rule is still in `AGENTS.md` (556 bytes)
+- 2026-10-15 · (d) · pass · third sweep: the turn read `define-ontology`, the three docs, `AGENTS.md`, `docs/vision.md` and the source
+- 2026-10-15 · (f) · pass · third sweep: asked what was requested first, the reply named the rule
+- 2026-10-15 · (g) · pass · third sweep: the build turn completed in 9 rounds and 2 builds, its last landing clean with no findings
 
 
 ## ADR hand-review

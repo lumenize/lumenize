@@ -126,6 +126,22 @@ describe('entrypoint routing contract — exhaustive + collision-free', () => {
     client[Symbol.dispose]();
   });
 
+  it('a landing refuses a build whose report lists a file outside dist/, and serves nothing of it', async () => {
+    // The list comes from a box that runs the app's own `vite.config.ts`. In-lane because the
+    // build seam writes the exact report a test names. Mutation: drop the path check → the file
+    // is copied out of `/dist-dev/` and the build lands.
+    const scope = `erc-${crypto.randomUUID().slice(0, 8)}.app`;
+    const { client } = await universeAdminClient(
+      NebulaClientTest, new Browser(), scope, scope, 'escape@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
+      { resourceHostBinding: 'GALAXY' },
+    );
+    await client.lmz.callAsync('GALAXY', scope, client.ctn<GalaxyTest>().setBuildFaultsForTest({ distFiles: { '../escape.js': 'out' } }));
+    const report = await client.lmz.callAsync('GALAXY', scope, client.ctn<Galaxy>().buildNow({}));
+    expect(report.preview).toEqual({ refreshed: false, why: 'the build reported a file outside dist/ — build again' });
+    expect((await new Browser().fetch(`${pageOf(`${scope}.dev`)}/`)).status).toBe(404);
+    client[Symbol.dispose]();
+  });
+
   it("a Star's page is GET/HEAD-bounded: POST answers 405 with Allow", async () => {
     const res = await new Browser().fetch(`${pageOf('a.b.dev')}/`, { method: 'POST' });
     expect(res.status).toBe(405);
