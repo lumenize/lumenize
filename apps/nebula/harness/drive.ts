@@ -98,6 +98,7 @@ import * as logoutEndsEveryHost from './scenarios/logout-ends-every-host';
 import * as hostsAndFrames from './scenarios/hosts-and-frames';
 import * as devTabFrame from './scenarios/dev-tab-frame';
 import * as buildReachesEveryStudio from './scenarios/build-reaches-every-studio';
+import * as bodiedGetAnswers from './scenarios/bodied-get-answers';
 import * as sessionSurvivesTokenLapse from './scenarios/session-survives-token-lapse';
 import * as homeListsEveryProfile from './scenarios/home-lists-every-profile';
 import * as logoutEverywhere from './scenarios/logout-everywhere';
@@ -216,6 +217,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'hosts-and-frames': hostsAndFrames, // each host gets its own page, token and framing; no scope page reads Home's data (no Docker)
   'dev-tab-frame': devTabFrame, // Studio frames its dev tab; pushes, logout and a tokenless tab keep to their own sessions (Docker)
   'build-reaches-every-studio': buildReachesEveryStudio, // a landing reaches every Studio, each frame reloads at its URL or keeps its banner (Docker)
+  'bodied-get-answers': bodiedGetAnswers, // a GET or HEAD carrying an empty body answers as a plain one on the platform host
   'session-survives-token-lapse': sessionSurvivesTokenLapse, // a real 15-minute lapse, renewed through the platform host (no Docker, ~16 min)
   // ── every action lives on the page that owns it ─────────────────────────────────────────────
   'home-lists-every-profile': homeListsEveryProfile, // Home groups by Profile, marks what needs a fresh login, acts on nothing, steps aside for one app (no Docker)

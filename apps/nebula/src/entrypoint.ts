@@ -170,8 +170,12 @@ export default {
       // without reading its body — Home's summary, a refusal before the parse — would otherwise
       // leave the binding pulling this stream after the answer went out, which throws "Can't read
       // from request stream after response has been sent" and takes a local `wrangler dev` down
-      // with it. Every body on these routes is a small JSON object.
-      const forwarded = request.body === null ? request : new Request(request, { body: await request.arrayBuffer() });
+      // with it. Every body on these routes is a small JSON object. A GET or HEAD goes without the
+      // body it may carry, which no browser sends and `new Request` refuses to copy.
+      const forwarded = request.body === null ? request
+        : request.method === 'GET' || request.method === 'HEAD'
+          ? new Request(request.url, { method: request.method, headers: request.headers })
+          : new Request(request, { body: await request.arrayBuffer() });
       return env.PLATFORM_HOST.fetch(forwarded);
     }
     return (await router(request)) ?? await servePage(request, url, target, deployment);

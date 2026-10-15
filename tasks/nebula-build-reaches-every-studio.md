@@ -342,6 +342,26 @@ Five read-only verifiers, one per phase. Phases 2, 3 and 5 conformed; Phases 1 a
 - **Studio reads the newest `ServedBuild` overall and accepts it only when it is `.dev`'s.** Today only `.dev` writes rows. Once the `.draft` Star records its own, Studio must read the newest `.dev` row rather than the newest row, which belongs in that task.
 - **The record from served bytes is unobservable in-lane.** The race it closes, a write to `dist/index.html` between the arrival check and the copy, cannot be produced through the build seam, so no test reds without it. It stays because the build version is defined as the digest of the page served.
 
+### The deployed pass (2026-10-15)
+
+The second pass ran on `a83690d`, the panel's fixed tree, and its Workers Issues were read afterwards.
+
+**For Larry:**
+
+- **Workers Issues showed a 500 older than this build, and it is fixed.** A scanner sent `GET /auth/login` with `content-length: 0` to the platform host. The Worker's forward there copied every request whose `body` was not null, and `new Request` refuses to copy a GET with a body: *Request with a GET or HEAD method cannot have a body*. The copy came in with `c1bb1b1` (2026-10-03). The forward now sends a GET or HEAD on without its body, which no browser sends.
+- **The new scenario, `bodied-get-answers`, is container-free.** It sends a GET and a HEAD by raw `node:http`, with no body, an empty one and five bytes, and asserts each answers as the plain request. On the unfixed deployed Worker the empty body reds it, as the scanner's did. Locally only the five bytes do: before the fix, the local stack answered the empty-body GET 200, and where it loses that body was not traced. Dropping either method from the fix reds it.
+- **Certificate validation stopped three of today's nine deployed runs, each before any of this task's code.** A new app's certificate pack sat in `pending_validation` through the whole six-minute wait. `dev-star-follows-the-build` hit it in the first pass and passed in the second; `dev-tab-frame` and `build-box` passed in the first and hit it in the second.
+
+**Retro:**
+
+- Second pass: `dev-star-follows-the-build` passed in 418 s, all ten limbs, and `build-reaches-every-studio` in 302 s, all seven.
+- Issues since the deploy: the bodied GET, four times, one of them the new scenario's red run; and the standing `scope-deleted`.
+
+**Close-out:**
+
+- `routeDORequest` copies its request with `new Request(request, { headers })`. Nebula hands it only the body-less request `hostedUpgrade` builds, so a bodied GET cannot reach it here; whether it throws for one was not checked.
+- Verified: `apps/nebula` 1083 passed; `drive.ts all --fast` 56 of 56 in 24.2 min, `bodied-get-answers` among them.
+
 ## Phase Retro
 
 1. **What did we learn?**
@@ -358,7 +378,8 @@ Five read-only verifiers, one per phase. Phases 2, 3 and 5 conformed; Phases 1 a
    - Phase 1's suite: two files the phase did not touch encoded the old reply and `why` strings.
    - Phase 1's scenario: limb 8's list app was held back, by the SFC contract's missing `subscribeQuery`, not by its own code.
    - The verifier panel's fixes: limb 10's new barrier check could never pass, because the previewed rebuild of the held-back source has the held-back build's digest; the Wipe mutation run exposed it.
-   - Deployed: `dev-star-follows-the-build` stopped at sign-up on a certificate pack left `pending_validation` past six minutes, Cloudflare's side.
+   - Deployed: three runs stopped at sign-up on a certificate pack left `pending_validation` past six minutes, Cloudflare's side.
+   - Deployed, in Workers Issues rather than any scenario: a scanner's GET with an empty body 500'd at the platform host's forward, a defect from 2026-10-03 that no lane sent.
 
 4. **Impact on follow-on work?**
    - Personas can pace its strip by `ServedBuild` values and the frame's echo, both built here.
