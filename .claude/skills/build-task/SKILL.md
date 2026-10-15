@@ -83,9 +83,9 @@ justification is worse than none: the next reader treats it as a decision (`cali
 before the phase closes.** A false positive cost nothing while the signal only advised, and now it
 blocks correct work. So list what the gate reads, and feed it the code the docs and the platform
 guidance tell users to write. Bit 2026-10-15: type findings began holding a build back from `.dev`,
-and the SFC contract the type check reads (`apps/nebula/src/sfc-contract.ts`) lacked
-`subscribeQuery`, a `*.vue` module and `Symbol.dispose`. Each held a correct app back; a scenario
-found the first, and the verifier panel the rest.
+and the hand-written copy of the client's types the check then read lacked `subscribeQuery`, a
+`*.vue` module and `Symbol.dispose`. Each held a correct app back; a scenario found the first, and
+the verifier panel the rest. The check now reads the real types.
 
 **Why this and not the verifier panel:** the panel in step 3 checks each phase against its *success criteria*, and a confidently-worded false claim satisfies those. The discriminator is mechanical and was measured (2026-07-30, `nebula-impersonation-client` review): **every claim verified with a targeted tool call was right; every claim inferred from adjacent context was wrong** — five in one sitting. ⚠️ **"I already read that file" is NOT the check** — in the worst instance the disproving line was in the session's own earlier tool output, so the failure was not looking but failing to ask what the read implied. Per-*claim*, not per-file.
 

@@ -1,18 +1,22 @@
 /**
- * Phase 1 — Rung-1 compile gates (tasks/archive/nebula-codegen-loop.md). The container-free
- * self-correction signal: `compileSource(path, content)` dispatches by extension and
- * returns `{ ok, errorTail? }`. Runs under vitest-plugin — no container, no AI
- * binding (the `dev-studio` project carries `nodejs_compat` + the bundled `tsc`).
+ * The compile checks a build runs (tasks/archive/nebula-codegen-loop.md):
+ * `compileSource(path, content)` dispatches by extension and returns `{ ok, errorTail? }`.
+ * A `.vue` goes through the build box's own `checkVueSfc`, checked as `src/App.vue` of the
+ * scaffold app in the repo, so its type pass reads the real `NebulaClient`, the real `vue`
+ * and the scaffold's own `nebula.ts`, as the build box reads them under `/workspace`.
+ *
+ * In-lane rather than `/live` because each case is one call into a pure check; the same check
+ * runs on real builds in `dev-star-follows-the-build` and `first-app-built`, whose apps land
+ * only with no findings. Node rather than the vitest-plugin lane because the check reads a
+ * disk, which only Node gives it.
  *
  * Capable-of-failing proof for each gate: a known-good input returns `ok:true` and a
  * broken one returns `ok:false` with an actionable tail — gutting the compiler call
  * collapses the contrast.
- *
- * @see tasks/archive/nebula-codegen-loop.md § Phase 1
  */
 import { describe, it, expect } from 'vitest';
-import { compileTemplate, parse, compileScript } from '@vue/compiler-sfc';
-import { compileSource, compileVueSfc } from '../../offline/codegen-gate';
+import { compileTemplate, parse } from '@vue/compiler-sfc';
+import { compileSource, compileVueSfc } from './codegen-gate';
 
 const ONTOLOGY_GOOD = `interface Todo { title: string; done: boolean; }`;
 // Missing field type — a parse/type error generateParseModule surfaces as a throw.
@@ -59,7 +63,7 @@ function go() {
 </script>
 <template><button @click="go">go</button></template>`;
 
-describe('Phase 1 — ontology Rung-1 gate (reuses compileOntologyVersion)', () => {
+describe('ontology gate (reuses compileOntologyVersion)', () => {
   it('a known-good ontology .d.ts compiles to { ok: true }', () => {
     expect(compileSource('src/ontology.d.ts', ONTOLOGY_GOOD)).toEqual({ ok: true });
   });
@@ -77,7 +81,7 @@ describe('Phase 1 — ontology Rung-1 gate (reuses compileOntologyVersion)', () 
   });
 });
 
-describe('Phase 1 — SFC Rung-1 gate: Pass 1 (transpile)', () => {
+describe('SFC gate: Pass 1 (transpile)', () => {
   it('a known-good App.vue compiles to { ok: true }', () => {
     expect(compileSource('src/App.vue', APP_GOOD)).toEqual({ ok: true });
   });
@@ -88,7 +92,7 @@ describe('Phase 1 — SFC Rung-1 gate: Pass 1 (transpile)', () => {
     expect(r.errorTail).toBeTruthy();
   });
 
-  it('bindings are threaded into the template (SC#3): setup refs resolve to $setup.x, not _ctx.x', () => {
+  it('bindings are threaded into the template: setup refs resolve to $setup.x, not _ctx.x', () => {
     const sfc = `<script setup lang="ts">
 import { ref } from 'vue';
 const greeting = ref('hi');
@@ -114,7 +118,7 @@ const greeting = ref('hi');
   });
 });
 
-describe('Phase 1 — SFC Rung-1 gate: Pass 2 (semantic type-check, the op:set headline)', () => {
+describe('SFC gate: Pass 2 (type-check against the real client and Vue)', () => {
   it('a correct op union literal type-checks clean → { ok: true }', () => {
     expect(compileSource('src/App.vue', appWithOp('create'))).toEqual({ ok: true });
   });
@@ -125,6 +129,8 @@ describe('Phase 1 — SFC Rung-1 gate: Pass 2 (semantic type-check, the op:set h
     expect(r.errorTail).toBeTruthy();
     // Pass 1 alone (transpile) would PASS this — it's valid Vue/TS syntax. Only the
     // Pass-2 semantic check against the Nebula API rejects the bad union literal.
+    // Mutation: resolve `./nebula` to a module declaring `client: any` → red.
+    expect(r.errorTail).toContain('TS2322');
   });
 
   it('the full known-good data-bound App.vue (ref/computed/store/transaction) type-checks clean', () => {
@@ -134,9 +140,8 @@ describe('Phase 1 — SFC Rung-1 gate: Pass 2 (semantic type-check, the op:set h
   });
 
   it('a list view on the documented query surface type-checks clean', () => {
-    // A documented call the contract lacks is a false finding, and a build with findings is held
-    // back from `.dev` unless the model previews it, so correct code would not reach the preview.
-    // Mutation: drop `subscribeQuery` from NEBULA_API_DTS → red.
+    // A false finding holds a correct build back from `.dev` unless the model previews it.
+    // A hand-written copy of the client lacked `subscribeQuery` until 2026-10-15.
     const listing = `<script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { client } from './nebula';
@@ -154,10 +159,11 @@ onMounted(() => {
   });
 
   it('an app written the way the docs and the platform guidance teach type-checks clean', () => {
-    // Each line is something `website/docs/nebula` or `platform/AGENTS.md` teaches. Mutations,
-    // each red on its own: drop the `*.vue` module shim (a component import), the
-    // `@lumenize/resources/frontend` shim, `access` on `claims`, the `timeout` outcome kind,
-    // `deniedNodes` on a subscription, or `onBeforeUnmount` from the Vue shim.
+    // Each line is something `website/docs/nebula` or `platform/AGENTS.md` teaches. Mutations:
+    // drop the `*.vue` module declaration from `sfc-check.ts` → the component import reds;
+    // drop its `reportFor` → errors in files the model did not write are reported against the
+    // app (the client's type graph reaches Mesh's server files, which need the Workers types a
+    // browser app does not load) → every clean case reds.
     const taught = `<script setup lang="ts">
 import { ref, onBeforeUnmount, toRefs, reactive } from 'vue';
 import DealRow from './components/DealRow.vue';
@@ -195,7 +201,61 @@ async function save() {
   });
 });
 
-describe('Phase 1 — dispatch: non-compiled paths', () => {
+describe('SFC gate: Pass 2 reads the real types, so it is exact both ways', () => {
+  const setup = (body: string) => `<script setup lang="ts">\n${body}\n</script>\n<template><p>x</p></template>`;
+
+  it('a misspelled client method is a finding, naming the method the client has', () => {
+    // A loose copy of the client let any member through; the real `ClientResources` does not.
+    const r = compileSource('src/App.vue', setup(`import { client } from './nebula';
+client.resources.subscribeQuerry({ queryType: 'parentChild', typeName: 'Deal', field: 'pipeline', value: 'p1' });`));
+    expect(r.ok).toBe(false);
+    expect(r.errorTail).toContain("src/App.vue(3,18): error TS2551: Property 'subscribeQuerry' does not exist");
+    expect(r.errorTail).toContain("Did you mean 'subscribeQuery'?");
+  });
+
+  it('a finding names its line in the .vue, wherever the <script setup> block sits', () => {
+    // Mutation: drop the padding in `checkVueSfc` → the line counts from the block → red.
+    const r = compileSource('src/App.vue', `<template>
+  <p>{{ n }}</p>
+</template>
+
+<script setup lang="ts">
+const n: number = 'one';
+</script>`);
+    expect(r.errorTail).toContain('src/App.vue(6,7): error TS2322');
+  });
+
+  it('a misspelled Vue import is a finding', () => {
+    // Mutation: declare `vue` as a shorthand module (every import `any`) → red.
+    const r = compileSource('src/App.vue', setup(`import { onMountd } from 'vue';\nonMountd(() => {});`));
+    expect(r.ok).toBe(false);
+    expect(r.errorTail).toContain('TS2724');
+  });
+
+  it("a component in a subfolder resolves `../nebula` from where it sits", () => {
+    // The `<script setup>` is checked beside its `.vue`; checked from `src/`, `../nebula`
+    // would not resolve and the clean case reds. Mutation: check every SFC as `src/App.vue`.
+    const component = (op: string) => setup(`import { client } from '../nebula';
+client.resources.transaction({ a: { op: '${op}', typeName: 'Deal', nodeId: 'n', value: {} } });`);
+    expect(compileVueSfc(component('create'), 'src/components/DealRow.vue')).toMatchObject({ ok: true });
+    const wrong = compileVueSfc(component('set'), 'src/components/DealRow.vue');
+    expect(wrong.ok).toBe(false);
+    expect(wrong.errorTail).toContain('src/components/DealRow.vue(');
+  });
+
+  it('`using` and the store read clean under the app\'s own lib', () => {
+    // The app's tsconfig targets ESNext, whose lib declares `Symbol.dispose`. Mutation: drop
+    // `tsconfigPath` from the check, which falls back to ES2022 + DOM and to resolution that
+    // reads no package `exports` → this and the client cases red.
+    expect(compileSource('src/App.vue', setup(`import { computed } from 'vue';
+import { store } from './nebula';
+const n = computed(() => Object.keys(store.Deal ?? {}).length);
+using held = { [Symbol.dispose]() {} };
+void n; void held;`))).toEqual({ ok: true });
+  });
+});
+
+describe('dispatch: non-compiled paths', () => {
   it('a non-.vue/.d.ts path is write-only (no compile) → { ok: true }', () => {
     expect(compileSource('src/styles.css', 'body { color: red; }')).toEqual({ ok: true });
     expect(compileSource('README.md', '# anything {{{ not vue')).toEqual({ ok: true });

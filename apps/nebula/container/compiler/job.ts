@@ -88,7 +88,7 @@ export function runJob(workspace: string, opts: { ontologyVersion?: string }): J
     try {
       const source = readFileSync(join(workspace, relPath), 'utf8');
       checked.push(relPath);
-      findings.push(...checkVueSfc(relPath, source).findings);
+      findings.push(...checkVueSfc(workspace, relPath, source).findings);
     } catch (e) {
       findings.push(`${relPath}: check failed: ${e instanceof Error ? e.message : String(e)}`);
     }

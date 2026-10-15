@@ -4,39 +4,56 @@ import { ts } from '../dist/deps.bundle.mjs';
 import { TS_LIB_FILES } from '../dist/ts-lib-files.mjs';
 
 /**
- * The in-memory CompilerHost + `getPreEmitDiagnostics` engine shared by every
- * in-Worker type-check: the ontology validator compile ({@link generateParseModule})
- * AND the codegen loop's SFC semantic gate (apps/nebula). It runs the bundled
- * `typescript` instance inside the DO isolate (no filesystem) — see
- * `scripts/bundle-tsc.mjs` for why `ts` is bundled rather than imported.
+ * The CompilerHost + `getPreEmitDiagnostics` engine shared by every type-check we run: the
+ * ontology validator compile ({@link generateParseModule}) and the build box's SFC check
+ * (apps/nebula). It runs the bundled `typescript` instance, which has no filesystem of its
+ * own, so it runs inside a DO isolate too — see `scripts/bundle-tsc.mjs` for why `ts` is
+ * bundled rather than imported. A caller in Node hands it a {@link DiskReader}, and the
+ * check then reads the real files the code under check imports.
  *
- * Extracted from `generate-parse-module.ts` so the SFC gate parameterizes the
- * SAME virtual host (the codegen-loop task's "parameterize the existing
- * createVirtualHost engine", ADR-001 — one TS type-checker, never a second
- * schema language).
+ * Extracted from `generate-parse-module.ts` so every check parameterizes the SAME host
+ * (ADR-001 — one TS type-checker, never a second schema language).
  */
 
 type VirtualFiles = Map<string, string>;
 
 /**
- * Minimal CompilerHost backed by an in-memory file map. TypeScript asks for lib
- * files via several path shapes (with/without leading slash, with/without a
- * `/lib/` prefix depending on how `getDefaultLibLocation` is plumbed), so
- * `resolve` normalizes a candidate path to one of the keys our map actually uses.
+ * Where a check reads a file its in-memory map lacks: the real disk, for a check that runs
+ * in Node. The package itself never imports `node:fs`, so it still loads in a Worker; the
+ * caller supplies these, and every path is absolute.
  */
-export function createVirtualHost(files: VirtualFiles, defaultLib: string): unknown {
+export interface DiskReader {
+  fileExists(path: string): boolean;
+  readFile(path: string): string | undefined;
+  directoryExists(path: string): boolean;
+  getDirectories(path: string): string[];
+  realpath(path: string): string;
+}
+
+/**
+ * A CompilerHost over an in-memory file map, falling back to `disk` when one is given. The
+ * map wins, so a caller overlays a file the disk lacks, or one it holds a newer copy of.
+ * TypeScript asks for lib files via several path shapes (with/without leading slash,
+ * with/without a `/lib/` prefix depending on how `getDefaultLibLocation` is plumbed), so
+ * `resolve` normalizes a candidate path to one of the keys our map actually uses; with a
+ * disk that normalization is confined to the `lib.*` names, so a real file never resolves
+ * to a map entry that merely shares its basename.
+ */
+export function createVirtualHost(files: VirtualFiles, defaultLib: string, disk?: DiskReader): unknown {
   const resolve = (fileName: string): string | undefined => {
     if (files.has(fileName)) return fileName;
     if (files.has('/' + fileName)) return '/' + fileName;
     const base = fileName.split('/').pop()!;
-    if (files.has('/' + base)) return '/' + base;
+    if ((!disk || base.startsWith('lib.')) && files.has('/' + base)) return '/' + base;
     return undefined;
+  };
+  const read = (fileName: string): string | undefined => {
+    const key = resolve(fileName);
+    return key ? files.get(key) : disk?.readFile(fileName);
   };
   return {
     getSourceFile(fileName: string, languageVersion: number) {
-      const key = resolve(fileName);
-      if (!key) return undefined;
-      const content = files.get(key);
+      const content = read(fileName);
       if (content === undefined) return undefined;
       return (ts as { createSourceFile: Function }).createSourceFile(
         fileName,
@@ -52,13 +69,11 @@ export function createVirtualHost(files: VirtualFiles, defaultLib: string): unkn
     useCaseSensitiveFileNames: () => true,
     getCanonicalFileName: (f: string) => f,
     getNewLine: () => '\n',
-    fileExists: (f: string) => resolve(f) !== undefined,
-    readFile: (f: string) => {
-      const key = resolve(f);
-      return key ? files.get(key) : undefined;
-    },
-    directoryExists: () => true,
-    getDirectories: () => [],
+    fileExists: (f: string) => resolve(f) !== undefined || (disk?.fileExists(f) ?? false),
+    readFile: read,
+    directoryExists: (d: string) => (disk ? disk.directoryExists(d) : true),
+    getDirectories: (d: string) => disk?.getDirectories(d) ?? [],
+    ...(disk ? { realpath: (f: string) => (resolve(f) ? f : disk.realpath(f)) } : {}),
   };
 }
 
@@ -94,20 +109,26 @@ export interface CheckResult {
 }
 
 /**
- * Type-check `rootNames` against `files` + the bundled TS libs and return the
- * fatal (`category: Error`) diagnostics as flat strings. Pure — no emit, no
- * side effects. The SFC semantic gate (apps/nebula codegen loop) feeds the
- * extracted `<script setup>` plus ambient Vue + Nebula-API `.d.ts` files here;
- * a bad union literal (e.g. `op: 'set'`) surfaces as a TS2322/2345 message.
+ * Type-check `rootNames` against `files` + the bundled TS libs and return the fatal
+ * (`category: Error`) diagnostics as flat strings. Pure — no emit, no side effects. A bad
+ * union literal (e.g. `op: 'set'`) surfaces as a TS2322/2345 message.
  *
- * `lib` defaults to ES2022 + DOM so realistic browser/Vue script bodies
- * (`document`, `window`, `console`) don't produce spurious unresolved-global
- * errors. Caller-supplied `files` are added on top of the seeded libs.
+ * With no `disk`, `files` is the whole program, and `lib` defaults to ES2022 + DOM so
+ * realistic browser script bodies (`document`, `window`, `console`) don't produce spurious
+ * unresolved-global errors. With a `disk`, imports `files` lacks are read from it, and
+ * `tsconfigPath` names the `tsconfig.json` (read through `disk`, its `extends` included)
+ * whose compiler options replace those defaults: the build box's SFC check reads an app's
+ * own config, its own `src/` and the packages installed beside it, with the checked
+ * `<script setup>` added to `files`. `reportFor` then limits the result to the files the
+ * caller is checking, since the rest of the program is code nobody asked to have checked.
  */
 export function checkTypeScript(opts: {
   files: Record<string, string>;
   rootNames: string[];
   lib?: string[];
+  disk?: DiskReader;
+  tsconfigPath?: string;
+  reportFor?: string[];
 }): CheckResult {
   const tsApi = ts as {
     ScriptTarget: { ESNext: number };
@@ -115,14 +136,24 @@ export function checkTypeScript(opts: {
     createProgram: Function;
     getPreEmitDiagnostics: Function;
     flattenDiagnosticMessageText: Function;
+    getDefaultLibFileName: Function;
+    parseConfigFileTextToJson: Function;
+    parseJsonConfigFileContent: Function;
   };
   const files: VirtualFiles = new Map();
   const defaultLib = seedTsLibFiles(files);
   for (const [name, content] of Object.entries(opts.files)) {
     files.set(name.startsWith('/') ? name : '/' + name, content);
   }
-  const host = createVirtualHost(files, defaultLib);
-  const program = tsApi.createProgram(opts.rootNames, {
+  type Diagnostic = {
+    category: number;
+    code: number;
+    messageText: unknown;
+    file?: { fileName: string; getLineAndCharacterOfPosition(pos: number): { line: number; character: number } };
+    start?: number;
+  };
+  const configErrors: Diagnostic[] = [];
+  let options: Record<string, unknown> = {
     strict: true,
     target: tsApi.ScriptTarget.ESNext,
     module: tsApi.ModuleKind.ESNext,
@@ -132,15 +163,48 @@ export function checkTypeScript(opts: {
     noEmitOnError: false,
     baseUrl: '/',
     lib: opts.lib ?? ['lib.es2022.d.ts', 'lib.dom.d.ts'],
-  }, host);
+  };
+  if (opts.tsconfigPath) {
+    const disk = opts.disk;
+    if (!disk) throw new Error('checkTypeScript: a tsconfigPath is read through a disk, and none was given');
+    const parsed = tsApi.parseConfigFileTextToJson(opts.tsconfigPath, disk.readFile(opts.tsconfigPath) ?? '{}') as
+      { config?: object; error?: Diagnostic };
+    if (parsed.error) configErrors.push(parsed.error);
+    const config = tsApi.parseJsonConfigFileContent(parsed.config ?? {}, {
+      useCaseSensitiveFileNames: true,
+      readDirectory: () => [], // the caller names the roots; the config's `include` is not read
+      fileExists: (f: string) => disk.fileExists(f),
+      readFile: (f: string) => disk.readFile(f),
+    }, opts.tsconfigPath.slice(0, opts.tsconfigPath.lastIndexOf('/')) || '/', undefined, opts.tsconfigPath) as
+      { options: Record<string, unknown>; errors: Diagnostic[] };
+    // TS18003 "No inputs were found" follows from the empty readDirectory above.
+    configErrors.push(...config.errors.filter((d) => d.code !== 18003));
+    options = { ...config.options, noEmit: true };
+  }
+  // A config naming no `lib` takes its target's default, which the host must name: the
+  // bundled libs sit at the root of the map.
+  const libName = opts.tsconfigPath ? '/' + tsApi.getDefaultLibFileName(options) : defaultLib;
+  const host = createVirtualHost(files, libName, opts.disk);
+  const program = tsApi.createProgram(opts.rootNames, options, host) as {
+    getSourceFile(f: string): unknown;
+    getSyntacticDiagnostics(sf: unknown): Diagnostic[];
+    getSemanticDiagnostics(sf: unknown): Diagnostic[];
+    getOptionsDiagnostics(): Diagnostic[];
+    getGlobalDiagnostics(): Diagnostic[];
+  };
 
-  const diagnostics = (tsApi.getPreEmitDiagnostics(program) as Array<{
-    category: number;
-    code: number;
-    messageText: unknown;
-    file?: { fileName: string; getLineAndCharacterOfPosition(pos: number): { line: number; character: number } };
-    start?: number;
-  }>).filter((d) => d.category === 1 /* Error */);
+  const all = opts.reportFor
+    ? [
+        ...configErrors,
+        ...program.getOptionsDiagnostics(),
+        ...program.getGlobalDiagnostics(),
+        ...opts.reportFor.flatMap((f) => {
+          const sf = program.getSourceFile(f.startsWith('/') ? f : '/' + f);
+          return sf ? [...program.getSyntacticDiagnostics(sf), ...program.getSemanticDiagnostics(sf)] : [];
+        }),
+      ]
+    : [...configErrors, ...(tsApi.getPreEmitDiagnostics(program) as Diagnostic[])];
+  const diagnostics = all.filter((d) => d.category === 1 /* Error */);
   const messages = diagnostics.map((d) =>
     tsApi.flattenDiagnosticMessageText(d.messageText, '\n'),
   );

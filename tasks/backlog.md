@@ -638,7 +638,6 @@ Strengthen the case that Nebula's data layer is an *ontology* (not just a typed 
 
 ### Other Nebula backlog
 
-- [ ] **Derive the SFC contract from the client's own types, so a documented call never draws a false finding (2026-10-15).** `apps/nebula/src/sfc-contract.ts` hand-writes the client surface and a Vue shim that the container's type check reads, and since [nebula-build-reaches-every-studio.md](nebula-build-reaches-every-studio.md) a build with type findings is held back from `.dev` unless the model previews it, so every gap holds a correct app back. Its build found the contract missing `subscribeQuery`, the documented `TransactionOutcome` kinds, `claims.access`, `deniedNodes`, a `*.vue` module, `@lumenize/resources/frontend` and `Symbol.dispose`, and widened it by hand, each pinned in `codegen-gate.test.ts`. Generating it from `NebulaClient`'s and Vue's `.d.ts` would end the class rather than the cases.
 
 - [ ] **A generated app passed the string `"ROOT_NODE_ID"` as a node id (2026-10-15).** test-nebula raised a new Workers Issue, `NodeNotFoundError: Node ROOT_NODE_ID not found`, twice at 01:04Z while `first-app-built` ran. Studio's guidance (`apps/nebula/platform/AGENTS.md`, `apps/nebula/platform/skills/wire-a-view/SKILL.md`) names `ROOT_NODE_ID` and says to import it from `@lumenize/resources/frontend`, and the model wrote the name as a string instead. A literal import line in the guidance, or an error that says the id looks like the constant's name, would steer it.
 

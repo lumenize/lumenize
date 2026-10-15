@@ -95,7 +95,7 @@ Built already, each with its fate:
   - `wipe()` sets the address to the Star's root, navigating even when the frame already sits there, since the URL it was on may name data the wipe deleted.
 
   `onVisibilityChange`'s reload goes: a restored subscription covers a missed landing, and every landing reaches every Studio.
-- **The frame decides, through the app's own hook.** In a frame, `createNebulaClient` listens for the request, and obeys only a message from `window.parent` at the `parentOrigin` it resolves, the meta's unless the app passes its own, as Studio reads only a message from the frame it created. One naming the build the frame already runs changes nothing. One naming another calls the app's `onShouldRefreshUI` with a `BuildStaleInfo`, `{ reason: 'build-stale', clientVersion: '1b7d…', currentVersion: '9c41e0…' }`, at most once per build version under the `sessionStorage` key `lmz.build-reloaded-for`. The default reloads the frame at its URL, and an app's "new version available" banner applies to a code change as it does to a type change. A request naming no build reloads the frame directly, since the person asked for it.
+- **The frame decides, through the app's own hook.** In a frame, `createNebulaClient` listens for the request, and obeys only a message from `window.parent` at the `parentOrigin` it resolves, the meta's unless the app passes its own, as Studio reads only a message from the frame it created. One naming the build the frame already runs changes nothing. One naming another calls the app's `onShouldRefreshUI` with a `BuildStaleInfo`, `{ reason: 'build-stale', clientVersion: '1b7d…', currentVersion: '9c41e0…' }`, at most once from one build to another: the `sessionStorage` key `lmz.build-reloaded-for` records the build asked for and the build the page ran when it was asked. The default reloads the frame at its URL, and an app's "new version available" banner applies to a code change as it does to a type change. A request naming no build reloads the frame directly, since the person asked for it.
 - **The frame answers every request, and Studio falls back only on silence.** Studio's request carries an id, as `{ type: 'lumenize:reload', id: 'r7', build: '9c41e0…' }`, and the frame echoes it at once with the build it runs, as `{ type: 'lumenize:loaded', id: 'r7', build: '1b7d…' }`. The factory also posts a `loaded` with no id synchronously when it is constructed, before any `lumenize:login-required` from the same load, so a fresh load announces itself whatever order the browser's events arrive in.
   - Studio treats an echo as proof a client is there and never forces a frame that answered, so an app showing a banner keeps its choice.
   - An unsolicited `loaded` means a client is there, so Studio sends its current request again, whatever build the message names. A request sent before the frame's listener existed, as when Studio opens, is answered that way. The frame's comparison and its `sessionStorage` guard keep a repeat harmless, and Studio resends at most once per value.
@@ -137,6 +137,8 @@ None open.
 | **`pinnedAtPost` is renamed `pinnedAtDoor`** (2026-10-13, from Stage 2). A landing's verdict comes from `buildNow`'s door as well as from a post, and the old name already needed explaining (calibration §5). | **Keeping the name:** every reader of a landing's write would have to learn that the "post" can be a `buildNow` call. |
 | **A turn that ends on a held-back build says so in its reply, in a line our code appends** (Larry, 2026-10-13). The 2026-08-28 decision rejected a separate `publish` tool because forgetting it left "a silently stale preview", and a held-back build at the end of a turn is that failure again. What it objected to was the silence, so the line removes the silence and leaves the call with the model. | **The loop warning the model when it calls `mark_complete` on a held-back build:** it relies on the model acting on the warning, and can be added if the agent messages' `codegen.toolCalls` show turns often end that way. **`mark_complete` taking `{ "preview": true }` and landing the last build without building again:** a second path to a landing that is not a build. |
 | **A page outside Studio, and a reload carrying unsaved writes, wait for fast-follow Items 5 and 4** (Larry, 2026-10-13). The Studios subscribed to `.dev`'s `ServedBuild` are reached, but a page in a tab of its own is not, and the check that does reach it is the one a published page runs, which wants a cache in front of the Galaxy first. A carry is wanted on every Star, where it must also migrate a write forward, beside a durable outbox in Mesh that holds a call in flight across the same reload. Built for `.dev` now, each would be built again or reconciled then. | **A page in a tab of its own checking its build, built for `.dev` now:** it would be built without the cache a published Star needs. **Carrying unsaved writes across a reload in `sessionStorage`, built for `.dev` now:** it would leave two paths sending one write again once the outbox lands. **A frame Studio asks to reload sending its unsaved writes first,** through the `dispose()` every client has (Larry, 2026-10-13): the call is one line, but it wants a `/live` limb of its own and goes once the carry lands, to save at most two seconds of typing on test data now and then. |
+| **The build's type check reads the code the app is built with: its own `tsconfig.json` and `src/`, the installed `vue`, and the vendored `@lumenize/resources`** (Larry, 2026-10-15, at the hand-off). Holding back a build with findings makes a false finding cost a correct app its preview, and the hand-written copy the check read lacked seven things the docs teach before this build widened it. The real client is wider than the docs, so a call they do not teach, such as `client.lmz`, type-checks; the docs and the platform guidance steer what the model calls, and the Gateway checks every call a page sends. | **Keeping the copy until a later task derives it:** each client change in between risks another correct app held back. **A documented subset of the real client:** its signatures are derived, but its member list is kept by hand and drifts the same way. **Generating the copy's text from the real types:** still a copy, and bundling declarations would take a new dependency. **Making findings advisory until then:** a type-wrong build would reach every Studio's preview, since every Studio now reloads on each landing. |
+| **Both reload guards record the version a refresh was for and the version the tab ran when it asked, and stay put only while both hold** (Larry, 2026-10-15, at the hand-off). A refresh that did not take, a stale cache bringing back the old page, still stops its loop, and a page that moved past the version it once refreshed for is asked again: a frame Studio asked onto build B that landed on a newer C, when a later revert brings B back, and a tab whose ontology guard names a version the Star reverted to, whose every write would otherwise end `ontology-stale` with no reload. | **Recording the version asked for alone**, as both guards did: either case above stays put with no signal, until the next landing or a reload by hand. |
 
 ## Phases
 
@@ -232,10 +234,7 @@ Each phase leaves `npm run type-check` and `npm test` green, and its changed sou
 
 ## Build notes
 
-**Open for Larry, by dependency, then risk.** Two decisions, then notes that need none:
-
-1. Whether a build with type findings stays held back while the SFC contract is written by hand (Phase 1, and the panel's first major).
-2. Whether the frame's build guard keys on the build requested or on the pair (§ *The verifier panel*).
+**Open for Larry.** No decision; notes that need none:
 
 Notes: Studio's one extra reload of a page with no client (Phase 4); the `.draft` Star and the newest `.dev` row, and the record from served bytes (§ *The verifier panel*); the certificate stalls and the bodied-GET fix (§ *The deployed pass*).
 
@@ -370,10 +369,34 @@ The second pass ran on `a83690d`, the panel's fixed tree, and its Workers Issues
 - `routeDORequest` copies its request with `new Request(request, { headers })`. Nebula hands it only the body-less request `hostedUpgrade` builds, so a bodied GET cannot reach it here; whether it throws for one was not checked.
 - Verified: `apps/nebula` 1083 passed; `drive.ts all --fast` 56 of 56 in 24.2 min, `bodied-get-answers` among them.
 
+### The type check reads the real types (2026-10-15)
+
+Larry's answer to the hand-off's first decision: keep holding back a build with findings, and check against the real types rather than a copy (§ *Decisions*).
+
+**For Larry:**
+
+- **The check now reads the app as vite builds it.** Its type pass builds a program from the app's own `tsconfig.json` and `src/`, the scaffold's `nebula.ts` included, with the `<script setup>` added as a file beside its `.vue`. Imports resolve on the build box's disk: `vue` and `lucide-vue-next` from the image's install, and `@lumenize/resources` from the source the Dockerfile already vendors. `apps/nebula/src/sfc-contract.ts` is deleted. The one shim left declares a `.vue` import, since tsc cannot read a component file.
+- **The check reports only the model's file.** The client's type graph reaches Mesh's server files, such as `alarms.ts` and `auth-facade.ts`, which need Workers types a browser app does not load, so the rest of the program is never clean. Reporting every file red every clean case in the tests.
+- **The import allow-list went with the copy.** It declared the icons and `@lumenize/resources/frontend` and nothing else, so importing any other package was a finding, which enforced `AGENTS.md`'s "Do not import any other package". Now an uninstalled package is still a finding, and fails `vite build` besides, but one the build box installs, such as `vite` or `daisyui`, resolves. The guidance still says it; nothing checks it.
+- **A finding now names its line in the `.vue`.** Lines used to count from the `<script setup>` block, so a component written template-first got every finding several lines early. The block is padded down to where it sits.
+- **The scaffold's `nebula.ts` lost a dead `@ts-expect-error`.** Its comment said the client import was unresolved in the image, but the Dockerfile vendors it and no program reads the file unresolved; once anything checked `nebula.ts`, the unused directive would itself have been a finding on platform code.
+
+**Retro:**
+
+- A throwaway probe settled the sizing before any code: against the real files, the taught app had no findings in 1.2 s, and `op: 'set'` and a misspelled `subscribeQuerry` each had one. The hand-off had called the work unsized because it assumed generating declarations; the box already held the real types.
+- `checkTypeScript` gained three options rather than a second engine: a `DiskReader` it falls back to, a `tsconfigPath` whose options replace its defaults, and `reportFor`. The package still imports no `node:fs`; the build box's code passes the disk in. Type packages resolved only once the config's own path was passed, since TypeScript resolves `types: ["vite/client"]` from it.
+- Two baseline files failed once each under full-suite load and passed alone four times: `resubscribe-on-signal.test.ts`'s rotation case, and `scope-isolation.test.ts`'s T-local-skip, which `testing.md` already names. A third full run was green. Neither touches the check.
+
+**Close-out:**
+
+- `codegen-gate.test.ts` moved from the `dev-studio` project to `offline`, which has a disk; the offline scorer calls the build box's `checkVueSfc` on the scaffold app, so the two can no longer drift. Its `Phase 1` describe names went, as task handles in source.
+- `backlog.md`'s row on deriving the contract is closed. `nebula-pre-alpha.md`'s Vapor item no longer lists the contract, and `/build-task`'s new example says the check now reads the real types.
+- Verified: `packages/ts-runtime-parser-validator` 214 passed; `apps/nebula` 1088 passed (1083 + 5); seven mutations of `sfc-check.ts` and three of the engine, each red on its own test; `drive.ts all` with Docker, 67 of 67 in 55.4 min, on an image rebuilt with the new check.
+
 ## Phase Retro
 
 1. **What did we learn?**
-   - **Holding back on findings turns every gap in the type checker's contract into a correct app kept off the preview.** Findings were advisory before, so the contract's missing `subscribeQuery`, `*.vue` module and `Symbol.dispose` cost nothing; under a held-back default each one gated a build. Limb 8's list app found the first, the verifier panel the rest.
+   - **Holding back on findings turns every gap in the type checker's contract into a correct app kept off the preview.** Findings were advisory before, so the contract's missing `subscribeQuery`, `*.vue` module and `Symbol.dispose` cost nothing; under a held-back default each one gated a build. Limb 8's list app found the first, the verifier panel the rest. The check now reads the real types (§ *The type check reads the real types*).
    - **A create at a fresh id reaches its subscribers only through the query rerun**, which takes no originator, so the content broadcast's originator cannot matter to a `ServedBuild`.
    - **An `AsyncLocalStorage` store set around a turn follows its build through the landing queue,** because a promise reaction keeps the context it was registered in; a direct `buildNow` arrives on its own request and never sees it.
    - **The frontend package is vendored into the build box's image**, so a mutation of it rebuilds the image and reaches the built app, which made frame-side mutations runnable through `/live`.
@@ -393,7 +416,7 @@ The second pass ran on `a83690d`, the panel's fixed tree, and its Workers Issues
    - Personas can pace its strip by `ServedBuild` values and the frame's echo, both built here.
    - `nebula-agent-posts-as-itself.md` keeps `pinnedAtDoor` and `actor`, with the landing as their caller.
    - A `.draft` Star must make Studio read the newest `.dev` row rather than the newest row (its backlog row says so).
-   - Two backlog rows: derive the SFC contract from the client's types, and a public Mesh seam for running in-DO code under a call context.
+   - A backlog row for a public Mesh seam to run in-DO code under a call context. The row on deriving the SFC contract closed in this build, when the check moved to the real types.
 
 5. **Process changes?**
    - Two rules added to `live-scenarios.md`: a wait for one client's line matches its id, and a mark on a frame waits for the frame's own document.

@@ -18,7 +18,6 @@
  * container's `/workspace` IS the Galaxy's source tree (a FUSE mount of the DO's VFS — there is no
  * push step).
  */
-// @ts-expect-error — vendored at deploy build (see header); unresolved in the baked tree.
 import { createNebulaClient } from '@lumenize/resources/frontend';
 
 interface NebulaScope {

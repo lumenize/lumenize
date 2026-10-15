@@ -6,9 +6,8 @@
 *
 !apps/nebula/container
 !apps/nebula/container/**
-# The compiler stage's three sources from the app.
+# The compiler stage's two sources from the app.
 !apps/nebula/src/ontology-compile.ts
-!apps/nebula/src/sfc-contract.ts
 !apps/nebula/src/build-report.ts
 !packages/ts-runtime-parser-validator/package.json
 !packages/ts-runtime-parser-validator/src

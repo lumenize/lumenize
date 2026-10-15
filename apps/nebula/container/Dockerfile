@@ -126,7 +126,6 @@ COPY packages/ts-runtime-parser-validator/src /build/packages/ts-runtime-parser-
 COPY packages/ts-runtime-parser-validator/scripts /build/packages/ts-runtime-parser-validator/scripts
 COPY packages/ts-runtime-parser-validator/forks /build/packages/ts-runtime-parser-validator/forks
 COPY apps/nebula/src/ontology-compile.ts /build/apps/nebula/src/ontology-compile.ts
-COPY apps/nebula/src/sfc-contract.ts /build/apps/nebula/src/sfc-contract.ts
 COPY apps/nebula/src/build-report.ts /build/apps/nebula/src/build-report.ts
 COPY apps/nebula/container/compiler /build/apps/nebula/container/compiler
 

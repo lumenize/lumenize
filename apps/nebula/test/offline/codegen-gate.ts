@@ -3,29 +3,35 @@
  * gate died when the compilers left the Worker
  * (tasks/archive/nebula-move-compilers-out-of-the-worker.md): a `write_file` is a pure write
  * now, and the LIVE checking runs in the container build job
- * (`container/compiler/job.ts` + `sfc-check.ts`, against the same
- * `src/sfc-contract.ts` this file mounts). What survives here, and why:
+ * (`container/compiler/job.ts` + `sfc-check.ts`). This file runs that same `checkVueSfc`
+ * against the scaffold app in the repo, `container/app`, whose imports resolve through the
+ * repo's `node_modules` to the Vue the build box installs and the workspace's own
+ * `@lumenize/resources`. What survives here, and why:
  *
  *  - the offline prompt harness (tasks/on-hold/nebula-offline-prompt-harness.md)
  *    scores model output with {@link compileSource} in plain Node — seconds-fast,
  *    no Docker — so this module stays importable outside workerd (no mesh, no
  *    `cloudflare:workers`);
  *  - `codegen-gate.test.ts` pins the check behaviour (the `$setup` bindings
- *    threading, the ontology reserved-prefix guard reaching a compile, the
- *    sanitizer) at vitest-plugin speed.
+ *    threading, the ontology reserved-prefix guard reaching a compile, what the
+ *    real client and Vue accept and refuse) in the `offline` project, the one with
+ *    a disk to read them from.
  *
  * Given `(path, content)`, dispatch by extension: `*.d.ts` (the ontology) →
  * {@link compileOntologyVersion}; `*.vue` → the two-pass SFC check (Pass 1
  * transpiles with `@vue/compiler-sfc`; Pass 2 type-checks `<script setup>` against
- * the contract — catches API misuse like the invented `op: 'set'`, which a
+ * the app's real imports — catches API misuse like the invented `op: 'set'`, which a
  * transpile-only pass misses); any other path → `{ ok: true }`.
  *
  * @see memory sfc-compile-needs-bindingmetadata, tsc-in-workerd-must-bundle
  */
-import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc';
-import { checkTypeScript } from '@lumenize/ts-runtime-parser-validator/compile';
+import { fileURLToPath } from 'node:url';
 import { compileOntologyVersion } from '../../src/ontology-compile';
-import { NEBULA_API_DTS, VUE_SHIM_DTS, ALLOWED_IMPORT_SHIMS_DTS } from '../../src/sfc-contract';
+import { checkVueSfc } from '../../container/compiler/sfc-check';
+
+/** The scaffold app every Galaxy is seeded with, checked here as the build box checks
+ *  `/workspace`. */
+export const SCAFFOLD_APP = fileURLToPath(new URL('../../container/app', import.meta.url));
 
 /** Uniform Rung-1 result. `errorTail` (bounded + sanitized) is present iff `!ok`. */
 export interface GateResult {
@@ -33,7 +39,7 @@ export interface GateResult {
   errorTail?: string;
 }
 
-/** Cap on the fed-back / persisted error tail (D8 — bounded so it neither bloats
+/** Cap on the fed-back / persisted error tail (bounded so it neither bloats
  *  the prompt nor harms eval-fixture portability when persisted in the codegen record). */
 const MAX_ERROR_TAIL = 4000;
 
@@ -51,8 +57,6 @@ export function sanitizeErrorTail(raw: string): string {
     .replace(/(?:\/[\w.@-]+)*\/(?:node_modules|dist)\/[\w./@-]+/g, '<bundled>')
     // host-absolute paths
     .replace(/\/(?:Users|home|root|private|var|tmp)\/[\w./@ -]+/g, '<path>')
-    // the gate's internal virtual filename → the file the model actually wrote
-    .replace(/\/?app-setup\.ts/g, 'App.vue')
     .trim();
   if (s.length > MAX_ERROR_TAIL) s = s.slice(0, MAX_ERROR_TAIL) + '\n…(truncated)';
   return s;
@@ -65,65 +69,16 @@ function normalizeRelPath(path: string): string {
 }
 
 /**
- * The two-pass SFC gate. Exported (beyond {@link compileSource}'s uniform result)
- * so a Phase-1 probe can assert Pass-1 bindings threading: `templateCode` must
- * reference `$setup.x`, not `_ctx.x` (the blank-render trap — see
- * `sfc-compile-needs-bindingmetadata`).
+ * The two-pass SFC gate, as the build box runs it, on `src/App.vue` of the scaffold app.
+ * Exported (beyond {@link compileSource}'s uniform result) so a probe can assert Pass-1
+ * bindings threading: `templateCode` must reference `$setup.x`, not `_ctx.x` (the
+ * blank-render trap — see `sfc-compile-needs-bindingmetadata`).
  */
-export function compileVueSfc(content: string): GateResult & { templateCode?: string } {
-  // ── Pass 1: transpile (syntax + template) ───────────────────────────────
-  const { descriptor, errors } = parse(content, { filename: 'App.vue' });
-  if (errors.length > 0) {
-    return { ok: false, errorTail: sanitizeErrorTail(errors.map((e) => String(e instanceof Error ? e.message : e)).join('\n')) };
-  }
-  const id = 'gate';
-  let bindings: Record<string, unknown> | undefined;
-  if (descriptor.script || descriptor.scriptSetup) {
-    try {
-      const script = compileScript(descriptor, { id });
-      bindings = script.bindings;
-    } catch (e) {
-      return { ok: false, errorTail: sanitizeErrorTail(e instanceof Error ? e.message : String(e)) };
-    }
-  }
-  let templateCode: string | undefined;
-  if (descriptor.template) {
-    const tpl = compileTemplate({
-      source: descriptor.template.content,
-      filename: 'App.vue',
-      id,
-      // Thread the <script setup> bindings so the template resolves setup-scope
-      // refs to `$setup.x` (NOT `_ctx.x`) — without this a <script setup>
-      // component renders blank (sfc-compile-needs-bindingmetadata).
-      compilerOptions: { bindingMetadata: bindings as any },
-    });
-    if (tpl.errors.length > 0) {
-      return { ok: false, errorTail: sanitizeErrorTail(tpl.errors.map((e) => String(e instanceof Error ? e.message : e)).join('\n')) };
-    }
-    templateCode = tpl.code;
-  }
-
-  // ── Pass 2: semantic type-check of <script setup> (the op:'set' class) ───
-  const setup = descriptor.scriptSetup?.content;
-  if (setup) {
-    const result = checkTypeScript({
-      files: {
-        '/app-setup.ts': setup,
-        // Resolved by the relative `import … from './nebula'` (NOT an ambient
-        // module — relative specifiers resolve to a real file, here `/nebula.d.ts`).
-        '/nebula.d.ts': NEBULA_API_DTS,
-        // Global ambient `.d.ts` (bare `'vue'`/`'lucide-vue-next'` modules + the
-        // <script setup> macros) — must be program roots to register globally.
-        '/vue-shim.d.ts': VUE_SHIM_DTS,
-        '/allowed-imports.d.ts': ALLOWED_IMPORT_SHIMS_DTS,
-      },
-      rootNames: ['/app-setup.ts', '/vue-shim.d.ts', '/allowed-imports.d.ts'],
-    });
-    if (!result.ok) {
-      return { ok: false, errorTail: sanitizeErrorTail(result.messages.join('\n')), templateCode };
-    }
-  }
-  return { ok: true, templateCode };
+export function compileVueSfc(content: string, relPath = 'src/App.vue'): GateResult & { templateCode?: string } {
+  const { findings, templateCode } = checkVueSfc(SCAFFOLD_APP, relPath, content);
+  return findings.length === 0
+    ? { ok: true, templateCode }
+    : { ok: false, errorTail: sanitizeErrorTail(findings.join('\n')), templateCode };
 }
 
 /** The ontology Rung-1 gate: compile the `.d.ts` to a validator and discard the
