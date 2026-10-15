@@ -234,7 +234,7 @@ Each phase leaves `npm run type-check` and `npm test` green, and its changed sou
 
 ## Build notes
 
-**Open for Larry.** No decision. Two reads before the archive: § *Phase Retro*, and ADR-024's amended sentence on reloading (§ *Both reload guards key on the pair*).
+**Open for Larry.** No decision. One read before the archive: § *Phase Retro*.
 
 Notes that need nothing: Studio's one extra reload of a page with no client (Phase 4); the `.draft` Star and the newest `.dev` row, and the record from served bytes (§ *The verifier panel*); the certificate stalls and the bodied-GET fix (§ *The deployed pass*); the import allow-list the type check no longer enforces (§ *The type check reads the real types*).
 
@@ -400,7 +400,7 @@ Larry's answer to the hand-off's second decision (§ *Decisions*).
 **For Larry:**
 
 - **Both guards record `{ for, from }` and stay put only while both hold.** One helper, `packages/resources/src/reload-guard.ts`, reads and writes it, and `decideStale` and `decideReloadRequest` both ask its `guardHolds`. A value the old guard stored, a bare version string, reads as no guard, so a tab holding one refreshes once more.
-- **ADR-024's sentence on reloading changed**, from "once per build version" to "at most once from one build to another … while a page that has since moved to a third build reloads again". The sentence is yours to re-voice. `api-reference.md`'s `onShouldRefreshUI` row says the same, regenerated into `platform-embed.ts`.
+- **ADR-024's paragraph on reloading changed** (re-voiced at Larry's request): a page remembers the build it reloaded for and the build it was running, and a revert to a build it once reloaded for moves it again. `api-reference.md`'s `onShouldRefreshUI` row says the same, regenerated into `platform-embed.ts`.
 
 **Retro:**
 
