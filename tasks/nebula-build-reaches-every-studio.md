@@ -362,6 +362,8 @@ The second pass ran on `a83690d`, the panel's fixed tree, and its Workers Issues
 - Second pass: `dev-star-follows-the-build` passed in 418 s, all ten limbs, and `build-reaches-every-studio` in 302 s, all seven.
 - Issues since the deploy: the bodied GET, four times, one of them the new scenario's red run; and the standing `scope-deleted`.
 - After the fix, `test-nebula` redeployed at `df2e2b9`: `bodied-get-answers` passed, then `dev-tab-frame` in 192 s and `build-box` in 199 s. Issues since that deploy: `scope-deleted` alone.
+- `first-app-built` ran again on that deploy, since the panel changed the reply fallback its turn reads: it passed in 271 s, its turn landing clean in 8 rounds with the fallback `Updated the preview.` `star-serves-current-ontology`, whose header the build reworded and whose builds land through the new path, passed in 200 s. Every scenario this build wrote or touched has now passed deployed on its final code.
+- The closing Docker sweep's one guidance fail, limb (a) writing no `App.vue` after the panel shortened `TOOL_CONTRACT` and `mark_complete`, did not recur: two further local runs of `studio-guidance-loop` passed every limb. The lines are in `nebula-pre-alpha.md` § *Data-bound generation*.
 
 **Close-out:**
 

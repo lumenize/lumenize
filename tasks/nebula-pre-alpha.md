@@ -267,6 +267,9 @@ One line per observation, appended, never edited: `date · limb · pass|fail · 
 - 2026-10-15 · (d) · pass · third sweep: the turn read `define-ontology`, the three docs, `AGENTS.md`, `docs/vision.md` and the source
 - 2026-10-15 · (f) · pass · third sweep: asked what was requested first, the reply named the rule
 - 2026-10-15 · (g) · pass · third sweep: the build turn completed in 9 rounds and 2 builds, its last landing clean with no findings
+- 2026-10-15 · (a) · pass · two further local runs on the shorter `TOOL_CONTRACT` and `mark_complete` wording each wrote an `App.vue` reading and writing through `store` / `client.resources`; with the third sweep's fail, 2 of 3 on that wording, the variance shape of 09-05 and 10-11
+- 2026-10-15 · (b1) (b2) (c) (d) (f) · pass · the same two runs passed every other limb
+- 2026-10-15 · (g) · pass · deployed on the final tree: the build turn completed in 8 rounds and 2 builds, its last landing clean with no findings, and its reply was the fallback `Updated the preview.`
 
 
 ## ADR hand-review
