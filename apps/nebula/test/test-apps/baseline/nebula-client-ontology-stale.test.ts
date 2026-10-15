@@ -18,7 +18,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/resources';
-import type { OntologyStaleInfo, TransactionOutcome } from '@lumenize/resources';
+import type { BuildStaleInfo, OntologyStaleInfo, TransactionOutcome } from '@lumenize/resources';
 import { isOntologyStaleError } from '@lumenize/resources';
 import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
@@ -44,7 +44,7 @@ function uniqueStar(): string {
  */
 async function setupStaleScenario() {
   const star = uniqueStar();
-  const refreshHookSpy = vi.fn<(info: OntologyStaleInfo) => void>();
+  const refreshHookSpy = vi.fn<(info: OntologyStaleInfo | BuildStaleInfo) => void>();
 
   // Construct the client with v1 + the hook
   const a = await adminClientAt(

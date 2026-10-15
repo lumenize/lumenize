@@ -17,7 +17,7 @@ import { MeshClient, mesh } from '@lumenize/mesh/client';
 import type { AuthClaims, ConnectionState, MeshClientConfig } from '@lumenize/mesh/client';
 import { ClientResources } from './client-resources';
 import type {
-  NebulaStoreAdapter, OntologyStaleInfo, ResourceDenied, SubscriberListSubscription,
+  BuildStaleInfo, NebulaStoreAdapter, OntologyStaleInfo, ResourceDenied, SubscriberListSubscription,
   SubscriberRosterDelivery,
 } from './client-resources';
 import type { Snapshot } from './snapshots';
@@ -30,7 +30,7 @@ export type {
   TransactionOutcome, TransactionResourceResolution, ResourceHandler, ConflictResolverVerdict,
   OperationDescriptor, ResourceSubscription, ResourceDenied, ResourceStoreEntry, SubscribeQueryOptions,
   QuerySubscription, SubscriberListSubscription, SubscriberRosterDelivery, OntologyStaleInfo,
-  TransactionOptions, ReadOptions, NebulaStoreAdapter,
+  BuildStaleInfo, TransactionOptions, ReadOptions, NebulaStoreAdapter,
 } from './client-resources';
 export type { ProfileChannelSnapshot, ProfileSubscription } from '@lumenize/mesh/client';
 
@@ -54,14 +54,16 @@ export interface NebulaClientConfig extends Omit<MeshClientConfig, 'refresh' | '
    */
   ontologyVersion?: string;
   /**
-   * Called when the host names a version other than this page's, so the page is on an old build.
-   * Typical implementation: `() => window.location.reload()`. The Client calls it at most once per
-   * version in a tab, behind a guard that records the version in the tab's `sessionStorage` (the
-   * same one the tab id lives in), so a reload that lands on the same old version does not loop. No
-   * default here (`createNebulaClient` supplies the reload); without one the op still ends
+   * Called when the page is on an old build: with an `OntologyStaleInfo` when the host names a
+   * version other than this page's, and, in a page framed in Studio, with a `BuildStaleInfo` when
+   * Studio names a build other than the one the page was served (`createNebulaClient` answers
+   * Studio). Typical implementation: `() => window.location.reload()`. Each is called at most once
+   * per version in a tab, behind a guard that records the version in the tab's `sessionStorage`
+   * (the same one the tab id lives in), so a reload that lands on the same old version does not
+   * loop. No default here (`createNebulaClient` supplies the reload); without one the op still ends
    * `{ resolution: 'ontology-stale' }`.
    */
-  onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
+  onShouldRefreshUI?: (info: OntologyStaleInfo | BuildStaleInfo) => void;
   /**
    * Which mesh binding hosts this client's Resources — every `client.resources.*` op,
    * `client.orgTree.*`, and the org-tree channel. Default `'STAR'`. Every host serves the

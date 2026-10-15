@@ -24,7 +24,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/resources';
-import type { OntologyStaleInfo, TransactionResult, SubscriberRow } from '@lumenize/resources';
+import type { BuildStaleInfo, OntologyStaleInfo, TransactionResult, SubscriberRow } from '@lumenize/resources';
 import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
@@ -63,7 +63,7 @@ describe('nebula-client push-on-clear ontology-stale (5.3.4b)', () => {
   it('client subscribed to N resources receives one onShouldRefreshUI on version install', async () => {
     const star = uniqueStar();
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    const refreshHookSpy = vi.fn<(info: OntologyStaleInfo) => void>();
+    const refreshHookSpy = vi.fn<(info: OntologyStaleInfo | BuildStaleInfo) => void>();
 
     // Build a v1-pinned client with the refresh hook registered. The hook is
     // the user-facing signal that push-on-clear arrived.

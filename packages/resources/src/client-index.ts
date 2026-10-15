@@ -6,7 +6,7 @@
 
 // Client class + config
 export { NebulaClient } from './nebula-client';
-export type { NebulaClientConfig, NebulaStoreAdapter } from './nebula-client';
+export type { NebulaClientConfig, NebulaStoreAdapter, OntologyStaleInfo, BuildStaleInfo } from './nebula-client';
 // The Client's half of the Resources plane, which NebulaClient composes.
 export { ClientResources } from './client-resources';
 export type { ClientResourcesOptions } from './client-resources';

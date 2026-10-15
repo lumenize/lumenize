@@ -201,6 +201,18 @@ export interface OntologyStaleInfo {
 }
 
 /**
+ * What a page framed in Studio hands `onShouldRefreshUI` when Studio names a build other than the
+ * one the page was served (ADR-024's build version). `clientVersion` is the `buildVersion` in the
+ * page's `nebula-scope` meta, `''` when it names none; `currentVersion` is the build `.dev` serves
+ * now. The page's client calls the hook at most once per build in a tab.
+ */
+export interface BuildStaleInfo {
+  reason: 'build-stale';
+  clientVersion: string;
+  currentVersion: string;
+}
+
+/**
  * Per-call options for `client.resources.transaction()`. The transaction-wide
  * `TransactionOutcome` it resolves with + the per-resource
  * `TransactionResourceResolution`s delivered to handlers are the
@@ -316,7 +328,7 @@ export interface ClientResourcesOptions {
   subscribeTimeoutMs?: number;
   /** Called when the host names a version other than this page's, at most once per version in
    *  a tab: a guard records the version it reloaded for in {@link sessionStorage}. */
-  onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
+  onShouldRefreshUI?: (info: OntologyStaleInfo | BuildStaleInfo) => void;
   /** Where the reload guard records the version it last reloaded the tab for: the Client's own
    *  `sessionStorage` option, else the page's. */
   sessionStorage?: Storage;
@@ -347,7 +359,7 @@ export class ClientResources {
   #sessionStorage?: Storage;
   /** Ceiling on a subscribe's wait for its first push; Mesh's default when absent. */
   #subscribeTimeoutMs?: number;
-  #onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
+  #onShouldRefreshUI?: (info: OntologyStaleInfo | BuildStaleInfo) => void;
 
   /** Store adapter the conflict-outcome engine drives; the factory swaps in a
    *  Vue-reactive one via {@link bindStore}, headless uses the in-memory

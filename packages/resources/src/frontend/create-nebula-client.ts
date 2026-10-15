@@ -46,7 +46,8 @@ import { deepEquals } from './deep-equals';
 import type { Middleware, StoreClient, WriteContext } from './types';
 import { NebulaClient } from '../nebula-client';
 import { deploymentOriginOfPage, platformOriginOf } from '@lumenize/mesh/client';
-import type { NebulaStoreAdapter, ResourceSubscription, SubscriberListSubscription, OntologyStaleInfo, NebulaClientConfig } from '../nebula-client';
+import type { NebulaStoreAdapter, ResourceSubscription, SubscriberListSubscription, OntologyStaleInfo, BuildStaleInfo, NebulaClientConfig } from '../nebula-client';
+import { decideReloadRequest } from './reload-request';
 
 /** The common shape the factory holds + disposes: a `ResourceSubscription`/profile handle (error-surface
  *  via `.snapshot`) OR a subscriber-list roster handle (via `.ready`). Both are `Disposable`. */
@@ -784,10 +785,11 @@ export type CreateNebulaClientConfig<TConfig extends NebulaClientConfig = Nebula
     platformOrigin?: string;
     /** Defaults, in a frame only, to the `parentOrigin` the serving layer put in `nebula-scope`. */
     parentOrigin?: string;
-    /** Called when the host names a version other than this page's, at most once per version in a
-     *  tab (the Client's guard). `undefined`/`null` → the default `window.location.reload()`;
+    /** Called when the page is on an old build, at most once per version in a tab: the host named
+     *  another ontology version (`OntologyStaleInfo`), or Studio, framing this page, named another
+     *  build (`BuildStaleInfo`). `undefined`/`null` → the default `window.location.reload()`;
      *  pass an explicit `() => {}` to opt out. */
-    onShouldRefreshUI?: ((info: OntologyStaleInfo) => void) | null;
+    onShouldRefreshUI?: ((info: OntologyStaleInfo | BuildStaleInfo) => void) | null;
     /** Grace before auto-unsubscribe after the binding refcount hits zero (default 2000ms). */
     unsubscribeGraceMs?: number;
   };
@@ -808,21 +810,21 @@ export interface FactoryResult<C extends NebulaClient = NebulaClient> {
 }
 
 /**
- * Default `onShouldRefreshUI`: a full reload, which fetches the build the host named. The Client
- * calls it at most once per version in a tab, so it needs no guard of its own.
+ * Default `onShouldRefreshUI`: a full reload at the page's own URL, which fetches the build `.dev`
+ * serves. Each caller guards it to once per version in a tab, so it needs no guard of its own.
  */
-function defaultOnShouldRefreshUI(_info: OntologyStaleInfo): void {
+function defaultOnShouldRefreshUI(_info: OntologyStaleInfo | BuildStaleInfo): void {
   if (typeof window !== 'undefined') window.location.reload();
 }
 
-/** The `parentOrigin` the serving layer put in a built app's `nebula-scope` meta, if any. */
-function parentOriginOfPage(): string | undefined {
+/** A string field of the `nebula-scope` meta the serving layer put in a built app, if any. */
+function scopeMetaField(field: 'parentOrigin' | 'buildVersion'): string | undefined {
   if (typeof document === 'undefined') return undefined;
   const content = document.querySelector('meta[name="nebula-scope"]')?.getAttribute('content');
   if (!content) return undefined;
   try {
-    const parent = (JSON.parse(content) as { parentOrigin?: unknown }).parentOrigin;
-    return typeof parent === 'string' ? parent : undefined;
+    const value = (JSON.parse(content) as Record<string, unknown>)[field];
+    return typeof value === 'string' ? value : undefined;
   } catch {
     return undefined;
   }
@@ -847,8 +849,10 @@ export function resolveNebulaClientConfig(config: CreateNebulaClientConfig): {
   baseUrl?: string;
   platformOrigin: string;
   parentOrigin?: string;
+  /** In a frame only: the build this page was served, from its `nebula-scope` meta. */
+  buildVersion?: string;
   ontologyVersion?: string;
-  onShouldRefreshUI: (info: OntologyStaleInfo) => void;
+  onShouldRefreshUI: (info: OntologyStaleInfo | BuildStaleInfo) => void;
 } {
   const pageOrigin = typeof window !== 'undefined' ? window.location.origin : undefined;
   const deployment = deploymentOriginOfPage();
@@ -862,11 +866,12 @@ export function resolveNebulaClientConfig(config: CreateNebulaClientConfig): {
     );
   }
   const baseUrl = config.baseUrl ?? pageOrigin;
-  const parentOrigin = config.parentOrigin ?? (inFrame() ? parentOriginOfPage() : undefined);
+  const parentOrigin = config.parentOrigin ?? (inFrame() ? scopeMetaField('parentOrigin') : undefined);
+  const buildVersion = inFrame() ? scopeMetaField('buildVersion') : undefined;
   // `?? ` coalesces both `undefined` and `null` to the default reload (by design —
   // there is no "disable" sentinel; opt out with an explicit `() => {}`).
   const onShouldRefreshUI = config.onShouldRefreshUI ?? defaultOnShouldRefreshUI;
-  return { baseUrl, platformOrigin, parentOrigin, ontologyVersion: config.ontologyVersion, onShouldRefreshUI };
+  return { baseUrl, platformOrigin, parentOrigin, buildVersion, ontologyVersion: config.ontologyVersion, onShouldRefreshUI };
 }
 
 /**
@@ -891,6 +896,57 @@ export function defaultOnLoginRequired(platformOrigin: string, parentOrigin: str
     login.searchParams.set('return_to', window.location.href);
     window.location.assign(login.href);
   };
+}
+
+/** The page's `sessionStorage`, or nothing where reading it throws, as a sandboxed frame's does. */
+function pageSessionStorage(): Storage | undefined {
+  try { return (globalThis as { sessionStorage?: Storage }).sessionStorage; } catch { return undefined; }
+}
+
+/** The `sessionStorage` key the build guard writes: the build it last asked the app to refresh for. */
+const BUILD_REFRESHED_FOR_KEY = 'lmz.build-reloaded-for';
+
+/**
+ * How a page framed in Studio answers Studio's `lumenize:reload` requests (ADR-024's build
+ * version). It posts `{ type: 'lumenize:loaded', build }` to its parent at once, so Studio learns a
+ * client is there, then echoes each request's `id` with the build it runs before acting on it as
+ * {@link decideReloadRequest} says: stay, hand the app's `onShouldRefreshUI` a `BuildStaleInfo`
+ * once per build in the tab, or, for a request naming no build, reload. It obeys only a message
+ * from `window.parent` at `parentOrigin`, as Studio reads only its own frame. Returns the
+ * listener's removal.
+ */
+export function answerReloadRequests(opts: {
+  parentOrigin: string;
+  buildVersion: string | undefined;
+  onShouldRefreshUI: (info: OntologyStaleInfo | BuildStaleInfo) => void;
+  sessionStorage: Storage | undefined;
+}): () => void {
+  const { parentOrigin, buildVersion, onShouldRefreshUI, sessionStorage } = opts;
+  const loaded = (id?: unknown) => window.parent.postMessage(
+    { type: 'lumenize:loaded', ...(id !== undefined ? { id } : {}), build: buildVersion }, parentOrigin);
+  const listener = (e: MessageEvent) => {
+    if (e.source !== window.parent || e.origin !== parentOrigin) return;
+    const data = e.data as { type?: unknown; id?: unknown; build?: unknown } | null;
+    if (data?.type !== 'lumenize:reload') return;
+    loaded(data.id);
+    const requested = typeof data.build === 'string' ? data.build : undefined;
+    let refreshedFor: string | undefined;
+    try { refreshedFor = sessionStorage?.getItem(BUILD_REFRESHED_FOR_KEY) ?? undefined; } catch { /* storage blocked */ }
+    const action = decideReloadRequest({ requested, own: buildVersion, refreshedFor });
+    if (action === 'reload') {
+      window.location.reload();
+    } else if (action === 'refresh') {
+      try { sessionStorage?.setItem(BUILD_REFRESHED_FOR_KEY, requested!); } catch { /* storage blocked */ }
+      try {
+        onShouldRefreshUI({ reason: 'build-stale', clientVersion: buildVersion ?? '', currentVersion: requested! });
+      } catch (err) {
+        log.warn('onShouldRefreshUI callback threw', { error: err });
+      }
+    }
+  };
+  window.addEventListener('message', listener);
+  loaded();
+  return () => window.removeEventListener('message', listener);
 }
 
 /**
@@ -944,6 +1000,17 @@ export function createNebulaClient<K extends NebulaClientClass = typeof NebulaCl
 
   const onSessionMissing = userOnLoginRequired ?? defaultOnLoginRequired(resolved.platformOrigin, resolved.parentOrigin);
 
+  // A framed page answers Studio before its Client exists, so its first `loaded` precedes any
+  // `login-required` from this load whatever order the browser delivers the two in.
+  const stopAnswering = inFrame() && resolved.parentOrigin
+    ? answerReloadRequests({
+      parentOrigin: resolved.parentOrigin,
+      buildVersion: resolved.buildVersion,
+      onShouldRefreshUI: resolved.onShouldRefreshUI,
+      sessionStorage: clientConfig.sessionStorage ?? pageSessionStorage(),
+    })
+    : undefined;
+
   const client = new Client({
     ...clientConfig,
     baseUrl: resolved.baseUrl,
@@ -978,6 +1045,9 @@ export function createNebulaClient<K extends NebulaClientClass = typeof NebulaCl
     ready,
     use: storeResult.use,
     flush: storeResult.flush,
-    dispose: storeResult.dispose,
+    dispose: async () => {
+      stopAnswering?.();
+      await storeResult.dispose();
+    },
   };
 }

@@ -5,17 +5,18 @@
  *
  * The page names no scope: the client takes it from its first token, which the platform host's
  * refresh mints for this page's host. The Galaxy's serve injects `<meta name="nebula-scope">` into
- * the shell (the ontology version this app was built against, whether it is the dev Star, and the
- * Studio origin a framed page reports to) and `<meta name="lumenize-origin">`; the factory reads
- * the second itself.
+ * the shell (the ontology version this app was built against, whether it is the dev Star, the
+ * Studio origin a framed page reports to, and the build the page was served) and
+ * `<meta name="lumenize-origin">`. This file passes the ontology version; the factory reads the
+ * rest itself.
  *
- * ⚠️ Assembled-image wiring: `@lumenize/resources/frontend` is a private workspace package
- * (not on npm), so it is VENDORED into the container image at image build — the seed
- * App.vue boots standalone (doesn't import this file) so the image self-validates
- * vite+HMR without the factory; the Galaxy seeds an App.vue into its own source tree
- * at git-init that imports `{ client, store }` from here, and the container's
- * `/workspace` IS that tree (a FUSE mount of the DO's VFS — there is no push step).
- * The assembled preview (factory + live Star) rides the e2e run with `wrangler dev` + Docker Desktop.
+ * ⚠️ Neither the seed's `App.vue` nor its `main.ts` imports this file, so the seed's page has no
+ * client: it boots standalone, which lets the image self-validate vite without the factory, and
+ * it cannot answer Studio's reload requests. A generated `App.vue` that imports `{ client, store }`
+ * from here is what gives a page its client. `@lumenize/resources/frontend` is a private workspace
+ * package (not on npm), so it is VENDORED into the container image at image build, and the
+ * container's `/workspace` IS the Galaxy's source tree (a FUSE mount of the DO's VFS — there is no
+ * push step).
  */
 // @ts-expect-error — vendored at deploy build (see header); unresolved in the baked tree.
 import { createNebulaClient } from '@lumenize/resources/frontend';

@@ -64,6 +64,7 @@ export { NebulaClient } from './nebula-client';
 export type {
   NebulaClientConfig,
   OntologyStaleInfo,
+  BuildStaleInfo,
   TransactionOptions,
   ReadOptions,
   OperationDescriptor,

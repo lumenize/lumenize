@@ -253,3 +253,17 @@ Each phase leaves `npm run type-check` and `npm test` green, and its changed sou
 
 - `decidePreview` is gone; its rows live in `ontology-landing.test.ts`'s `decideLanding` table.
 - `connectDriver` takes `Pick<DevStack, 'baseUrl' | 'origin'>`, so the ui-smoke lane can preview a held-back build through it.
+
+### Phase 2 — a framed page decides whether a reload request moves it, and answers (2026-10-15)
+
+**For Larry:**
+
+- **Widening `onShouldRefreshUI`'s parameter breaks an app that typed its hook narrowly.** Under strict function types, `(info: OntologyStaleInfo) => void` no longer fits a hook that may be handed a `BuildStaleInfo`; three baseline tests did exactly that and now name the union. The scaffold's `nebula.ts` passes no hook, and a hook reading only `currentVersion` still fits. Both stale infos are now exported from `@lumenize/resources/client`, so an app can name them.
+
+**Retro:**
+
+- The decision, the answer and the first `loaded` landed in one pass, and all seven mutations reddened their own rows. The order test needed no browser: jsdom stands a frame up once `window.top` is mocked, and a `fetch` answering 401 drives the factory to `login-required`.
+
+**Close-out:**
+
+- Verified with `packages/resources`' suite (17), `apps/nebula`'s (1064 passed) and `dev-tab-frame` with Docker. The frame's code runs only in a page framed with a named parent, which no container-free scenario builds, so the `--fast` sweep runs once at Phase 3's gate and covers both phases.

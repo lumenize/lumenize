@@ -17,7 +17,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { ROOT_NODE_ID } from '@lumenize/resources';
-import type { OntologyStaleInfo, TransactionOutcome } from '@lumenize/resources';
+import type { BuildStaleInfo, OntologyStaleInfo, TransactionOutcome } from '@lumenize/resources';
 import { adminClientAt, createInvitedClient, pageOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 import type { StarTest } from './index';
@@ -55,8 +55,8 @@ describe('the reload guard', () => {
     const browser = new Browser();
     // One tab's storage, handed to each Client as a page in that tab would have it.
     const tab = browser.context(pageOf(star)).sessionStorage;
-    const calls: OntologyStaleInfo[] = [];
-    const extra = { sessionStorage: tab, onShouldRefreshUI: (info: OntologyStaleInfo) => { calls.push(info); } };
+    const calls: Array<OntologyStaleInfo | BuildStaleInfo> = [];
+    const extra = { sessionStorage: tab, onShouldRefreshUI: (info: OntologyStaleInfo | BuildStaleInfo) => { calls.push(info); } };
 
     const first = (await adminClientAt(NebulaClientTest, browser, star, star, EMAIL, 'v1', extra)).client;
     await install(first, star, 'v1');
@@ -99,9 +99,9 @@ describe('a `checking` answer', () => {
    *  its Galaxy's answer held, so every op the client sends is answered `checking`. */
   async function starAtAnotherVersion(subscribeFirst = false) {
     const star = uniqueStar();
-    const calls: OntologyStaleInfo[] = [];
+    const calls: Array<OntologyStaleInfo | BuildStaleInfo> = [];
     const client = (await adminClientAt(NebulaClientTest, new Browser(), star, star, EMAIL, 'v1',
-      { onShouldRefreshUI: (info: OntologyStaleInfo) => { calls.push(info); } })).client;
+      { onShouldRefreshUI: (info: OntologyStaleInfo | BuildStaleInfo) => { calls.push(info); } })).client;
     await install(client, star, 'v1');
     const ids = [crypto.randomUUID(), crypto.randomUUID()] as const;
     committed(await client.resources.transaction({
