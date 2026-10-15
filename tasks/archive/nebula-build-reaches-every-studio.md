@@ -1,6 +1,6 @@
 # A previewed build reaches every Studio on its app
 
-**Status:** Built 2026-10-14/15, all five phases, through a verifier panel and a deployed pass (§ *Build notes*); the archive waits on Larry reading the retro. Drafted 2026-10-12; two Stage 1 passes and a Stage 2 pass ran on 2026-10-13, and Larry settled the decisions they raised (§ *Decisions*). It builds the part of [ADR-024](../docs/adr/024-two-versions-keep-an-app-in-step.md)'s build version that Studio needs, absorbs fast-follow Item 8, and builds before personas, whose tab pacing runs on it.
+**Status:** Built 2026-10-14/15 and archived 2026-10-15: all five phases, a verifier panel, a deployed pass, and at the hand-off a type check on the real types, reload guards keyed on the pair, and `drive.ts all --rerun` (§ *Build notes*). Drafted 2026-10-12; two Stage 1 passes and a Stage 2 pass ran on 2026-10-13, and Larry settled the decisions they raised (§ *Decisions*). It builds the part of [ADR-024](../../docs/adr/024-two-versions-keep-an-app-in-step.md)'s build version that Studio needs, absorbs fast-follow Item 8, and builds before personas, whose tab pacing runs on it.
 
 ## Objective
 
@@ -20,11 +20,11 @@ This task adds a reload Austen did not ask for. Jennifer's build now reloads Aus
 
 ## Context
 
-**ADR-024 gave every page two versions, and only one of them works yet.** The ontology version works end to end: a build that changes the types reaches every page that holds a subscription, because the Star's install tells each of them ([nebula-star-ontology.md](archive/nebula-star-ontology.md)). The build version exists only as a digest the build job reports. So a build that changes only code reaches whoever asked for it, and a collaborator watching the same app keeps running code that no longer exists. The ADR's *Today's code differs* says exactly that.
+**ADR-024 gave every page two versions, and only one of them works yet.** The ontology version works end to end: a build that changes the types reaches every page that holds a subscription, because the Star's install tells each of them ([nebula-star-ontology.md](nebula-star-ontology.md)). The build version exists only as a digest the build job reports. So a build that changes only code reaches whoever asked for it, and a collaborator watching the same app keeps running code that no longer exists. The ADR's *Today's code differs* says exactly that.
 
-**The model's call on the preview decides less than it was meant to.** On 2026-08-28 previewing became the model's call ([archive/nebula-move-compilers-out-of-the-worker.md](archive/nebula-move-compilers-out-of-the-worker.md)): a clean build is previewed by default, and the model decides for one with type findings, which still bundles because `vite build` does not type-check. But the Galaxy serves `.dev` straight from `dist/`, which every bundle overwrites, so a build the model held back is live the moment it arrives, and the call decides only whether the requester's preview reloads. Telling every Studio about every build on top of that would reload every Studio onto a build the model held back. So this task moves the word *land*: today a build lands when its bundle arrives, and after it a build lands on `.dev` when the model previews it.
+**The model's call on the preview decides less than it was meant to.** On 2026-08-28 previewing became the model's call ([archive/nebula-move-compilers-out-of-the-worker.md](nebula-move-compilers-out-of-the-worker.md)): a clean build is previewed by default, and the model decides for one with type findings, which still bundles because `vite build` does not type-check. But the Galaxy serves `.dev` straight from `dist/`, which every bundle overwrites, so a build the model held back is live the moment it arrives, and the call decides only whether the requester's preview reloads. Telling every Studio about every build on top of that would reload every Studio onto a build the model held back. So this task moves the word *land*: today a build lands when its bundle arrives, and after it a build lands on `.dev` when the model previews it.
 
-**Personas is why now.** It puts several pages of one app on screen at once, a tab per persona in Studio and each persona also on its own host, and it paces their reloads after a build: the tab in view at once, each other loaded tab the next time it comes into view ([nebula-testing-with-personas.md](nebula-testing-with-personas.md) § *Decisions*). That pacing needs every Studio on the app to know which build landed. Fast-follow Item 8 already planned the first half, telling every Studio; this task takes it over.
+**Personas is why now.** It puts several pages of one app on screen at once, a tab per persona in Studio and each persona also on its own host, and it paces their reloads after a build: the tab in view at once, each other loaded tab the next time it comes into view ([nebula-testing-with-personas.md](../nebula-testing-with-personas.md) § *Decisions*). That pacing needs every Studio on the app to know which build landed. Fast-follow Item 8 already planned the first half, telling every Studio; this task takes it over.
 
 The rest of this file says what each page needs, what exists, and the contract the phases build against.
 
@@ -37,10 +37,10 @@ The rest of this file says what each page needs, what exists, and the contract t
 
 ## Relationships
 
-- **Gated by nothing open.** ADR-024 is committed, and [nebula-star-ontology.md](archive/nebula-star-ontology.md) is built.
-- **Gates [nebula-testing-with-personas.md](nebula-testing-with-personas.md),** whose strip sends the reload request this task builds.
-- **Absorbs [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 8: Tell the OTHER collaborators a new build landed*.** Its goal carries over. Its list of who has the app open, the chat query's subscribers, gives way to the Studios subscribed to `.dev`'s `ServedBuild`. Its two warnings, that a closed tab takes time to drop off the list and that nobody may have to remember to enrol, are answered in § *Decisions*.
-- **Builds before [nebula-agent-posts-as-itself.md](nebula-agent-posts-as-itself.md).** This task's landing passes `ensureResource` a server-composed `actor` and the pinned verdict. That file's § *What changes* removes the verdict's flag, `pinnedAtPost`, and its open questions take `actor`'s only caller to be the reply, so Phase 3 amends it to keep both, with the landing as their caller. Beyond those two, the tasks touch different parts of the same reply composition in `galaxy.ts`, `security.md`'s bullet on a turn's authority, and the scenarios `four-party-chat` and `first-app-built`.
+- **Gated by nothing open.** ADR-024 is committed, and [nebula-star-ontology.md](nebula-star-ontology.md) is built.
+- **Gates [nebula-testing-with-personas.md](../nebula-testing-with-personas.md),** whose strip sends the reload request this task builds.
+- **Absorbs [nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 8: Tell the OTHER collaborators a new build landed*.** Its goal carries over. Its list of who has the app open, the chat query's subscribers, gives way to the Studios subscribed to `.dev`'s `ServedBuild`. Its two warnings, that a closed tab takes time to drop off the list and that nobody may have to remember to enrol, are answered in § *Decisions*.
+- **Builds before [nebula-agent-posts-as-itself.md](../nebula-agent-posts-as-itself.md).** This task's landing passes `ensureResource` a server-composed `actor` and the pinned verdict. That file's § *What changes* removes the verdict's flag, `pinnedAtPost`, and its open questions take `actor`'s only caller to be the reply, so Phase 3 amends it to keep both, with the landing as their caller. Beyond those two, the tasks touch different parts of the same reply composition in `galaxy.ts`, `security.md`'s bullet on a turn's authority, and the scenarios `four-party-chat` and `first-app-built`.
 - **Updates ADR-024 in a late phase.**
   - § *Decision* says a Galaxy's `.dev` Star runs its last successful build's ontology version; it comes to say its last previewed build's.
   - § *Today's code differs* comes to say every page carries its build version, and a build that changes only code reaches every Studio on the app.
@@ -48,8 +48,8 @@ The rest of this file says what each page needs, what exists, and the contract t
   - § *Deliberately open*'s bullet on pages served while a build's output is still arriving comes to say `.dev` serves only a copy made once a build is previewed, as a published Star serves only `dist-prod/`.
   - § *Consequences* promises the preview always runs what was just built; it comes to say the preview runs the last build the model previewed, and gains a negative line, that a held-back build is served nowhere until the model previews a build.
 - **Changes every test and scenario that asserts the requester-only push,** as Phase 4 lists them.
-- **Touches three rows of [backlog.md](backlog.md).** The `.draft` Star row in § *Nebula* is new; in § *Nebula Studio UI*, the row on reflecting `activeScope` in the URL gains the preview's own path, and Phase 4 builds the clearing half of the login-notice row.
-- **Leaves Stars with real users, and every page outside Studio, to fast-follow, beside Mesh's durable outbox.** [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 5* owns how a page learns its build is stale on its own, and a publish copying `/dist-dev/` to `/dist-prod/`; § *Item 4* owns a reload keeping the page's unsaved writes; and [mesh-1-alpha.md](mesh-1-alpha.md) § *Item 11: Durable calls* owns the outbox, which keeps a call in flight from a Client or a Durable Object across a restart of either.
+- **Touches three rows of [backlog.md](../backlog.md).** The `.draft` Star row in § *Nebula* is new; in § *Nebula Studio UI*, the row on reflecting `activeScope` in the URL gains the preview's own path, and Phase 4 builds the clearing half of the login-notice row.
+- **Leaves Stars with real users, and every page outside Studio, to fast-follow, beside Mesh's durable outbox.** [nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 5* owns how a page learns its build is stale on its own, and a publish copying `/dist-dev/` to `/dist-prod/`; § *Item 4* owns a reload keeping the page's unsaved writes; and [mesh-1-alpha.md](../mesh-1-alpha.md) § *Item 11: Durable calls* owns the outbox, which keeps a call in flight from a Client or a Durable Object across a restart of either.
 
 ## Current state
 
@@ -89,7 +89,7 @@ Built already, each with its fate:
 - **The landing writes `ServedBuild` as the build's caller, under the verdict of the door that admitted the build.** A turn's build is written as the poster whose message started it, with the platform as actor, the record `docs/vision/auth.md` § *When the agent acts* gives every agent write; a direct `buildNow` is written as its caller, with no actor. The door's verdict is `requireChatWrite` for `buildNow` and the post's own check for a turn. The write is a create at a fresh `crypto.randomUUID()` through `ensureResource`, the host-only method that already takes the server-composed `actor` and the pinned verdict and broadcasts a create with no originator, so the requester's Studio hears it too and the landing needs no write path of its own.
 - **The Galaxy tells a turn's build from a direct one by where it runs, never by what a caller sends.** A turn's loop runs inside a Galaxy-private `AsyncLocalStorage` holding the post that started it, and `#buildAndLand` reads it: inside, the landing records the poster with the platform as actor under the post's verdict; outside, the caller with no actor under `requireChatWrite`'s. `buildNow` passes on only `preview`, so no option on the wire can claim a turn.
 - **A chat participant may also write a `ServedBuild`** through the ordinary door, like any resource under the chat node. A forged row is the newest only until the next landing creates a newer one, and deleting the newest makes an older one the newest; either costs a traceable reload, which Studio asks its frame for once per value, and neither keeps the next landing from reaching every Studio.
-- **Studio reloads its frame by asking it, except after a wipe.** Studio cannot read a frame's address across origins, so setting the address, as `reloadPreview` does, loses the frame's URL ([ADR-017](../docs/adr/017-the-url-is-the-view-state.md)). Instead:
+- **Studio reloads its frame by asking it, except after a wipe.** Studio cannot read a frame's address across origins, so setting the address, as `reloadPreview` does, loses the frame's URL ([ADR-017](../../docs/adr/017-the-url-is-the-view-state.md)). Instead:
   - When `ServedBuild` changes, Studio posts `{ type: 'lumenize:reload', build: '9c41e0…' }`.
   - The Reload button posts `{ type: 'lumenize:reload' }`, naming no build, which the frame obeys whatever it holds.
   - `wipe()` sets the address to the Star's root, navigating even when the frame already sits there, since the URL it was on may name data the wipe deleted.
@@ -105,8 +105,8 @@ Built already, each with its fate:
 
 ## Constraints
 
-- [ADR-024](../docs/adr/024-two-versions-keep-an-app-in-step.md): two versions compared by equality, and the build version never rides a data-op, so the Star never sees it and a code-only build refuses nobody's write.
-- [ADR-017](../docs/adr/017-the-url-is-the-view-state.md): a reload lands on the same URL. That keeps the view wherever an app keeps its view in the URL, which the scaffold's `App.vue` does not yet ([backlog.md](backlog.md) § *Nebula*'s row on a URL-synced view-state store), so a `/live` scenario asserts the URL.
+- [ADR-024](../../docs/adr/024-two-versions-keep-an-app-in-step.md): two versions compared by equality, and the build version never rides a data-op, so the Star never sees it and a code-only build refuses nobody's write.
+- [ADR-017](../../docs/adr/017-the-url-is-the-view-state.md): a reload lands on the same URL. That keeps the view wherever an app keeps its view in the URL, which the scaffold's `App.vue` does not yet ([backlog.md](../backlog.md) § *Nebula*'s row on a URL-synced view-state store), so a `/live` scenario asserts the URL.
 - `mesh.md`: Studio learns the build by subscription, as that rule prefers for live UI data, and nothing new is pushed or awaited.
 - `live.md`: a `/live` scenario first. The change is to what Clients hear, so the close-out runs a deployed pass of the scenarios it writes or touches.
 - `studio-guidance.md`: `preview` stays the build tool's word. Every place the model reads about it changes (§ *Current state*), the embed is regenerated, and the close-out runs that rule's three guidance scenarios, `studio-guidance-loop`, `four-party-chat` and `first-app-built`, and records a dated findings line.
@@ -114,7 +114,7 @@ Built already, each with its fate:
 
 ## Future state
 
-- **A `.draft` Star serves the latest build, previewed or not** (Larry, 2026-10-13), so the model can run its own tests and explore a build before previewing it. Every build that arrives is copied to `/dist-draft/` and gets `.draft`'s own `ServedBuild`; a preview promotes `/dist-draft/` to `/dist-dev/`, as a publish promotes `/dist-dev/` to `/dist-prod/`. It would be one more reserved Star slug ([ADR-021](../docs/adr/021-every-scope-has-its-own-host.md)); [backlog.md](backlog.md) § *Nebula* holds it.
+- **A `.draft` Star serves the latest build, previewed or not** (Larry, 2026-10-13), so the model can run its own tests and explore a build before previewing it. Every build that arrives is copied to `/dist-draft/` and gets `.draft`'s own `ServedBuild`; a preview promotes `/dist-draft/` to `/dist-dev/`, as a publish promotes `/dist-dev/` to `/dist-prod/`. It would be one more reserved Star slug ([ADR-021](../../docs/adr/021-every-scope-has-its-own-host.md)); [backlog.md](../backlog.md) § *Nebula* holds it.
 - **Personas' strip** paces the reload request as § *Context* describes, and a frame already on the build stays put, so Studio keeps no record of what each frame loaded.
 - **An environment Star that follows the build as `.dev` does** (ADR-024 leaves it open) gets the build version for free, since the Galaxy writes it on every serve, and a `ServedBuild` of its own.
 
@@ -227,7 +227,7 @@ Each phase leaves `npm run type-check` and `npm test` green, and its changed sou
 
 - **A page outside Studio checking its own build:** fast-follow Item 5.
 - **Carrying unsaved writes across a reload:** fast-follow Item 4, beside Mesh 1.0 Item 11's durable outbox.
-- **A `.draft` Star:** [backlog.md](backlog.md) § *Nebula*.
+- **A `.draft` Star:** [backlog.md](../backlog.md) § *Nebula*.
 - **Studio's URL carrying the preview's path:** the row on reflecting `activeScope` in the URL, in `backlog.md` § *Nebula Studio UI*.
 - **A richer login notice,** with a kind, a status, a reason and a recheck of Studio's session: the login-notice row in the same section.
 - **The loop warning the model at `mark_complete` on a held-back build:** § *Decisions*, to be added if turns often end that way.
