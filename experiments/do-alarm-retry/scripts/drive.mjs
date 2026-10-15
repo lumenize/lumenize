@@ -63,5 +63,5 @@ console.log(`\nresults/${run}.json  (${startedAt} → ${finishedAt})`);
 for (const p of probes) {
   const as = p.report.attempts;
   const gaps = as.slice(1).map((a, i) => ((Date.parse(a.firedAt) - Date.parse(as[i].firedAt)) / 1000).toFixed(1));
-  console.log(`${p.mode.padEnd(13)} attempts=${as.length} retryCount=[${as.map((a) => a.retryCount)}] isRetry=[${as.map((a) => a.isRetry)}] gaps=[${gaps}] completed=[${as.map((a) => (a.completedAt ? 'y' : '-')).join('')}] getAlarm=${p.report.alarm}`);
+  console.log(`${p.mode.padEnd(13)} attempts=${as.length} retryCount=[${as.map((a) => a.retryCount)}] isRetry=[${as.map((a) => a.isRetry)}] gaps=[${gaps}] completed=[${as.map((a) => (a.completedAt ? 'y' : '-')).join('')}] getAlarm=${p.report.alarm}${p.report.caught?.length ? ` caught=${JSON.stringify(p.report.caught)}` : ''}`);
 }

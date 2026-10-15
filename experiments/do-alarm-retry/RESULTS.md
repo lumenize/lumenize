@@ -12,6 +12,8 @@
 | `cpu` | an infinite loop |
 | `memory` | allocates 8 MB arrays until killed |
 | `reset` | waits 90 s; the driver redeploys the Worker during the first two attempts |
+| `cpu-catch` | burns CPU in ~50 ms chunks inside a `try`, awaiting `ctx.storage.sync()` between chunks; a `catch` logs, records and returns |
+| `memory-catch` | the same, allocating 8 MB per chunk |
 | `rearm-abort` | `setAlarm(now + 10 s)`, made durable, then `ctx.abort()`; stops after 6 attempts |
 | `rearm-throw` | the same, then throws |
 
@@ -39,6 +41,8 @@ One run per mode. The `retryCount` column is what each attempt's `alarmInfo` sai
 5. **`ctx.abort(reason, { retryAlarm: false })` ends the alarm after one attempt**, and leaves `getAlarm()` answering its time as finding 3 describes.
 6. **A redeploy did not interrupt a running alarm.** The driver redeployed 20 s into the `reset` handler's 90 s wait. The stateless Worker answered from the new version within seconds, while the object stayed on the old version (`633d9ef9`) for the whole handler and for the 2.5 minutes of 5 s polls after it, to the end of the run. One trial, on an object kept busy, so this says a deploy need not reset an object mid-alarm, not that it never does.
 7. **A kill also fails the requests in flight on the object.** `/report` polls that landed during a CPU spin or a memory blowout answered 500, and Workers Issues recorded each as the same reset error at `Object.fetch`.
+
+8. **A kill cannot be caught by the code it kills, even across awaits.** The `cpu-catch` and `memory-catch` modes ran the same burn and blowout in chunks, inside a `try`, awaiting `ctx.storage.sync()` between chunks, so a condemned isolate had an I/O boundary at which to surface its reset as an exception. Over the 17 attempts the two drives watched, none recorded a catch. The second version's `catch` logs before touching storage and then returns: Workers Logs holds the probe lines of seven attempts that ran it, and no `caught` line. Every attempt ended `exceededCpu` or `exceededMemory` and was retried. This matters for the `agents` SDK (0.28.1): its alarm memory-limit circuit breaker (`#1825` in `lifecycle/job-driver.ts`) acts only on a memory-limit reset that reaches its `catch` as an Error, and its own test produces one by throwing `new Error("Durable Object's isolate exceeded its memory limit and was reset.")` from the job. A reset of the isolate running the job never reaches it. One that does would come from somewhere else, such as a call into another isolate, which this probe did not try.
 
 **Not measured.** The 15-minute wall-time limit, which `runAlarm` counts like the kills. A retry the runtime blames on itself, which workerd counts as a broken output gate with no user error and no limit exceeded, retried with no limit: none of these modes provoked one, so whether `retryCount` stays at 0 for it in production is unseen. A machine dying mid-handler.
 

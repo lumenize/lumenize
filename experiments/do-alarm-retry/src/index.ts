@@ -14,8 +14,15 @@ import { DurableObject } from 'cloudflare:workers';
 //   reset          — waits 90 s, during which the driver redeploys the Worker, then succeeds
 //   rearm-abort    — setAlarm(+10 s), made durable, then ctx.abort(); stops after 6 attempts
 //   rearm-throw    — setAlarm(+10 s), made durable, then throws; stops after 6 attempts
+//   cpu-catch      — burns CPU in ~50 ms chunks inside try/catch, awaiting storage between chunks
+//   memory-catch   — allocates 8 MB per chunk inside try/catch, awaiting storage between chunks
+// The two `-catch` modes ask whether a real kill ever surfaces as an exception the handler can
+// catch, which the `agents` SDK's alarm memory-limit breaker depends on; a catch writes a row to
+// Caught and ends the alarm.
 
-const MODES = ['throw', 'abort', 'abort-noretry', 'cpu', 'memory', 'reset', 'rearm-abort', 'rearm-throw'] as const;
+const MODES = [
+  'throw', 'abort', 'abort-noretry', 'cpu', 'memory', 'reset', 'rearm-abort', 'rearm-throw', 'cpu-catch', 'memory-catch',
+] as const;
 type Mode = (typeof MODES)[number];
 
 const REARM_DELAY_MS = 10_000;
@@ -40,10 +47,12 @@ export class Probe extends DurableObject<Env> {
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS Attempts (
       seq INTEGER PRIMARY KEY, firedAt TEXT NOT NULL, scheduledTime TEXT NOT NULL,
       retryCount INTEGER, isRetry INTEGER, completedAt TEXT)`);
+    ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS Caught (seq INTEGER NOT NULL, at TEXT NOT NULL, message TEXT NOT NULL)');
   }
 
   async arm(name: string, mode: Mode): Promise<{ armedAt: string; alarmAt: string }> {
     this.ctx.storage.sql.exec('DELETE FROM Attempts');
+    this.ctx.storage.sql.exec('DELETE FROM Caught');
     this.ctx.storage.kv.put('name', name);
     this.ctx.storage.kv.put('mode', mode);
     const now = Date.now();
@@ -51,10 +60,11 @@ export class Probe extends DurableObject<Env> {
     return { armedAt: iso(now), alarmAt: iso(now + 2_000) };
   }
 
-  async report(): Promise<{ mode: string | undefined; alarm: string | null; attempts: Attempt[] }> {
+  async report(): Promise<{ mode: string | undefined; alarm: string | null; attempts: Attempt[]; caught: unknown[] }> {
     const alarm = await this.ctx.storage.getAlarm();
     const attempts = this.ctx.storage.sql.exec<Attempt & Record<string, SqlStorageValue>>('SELECT * FROM Attempts ORDER BY seq').toArray();
-    return { mode: this.ctx.storage.kv.get<string>('mode'), alarm: alarm === null ? null : iso(alarm), attempts };
+    const caught = this.ctx.storage.sql.exec('SELECT * FROM Caught ORDER BY seq').toArray();
+    return { mode: this.ctx.storage.kv.get<string>('mode'), alarm: alarm === null ? null : iso(alarm), attempts, caught };
   }
 
   async alarm(info?: AlarmInvocationInfo): Promise<void> {
@@ -104,6 +114,31 @@ export class Probe extends DurableObject<Env> {
         if (mode === 'rearm-abort') this.ctx.abort('probe-rearm-abort');
         else throw new Error('probe-rearm-throw');
         return;
+      case 'cpu-catch':
+      case 'memory-catch':
+        try {
+          const keep: number[][] = [];
+          for (let chunk = 0; ; chunk++) {
+            if (mode === 'memory-catch') keep.push(new Array(1 << 20).fill(chunk));
+            else {
+              let x = chunk;
+              for (let i = 0; i < 50_000_000; i++) x = (Math.imul(x, 31) + 7) | 0;
+              if (x === 42) console.log('unlikely');
+            }
+            // An I/O boundary per chunk, where a condemned isolate could surface its reset.
+            await this.ctx.storage.sync();
+          }
+        } catch (e) {
+          // Log before touching storage, and return whatever storage does: a broken storage would
+          // otherwise turn a catch that ran into a throw, indistinguishable from no catch at all.
+          const message = String((e as Error)?.message ?? e);
+          console.log(JSON.stringify({ probe: name, mode, seq, caught: message }));
+          try {
+            this.ctx.storage.sql.exec('INSERT INTO Caught (seq, at, message) VALUES (?, ?, ?)', seq, iso(Date.now()), message);
+            await this.ctx.storage.sync();
+          } catch {}
+          return;
+        }
       default:
         break;
     }
