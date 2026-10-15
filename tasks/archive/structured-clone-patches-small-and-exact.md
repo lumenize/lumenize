@@ -1,6 +1,11 @@
 # Stored values merge-patch small and exact
 
-**Status:** Pass 1 and its success criteria written 2026-10-14; `/review-task` Stage 1 ran twice and is resolved; Pass 2 written 2026-10-14; Stage 2 ran 2026-10-14 and is resolved. Ready for `/build-task`. A pre-alpha must-have that gates ⑥ the wipe ([nebula-pre-alpha.md](nebula-pre-alpha.md)).
+**Status:** ✅ Built 2026-10-14, phases in `4a2f2ef`, `bf4fd8a`, `4b6c969` and `f6f3f11`, the verifier panel's fixes in `6689336`. A pre-alpha must-have that gated ⑥ the wipe ([nebula-pre-alpha.md](../nebula-pre-alpha.md)). Pass 1 and its success criteria were written 2026-10-14, `/review-task` Stage 1 ran twice and Stage 2 once.
+
+> **Found false after the phases were written (2026-10-14):**
+> - **Phase 4's step 4** re-puts test-nebula's secrets "with the loop in `deploy-test.sh`'s header". That loop copied `AUTH_BOOTSTRAP_EMAIL` from `.dev.vars`, which lacks `claude@lumenize.io`, the harness's superuser on a deployed target; the header now says to add it (§ *Build notes*, Phase 4).
+> - **Rule 8's "a reordered collection inside a Map or Set is `{ kind: 'full' }`"**: only a Map's object form can hold a collection. A Set holding one is in `values` form, a JSON array, which the array rule replaces whole.
+> - **Rule 6 and criterion 10's "a `DataView` window outside its buffer"**: a DataView carries only its own bytes, with no window, and the decoder refuses any `arraybuffer` naming `byteOffset` or `byteLength`.
 
 ## Objective
 
@@ -21,11 +26,11 @@
 
 ## Context
 
-**Adding one entry to a Map sends the whole Map.** `@lumenize/structured-clone` writes a Map as one `entries` array, a Set as one `values` array, and an id list as one plain array, and RFC 7396 replaces an array whole. The format was designed for merge patch: [archive/structured-clone-object-based-wire-format.md](archive/structured-clone-object-based-wire-format.md) § *D2: Permissions stay nested in-memory* decided that Maps travel as nested objects. Its experiment measured that shape with plain objects standing in for Maps, and `experiments/structured-clone-object-format/RESULTS.md` § *Recommendation* left the encoding of special types to the implementation, which kept the old tuple format's arrays. Its Map test checks only that a patch round-trips, and the test beside it is named for a small patch but never measures one. Nothing has sent a patch yet, so production is unaffected.
+**Adding one entry to a Map sends the whole Map.** `@lumenize/structured-clone` writes a Map as one `entries` array, a Set as one `values` array, and an id list as one plain array, and RFC 7396 replaces an array whole. The format was designed for merge patch: [archive/structured-clone-object-based-wire-format.md](structured-clone-object-based-wire-format.md) § *D2: Permissions stay nested in-memory* decided that Maps travel as nested objects. Its experiment measured that shape with plain objects standing in for Maps, and `experiments/structured-clone-object-format/RESULTS.md` § *Recommendation* left the encoding of special types to the implementation, which kept the old tuple format's arrays. Its Map test checks only that a patch round-trips, and the test beside it is named for a small patch but never measures one. Nothing has sent a patch yet, so production is unaffected.
 
-**This surfaced on 2026-10-14**, while weighing JSON Merge Patch as the way to deliver a resource change through MCP Events ([backlog.md](backlog.md) § *Lumenize Mesh*, the MCP Events row). Probing the encoder for that found more: shared objects keyed by a counter, a `null` a patch reads as a delete, a `__proto__` key `diff` drops, a request's body copied raw, a sparse array's hole written as `null`, and binary written as a number array.
+**This surfaced on 2026-10-14**, while weighing JSON Merge Patch as the way to deliver a resource change through MCP Events ([backlog.md](../backlog.md) § *Lumenize Mesh*, the MCP Events row). Probing the encoder for that found more: shared objects keyed by a counter, a `null` a patch reads as a delete, a `__proto__` key `diff` drops, a request's body copied raw, a sparse array's hole written as `null`, and binary written as a number array.
 
-**The wipe is the last point at which all of it can change for free.** Four places store this encoding: `Snapshots.value`, which holds every resource version; the operation chains in `__lmz_alarms` (`packages/mesh/src/alarms.ts`); `Subscriptions.query`; and `Subscriptions.topic`, a query hash computed from it. [ADR-004](../docs/adr/004-snodgrass-temporal-resources.md) never rewrites a resource version. Most of the changes below could be decoded beside the old form, but every version stored before them would keep patching large or losing its nulls. One cannot be decoded beside it at all: once the wrapper goes, a user's own `{ json, meta }` object reads exactly like an old encoding. The wire closes too: every generated app bundles the codec (`apps/nebula/container/Dockerfile` copies `packages/structured-clone/src` into the build image), and a `.dev` app runs its last landed build until it is rebuilt ([ADR-024](../docs/adr/024-two-versions-keep-an-app-in-step.md)), so after the wipe a change to any encoded form breaks every app built before it. Larry, 2026-10-14: merge-patch sync can wait until after pre-alpha, but the format it will patch cannot.
+**The wipe is the last point at which all of it can change for free.** Four places store this encoding: `Snapshots.value`, which holds every resource version; the operation chains in `__lmz_alarms` (`packages/mesh/src/alarms.ts`); `Subscriptions.query`; and `Subscriptions.topic`, a query hash computed from it. [ADR-004](../../docs/adr/004-snodgrass-temporal-resources.md) never rewrites a resource version. Most of the changes below could be decoded beside the old form, but every version stored before them would keep patching large or losing its nulls. One cannot be decoded beside it at all: once the wrapper goes, a user's own `{ json, meta }` object reads exactly like an old encoding. The wire closes too: every generated app bundles the codec (`apps/nebula/container/Dockerfile` copies `packages/structured-clone/src` into the build image), and a `.dev` app runs its last landed build until it is rebuilt ([ADR-024](../../docs/adr/024-two-versions-keep-an-app-in-step.md)), so after the wipe a change to any encoded form breaks every app built before it. Larry, 2026-10-14: merge-patch sync can wait until after pre-alpha, but the format it will patch cannot.
 
 The goals below say what is wrong today, measured, and § *Design intent* says what the encoder and `diff` do instead.
 
@@ -34,7 +39,7 @@ The goals below say what is wrong today, measured, and § *Design intent* says w
 Each goal says how today's code misses it, except goal 4, which goal 1 creates. Every number was measured on 2026-10-14 against `packages/structured-clone/src`, with throwaway scripts that are not in the repo.
 
 1. **Adding an entry to a Map or Set, or appending to or removing from a long id list, patches one entry.** Today each is one array, and RFC 7396 replaces an array whole.
-   - **The stored case is the id list.** [ADR-006](../docs/adr/006-resources-reference-by-id.md) writes `members: User[]` as a `string[]` of distinct ids, so adding one id to a 500-member list patches to 19,561 B and removing one to 19,483 B.
+   - **The stored case is the id list.** [ADR-006](../../docs/adr/006-resources-reference-by-id.md) writes `members: User[]` as a `string[]` of distinct ids, so adding one id to a 500-member list patches to 19,561 B and removing one to 19,483 B.
    - **The wire case is the org tree**, which `#buildState` rebuilds in memory with Map nodes, Set edges and `Map<Map>` permissions and sends to every client. At 1,000 nodes adding a leaf patches to 89,887 B against a 96,078 B snapshot, and one grant to 6,246 B; the same tree as plain objects patches to 111 B and 58 B. Compression does not rescue it: at 10,000 nodes, gzipped, the leaf is 104,655 B against a 111,447 B snapshot.
 2. **Adding or removing a shared object changes no other object's `$ref`.** Today an alias id is a counter assigned in traversal order, so one shared object added ahead of the rest renumbers every alias after it. With 200 shared objects and one added ahead of them, the patch was 17,467 B against a 17,380 B snapshot.
 3. **A `null` survives a patch.** RFC 7396 reads `null` as "delete this key", and the encoder writes a `null` as JSON `null`. So changing `{ a: 1, b: 2 }` to `{ a: 1, b: null }` produces `{"json":{"b":null}}`, the same patch as deleting `b`, and the patched value decodes without `b`. SQLite's `json_patch` follows RFC 7396 too, so a patch applied in storage would lose it the same way.
@@ -45,12 +50,12 @@ Each goal says how today's code misses it, except goal 4, which goal 1 creates. 
 
 ## Relationships
 
-- **Gates ⑥ the wipe**, as a `data`-gated row of [nebula-pre-alpha.md](nebula-pre-alpha.md) § *What remains*.
-- **Gates merge-patch sync**, [on-hold/wire-merge-patch-sync.md](on-hold/wire-merge-patch-sync.md), which [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 14* picks up after pre-alpha. Its protocol carries `diff`'s three answers (rule 8): a list of patches applied in order, or the full value.
-- **Gates delivering a resource change as one merge patch through MCP Events**, the prototype on [backlog.md](backlog.md)'s MCP Events row.
+- **Gates ⑥ the wipe**, as a `data`-gated row of [nebula-pre-alpha.md](../nebula-pre-alpha.md) § *What remains*.
+- **Gates merge-patch sync**, [on-hold/wire-merge-patch-sync.md](../on-hold/wire-merge-patch-sync.md), which [nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 14* picks up after pre-alpha. Its protocol carries `diff`'s three answers (rule 8): a list of patches applied in order, or the full value.
+- **Gates delivering a resource change as one merge patch through MCP Events**, the prototype on [backlog.md](../backlog.md)'s MCP Events row.
 - **Gated by nothing.**
-- **Supersedes** the "Foundation (already shipped)" claims in [on-hold/wire-merge-patch-sync.md](on-hold/wire-merge-patch-sync.md), corrected there on 2026-10-14.
-- **Backlog rows:** the base64 row in [backlog.md](backlog.md) § *@lumenize/structured-clone* is folded into this task and deleted; the release-notes row there is retired under `workflow.md` § *Releases*; the custom-Error row in § *Lumenize Mesh* stays open, with the `DOMException` catch recorded on it.
+- **Supersedes** the "Foundation (already shipped)" claims in [on-hold/wire-merge-patch-sync.md](../on-hold/wire-merge-patch-sync.md), corrected there on 2026-10-14.
+- **Backlog rows:** the base64 row in [backlog.md](../backlog.md) § *@lumenize/structured-clone* is folded into this task and deleted; the release-notes row there is retired under `workflow.md` § *Releases*; the custom-Error row in § *Lumenize Mesh* stays open, with the `DOMException` catch recorded on it.
 - **Un-skip obligations:** none. No skipped test in `packages/structured-clone`, `packages/mesh` or `packages/rpc` waits on this work (checked 2026-10-14).
 
 ## Current state
@@ -64,12 +69,12 @@ Each goal says how today's code misses it, except goal 4, which goal 1 creates. 
 - **The transform hook** (`PreprocessTransform`, `TRANSFORM_SKIP`, `PathElement` and `preprocess`'s `transform` option) — left behind. Its one caller is `LumenizeRpcDO` in `packages/rpc/src/lumenize-rpc-do.ts`, which runs `preprocess` with it and then `postprocess` only to clone a method's result with every function swapped for a remote-function marker. The codec's own `function` tag, `{"$type":"function","name":"increment"}`, carries only a name, while rpc's marker also carries the operation chain its client calls back through, and the hook was how rpc learned each function's location.
 - **`@lumenize/rpc`'s result path** — adapted. `flattenPrototypeChains`, which already walks the result with a `seen` map to keep identity, swaps each function for the same marker with the same operation chain, and descends into Map and Set values, which it skips today. The preprocess-then-postprocess round trip goes. A function inside a Map or Set value keeps today's chain, which ends at the container, because the encoder never added a segment for a Map key; matching it keeps every test that passes today passing.
 - **The decoder's `entries` and `values` paths** — carried over. A Map or Set whose keys mix types, or are neither strings nor numbers, still uses them.
-- **Error rehydration** (`newError` in `postprocess.ts`) — carried over unchanged. The custom-Error row in [backlog.md](backlog.md) § *Lumenize Mesh* stays open: its suggested `Object.create` fix throws on a rehydrated `DOMException`'s `.message`, and a `DataCloneError` is one.
+- **Error rehydration** (`newError` in `postprocess.ts`) — carried over unchanged. The custom-Error row in [backlog.md](../backlog.md) § *Lumenize Mesh* stays open: its suggested `Object.create` fix throws on a rehydrated `DOMException`'s `.message`, and a `DataCloneError` is one.
 - **`diff` and `applyMergePatch`** in `merge-patch.ts` — adapted (rules 8–9). Everything else they do carries over, and the RFC 7396 Appendix A suite (`test/merge-patch-rfc7396.test.ts`) keeps passing.
 - **Tests that read the old shape** — adapted in the phase that changes it: `test/merge-patch.test.ts` (it reads `meta.aliases`), `test/core.test.ts` (it reads `.json`) and `test/for-docs/api-tiers.test.ts` (it asserts a `json` property) in Phase 1, and `test/merge-patch.test.ts`'s round-trip cases again in Phase 3, where they gain size assertions.
 - **`canonicalQueryHash`** (`packages/resources/src/query-hash.ts`) — code carried over. Every query hash changes in this deploy (rule 11).
 - **`website/docs/structured-clone/index.mdx` and the header JSDoc** of `index.ts`, `preprocess.ts`, `postprocess.ts`, `merge-patch.ts` and `web-api-encoding.ts` — adapted to the format that ships.
-- **`website/docs/mesh/protocol.mdx`** — three edits. Its § *Serialization Format*, which still documents the tuple format from before W4, becomes a pointer to `index.mdx`; `LmzIntermediate` in its envelope listings becomes the encoded value's type; and the consistency-audit line calling the current format "clean tuple-based" goes. The rest of the page is [mesh-1-alpha.md](mesh-1-alpha.md) § *Item 1: The website docs rewrite*.
+- **`website/docs/mesh/protocol.mdx`** — three edits. Its § *Serialization Format*, which still documents the tuple format from before W4, becomes a pointer to `index.mdx`; `LmzIntermediate` in its envelope listings becomes the encoded value's type; and the consistency-audit line calling the current format "clean tuple-based" goes. The rest of the page is [mesh-1-alpha.md](../mesh-1-alpha.md) § *Item 1: The website docs rewrite*.
 - **A `{ json: …, meta: {} }` built by hand** in `packages/mesh/test/client-gateway.test.ts` — adapted. Criterion 16's grep finds it and every other mention of the old format.
 - **Old-format rows outside production** — left behind. The wipe deletes the production Worker only, so before this build's first deployed pass test-nebula is deleted from the dashboard and redeployed with `apps/nebula/scripts/deploy-test.sh`, and a local stack's `.wrangler/state` is cleared (rule 11).
 - **`experiments/structured-clone-object-format/`** — left behind, as every experiment is.
@@ -111,8 +116,8 @@ Each goal says how today's code misses it, except goal 4, which goal 1 creates. 
 
 ## Constraints
 
-- **[ADR-002](../docs/adr/002-structured-clone-everywhere.md)**: every form must still round-trip the full structured-clone value space, including a Map's insertion order, aliases with identity, cycles and holes. Its diff/patch surface takes one stated exception, a plain object's key order. That sharpens what the diff/patch surface promises, under `docs/adr/README.md` § *Lifecycle*, rather than superseding the ADR, and ADR-002 gains a sentence to say it.
-- **[ADR-004](../docs/adr/004-snodgrass-temporal-resources.md)**, as § *Context* says.
+- **[ADR-002](../../docs/adr/002-structured-clone-everywhere.md)**: every form must still round-trip the full structured-clone value space, including a Map's insertion order, aliases with identity, cycles and holes. Its diff/patch surface takes one stated exception, a plain object's key order. That sharpens what the diff/patch surface promises, under `docs/adr/README.md` § *Lifecycle*, rather than superseding the ADR, and ADR-002 gains a sentence to say it.
+- **[ADR-004](../../docs/adr/004-snodgrass-temporal-resources.md)**, as § *Context* says.
 - **The package takes no dependencies**; its docs advertise it.
 - **The decoder is the re-validation point for every frame a browser writes.** A Client's `chain` and `handler` are decoded in the host node before any guard runs (`client-gateway.ts`, `lmz-api.ts`), so every decode surface this task adds (the object forms, `keyType`, base64, the null and hole tags, a body decoded as a value, the pointer index) lands, in the phase that adds it, with at least one hand-written `test/hostile-payloads.test.ts` row that it refuses or shows constructs nothing.
 - **`.claude/rules/live.md`**: the codec's own tests run in the vitest lane, as the rule allows for a pure codec, and each new test file says why it needs no running system. Every `/live` scenario still decodes through the codec, and the codec ships in the container image, so the build also sweeps the registry and runs a deployed pass (criterion 15).
@@ -120,7 +125,7 @@ Each goal says how today's code misses it, except goal 4, which goal 1 creates. 
 
 ## Future state
 
-- **Merge-patch sync builds on this with no migration of stored data**, including a catch-up patch that bridges several stored versions ([nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 14*).
+- **Merge-patch sync builds on this with no migration of stored data**, including a catch-up patch that bridges several stored versions ([nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 14*).
 - **A stored value can travel inside a message without being decoded and re-encoded**, because rule 4 roots each pointer at its own encoding. § *Item 14* carries the measurements and the plan.
 - **SQLite's `json_patch` can apply a patch in storage** (rule 7).
 - ⚠️ Design consideration: **after the wipe, a new tag is a rebuild.** An app built before it refuses the tag with a `DataCloneError` (rule 10), so a tag Item 14 adds ships with a rebuild of every app, or with the server sending each app only the tags its build knows.
@@ -146,7 +151,7 @@ None; each is a row of § *Decisions*.
 | **The answers are named `DiffSame`, `DiffPatches` and `DiffFull`, and their union `Diff`** (Larry, 2026-10-14). Each is `Diff` plus the `kind` value it carries | `Unchanged`, `Patches` and `FullValue` in a union called `DiffResult`. Each reads well alone, but drifts from the `kind` values, so a reader switching on `kind` maps between two vocabularies. |
 | **A patch keeps every Map's, Set's and object-form array's order, and a plain object's properties and values but not their order** (Larry, 2026-10-14) | Keep every order, plain objects included. A resource's value is a plain object at its root, so every form that rebuilds a value in schema order would send the full value, to keep an order in which JavaScript puts integer keys first anyway. Also weighed: keep no order at all, which lets a patched Map iterate differently from a fresh read of the same eTag, against the order ES2015 gives Maps and Sets on purpose. |
 | **Two readers of one version may see a plain object's keys in different orders, and ADR-002 says so** (Larry, 2026-10-14). A fresh read of `{ title, dueDate, status }` keeps that order; a copy patched from `{ title, status }` reads `title, status, dueDate`. It shows only where code iterates the keys of a dictionary rebuilt in a new order, and an order that matters belongs in a Map or an array | Write each version in its predecessor's key order in `#writeSnapshot`, appending new keys, so every reader agrees. It costs a walk per write, ignores a writer who sorts a dictionary's keys, still diverges across a catch-up spanning a delete and re-add, and moves Resources work into a codec task. |
-| **The org tree's creation order is deferred to [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 14*, as something to consider** (Larry, 2026-10-14) | Add a ULID order column to `Nodes`, `Edges` and `Permissions` here. The org tree is rebuilt in memory and sent, never stored in this encoding, so the wipe does not bind it, and a column added later fills existing rows in primary-key order. Ordering `Permissions` by its own column also leaves the outer `permissions` Map following each node's earliest surviving grant, so one revoke can resend the whole tree; fixing that reshapes state Item 14 will design. |
+| **The org tree's creation order is deferred to [nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 14*, as something to consider** (Larry, 2026-10-14) | Add a ULID order column to `Nodes`, `Edges` and `Permissions` here. The org tree is rebuilt in memory and sent, never stored in this encoding, so the wipe does not bind it, and a column added later fills existing rows in primary-key order. Ordering `Permissions` by its own column also leaves the outer `permissions` Map following each node's earliest surviving grant, so one revoke can resend the whole tree; fixing that reshapes state Item 14 will design. |
 | **Typed arrays and `ArrayBuffer`s carry their bytes as base64** (Larry, 2026-10-14) | Keep the number array and switch later. A stored row could be decoded in both forms, but every app built before the switch could not decode the new one until rebuilt, unless the server sent each app the form its build knows. Typed arrays are rare in Larry's designs, but today the change is one tag. |
 | **This task changes the stored form and `diff`; sending patches is fast-follow** (Larry, 2026-10-14). Rules 1–7, 10 and 11 are what the wipe binds. Rules 8–9 change only `diff` and `applyMergePatch`, which nothing outside the package calls yet, and ride here because the size criteria run through `diff` | Build merge-patch sync before pre-alpha too. Only the stored form is wipe-bound. |
 
@@ -178,7 +183,7 @@ Pass 2 assigns each to a phase. Sizes are raw `JSON.stringify` bytes, so no test
 14. **Every key is data to `diff` and `applyMergePatch`, and `diff` refuses a decoded value.** Each of these patches and applies correctly, and `Object.prototype` gains nothing: adding, changing and deleting a plain key `constructor`, a Map entry named `toString`, a Set member named `valueOf`, and an own `__proto__` on a plain object and in `new Map([['__proto__', 1]])`; adding a nested object under `toString`; and an own `__proto__` inside an array element and inside a newly added subtree, whose decoded objects keep `Object.prototype` and inherit no `isAdmin`. `diff(new Date(0), new Date(1))` throws, under its own `// @ts-expect-error`, and the encode, diff, apply and decode round trip type-checks with no `as`. *Mutation:* each site separately: `in` in `diff`; `in` in the equality check; a bracket read in `diff` or in apply; plain assignment in `diff`, in the deep copy, or in apply; or drop the prototype check, so the two Dates diff to nothing.
 15. **Nothing else changed, locally or deployed.** In order: `npx tsc --noEmit -p packages/structured-clone` and `npm run test:code` pass, the RFC 7396 Appendix A suite included, covering every package that encodes with structured-clone; a local `drive.ts all`, container scenarios included, passes; then test-nebula is cleared and redeployed (Phase 4) and the deployed pass passes, ending with test-nebula's Workers Issues read since the pass began. Not run at review time: it is the build's own net, and its type-check step already passes against today's tree. *Mutation:* none; this is the regression net under the rest.
 16. **No description of the old format survives.** `grep -rnE 'meta\.aliases|\{ ?json, ?meta|meta: \{\}|LmzIntermediate|sidecar|\bW4\b|\["\$lmz"|tuple-(based|style)'` over `website/docs` (excluding the generated `api/` pages), `packages/structured-clone/src`, `packages/structured-clone/test` and `packages/mesh/test` finds only `website/docs/mesh/protocol.mdx`'s comparison with Cap'n Web, which describes Cap'n Web's format; and `npm run test:doc` passes. Run against today's tree on 2026-10-14, it finds 56 lines, so it can fail. *Mutation:* none; the grep is the instrument.
-17. **ADR-002 states its one exception and describes the format that ships.** [ADR-002](../docs/adr/002-structured-clone-everywhere.md) says a patch keeps a plain object's properties and values but not their key order, so a patched copy and a fresh read of one version may order its keys differently, and an order that matters belongs in a Map or an array. Its Decision and Consequences paragraphs no longer present the W4 format as current; the Evidence line, which is history, stays. ADR-002's line in `.claude/rules/workflow.md` § *Architecture commitments (ADRs)* names the exception too, since that line loads every session. *Mutation:* none; it is checked by reading.
+17. **ADR-002 states its one exception and describes the format that ships.** [ADR-002](../../docs/adr/002-structured-clone-everywhere.md) says a patch keeps a plain object's properties and values but not their key order, so a patched copy and a fresh read of one version may order its keys differently, and an order that matters belongs in a Map or an array. Its Decision and Consequences paragraphs no longer present the W4 format as current; the Evidence line, which is history, stays. ADR-002's line in `.claude/rules/workflow.md` § *Architecture commitments (ADRs)* names the exception too, since that line loads every session. *Mutation:* none; it is checked by reading.
 
 ## Phases
 
@@ -217,12 +222,12 @@ Each phase leaves `npm run test:code` green, and Phase 3 onward also `npx tsc --
 
 ## Non-goals
 
-- **Sending patches**, including encoding a broadcast once and passing a stored value through unchanged: [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 14*.
+- **Sending patches**, including encoding a broadcast once and passing a stored value through unchanged: [nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 14*.
 - **The org tree's creation order**, and measuring SQLite's `json_patch` against ours: considered under § *Item 14*.
 - **An object form for a Map or Set whose keys mix types, or are neither strings nor numbers.** Those keep `entries` or `values` (§ *Decisions*).
-- **Rehydrating an error without calling its constructor**: the custom-Error row in [backlog.md](backlog.md) § *Lumenize Mesh*.
+- **Rehydrating an error without calling its constructor**: the custom-Error row in [backlog.md](../backlog.md) § *Lumenize Mesh*.
 - **Normalizing key order on write**: weighed and rejected (§ *Decisions*).
-- **The rest of `website/docs/mesh/protocol.mdx`**: [mesh-1-alpha.md](mesh-1-alpha.md) § *Item 1: The website docs rewrite*.
+- **The rest of `website/docs/mesh/protocol.mdx`**: [mesh-1-alpha.md](../mesh-1-alpha.md) § *Item 1: The website docs rewrite*.
 - **JSON Patch (RFC 6902)**: left open (§ *Future state*).
 
 ## Build notes
@@ -243,11 +248,7 @@ Each phase leaves `npm run test:code` green, and Phase 3 onward also `npx tsc --
 
 **Gate:** `npm run test:code` passes. `packages/structured-clone` went from 49 files and 1,066 tests to 52 and 1,156, `packages/rpc` from 22 and 333 to 23 and 335, and `packages/testing` from 205 tests to 206; `npx tsc --noEmit` passes for structured-clone, rpc, testing, mesh, resources, `apps/nebula` and its harness.
 
-**For the human:**
-
-- **rpc's copy keeps a result as it was when its call returned.** The round trip did that silently: in one batch, `getLiveState()` then `bumpLiveState()` answered `{ n: 0 }` for the first call, because the result was decoded fresh before the second call ran. The task file did not name this. `copyResultForWire` copies every plain object, array, Map and Set to keep it, and `test/function-markers.test.ts` pins it.
-- **One small difference from before:** a function in an Error's own property, on an Error a method *returns*, now arrives as the codec's `{ name }` marker rather than a remote function marker, since the walk does not copy Errors. A thrown Error never went through this path. rpc exists only for testing, so I left it; say if you want Errors copied too.
-- **Rule 10's refusal of a `$ref` with sibling keys landed here**, with its `test/hostile-payloads.test.ts` row, because this phase rewrote the `$ref` decode. Phase 2 adds the rest of rule 10.
+**For the human:** merged into § *Open for Larry*, below.
 
 **Retro:**
 
@@ -270,10 +271,7 @@ Each phase leaves `npm run test:code` green, and Phase 3 onward also `npx tsc --
 
 **Gate:** `npm run test:code` passes. `packages/structured-clone` is at 55 files and 1,315 tests, 2 of them skipped: the Node-only `Buffer.from('hi')` case in the workers and chromium projects.
 
-**For the human:**
-
-- **A DataView travels as its own bytes, with no `byteOffset` or `byteLength`,** as I said at the Phase 1 hand-off, and the decoder refuses an `arraybuffer` naming either. That refusal is what "a `DataView` window outside its buffer" in criterion 10 now tests.
-- **A `subtype` that names no typed array still decodes as a `Uint8Array` of its bytes.** Rule 10 does not list `subtype`, and `test/hostile-payloads.test.ts` already pins that fallback for `Map`, `WebSocket` and the rest, so I kept it.
+**For the human:** merged into § *Open for Larry*, below.
 
 **Retro:**
 
@@ -321,8 +319,59 @@ Each phase leaves `npm run test:code` green, and Phase 3 onward also `npx tsc --
 - **Wording:** `postprocess`'s `@throws` lists the shapes it refuses instead of claiming all of them; `copyResultForWire`'s JSDoc says which kinds it copies; `ARRAY_OBJECT_FORM_MIN_BYTES`, whose bound was exclusive, is `PLAIN_STRING_LIST_MAX_BYTES` and module-local; `index.ts`'s header and `index.mdx` no longer overstate what is written as itself or which Maps keep `entries`; `web-api-encoding.ts` names `postprocess`'s callback and drops two references to functions that no longer exist; `tasks/on-hold/wire-merge-patch-sync.md` loses its last stale format claims and points at these notes rather than restating counts; and the `#/tags/object` row joins the table that checks `Object.prototype`.
 - **ADR-002's prose:** the sentences this build wrote are within budget, and the file's average is 23.6 words against 22, down from 28.4 before the build. What remains is the ADR's original prose.
 
-**For the human:**
+**For the human:** merged into § *Open for Larry*, below.
 
-- **ADR-002 is still over its sentence budget on its original prose.** `/build-task` scopes the gate to what a build wrote, which is met; `prose-voice.md` says a touched file is brought within budget, which would mean rewriting sentences of an accepted ADR this build never touched. I left them.
-- **A JSON `null` inside a tag's payload decodes rather than being refused:** `{"$type":"date","iso":null}` gives 1970-01-01. Rule 10's list is met, since it names a bare `null` at a value position. Refusing nulls in payloads too would mean checking every tag's fields; I recommend leaving it.
-- **rpc passes a Date, typed array or Error in a result by reference.** A later call in the same batch that mutates one changes the earlier call's answer, where the old round trip took a snapshot. rpc is test-only, so I left it and said so in the JSDoc.
+### Open for Larry (hand-off, 2026-10-14)
+
+Ordered by dependency, then risk. Each is teed up on its own.
+
+1. **How strict the decoder is beyond rule 10's list.** Rule 10's shapes are all refused. Three more shapes it never writes are decoded rather than refused: a JSON `null` inside a tag's own fields (`{"$type":"date","iso":null}` gives 1970-01-01), a typed array whose `subtype` names no typed array (it arrives as a `Uint8Array` of its bytes, as `test/hostile-payloads.test.ts` already pinned), and an extra field on any tag but `function`. **Decided (Larry, 2026-10-14): leave all three.** A sender who can write one of them could send a valid value as easily, and a stricter decoder can come later without the wipe, since it refuses only shapes the encoder never writes.
+2. **What rpc's result copy covers.** `copyResultForWire` copies plain objects, arrays, class instances, Maps and Sets as each call returns, so a later call in the same batch cannot change them, as the old round trip guaranteed. It passes a Date, typed array or Error as it is, so a later call that mutates one changes the earlier answer, and a function on a returned Error's own property arrives as `{ name }` rather than a remote function marker. rpc reaches outside users through `@lumenize/testing`, but the by-reference case needs calls issued in one tick (the client batches automatically), a kept Date or typed array returned by the earlier one, and an in-place mutation by the later one, and none of the 16 test files still using `createTestingClient` issues two calls in one tick: none uses `Promise.all` or its kin, and every call made without `await` is on a MeshClient. **Decided (Larry, 2026-10-14): leave it**, with `copyResultForWire`'s JSDoc saying what it copies; the testing and mesh suites pass on it.
+3. **ADR-002's original prose is over its sentence budget**, at 23.6 words against 22 (28.4 before this build). The sentences this build wrote are within it. `/build-task` scopes the gate to a build's own sentences; `prose-voice.md` said a touched file is brought within budget. **Decided (Larry, 2026-10-14): leave the ADR's original sentences, and make `prose-voice.md` say what `/build-task` says**, which it now does: bring what you wrote within budget, and leave the file no further over than you found it.
+
+**Settled, recorded here so nothing lives only in the transcript:**
+
+- **A DataView travels as its own bytes, with no `byteOffset` or `byteLength`,** and the decoder refuses an `arraybuffer` naming either (said at the Phase 1 hand-off; you said to keep going).
+- **rpc's copy keeps a result as it was when its call returned,** which the round trip did without the task file saying so; `packages/rpc/test/function-markers.test.ts` pins it.
+- **Rule 10's refusal of a `$ref` with sibling keys landed in Phase 1,** because that phase rewrote the `$ref` decode.
+
+### Phase 4 (2026-10-14)
+
+**What landed.** `website/docs/structured-clone/index.mdx` gains § *The Encoding* and § *Patching a stored value*, checked against `test/for-docs/encoding.test.ts`; `website/docs/mesh/protocol.mdx`'s tuple-format section is a pointer to them, its envelopes name `JsonValue`, and its audit line no longer calls the format tuple-based; the headers of `index.ts`, `preprocess.ts` and `web-api-encoding.ts` describe what ships; ADR-002 states its exception and its line in `.claude/rules/workflow.md` names it. Criterion 16's grep finds only `protocol.mdx`'s Cap'n Web line. Outside the grep's reach, `ATTRIBUTIONS.md` and `tasks/on-hold/wire-merge-patch-sync.md` described the old format as current, and both are corrected.
+
+**The regression net:**
+
+1. `npx tsc --noEmit -p packages/structured-clone`, `npm run test:code` and `npm run test:doc` pass on `6689336`, the tree with the panel's fixes, with `packages/structured-clone` at 61 files and 1,459 tests (4 skipped). The seven `doc-test/` suites that import `@lumenize/testing`, which neither script runs in full, pass too: 69 tests.
+2. **Local `drive.ts all`** on `6689336` passes 64 of 65 in 33.6 minutes, with `redeploy-strands-no-client` parked as it always is. The one failure, `identity-convergence`, never booted: `wrangler dev` exited with *"Could not create remote preview session on your account"*, Cloudflare refusing the remote binding's session. Run alone afterwards, it passes in 3.6 s.
+3. You deleted test-nebula from the dashboard.
+4. Its five secrets are re-put. Wrangler created a placeholder Worker to hold the first.
+5. `wrangler containers list` showed a leftover `test-nebula-galaxy` application, with no live instances, and it is deleted.
+6. `deploy-test.sh` deployed `6689336`, and its self-check matched. **The deployed sweep** at concurrency 2 passed 60 of 65 in 131 minutes, `redeploy-strands-no-client` parked. None of the five failures is the codec:
+   - **`client-routes`** (a Gateway log line never arrived) and **`gateway-stamps-the-chain`** (Resend accepted the email and reported nothing further) both pass run alone afterwards.
+   - **`deleted-on-cloudflare`** failed as it did in the deployed sweep earlier the same day, before this build: Cloudflare never listed the Galaxy holding data. `backlog.md` already tracks it.
+   - **`delete-from-its-own-page`** failed limb 2 on a log line that never arrived, as it did earlier that day on a different line. The behaviour the limb guards held: the deleted Star started 0 times after its deletion.
+   - **`studio-codegen-rest`** reached its in-place limb, which counts a log line per stream chunk: 215 chunks reached the tab against 208 lines, and run alone 427 against 424. The reply completed both times, and the limb passes locally, where stdio drops nothing, so a duplicate chunk would have shown there too. Deployed log delivery drops a few lines in a few hundred, so this limb cannot pass reliably deployed.
+7. **Workers Issues since the pass began:** `scope-deleted` and `teardown failed` are standing, and one is new, `NodeNotFoundError: Node ROOT_NODE_ID not found`, twice at 01:04Z while `first-app-built` ran. The id was the string `"ROOT_NODE_ID"`: a model wrote the constant's name where Studio's guidance says to import it from `@lumenize/resources/frontend`. It is a generated app's mistake, not the codec.
+
+**Retro:**
+
+- **The header loop for re-putting test-nebula's secrets omits the harness's superuser.** It copies `AUTH_BOOTSTRAP_EMAIL` from `.dev.vars`, which does not list `claude@lumenize.io`, the address `DEPLOYED_SUPERUSER` signs in with on a deployed target. The first deployed sweep's account sweep then failed with *"login set no `_platform` cookie"*, and its superuser scenarios would have failed too. The old test-nebula must have carried the address, since earlier deployed sweeps' account sweeps signed in, which is why this showed only after a delete. test-nebula's secret now lists both addresses, and `deploy-test.sh`'s header says how to set it.
+- **`.wrangler/state` needs no clearing by hand:** the harness deletes it before every boot (`apps/nebula/harness/lib/harness.ts`).
+- **Stopping a sweep with `pkill -f 'drive.ts all …'` also matches the shell that launched it**, so the run's own summary is lost. Both sweeps now run from a script, whose command line does not match.
+
+## Phase Retro
+
+1. **What did we learn?**
+   - **rpc's codec round trip did two jobs the task file named only one of.** Besides applying the hook, it snapshotted each result as its call returned, which `copyResultForWire` now keeps for plain objects, arrays, Maps and Sets. It also decoded each marker's arguments as wire data, which turned an argument key `$$x` into `$x` and a `Date` into `{}`; deleting it fixed that.
+   - **A regex that repeats a group overflows V8's stack on a few megabytes,** however simple the group. Base64 at 3.2 MiB was enough.
+   - **V8 keeps `a + '/' + b` as a rope**, so an index of concatenated strings costs almost nothing until something flattens them. Emulating "an index of joined pointer strings" needed `segments.join('/')` over a whole path to reproduce the 501 MB the Stage 2 review measured.
+   - **SQLite's `json_patch` keeps a surviving key in place and adds a new one last,** exactly as `applyMergePatch` does, so a patch list can be applied in storage.
+2. **What did we struggle with?** Emulating design-level mutations: an index of joined pointers, decoding a target on demand, and resolving only to containers met earlier each took two or three tries before they failed for the reason they were meant to. The criteria's numbers also drifted from their fixtures twice (criterion 13's step length and its denominator).
+3. **Did any tests fail unexpectedly?** None of the build's own. The verifier panel found two round trips no test covered: binaries over about 3.2 MiB, because the base64 check the build added had no criterion to bound it, and a request whose body is a request or response, because rule 11 named only a body's `$ref` to its own request. The deployed pass's failures were log delivery, email delivery and Cloudflare's listing, and one restart was the test target's bootstrap list.
+4. **Impact on follow-on work?**
+   - [nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 14* sends patches on this format; `diff` answers `same`, a list of patches or `full`, and [on-hold/wire-merge-patch-sync.md](../on-hold/wire-merge-patch-sync.md)'s envelope must carry the list.
+   - Two deployed limbs count log lines the deployed channels can drop (`studio-codegen-rest`'s in-place count and `delete-from-its-own-page`'s limb 2), and a generated app passed `"ROOT_NODE_ID"` as a node id. Each gets a `backlog.md` row.
+   - After the wipe a new tag is a rebuild of every app (§ *Future state*).
+5. **Process changes?**
+   - Done: `prose-voice.md`'s gate now says what `/build-task`'s says, and `apps/nebula/scripts/deploy-test.sh`'s header puts `claude@lumenize.io` in the test target's bootstrap list.
+   - **Proposed and declined (Larry, 2026-10-14): a clause in `/build-task`'s verifier prompt hunting code the builder added beyond the task file,** after the base64 check, which no criterion bounded. Not general enough to add.

@@ -36,7 +36,7 @@
 | — | **Generated apps are pure Vapor** — the scaffold mounts with `createVaporApp`, every SFC is `<script setup vapor>`, and Lucide icons compile through `unplugin-icons` | none — § *Generated apps are pure Vapor* | deploy |
 | ⑤ | **Iceboxed 2026-10-11 — the ontology history file** | [icebox/nebula-ontology-history-file.md](icebox/nebula-ontology-history-file.md). During development the ontology's history is the file's git history; migrations between published versions moved to fast-follow Item 4 with `publish()` | — |
 | — | **Shared pages** — Universe Signup, Galaxy create and login: scope full names captured at claim, and per page whether an app forwards to ours or runs its own | none — § *Shared pages* | **data** |
-| — | ⚠️ **MUST-HAVE (Larry, 2026-10-14) — every stored value is in a form a merge patch can address** — `@lumenize/structured-clone` writes a Map, a Set or an id list as one array, numbers aliases in traversal order and writes a `null` as RFC 7396's delete marker, so adding one entry patches the whole collection and a patch loses a `null`. Sending patches waits for fast-follow | [structured-clone-patches-small-and-exact.md](structured-clone-patches-small-and-exact.md) — Pass 1 written 2026-10-14 | **data** |
+| — | ✅ **BUILT 2026-10-14 — every stored value is in a form a merge patch can address** — a Map, a Set or a long id list is written as an object so one entry patches as one key, a shared object is a `$ref` pointer that does not renumber, and `null` is a tag a patch cannot read as a delete. Sending patches waits for fast-follow | [archive/structured-clone-patches-small-and-exact.md](archive/structured-clone-patches-small-and-exact.md) | **data** |
 | — | **A turn its Galaxy's reset cuts off runs again once, then says it stopped** — today the request is lost and the chat shows "No reply arrived" | none — § *Turn-liveness heartbeat* | deploy |
 | ⑥ | **The wipe + redeploy** | § *⑥ The wipe* | — |
 | — | **Turn-log inspection v0** | none — § *Turn-log inspection v0* | ungated |
@@ -196,7 +196,7 @@ Folded into [nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-s
 
 ## The structured-clone format, before the wipe
 
-[structured-clone-patches-small-and-exact.md](structured-clone-patches-small-and-exact.md) is the authority. Every resource version is stored in this format and [ADR-004](../docs/adr/004-snodgrass-temporal-resources.md) never rewrites one, so the wipe is the last point at which every stored value can start out in a form a merge patch can address. Sending patches waits for fast-follow (Larry, 2026-10-14).
+✅ **Built 2026-10-14** by [archive/structured-clone-patches-small-and-exact.md](archive/structured-clone-patches-small-and-exact.md). Every resource version is stored in this format and [ADR-004](../docs/adr/004-snodgrass-temporal-resources.md) never rewrites one, so the wipe is the last point at which every stored value could start out in a form a merge patch can address; from the wipe on, every one does. Sending patches waits for fast-follow (Larry, 2026-10-14).
 
 ## ⑥ The wipe
 

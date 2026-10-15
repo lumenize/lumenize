@@ -31,10 +31,15 @@
 #
 # ⚠️ SECRETS ARE PER-WORKER. A fresh test worker has none, so login mints nothing and the
 # SPA bounces. Set them from the gitignored root `.dev.vars` — never echo a value:
-#   for s in AUTH_BOOTSTRAP_EMAIL JWT_PRIVATE_KEY_BLUE JWT_PUBLIC_KEY_BLUE RESEND_API_KEY; do
+#   for s in JWT_PRIVATE_KEY_BLUE JWT_PUBLIC_KEY_BLUE RESEND_API_KEY; do
 #     V=$(grep "^$s=" .dev.vars | sed 's/^[^=]*=//; s/^"//; s/"$//')
 #     printf '%b' "$V" | wrangler secret put "$s" --name test-nebula
 #   done
+# AUTH_BOOTSTRAP_EMAIL must also list `claude@lumenize.io`, the harness's superuser on a deployed
+# target (`DEPLOYED_SUPERUSER` in harness/lib/harness.ts), or a deployed sweep's account sweep and
+# its superuser scenarios cannot sign in, and `.dev.vars` does not list it:
+#   V=$(grep "^AUTH_BOOTSTRAP_EMAIL=" .dev.vars | sed 's/^[^=]*=//; s/^"//; s/"$//')
+#   printf '%s' "$V, claude@lumenize.io" | wrangler secret put AUTH_BOOTSTRAP_EMAIL --name test-nebula
 # (The `%b` + quote-strip is load-bearing for the multi-line PEM keys — see deploy.sh.)
 # CERTIFICATE_API_TOKEN too, from the token .dev.vars keeps as TEST_CERTIFICATE_API_TOKEN, scoped to
 # the test zone's SSL and Certificates, with which the test galaxies order and delete their packs:

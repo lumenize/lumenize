@@ -237,11 +237,14 @@ node scripts/check-prose.mjs <file>...    # gate: exits non-zero over budget
 npm run audit:prose                       # whole-tree report
 ```
 
-**You MUST run the gate on the prose files your own diff touches, and MUST bring each one
-within budget before reporting the work done.** It is diff-scoped on purpose. Most of the
-repo predates this file — 50 of 97 governed files are over budget as of 2026-08-20 — so a
-whole-tree gate would fail on day one and be switched off. You cannot
-make a file worse without the gate catching you, and what you touch, you fix.
+**You MUST run the gate on the prose files your own diff touches, MUST bring what you wrote
+within budget, and MUST leave each file no further over budget than you found it, before
+reporting the work done.** It is diff-scoped on purpose. Most of the repo predates this
+file — 50 of 97 governed files are over budget as of 2026-08-20 — so a whole-tree gate would
+fail on day one and be switched off. You cannot make a file worse without the gate catching
+you, and what you write, you fix. A file's older sentences are reworded only when someone
+asks: read as "bring the whole file within budget", this rule once had a verifier fail a
+build over an accepted ADR's original prose, which the build had only added to (2026-10-14).
 
 ## What the budgets cannot see
 

@@ -4,7 +4,7 @@
 **Depends on**:
 - W4 wire format + `diff` / `applyMergePatch` utilities — shipped in [PR #11](https://github.com/lumenize/lumenize/pull/11) (merge commit `260c242`)
 - DAG normalization (originally Phase 3 of the wire-format task) — ✅ shipped 2026-05-16, archived at [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md)
-- **A format a merge patch can address — ✅ built 2026-10-14** by [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md), ahead of the wipe. A Map, Set or long id list patches one entry at a time, a shared object is a `$ref` pointer, and a patch keeps a `null`, a `__proto__` key, and every Map's, Set's and array's order.
+- **A format a merge patch can address — ✅ built 2026-10-14** by [archive/structured-clone-patches-small-and-exact.md](../archive/structured-clone-patches-small-and-exact.md), ahead of the wipe. A Map, Set or long id list patches one entry at a time, a shared object is a `$ref` pointer, and a patch keeps a `null`, a `__proto__` key, and every Map's, Set's and array's order.
 **Related**: [tasks/archive/nebula-frontend.md](../archive/nebula-frontend.md) "DAG-binding update strategies" Options C and D — both became cheaper after W4 shipped.
 
 ## Goal
@@ -26,7 +26,7 @@ Most plumbing is common; the DAG path adds a few specifics (per-Star fanout, sna
 
 From [PR #11](https://github.com/lumenize/lumenize/pull/11):
 
-- The encoding `preprocess()` writes and `postprocess()` reads, made patchable by [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md): a Map is `{"$type":"map","object":{…}}` and a Set likewise, a shared object is `{"$ref":"#/…"}`, and `null` is a tag. Its § *Build notes* records the measured patch sizes.
+- The encoding `preprocess()` writes and `postprocess()` reads, made patchable by [archive/structured-clone-patches-small-and-exact.md](../archive/structured-clone-patches-small-and-exact.md): a Map is `{"$type":"map","object":{…}}` and a Set likewise, a shared object is `{"$ref":"#/…"}`, and `null` is a tag. Its § *Build notes* records the measured patch sizes.
 - `diff(before, after)` → `{ kind: 'same' }`, `{ kind: 'patches', patches }` (one, or two when a collection under a plain object changed order) or `{ kind: 'full' }`.
 - `applyMergePatch(before, patch)` → the next encoding, one patch at a time; SQLite's `json_patch` gives the same result.
 - Both exported from `@lumenize/structured-clone`.
@@ -223,7 +223,7 @@ Estimated effort: ~150–300 LOC + tests. Phase-3-adjacent; Phase 3 code is fres
 
 - **Patch-history retention concrete N for resources.** Memory budget vs. cache hit rate.
 - **Subscriptions on resources** — do they use the same patch fanout as DAG, or stay read-only? If subscriptions land, the DAG and Resource paths converge.
-- **Permissions-only DAG changes** — produce a tiny patch, `{"permissions":{"object":{"<nodeId>":{"object":{"<sub>":"admin"}}}}}`. [structured-clone-patches-small-and-exact.md](../structured-clone-patches-small-and-exact.md) § *Build notes* records the measured size.
+- **Permissions-only DAG changes** — produce a tiny patch, `{"permissions":{"object":{"<nodeId>":{"object":{"<sub>":"admin"}}}}}`. [archive/structured-clone-patches-small-and-exact.md](../archive/structured-clone-patches-small-and-exact.md) § *Build notes* records the measured size.
 - **Patch generation cost** — `diff` is O(snapshot size). Acceptable for 1k-10k node DAGs. Watch for surprises at the high end.
 - **Compression interaction** — WS `permessage-deflate` is on by default for `compatibility_date >= 2023-08-15` (verified via the workerd#4091 thread; Lumenize is at `2026-03-12`). Patches compress less aggressively than uniform snapshots; raw bytes matter slightly more here than for snapshots.
 
