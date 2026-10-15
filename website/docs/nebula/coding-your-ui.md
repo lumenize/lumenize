@@ -259,7 +259,7 @@ When a component unmounts, its reference drops. The subscription starts releasin
 
 For non-component cases (warming a cache before navigation, scripting, headless tests), call `client.resources.subscribe(rt, rid)` directly. The returned handle is `Disposable` — use `using` for auto-release on scope exit, or call `client.resources.unsubscribe(rt, rid)` manually if subscribe and unsubscribe happen in different places. See [API reference § resources.subscribe](./api-reference.md#resourcessubscribe).
 
-Two parts of the lifecycle need no UI code: after a dropped connection reconnects, live subscriptions re-subscribe themselves; and when a new version of the app lands, a page on the old build reloads once (`onShouldRefreshUI`), while a page already on the new one subscribes again.
+Two parts of the lifecycle need no UI code: after a dropped connection reconnects, live subscriptions re-subscribe themselves; and when a new version of the app lands, a page Studio frames reloads once on any build, at the URL it was on (`onShouldRefreshUI`), a page in a tab of its own reloads once on a change of types alone, and a page already on the new version subscribes again.
 
 ## Plain Vue state
 

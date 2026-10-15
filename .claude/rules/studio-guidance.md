@@ -40,7 +40,7 @@ The self-correction message after a failed build says "Fix and call build again.
 
 ## Naming the model sees
 
-- `preview` is the build tool's flag and report step — whether the `.dev` preview refreshed. `publish` is the product's shipped tag served to tenant Stars, which is not built; the two words MUST NOT be swapped in the tool path.
+- `preview` is the build tool's flag and report step — whether the build landed on `.dev`, where every Studio on the app sees it; a build the model does not preview is served nowhere. `publish` is the product's shipped tag served to tenant Stars, which is not built; the two words MUST NOT be swapped in the tool path.
 - Reserved paths: a `.platform/` or `.universe/` path is a mount, `.nebula/` is machine-owned, and the write rule in `assertModelPath` refuses every leading-dot first segment except `.agents/`. A new reserved prefix MUST be added there, not in a tool.
 
 ## Changing what the model is told

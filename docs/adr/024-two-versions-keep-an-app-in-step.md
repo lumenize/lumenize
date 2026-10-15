@@ -27,7 +27,7 @@ The rest of this ADR takes each version in turn: what it names, who chooses it f
 
 **It is the content hash of `src/ontology.d.ts`, such as `3f2a9c…`, and it names one shape of data:** the types, and everything derived from them, which is the validator and the index columns a Star copies fields into so it can query them. Two builds that leave the ontology alone share an ontology version.
 
-**A Star runs one ontology version at a time, the one its Galaxy calls current.** A Galaxy's `.dev` Star runs its last successful build's, and a Star with real users the latest published one.
+**A Star runs one ontology version at a time, the one its Galaxy calls current.** A Galaxy's `.dev` Star runs its last previewed build's, and a Star with real users the latest published one.
 
 **Every data-op a page sends carries the page's ontology version, and runs only if it equals the Star's.** Otherwise the op does not run at either version: the Star moves itself to what its Galaxy calls current, and a page that still does not match reloads, bringing the app up to current.
 
@@ -55,7 +55,7 @@ The rest of this ADR takes each version in turn: what it names, who chooses it f
 > - No Star copies a field into an index column yet, so the validator is all an ontology version derives.
 > - The tenant Stars of one Galaxy share a validator cache entry per ontology version; the `.dev` Star keys its own.
 > - Nothing is published, and no migration exists.
-> - No page carries its build version, so a build that changes only code reaches only the person who asked for it.
+> - Every page carries its build version, and a build that changes only code reaches every Studio on the app. A page in a tab of its own does not learn of it.
 
 ### Deliberately open
 
@@ -63,8 +63,8 @@ The rest of this ADR takes each version in turn: what it names, who chooses it f
 - **When migration runs:** when a resource is read, in a sweep after a Star installs an ontology version, or both, and what a query sees over rows nobody has read since a publish. Migrating on read, one published ontology version at a time, is the candidate in the same section.
 - **How a Star builds the index columns an ontology version adds:** at install, and filled for existing rows by the same forward migration, is the candidate.
 - **Which other Stars follow the build as `.dev` does.** An environment Star with no real users, `test` say, could; until one does, every Star but `.dev` runs a published build.
-- **How a published Star's pages are kept from being served while a build's output is still arriving.** On `.dev`, a page served then can carry the new code under the old ontology version until the landing's notice reloads it, which test data tolerates.
-- **How and when a page learns its build version is no longer current.** On `.dev`, the landing can tell the pages its Star holds, with Studio pacing the tabs it frames ([nebula-testing-with-personas.md](../../tasks/nebula-testing-with-personas.md) reloads the tab in view and the rest when next viewed). On a Star with real users it stays lazy or is spread out, so one publish never reloads every tab at once.
+- **How a published Star's pages are kept from being served while a build's output is still arriving.** `.dev` serves only a copy made once a build is previewed, `index.html` written last and the ontology row right after it, as a published Star serves only `dist-prod/`. What stays open is how a publish makes that copy.
+- **How and when a page learns its build version is no longer current.** On `.dev`, every Studio on the app learns the landed build from `.dev`'s `ServedBuild` and asks the frames it holds to reload, and each frame decides by its own build version ([nebula-testing-with-personas.md](../../tasks/nebula-testing-with-personas.md) will pace the tabs it frames). What stays open there is a page in a tab of its own. On a Star with real users it stays lazy or is spread out, so one publish never reloads every tab at once.
 - **What happens to an end user's write in flight when a change of either version reloads their page.** Sending it again after the reload is not enough, since the old page built it for the old types.
 - **How a published Star spreads the reloads** when one install tells every open tab at once ([nebula-pre-alpha-fast-follow.md](../../tasks/nebula-pre-alpha-fast-follow.md) § *Item 5*).
 
@@ -84,10 +84,11 @@ The rest of this ADR takes each version in turn: what it names, who chooses it f
 
 ### Positive
 
-- **The preview always runs what was just built,** with no step for anyone to take.
+- **The preview runs the last build the model previewed,** with no step for anyone to take.
 
 ### Negative / mitigations
 
+- **A build the model holds back is served nowhere until the model previews a build.** A turn that ends on one says so in its reply, and building again with `{ "preview": true }` lands it.
 - **Test data that no longer fits stays on the `.dev` Star until it is wiped and seeded again,** and the preview may misbehave on it until then. Studio's agent says when a change breaks existing data, and asks before it wipes.
 - **The app's own `vite.config.ts` runs beside the compile, so it could swap the validator a publish promotes.** That risk sits with the user-developer, directly or through their trust in whomever they invite to work on the app. Those same people can already change the page, which acts as every end user with that user's own access. The validator runs with no network, keyed to its own Galaxy, so the most a swapped one can do is let wrong-shaped data into that one app's Stars, where a forward migration can repair it.
 - **A reload loses what the page held only in memory,** such as a half-typed draft. [ADR-017](017-the-url-is-the-view-state.md) keeps the view in the URL, so the reload lands on the same view.

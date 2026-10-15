@@ -9,9 +9,10 @@
 /** Tool-arg TS types — the ADR-001 source of truth for runtime validation. Compiled to
  *  a typia validator by `scripts/gen-validator-seeds.ts` and committed as
  *  `validator-seeds.ts`'s `TOOL_ARGS_VALIDATOR_MODULE` — never compiled at runtime.
- *  `BuildArgs.preview` is the model's PREVIEW OVERRIDE: the `.dev` preview refreshes by
- *  default only on a findings-free build, and the model may refresh it alongside findings
- *  it judges harmless (never when the bundle failed — no `dist` exists). `EditFileArgs`
+ *  `BuildArgs.preview` is the model's call on the `.dev` preview: a build lands by default
+ *  only when it has no type findings, `true` lands one whose findings the model judges
+ *  harmless, `false` holds a clean one back, and a build not previewed is served nowhere
+ *  (never landing when the bundle failed — no `dist` exists). `EditFileArgs`
  *  names one span: `anchor` must occur exactly once. ⚠️ The facet is `createValidate`,
  *  which IGNORES excess keys — `Galaxy.#validateToolArgs` refuses them by name against
  *  the tool's declared properties, so a stale `publish` key cannot be silently dropped. */

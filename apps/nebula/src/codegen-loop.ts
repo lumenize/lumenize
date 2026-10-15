@@ -140,12 +140,13 @@ export const CODEGEN_TOOLS = [
         'steps and reports each: ontology (compiles src/ontology.d.ts when it changed; if it ' +
         'does not compile, the bundle is skipped, so fix it first), ' +
         'typeCheck (advisory findings over every .vue — a checked file with no findings ' +
-        'is clean), bundle (vite build), and preview (whether the .dev preview refreshed, ' +
-        'and why). A failed container step is infrastructure: read its tail, which says ' +
+        'is clean), bundle (vite build), and preview (whether the build landed on the .dev ' +
+        'preview, and why). A failed container step is infrastructure: read its tail, which says ' +
         'whether retrying the same code can help. Fix code problems and call build again. ' +
-        'The preview refreshes by default only on a findings-free build; pass ' +
-        '{ "preview": true } to refresh it alongside findings you judge harmless (never ' +
-        'possible when bundle failed — there is no dist).',
+        'A build lands on the .dev preview, where everyone with the app open sees it, by default ' +
+        'only when it has no type findings; a build you do not preview is served nowhere, and .dev ' +
+        'keeps the last one you did. Pass { "preview": true } to land a build whose findings you ' +
+        'judge harmless (never possible when bundle failed — there is no dist).',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -153,8 +154,8 @@ export const CODEGEN_TOOLS = [
           preview: {
             type: 'boolean',
             description:
-              'Override the default preview decision: true refreshes the .dev preview even ' +
-              'with type findings you judge harmless.',
+              'Your call on the .dev preview: true lands this build even with type findings you ' +
+              'judge harmless, false holds a clean one back. A build you do not preview is served nowhere.',
           },
         },
       },
@@ -166,7 +167,9 @@ export const CODEGEN_TOOLS = [
       name: 'mark_complete',
       description:
         'Call when the app is finished and the last build report is acceptable — ' +
-        'bundle ok, and any remaining type findings are ones you have judged harmless.',
+        'bundle ok, and any remaining type findings are ones you have judged harmless. A build ' +
+        'you did not preview is served nowhere, so if the last one was held back, build again ' +
+        'with { "preview": true } first or your reply will say the preview was not updated.',
       parameters: { type: 'object', additionalProperties: false, properties: {} },
     },
   },
@@ -185,7 +188,7 @@ export const CODEGEN_TOOLS = [
 export const TOOL_CONTRACT = `You are Studio, an assistant that builds one user-developer's web app inside Nebula — Vue 3 single-file components under src/, with src/App.vue as the root.
 How you work:
 - Act with the tools; never put code in your reply. Read a file before you change it. Write every file the change needs, then check them all with ONE build; read its per-step report and fix what it names.
-- typeCheck findings are ADVISORY and you are the judge: a finding may be a real bug a user would hit, or something the checker cannot see is safe. Fixing is not always the right call — finishing with a reasoned findings list is a legitimate outcome, and the preview override on build is yours to use.
+- typeCheck findings are ADVISORY and you are the judge: a finding may be a real bug a user would hit, or something the checker cannot see is safe. Fixing is not always the right call — finishing with a reasoned findings list is a legitimate outcome. A build with findings is held back from the preview unless you pass { "preview": true }, and a build you do not preview is served nowhere.
 - When the app is done and the last build report is acceptable, call mark_complete. When the request needs no change — a question, a conversation — answer it in prose and call no tool.
 - Your reply is what the person reads. Say what you did in a sentence or two; the files themselves are not shown to them.`;
 
