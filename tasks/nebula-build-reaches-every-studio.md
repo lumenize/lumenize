@@ -409,6 +409,7 @@ Larry's answer to the hand-off's second decision (§ *Decisions*).
 **Close-out:**
 
 - Verified: `packages/resources` 19 passed (17 + 2); `apps/nebula` 1090 passed (1088 + 2); three mutations, each red on its own test; `drive.ts all --fast`, 56 of 56 in 30.7 min; with Docker, `dev-star-follows-the-build`, `build-reaches-every-studio`, `dev-tab-frame` and `star-serves-current-ontology`.
+- Deployed, with the type check's image change: `test-nebula` redeployed at `e9ab648`, and `build-box`, `first-app-built`, `dev-star-follows-the-build`, `build-reaches-every-studio` and `dev-tab-frame` passed. `first-app-built`'s turn wrote `src/nebula.ts` as well as the ontology and `App.vue` and landed clean in 10 rounds, so the check read a model-edited `nebula.ts`. Workers Issues since the deploy: the standing `scope-deleted`, and `teardown failed` with *Durable Object reset because its code was updated*, recurring since 2026-10-14 and not listed among `live.md`'s standing issues. A teardown reaching an object still on pre-deploy code would explain it; that was not traced.
 
 ## Phase Retro
 
