@@ -285,3 +285,22 @@ Each phase leaves `npm run type-check` and `npm test` green, and its changed sou
 
 - `nebula-agent-posts-as-itself.md` amended in this commit: it keeps `pinnedAtDoor` and `actor`, with the landing as their caller, and its open question 4 is settled.
 - Verified: `packages/resources` (17), `apps/nebula` (1068 passed, no `served build not recorded` anywhere in the run), `dev-star-follows-the-build` with Docker, and `drive.ts all --fast`, 55 of 55 in 24.5 min, which also covers Phase 2's frame code.
+
+### Phase 4 — every Studio on the app asks its frame to reload on each landing, and the push goes (2026-10-15)
+
+**For Larry:**
+
+- **Studio sets the frame's address once when it opens on an app whose page has no client.** The seed's app and any `App.vue` that never imports `./nebula` post no `lumenize:loaded`, so the first `ServedBuild` value finds nobody to ask, and Studio navigates the frame to the Star's root after 2 s or 10 s. It is one harmless reload, and the design says Studio falls back only on silence; `first-app-built`'s limb 6 therefore asserts that a reloaded Studio leaves the frame put only when the frame posted `loaded`, and says which case it saw.
+- **`dev-star-follows-the-build`'s limb 2 app now imports `./nebula`.** The Wipe check in limb 4 needs a client in the frame: with none, a Wipe that asked the frame would fall back to setting the address, and the check could not red.
+- **`StudioClient`'s home was re-derived.** Its JSDoc said it lives in `apps/nebula` because the Galaxy names the class it pushes to; with the push gone, the reason that holds is that posting writes a `Message` at `DEFAULT_CHAT_ID`, which `@lumenize/resources` may not import.
+
+**Retro:**
+
+- All seven limbs passed on first write, and three of nine limb mutations then survived, each for a timing reason in the scenario rather than in the code. The 5b mark landed on the iframe's first `about:blank`, which the real load replaced at about 2 s whatever Studio did. Limb 3's frame reloaded on the request before its mark went on. Limb 2's reap marker belonged to limb 3's closed tab, so P was never dropped before the landing and heard it live. Each fix built the shape the limb was about: mark only the dev host's document, count loads per tab, and reap the closed tab before pausing P. All nine now red their own limb, `limb1-no-sub` at the first build's setup, where no frame reloads at all.
+- The deleted push had a test that asserted the requester alone was told, `build-reply.test.ts` T3. It encoded the old design, so it went with the push rather than inverting; every Studio hearing every landing is `build-reaches-every-studio` limb 1 and `served-build.test.ts`.
+
+**Close-out:**
+
+- Gone: `announceBuildToRequester`, `deliverPreviewReady`, `onPreviewReadyUndelivered`, `StudioClient.handlePreviewReady` and `onPreviewReady`, the test subclass's capture, `build-reply.test.ts`, `nebula-client-preview-ready.test.ts`, Studio's `reloadPreview`, its `?t=` and `onVisibilityChange`. `#buildAndAnnounce` is `#queueBuild`.
+- `backlog.md`'s login-notice row: the clearing is built.
+- Verified: `preview-frame.test.ts`'s table under seven mutations; `apps/nebula` 1073 passed (1068 + 11 − 6 deleted); `drive.ts all` with Docker, 66 of 66 in 37.7 min; the ui-smoke lane, 8 of 8.

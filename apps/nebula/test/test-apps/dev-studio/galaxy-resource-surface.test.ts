@@ -127,10 +127,9 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
   it('warmPreview is gone on BOTH ends — the Galaxy and the NebulaClient prototypes', () => {
     // The initial-load cue did nothing the client had not already done (the iframe src is
     // set before connecting; dist serves from the Galaxy's VFS) and was refused silently
-    // on every collaborator's load. The build reply keeps `deliverPreviewReady`.
+    // on every collaborator's load.
     expect((Galaxy.prototype as unknown as Record<string, unknown>).warmPreview).toBeUndefined();
     expect((NebulaClient.prototype as unknown as Record<string, unknown>).warmPreview).toBeUndefined();
-    expect(typeof (Galaxy.prototype as unknown as Record<string, unknown>).deliverPreviewReady).toBe('function');
   });
 
   it('the entry-reaching deps runCodegenTurn builds have EXACTLY the table\'s keys', async () => {

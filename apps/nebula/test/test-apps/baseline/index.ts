@@ -558,7 +558,7 @@ export class GalaxyTest extends Galaxy {
     }
   }
   /** The build job, faked as the real one behaves where the Galaxy reads it (`fake-build.ts`),
-   *  so the landing, the preview decision and the announcement above it run unchanged. */
+   *  so the landing decision and the landing above it run unchanged. */
   protected override async build(opts: { ontology?: { version: string } } = {}): Promise<BuildReport> {
     return fakeBuildJob(this.workspaceFs(), opts, this.#buildFaults);
   }
@@ -673,7 +673,7 @@ function requireAdminCaller(instance: NebulaClient) {
 /**
  * The captures and initiators every test client carries, over whichever class the test builds:
  * `NebulaClient` for the Resources suites, which a generated app's client is, and `StudioClient`
- * for the files that post to chat or hear a build reply.
+ * for the files that post to chat.
  */
 const withClientTestCaptures = <TBase extends new (...args: any[]) => NebulaClient>(Base: TBase) => class extends Base {
   // --- Result storage for test assertions ---
@@ -1266,24 +1266,9 @@ export class NebulaClientTest extends withClientTestCaptures(NebulaClient) {
   }
 }
 
-/** The client for the files that post to chat or hear a build reply: Studio's class, plus the captures. */
+/** The client for the files that post to chat: Studio's class, plus the captures. */
 export class StudioClientTest extends withClientTestCaptures(StudioClient) {
-  /** `handlePreviewReady` capture — the BUILD reply's landing point (the Galaxy answers
-   *  whoever asked for the build). CUMULATIVE — NOT zeroed by resetResults (it's a channel
-   *  counter; baseline it before the action under test, per testing.md). */
-  previewReadyCount = 0;
-
   constructor(config: StudioClientConfig) {
     super(config);
-  }
-
-  /** Count the build reply. `super` keeps the real `handlePreviewReady → onPreviewReady`
-   *  path (unset in most tests → a no-op); the counter proves the signal reached THIS
-   *  client, which is the whole point of a reply addressed at the requester. */
-  @mesh()
-  override handlePreviewReady(scope: string): void {
-    this.recordPush('handlePreviewReady');
-    this.previewReadyCount++;
-    super.handlePreviewReady(scope);
   }
 }

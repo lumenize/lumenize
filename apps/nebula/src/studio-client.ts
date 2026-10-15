@@ -1,4 +1,3 @@
-import { mesh } from '@lumenize/mesh/client';
 import { NebulaClient } from '@lumenize/resources/client';
 import type { NebulaClientConfig } from '@lumenize/resources/client';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID } from './chat-constants';
@@ -6,14 +5,6 @@ import type { TransactionResult } from '@lumenize/resources/client';
 import type { Galaxy } from './galaxy';
 
 export interface StudioClientConfig extends NebulaClientConfig {
-  /**
-   * Invoked when the Galaxy answers a build this client asked for — the
-   * {@link StudioClient.handlePreviewReady} push, fired by the build reply
-   * (`Galaxy.announceBuildToRequester`) and by nothing else. Studio uses it to
-   * auto-refresh the preview iframe — no manual Reload. `scope` is the scope the
-   * readiness is for (ignore if the UI has since switched scopes).
-   */
-  onPreviewReady?: (scope: string) => void;
   /**
    * The CHAT host pair — which binding + instance host this client's chat
    * ({@link StudioClient.postUserMessage}). Chat `Chat`/`Message` Resources live on
@@ -32,33 +23,32 @@ export interface StudioClientConfig extends NebulaClientConfig {
 
 /**
  * Studio's own Client: a {@link NebulaClient} plus what only Studio does — post to the build
- * thread, upload a profile picture, and hear that a build it asked for is ready.
+ * thread and upload a profile picture. A build that lands reaches Studio as a `ServedBuild` on the
+ * chat, which every Studio on the app subscribes to through the ordinary query, so this class
+ * hears no push of its own.
  *
- * It lives in `apps/nebula` rather than beside `NebulaClient` because the Galaxy names the class it
- * pushes the build reply to, and `apps/nebula-studio-ui` depends on `apps/nebula`, never the
- * reverse. Studio gets one from the same factory a generated app calls, by passing the class:
- * `createNebulaClient({ Client: StudioClient, … })`.
+ * It lives in `apps/nebula` rather than beside `NebulaClient` because posting is Nebula's chat:
+ * it writes a `Message` at `DEFAULT_CHAT_ID` under `CHAT_NODE_ID`, which `@lumenize/resources`
+ * may not import (`mesh.md` § *Package dependency direction*). Studio gets one from the same
+ * factory a generated app calls, by passing the class: `createNebulaClient({ Client: StudioClient, … })`.
  */
 export class StudioClient extends NebulaClient {
   /** The chat host pair — NO default; a post throws when unset (see the config JSDoc). */
   #chatHostBinding?: string;
   #chatScope?: string;
-  #onPreviewReady?: (scope: string) => void;
   /** The page this client was built for; `undefined` when the browser auto-detected it, and an
    *  upload then falls back to the current origin. */
   #baseUrl?: string;
 
   constructor(config: StudioClientConfig) {
-    const { onPreviewReady, chatHostBinding, chatScope, ...nebulaConfig } = config;
+    const { chatHostBinding, chatScope, ...nebulaConfig } = config;
     super(nebulaConfig);
     this.#chatHostBinding = chatHostBinding;
     this.#chatScope = chatScope;
-    this.#onPreviewReady = onPreviewReady;
     this.#baseUrl = config.baseUrl;
   }
 
-  /** A child from `impersonate()` chats where its parent does. `onPreviewReady` is the parent's UI
-   *  handler and stays behind, as `onLoginRequired` does. */
+  /** A child from `impersonate()` chats where its parent does. */
   protected override childConfig(): StudioClientConfig {
     return { ...super.childConfig(), chatHostBinding: this.#chatHostBinding, chatScope: this.#chatScope };
   }
@@ -134,16 +124,5 @@ export class StudioClient extends NebulaClient {
       throw new Error(`postUserMessage failed: ${JSON.stringify(result.errors)}`);
     }
     return messageId;
-  }
-
-  /**
-   * Receive the Galaxy's build reply — "your preview has a new dist" (direct delivery,
-   * addressed to this client's `instanceName`, so it survives a WS reconnect during the
-   * build). Invokes the `onPreviewReady` hook so the UI can refresh the preview iframe.
-   * `@mesh()`-decorated because it arrives as a push like the others.
-   */
-  @mesh()
-  handlePreviewReady(scope: string): void {
-    this.#onPreviewReady?.(scope);
   }
 }

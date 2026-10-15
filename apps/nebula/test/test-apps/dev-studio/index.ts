@@ -53,8 +53,8 @@ export class GalaxyLoopProbe extends Galaxy {
    * The BUILD SEAM, faked as the real job behaves where the Galaxy reads it (`fake-build.ts`):
    * no container exists under vitest-plugin, so the probe compiles in place, writes the row at
    * ROW_PATH and the `dist` it reports, through `workspaceFs()` — never `writeSource`, since
-   * the mount does not git-commit. The landing, the preview decision and the announcement
-   * above it then run unchanged.
+   * the mount does not git-commit. The landing decision and the landing above it then run
+   * unchanged.
    */
   protected override async build(opts: { ontology?: { version: string } } = {}): Promise<BuildReport> {
     return fakeBuildJob(this.workspaceFs(), opts, this.#buildFaults);

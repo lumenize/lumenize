@@ -35,10 +35,12 @@
  *  5. **The preview serves the BUILT app, on the dev Star's own host.** Asserted on the
  *     server-injected scope meta rather than on "the iframe has a body" — a 404 and the SPA shell
  *     both have bodies, and only a dist served out of the Galaxy's own VFS carries that tag. And
- *     the Reload control refreshes the iframe (`?t=`), the positive control for limb 6.
- *  6. **A reloaded client renders the built app with NO preview-ready push.** The initial-load
- *     cue is deleted; the frame's scope meta proves the dist served cold, and the bare src proves
- *     nothing pushed. *Reds if the cue comes back, or if a cold load stops serving.*
+ *     the Reload control navigates the frame, read as the frame's own document going away, the
+ *     positive control for limb 6.
+ *  6. **A reloaded Studio renders the built app, and leaves a current frame where it is.** The
+ *     frame's scope meta proves the dist served cold. When the app has a client, Studio's request
+ *     on the first `ServedBuild` value names the build the frame already runs, so the frame stays.
+ *     *Reds if a cold load stops serving, or if Studio moves a frame that is current.*
  *  7. **A fresh Galaxy carries its own guidance layer.** The seeded `AGENTS.md` and the one-line
  *     `CLAUDE.md`, read through the chat-floor `readSource` entry BEFORE the model's first turn.
  *     *Reds if the seed leaves the scaffold, or the entry stops answering a chat-`write` caller.*
@@ -342,6 +344,21 @@ export async function run(stack: DevStack): Promise<void> {
     console.error('  ✓ limb 4 — no failure banner survived the turn; the agent\'s reply stacks actor over subject');
 
     // ── LIMB 5: the preview serves the BUILT app ──────────────────────────────────────────────
+    /** The preview frame's document, evaluated across origins; `undefined` between documents. */
+    const inPreview = async <T>(fn: () => T): Promise<T | undefined> => {
+      const frame = await (await page.locator('iframe[title="Preview"]').elementHandle())?.contentFrame();
+      return frame ? frame.evaluate(fn).catch(() => undefined) : undefined;
+    };
+    /** A mark on the frame's window, which a navigation of the frame clears. */
+    const markFrame = async () => (await inPreview(() => { (window as unknown as { __mark?: boolean }).__mark = true; return true; })) === true;
+    const frameMarked = async () => (await inPreview(() => (window as unknown as { __mark?: boolean }).__mark === true)) === true;
+    const until = async (ms: number, check: () => Promise<boolean>): Promise<boolean> => {
+      for (const deadline = Date.now() + ms; ;) {
+        if (await check()) return true;
+        if (Date.now() > deadline) return false;
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    };
     // The build turn's manifest, printed on every run: on a red it says whether a build ever
     // succeeded (a stop with no refreshed preview is the model's) or the dist never arrived
     // (refreshed, then a 404); on a green it is the record of what the turn did. Read first,
@@ -386,41 +403,49 @@ export async function run(stack: DevStack): Promise<void> {
     const src = await page.locator('iframe[title="Preview"]').getAttribute('src');
     assert.ok(src?.startsWith(previewUrl),
       `the preview iframe must point at the app's dev Star, got ${src}`);
-    // POSITIVE CONTROL for limb 6: a refresh bumps the src with a `?t=` cache-buster. Driven by
-    // the Studio's own Reload control rather than by the build reply — the reply refreshes only a
-    // findings-free build (the model may or may not override), so waiting on it made this limb
-    // red or green on the model's findings, not on the code under test.
+    // POSITIVE CONTROL for limb 6: the Reload control navigates the frame, seen as a mark left on
+    // the frame's window going away. Driven by the button rather than a landing, which depends on
+    // the model's findings rather than on the code under test.
     const reloadButton = page.getByTitle('Reload preview');
     await reloadButton.waitFor({ state: 'visible', timeout: 30_000 });
     await page.waitForFunction(() => !(document.querySelector('button[title="Reload preview"]') as HTMLButtonElement | null)?.disabled,
       undefined, { timeout: 60_000, polling: 250 });
+    assert.ok(await markFrame(), 'the preview frame could not be marked before Reload');
     await reloadButton.click();
-    await page.waitForFunction(
-      () => (document.querySelector('iframe[title="Preview"]')?.getAttribute('src') ?? '').includes('?t='),
-      undefined, { timeout: 30_000, polling: 250 },
-    );
-    console.error(`  ✓ limb 5 — the preview serves the built app (${served.body.length} bytes); a refresh bumps the iframe src`);
+    assert.ok(await until(30_000, async () => !(await frameMarked())), 'the Reload control never navigated the preview frame');
+    console.error(`  ✓ limb 5 — the preview serves the built app (${served.body.length} bytes); Reload navigates the frame`);
 
-    // ── LIMB 6: a fresh client renders the built app with NO preview-ready push ──────────────
-    // The initial-load cue (`warmPreview`) is deleted: `dist/` serves from the Galaxy's VFS, so
-    // a reload's iframe carries the built app on its own. Asserted on the RENDERED document —
-    // the server-injected scope meta inside the frame, which only a served dist carries — and
-    // on the src staying the bare path: a push would have re-bumped it with `?t=` (limb 5 is the
-    // positive control for that shape), and the deleted cue was the one thing that ever pushed
-    // on a fresh client. *Reds if the cue comes back (the src gains `?t=` with no build), or if
-    // the preview stops serving on a cold load.*
+    // ── LIMB 6: a reloaded Studio renders the built app, and leaves a current frame put ──────────
+    // `dist/` serves from the Galaxy's VFS, so a reload's frame carries the built app on its own,
+    // asserted on the server-injected scope meta, which only a served dist carries. Studio then
+    // asks the frame about the first `ServedBuild` value, which names the build the frame runs:
+    // a frame with a client stays. A frame with none (an app whose `App.vue` never imports
+    // `./nebula`) cannot answer, so Studio sets its address once, and the stay is not asserted.
+    // Studio's window counts the `loaded` posts its frame sends, which only a frame with a client does.
+    await page.addInitScript(() => {
+      if (window.top !== window) return;
+      window.addEventListener('message', (e) => {
+        if ((e.data as { type?: string } | null)?.type !== 'lumenize:loaded') return;
+        const w = window as unknown as { __loadedFromFrame?: number };
+        w.__loadedFromFrame = (w.__loadedFromFrame ?? 0) + 1;
+      });
+    });
     await page.reload({ waitUntil: 'domcontentloaded' });
     await composer.waitFor({ state: 'visible', timeout: 30_000 });
     const frameMeta = page.frameLocator('iframe[title="Preview"]').locator('meta[name="nebula-scope"]').first();
     await frameMeta.waitFor({ state: 'attached', timeout: 30_000 });
     assert.match(await frameMeta.getAttribute('content') ?? '', /"dev":true/,
       'the reloaded preview frame must render the built app (the injected scope meta)');
-    // Settle long enough for any push to have landed (a build reply is sub-second on delivery),
-    // then read the src the frame rendered from.
-    await new Promise((r) => setTimeout(r, 2_000));
-    assert.equal(await page.locator('iframe[title="Preview"]').getAttribute('src'), previewUrl,
-      'a fresh client gets NO preview-ready push — the iframe src stays the bare dev path');
-    console.error('  ✓ limb 6 — a reloaded client renders the built app with no preview-ready push');
+    await new Promise((r) => setTimeout(r, 1_000)); // the frame's first `loaded` is posted as it loads
+    const answered = await page.evaluate(() => (window as unknown as { __loadedFromFrame?: number }).__loadedFromFrame ?? 0);
+    if (answered > 0) {
+      await markFrame();
+      await new Promise((r) => setTimeout(r, 12_000)); // past Studio's 10 s wait for an echo
+      assert.ok(await frameMarked(), 'Studio moved a preview frame that runs the current build');
+      console.error('  ✓ limb 6 — a reloaded Studio renders the built app and left the current frame where it was');
+    } else {
+      console.error('  ✓ limb 6 — a reloaded Studio renders the built app (the app has no client, so its stay is not asserted)');
+    }
 
     // ── LIMB 7: a fresh Galaxy carries its own guidance layer, read back through the client ──
     // The scaffold seeds `AGENTS.md` (the Galaxy layer of the guidance tree) into every new

@@ -14,7 +14,7 @@
  *     Galaxy answers the tenant no row. The failure this guards is a build reaching a Star with
  *     real users.
  *  2. **A stale tab cannot move the `.dev` Star off the current version.** A tab still on v1 after
- *     v2 landed — a collaborator's preview, say, since a build reloads only the requester's — asks
+ *     v2 landed — a page open outside Studio, say, which no landing asks to reload — asks
  *     the `.dev` Star for something. It is answered `OntologyStaleError`, and the Star stays on v2:
  *     a v2 tab's subscription still hears the next write, and a type only v2 defines still
  *     validates. The failure this guards is a Star that installs the stale tab's version.

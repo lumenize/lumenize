@@ -58,8 +58,8 @@ export async function loginToStudio(opts: {
 
 /**
  * Build the Galaxy at `scope` again with `{ "preview": true }`, which a person reading a held-back
- * turn's reply asks for, from a client of the same person on the Galaxy's own host. Only that
- * client is told the build landed, so the page's Studio learns of it from its Reload button.
+ * turn's reply asks for, from a client of the same person on the Galaxy's own host. The landing
+ * records `.dev`'s newest `ServedBuild`, which the page's Studio hears like any other.
  */
 export async function previewLastBuild(opts: {
   workerBaseUrl: string;

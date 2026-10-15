@@ -8,9 +8,9 @@ import ConfirmDelete from "./ConfirmDelete.vue";
 import HostWait from "./HostWait.vue";
 import { needsFreshLogin } from "./auth/home-logic";
 import { createNebulaClient } from "@lumenize/resources/frontend";
-import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay } from "@lumenize/nebula/client";
+import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay, decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS } from "@lumenize/nebula/client";
 import type { FactoryResult } from "@lumenize/resources/frontend";
-import type { TurnLiveness } from "@lumenize/nebula/client";
+import type { TurnLiveness, PreviewFrameState, PreviewFrameEvent, PreviewFrameAction } from "@lumenize/nebula/client";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { Star } from "@lumenize/nebula";
 
@@ -39,8 +39,8 @@ const busy = ref(false);
 // name auto-subscribes by reading `store.lmz.profiles[profileId]` (refcounted; a name
 // set later back-fills every earlier message).
 const messageIds = ref<string[]>([]);
-type ChatSub = { resourceIds: string[]; setRenderWindow(ids: string[]): void; onChange(cb: () => void): void; ready: Promise<void> } & Disposable;
-let chatSub: ChatSub | null = null;
+type QuerySub = { resourceIds: string[]; setRenderWindow(ids: string[]): void; onChange(cb: () => void): void; ready: Promise<void> } & Disposable;
+let chatSub: QuerySub | null = null;
 /** The in-flight transient stream (best-effort animation; the durable Message is truth). */
 const streaming = ref<{ id: string; text: string } | null>(null);
 // ── The live transcript: a compact strip by default, the full text on request ──
@@ -83,7 +83,7 @@ function openChatThread(client: { resources: { subscribeQuery(q: unknown): unkno
   closeChatThread();
   const sub = client.resources.subscribeQuery({
     queryType: "parentChild", typeName: "Message", field: "chat", value: DEFAULT_CHAT_ID,
-  }) as ChatSub;
+  }) as QuerySub;
   const sync = () => {
     messageIds.value = [...sub.resourceIds];
     sub.setRenderWindow(sub.resourceIds); // the pre-alpha thread is small — render it all
@@ -102,6 +102,42 @@ function closeChatThread() {
   lastPostedId.value = null;
   turn.value = null;
 }
+
+// ── The build `.dev` serves ───────────────────────────────────────────────────────────────────
+// Every landing creates `.dev`'s newest `ServedBuild` (ADR-024's build version), and this Studio,
+// like every other one open on the app, subscribes to them beside the chat, so every Studio hears
+// every landing. A query answers before the first landing, so a new app's first build arrives too,
+// and a restored subscription delivers the current value, so a landing missed while disconnected
+// still arrives.
+let servedSub: QuerySub | null = null;
+const servedIds = ref<string[]>([]);
+function openServedBuilds(client: { resources: { subscribeQuery(q: unknown): unknown } }) {
+  closeServedBuilds();
+  const sub = client.resources.subscribeQuery({
+    queryType: "parentChild", typeName: "ServedBuild", field: "chat", value: DEFAULT_CHAT_ID,
+  }) as QuerySub;
+  const sync = () => {
+    servedIds.value = [...sub.resourceIds];
+    sub.setRenderWindow(sub.resourceIds.slice(-1)); // oldest first, so the newest is the landed build
+  };
+  sub.onChange(sync);
+  sub.ready.then(sync).catch(() => { /* denied/failed — the frame keeps what it shows */ });
+  servedSub = sub;
+}
+function closeServedBuilds() {
+  try { servedSub?.[Symbol.dispose](); } catch { /* already released */ }
+  servedSub = null;
+  servedIds.value = [];
+}
+/** The build `.dev` serves now: the newest `ServedBuild`, once its content has arrived. */
+const servedBuild = computed<string | undefined>(() => {
+  const id = servedIds.value.at(-1);
+  const store = nebula.value?.store;
+  if (!id || !store) return undefined;
+  const value = (store.resources as Record<string, Record<string, { value?: { star?: string; buildVersion?: string } }>>)
+    .ServedBuild?.[id]?.value;
+  return value?.star === "dev" ? value.buildVersion : undefined;
+});
 
 /** One face on the avatar stack: the display name (its hover is the full name), the picture if
  *  there is one, and the kind — a fallback initial stands in for a missing picture. */
@@ -352,9 +388,45 @@ const stageMode = computed<"preview" | "universe" | "connecting">(() =>
 const devTabUrl = (galaxy: string) => scopeUrl(previewStar(galaxy));
 const devTabOrigin = activeScope && isWorkspace(activeScope) ? new URL(devTabUrl(activeScope)).origin : undefined;
 
-function reloadPreview() {
-  if (activeScope && isWorkspace(activeScope)) previewSrc.value = `${devTabUrl(activeScope)}?t=${Date.now()}`;
+// ── The frame ─────────────────────────────────────────────────────────────────────────────────
+// Studio asks its frame to reload, naming the build, and the frame decides, so the frame keeps its
+// URL (ADR-017); `decidePreviewFrame` (src/preview-frame.ts in apps/nebula) says when to ask, when
+// to ask again and when no client is there to ask, and this part only posts, times and navigates.
+let frameState: PreviewFrameState = {};
+/** Bumped to replace the iframe element, which navigates it even to the address it holds. */
+const frameKey = ref(0);
+const newRequestId = () => crypto.randomUUID().slice(0, 8);
+function onFrame(event: PreviewFrameEvent) {
+  const { state, action } = decidePreviewFrame(frameState, event);
+  frameState = state;
+  actOnFrame(action);
 }
+function actOnFrame(action: PreviewFrameAction) {
+  if (action.kind === "set-address") {
+    setFrameAddress();
+  } else if (action.kind === "ask" && devTabOrigin) {
+    const { request } = action;
+    previewFrame.value?.contentWindow?.postMessage(
+      { type: "lumenize:reload", id: request.id, ...(request.build ? { build: request.build } : {}) }, devTabOrigin);
+    setTimeout(() => onFrame({ type: "no-echo", id: request.id }),
+      request.kind === "button" ? BUTTON_ECHO_MS : LANDING_ECHO_MS);
+  }
+}
+/** Point the frame at the Star's root, for a frame with no client to ask and after a wipe. */
+function setFrameAddress() {
+  if (!activeScope || !isWorkspace(activeScope)) return;
+  previewSrc.value = devTabUrl(activeScope);
+  frameKey.value++;
+}
+function onFrameLoad() {
+  const loadAt = Date.now();
+  setTimeout(() => onFrame({ type: "load-settled", loadAt }), LOAD_SILENCE_MS);
+}
+/** The Reload button: the frame reloads whatever build it runs, since the person asked. */
+function onReloadButton() {
+  onFrame({ type: "button", id: newRequestId() });
+}
+watch(servedBuild, (build) => { if (build) onFrame({ type: "value", build, id: newRequestId() }); });
 
 // ── session ──────────────────────────────────────────────────────────────────
 // ⚠️ **There is deliberately no login code here.** Signing in lives on the platform host, which
@@ -381,6 +453,12 @@ function onFrameMessage(e: MessageEvent) {
   const type = (e.data as { type?: unknown } | null)?.type;
   if (type === "lumenize:login-required") previewNotice.value = "The preview has no session for its workspace.";
   else if (type === "lumenize:logout") previewNotice.value = "You logged out inside the preview. Your Studio session is unchanged.";
+  else if (type === "lumenize:loaded") {
+    const id = (e.data as { id?: unknown }).id;
+    // A fresh load posts this before any login notice of its own, so it clears the last load's.
+    if (id === undefined) previewNotice.value = undefined;
+    onFrame({ type: "loaded", id: typeof id === "string" ? id : undefined, at: Date.now(), resendId: newRequestId() });
+  }
 }
 onMounted(() => window.addEventListener("message", onFrameMessage));
 onUnmounted(() => window.removeEventListener("message", onFrameMessage));
@@ -391,10 +469,6 @@ async function connect() {
     Client: StudioClient,
     ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
     ...chatPair(activeScope),
-    // The build reply lands here: the Galaxy answers whoever asked for the build. The
-    // initial load needs no cue — `dist/` serves from the Galaxy's VFS and the iframe
-    // source is set below before anything is asked.
-    onPreviewReady: (scope) => { if (scope === activeScope) reloadPreview(); },
     // This page's own scope was deleted, from here or elsewhere, and the client has stopped: an
     // app's page leaves as a delete of it does, and an account's page for Home.
     onHostDeleted: () => (activeScope?.includes(".") ? onAppDeleted() : leaveTo(platformUrl("/"))),
@@ -418,8 +492,9 @@ async function connect() {
   nebula.value = n;
   connected.value = true;
   if (isWorkspace(activeScope)) {
-    previewSrc.value = devTabUrl(activeScope!); // render now; a build's reply refreshes it
+    previewSrc.value = devTabUrl(activeScope!); // render now; each landing asks the frame to reload
     openChatThread(n.client);
+    openServedBuilds(n.client);
   }
   await nudgeNextStep();
 }
@@ -449,30 +524,6 @@ onMounted(() => {
     });
 });
 
-// Re-request the preview after a long absence. ⚠️ RE-DERIVED post-collapse: the original
-// reason (waking an idle-slept dev container, which served a self-healing "waking" page) is
-// GONE — the container is off the read path entirely and `dist` serves Galaxy-direct from
-// the DO's VFS, so there is nothing to wake. The behavior survives on a DIFFERENT reason: a
-// build that completes while this tab is hidden answers its requester with a direct push the
-// client may miss if its gateway WS dropped, and a build another tab asked for sends this tab
-// nothing, so on return the preview can be a version behind. Gated on a
-// long absence, since a quick tab-switch cannot have missed a build. The mesh client
-// reconnects its own WS via backoff; this covers the preview the client doesn't own.
-let hiddenAt = 0;
-function onVisibilityChange() {
-  if (document.visibilityState === "hidden") {
-    hiddenAt = Date.now();
-    return;
-  }
-  const awayMs = hiddenAt ? Date.now() - hiddenAt : 0;
-  hiddenAt = 0;
-  if (awayMs > 4 * 60_000 && connected.value && isWorkspace(activeScope)) {
-    reloadPreview();
-  }
-}
-onMounted(() => document.addEventListener("visibilitychange", onVisibilityChange));
-onUnmounted(() => document.removeEventListener("visibilitychange", onVisibilityChange));
-
 async function send() {
   const msg = input.value.trim();
   if (!msg || !nebula.value || busy.value) return;
@@ -484,7 +535,7 @@ async function send() {
     // The COMMIT is the trigger (the collapse): postUserMessage writes the durable
     // Message; the Galaxy's commit hook starts the turn under MY authority; the reply
     // arrives on the Message subscription like everyone else's (no echo, no reply
-    // channel). The preview reloads on the build-completion push, not here.
+    // channel). The preview reloads when the landing's `ServedBuild` arrives, not here.
     lastPostedId.value = await nebula.value.client.postUserMessage(msg);
     turn.value = startTurn(Date.now());
     turnStartedAt.value = Date.now();
@@ -505,7 +556,8 @@ async function wipe() {
     // `.dev`, or no dominion over it, is refused, and saying it worked would be false.
     await client.lmz.callAsync("STAR", previewStar(activeScope!), client.ctn<Star>().resetDevData());
     log("studio", "Wiped the development test data.");
-    reloadPreview();
+    // Set the address rather than asking: the URL the frame was on may name data the wipe deleted.
+    setFrameAddress();
   } catch (e) {
     log("error", `Wipe refused: ${(e as Error).message}`);
   } finally {
@@ -579,6 +631,7 @@ function onOpenApp(scope: string) {
 async function logout(options: { everywhere?: boolean } = {}) {
   menuOpen.value = false;
   closeChatThread();
+  closeServedBuilds();
   const client = nebula.value?.client;
   if (client) await client.logout(options);
   else leaveTo(platformUrl(options.everywhere ? "/auth/logout?everywhere=1" : "/auth/logout"));
@@ -828,7 +881,7 @@ const confirmingAccount = ref(false);
           class="btn btn-sm btn-ghost btn-square"
           :disabled="busy"
           title="Reload preview"
-          @click="reloadPreview"
+          @click="onReloadButton"
         >
           <RotateCw class="size-4" />
         </button>
@@ -893,7 +946,7 @@ const confirmingAccount = ref(false);
         <!-- Live preview: the dev Star's own host, the one page this Studio frames. -->
         <div v-else class="w-full h-full flex flex-col">
           <p v-if="previewNotice" class="alert alert-info text-sm rounded-none" data-testid="preview-notice">{{ previewNotice }}</p>
-          <iframe ref="previewFrame" :src="previewSrc" class="w-full flex-1 border-0" title="Preview" />
+          <iframe :key="frameKey" ref="previewFrame" :src="previewSrc" class="w-full flex-1 border-0" title="Preview" @load="onFrameLoad" />
         </div>
       </div>
     </section>

@@ -686,7 +686,7 @@ describe('integration — real Galaxy loop (probe replays a script)', () => {
   });
 
   it('the loop\'s build tool reaches the `buildNow` ENTRY (the LOOP_TOOL_ENTRIES table), not a private body', async () => {
-    // Mutation: route `build` to `#buildAndAnnounce` directly → the spy sees no call.
+    // Mutation: route `build` to `#queueBuild` directly → the spy sees no call.
     const spy = vi.spyOn(Galaxy.prototype, 'buildNow');
     try {
       const dev = uniqueGalaxyScope();

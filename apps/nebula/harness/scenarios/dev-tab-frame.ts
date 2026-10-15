@@ -29,11 +29,15 @@
  *     Studio drops the source check, or the origin check.*
  *  4. **A sign-out inside the dev tab leaves Studio's session alive.** The frame's `logout()` posts
  *     its teardown to Studio, which says so; the top window's URL is unchanged and its composer is
- *     still there. *Reds if the framed logout navigates the top window.*
+ *     still there. The notice is still up a few seconds later, and gone once the frame loads
+ *     again, whose first `lumenize:loaded` clears it. *Reds if the framed logout navigates the top
+ *     window, and if a load clears no notice.*
  *  5. **A frame that cannot get a token posts once and leaves the tab where it is.** With P's `.dev`
  *     membership gone, P's Studio frames a dev tab whose refresh is refused; Studio receives one
- *     login-required message and stays on its own URL. *Reds if the frame navigates the tab — Studio
- *     would be replaced by a login page carrying the frame's own `return_to`.*
+ *     login-required message and stays on its own URL, its notice still up a few seconds after the
+ *     frame settles. *Reds if the frame navigates the tab — Studio would be replaced by a login page
+ *     carrying the frame's own `return_to` — and if the load's own `loaded` clears the notice its
+ *     `login-required` raised.*
  *
  * `needsContainer = true` — the dev tab is a built app.
  */
@@ -218,10 +222,15 @@ export async function run(stack: DevStack): Promise<void> {
       // ── LIMB 4: a sign-out inside the dev tab leaves Studio's session alive ──────────────────
       const before = page.url();
       await frame.evaluate(() => (window as unknown as { __devTabClient: { logout(): Promise<void> } }).__devTabClient.logout());
-      await page.getByTestId('preview-notice').filter({ hasText: 'You logged out inside the preview' })
-        .waitFor({ state: 'visible', timeout: 20_000 });
+      const loggedOut = page.getByTestId('preview-notice').filter({ hasText: 'You logged out inside the preview' });
+      await loggedOut.waitFor({ state: 'visible', timeout: 20_000 });
       assert.equal(page.url(), before, "a logout inside the dev tab must not move Studio's window");
       await page.getByPlaceholder(COMPOSER).waitFor({ state: 'visible', timeout: 10_000 });
+      await new Promise((r) => setTimeout(r, 3_000));
+      assert.equal(await loggedOut.count(), 1, 'the logout notice must stay up once the frame settles');
+      // The frame's next load posts `loaded` first, which clears the last load's notice.
+      await page.getByTitle('Reload preview').click();
+      await loggedOut.waitFor({ state: 'detached', timeout: 20_000 });
       await context.close();
       console.error("  ✓ limb 4 — the dev tab's logout told Studio, which stayed put and signed in");
 
@@ -251,7 +260,8 @@ export async function run(stack: DevStack): Promise<void> {
           if (Date.now() > deadline) throw e;
         }
       }
-      await new Promise((r) => setTimeout(r, 2_000));
+      await new Promise((r) => setTimeout(r, 3_000));
+      assert.equal(await noSession.count(), 1, 'the notice must stay up once the frame settles: its own load posted `loaded` first');
       assert.equal(new URL(pPage.url()).origin, studio, "a frame with no token must leave Studio's window where it is");
       assert.equal(await pPage.evaluate(() => (window as unknown as { __loginRequired?: number }).__loginRequired), 1,
         'the frame must post login-required exactly once');

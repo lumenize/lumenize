@@ -9,7 +9,7 @@
  * which transitively import `cloudflare:workers` and fail outside Workers. This file leaves them out.
  */
 
-// Studio's own Client: NebulaClient plus chat posts, picture uploads and the build reply.
+// Studio's own Client: NebulaClient plus chat posts and picture uploads.
 export { StudioClient } from './studio-client';
 export type { StudioClientConfig } from './studio-client';
 
@@ -32,4 +32,8 @@ export {
   startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay, TURN_IDLE_MS, TURN_HEARTBEAT_MS,
   type TurnLiveness, type TurnPhase, type TurnDisplay,
 } from './turn-liveness';
+export {
+  decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS,
+  type PreviewFrameState, type PreviewFrameEvent, type PreviewFrameAction, type PendingRequest,
+} from './preview-frame';
 export type { ParticipantKind, ParticipantRef } from './participants';

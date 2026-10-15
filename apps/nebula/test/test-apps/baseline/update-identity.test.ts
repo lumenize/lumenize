@@ -145,8 +145,7 @@ describe('no subscription update carries the identity of the caller whose call c
     // ── Galaxy kind: a streaming chunk, caused by the admin's turn ────────────────────────────
     const scope = `ident-${uuid().slice(0, 8)}.app`;
     const resourcePair = { resourceHostBinding: 'GALAXY' } as const;
-    // Studio's class drives the turn: a build ends by pushing `handlePreviewReady` to whoever asked,
-    // and a NebulaClient has no member for it, so the push came back refused.
+    // Studio's class drives the turn, as Studio's page does.
     const { client: gAdmin, accessToken: gToken } = await universeAdminClient(
       StudioClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
     const adminBrowser = new Browser();
@@ -156,6 +155,9 @@ describe('no subscription update carries the identity of the caller whose call c
     await gAdmin.orgTree.setPermission(CHAT_NODE_ID, gProbeP.sub, 'read');
     using chat = gProbe.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID });
     await chat.ready;
+    // The landing's `ServedBuild` reaches every subscriber, the probe included, as a query update.
+    using served = gProbe.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'ServedBuild', field: 'chat', value: DEFAULT_CHAT_ID });
+    await served.ready;
     gAdmin.callGalaxyChatScripted(scope, 'build it', [
       { choices: [{ message: { content: '', reasoning_content: '', tool_calls: [
         { id: 'b1', type: 'function', function: { name: 'build', arguments: '{}' } }] } }] },
@@ -166,7 +168,7 @@ describe('no subscription update carries the identity of the caller whose call c
     // The whole turn, not only its first chunk, so the offenders check covers every push it made.
     await vi.waitFor(() => expect(gAdmin.callCompleted).toBe(true), { timeout: 15000 });
     expect(gAdmin.lastError).toBeUndefined();
-    await vi.waitFor(() => expect(gAdmin.previewReadyCount).toBe(1)); // the build reply, taken
+    await vi.waitFor(() => expect(served.resourceIds).toHaveLength(1)); // the landing, heard
     expect(offenders(gProbe, 'GALAXY')).toEqual([]);
   });
 });

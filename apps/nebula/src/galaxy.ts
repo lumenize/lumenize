@@ -26,7 +26,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { addressOf, mesh, rawRpc, splitAddress } from '@lumenize/mesh';
+import { addressOf, mesh, rawRpc } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { Workspace } from '@cloudflare/computer';
 import type { DurableObjectStorageLike } from '@cloudflare/computer';
@@ -65,7 +65,6 @@ import { deploymentOrigin, hostOrigin } from '@lumenize/mesh/client';
 import { deriveKind } from './participants';
 import { SCAFFOLD_FILES } from './scaffold-seed';
 import { PLATFORM_FILES, PLATFORM_AGENTS_MD } from './platform-embed';
-import type { StudioClient } from './studio-client';
 import type { Snapshot } from '@lumenize/resources/client';
 import { TOOL_ARGS_BUNDLE_ID } from './tool-args-constants';
 import { TOOL_ARGS_VALIDATOR_MODULE } from './validator-seeds';
@@ -778,8 +777,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * report; a predecessor's failure never poisons the chain).
    *
    * This is the overridable SEAM (a test double fakes the container here), so it owns
-   * the build and nothing else — {@link #buildAndLand} owns the landing and the reload push,
-   * one level up, where a faked success lands exactly like a real one. The seam's report
+   * the build and nothing else — {@link #buildAndLand} owns the landing, one level up,
+   * where a faked success lands exactly like a real one. The seam's report
    * carries a placeholder `preview` the layer above overwrites.
    */
   protected build(opts: BuildJobOpts = {}): Promise<BuildReport> {
@@ -789,11 +788,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   }
 
   /**
-   * A build plus its landing and its announcement — **the only way callers should build.**
-   * The codegen loop's `build` tool (through the `buildNow` entry) and a direct `buildNow()`
-   * both go through here. A build that lands tells whoever asked for it (see
-   * {@link announceBuildToRequester}), and that belongs to the EVENT rather than to whichever
-   * caller produced it.
+   * A build plus its landing, queued — **the only way callers should build.** The codegen loop's
+   * `build` tool (through the `buildNow` entry) and a direct `buildNow()` both go through here. A
+   * build that lands records `.dev`'s newest `ServedBuild`, and every Studio subscribed to the
+   * `ServedBuild` query hears every landing, whoever asked for the build.
    *
    * When `src/ontology.d.ts` differs from the `.dev` Star's current row, its version rides
    * the job, and the row the job compiles becomes current when the build lands
@@ -803,10 +801,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * Queued whole: a build compared before the one ahead of it landed would read the old row, so a
    * file reverted between two builds would leave the newer row current over the older source.
    *
-   * ⚠️ Deliberately ABOVE {@link build}, which is the test seam. Putting the push inside
-   * `build()` made every faked build silently stop announcing — the suite caught it.
+   * ⚠️ Deliberately ABOVE {@link build}, which is the test seam, so a faked build lands exactly
+   * as a real one does.
    */
-  #buildAndAnnounce(opts: { preview?: boolean } = {}): Promise<BuildReport> {
+  #queueBuild(opts: { preview?: boolean } = {}): Promise<BuildReport> {
     const run = this.#landChain.then(() => this.#buildAndLand(opts));
     this.#landChain = run.catch(() => { /* the next build starts clean */ });
     return run;
@@ -836,7 +834,6 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     debug('nebula.Galaxy.landing').info('decided', {
       instanceName: this.lmz.instanceName, lands: preview.refreshed, why: preview.why, version: ontologyVersion,
     });
-    if (preview.refreshed) this.announceBuildToRequester();
     return { ...report, preview };
   }
 
@@ -1361,35 +1358,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    */
   @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
   buildNow(opts: { preview?: boolean } = {}): Promise<BuildReport> {
-    return this.#buildAndAnnounce({ preview: opts.preview });
-  }
-
-  /**
-   * Tell the client that ASKED for this build that its preview is worth re-fetching —
-   * the reply to their request, addressed by the `instanceName` already on the call
-   * they made. Not a subscription: a build is somebody's request, and the answer goes
-   * back to the asker like any other, so there is no registry to keep, no dead
-   * subscriber to reap, and no way for the signal to reach nobody because a client
-   * forgot to enrol (which is exactly how it broke — Studio never set the hook that
-   * gated the old subscribe, so the fan-out ran to an empty list for a whole build).
-   *
-   * ⚠️ **Other participants are NOT signalled, deliberately.** In a shared session a
-   * second viewer keeps the older UI until their own lazy path catches up — a
-   * refocus re-request, or the next thing they ask for. Unchanged ontology means old
-   * code is still data-correct, so running behind is a staleness cost, never a
-   * correctness one; a fan-out would buy a faster refresh for the passive viewer at
-   * the price of a registry that has to be enrolled in, maintained, and reaped.
-   *
-   * Both build paths reach here through {@link #buildAndAnnounce}: the codegen loop's
-   * `build` tool (running under the POSTER's callContext, so `callChain[0]` is the
-   * person whose message started the turn) and a direct `buildNow()`.
-   */
-  protected announceBuildToRequester(): void {
-    // No client origin (a server-internal build, or a direct in-DO call with no mesh
-    // context at all) — nobody asked, so nobody is told.
-    const clientAddress = this.#clientOrigin()?.clientAddress;
-    if (!clientAddress) return;
-    this.deliverPreviewReady(this.lmz.instanceName!, clientAddress);
+    return this.#queueBuild({ preview: opts.preview });
   }
 
   // ─── The codegen turn ───────────────────────────────────────────────
@@ -1649,10 +1618,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       thought,
       codegen,
     });
-    // (The reload push is NOT fired here — `build()` announces its own success, so a
-    // manual `buildNow()` refreshes the preview too. The retired ontology-install
-    // trigger double-fired: the version label is baked at build, so an install without
-    // a build had nothing new to fetch.)
+    // (No reload is asked for here: a turn's last build that landed recorded `.dev`'s newest
+    // `ServedBuild`, which every Studio on the app hears, as a manual `buildNow()`'s does.)
   }
 
   /**
@@ -1679,35 +1646,6 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       });
     } catch (e) {
       debug('nebula.Galaxy.warm').warn('warm start threw (non-fatal)', { error: e });
-    }
-  }
-
-  /**
-   * Tell the client that asked for a build its preview is ready, by direct delivery — a
-   * one-way mesh call to the client's stable address, such as `GALAXY/acme.crm/alice.9f2c41aa`,
-   * so a WS reconnect doesn't strand it. The build reply is its only
-   * caller ({@link announceBuildToRequester}): the former initial-load cue was deleted,
-   * because `dist/` serves Galaxy-direct from this DO's VFS and the Studio sets the
-   * iframe source before connecting, so there was nothing to warm and nothing to
-   * announce. A fresh chain, like every push: the nudge is this Galaxy speaking, so the
-   * asking client's claims stay behind. A delivery failure must never break the dev loop, so a
-   * synchronous throw is caught and a failed delivery reaches a handler that logs it: a nudge
-   * sent while the socket is down is lost.
-   */
-  protected deliverPreviewReady(scope: string, clientAddress: string): void {
-    try {
-      const { bindingName, instanceName } = splitAddress(clientAddress);
-      this.lmz.call(bindingName, instanceName, this.ctn<StudioClient>().handlePreviewReady(scope),
-        this.ctn<Galaxy>().onPreviewReadyUndelivered(), { newChain: true, onErrorOnly: true });
-    } catch (e) {
-      debug('nebula.Galaxy.deliverPreviewReady').warn('preview-ready delivery failed (non-fatal)', { error: e });
-    }
-  }
-
-  /** {@link deliverPreviewReady}'s result handler, sent `onErrorOnly`: logs a nudge that did not land. */
-  onPreviewReadyUndelivered(result?: unknown): void {
-    if (result instanceof Error) {
-      debug('nebula.Galaxy.deliverPreviewReady').warn('preview-ready delivery failed (non-fatal)', { error: result });
     }
   }
 

@@ -25,7 +25,10 @@
  *     `.dev` row.*
  *  4. **Studio's Wipe button says what the Star answered.** A chat collaborator, who has no passage
  *     into `.dev` from Studio's page, clicks Wipe and is shown the refusal; the owner's click
- *     reports success. *Reds when the button logs success before the answer.*
+ *     reports success. Before the owner's Wipe the frame moves to a sub-path and takes a mark;
+ *     after it, the frame sits at the Star's root with the mark gone. *Reds when the button logs
+ *     success before the answer, and when the Wipe asks the frame rather than setting its
+ *     address, which keeps the sub-path.*
  *  5. **A version change on `.dev` counts the rows its validator refuses.** On the wiped Star, five
  *     `Deal`s, two with a `stage`; a build adding an optional field counts 0 of 5, and a build
  *     retyping `stage` counts exactly 2 of 5 (locally, from the Star's log line). *Reds when the
@@ -159,6 +162,8 @@ onMounted(() => {
 const BROKEN = `\nexport interface Deal {\n  title: string\n`;
 const MARK = 'limb-two-visible-string';
 const APP_WITH_MARK = `<script setup lang="ts">
+import { client } from './nebula';
+void client; // a client, so the page answers Studio's reload requests (limb 4's Wipe check)
 </script>
 
 <template>
@@ -240,7 +245,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.ok(cookie, "the owner's sign-up set no refresh cookie for the account");
     const session = { refreshToken: cookie.value, authScope: universe };
     const studioToken = await refreshAccessToken(stack.baseUrl, session, galaxy);
-    // Studio's own client class, which hears the preview-ready push a build sends its requester.
+    // Studio's own client class, as Studio's page builds it.
     const studio: Driver = await connectDriver(stack, { scope: galaxy, session: studioToken, Client: StudioClient });
     disposers.push(() => studio.dispose());
 
@@ -435,10 +440,28 @@ export async function run(stack: DevStack): Promise<void> {
     record('limb 4 — a collaborator\'s Wipe shows the refusal, and no success',
       austenWipe.refused !== null && austenWipe.refused.includes(passage) && !austenWipe.succeeded,
       `refusal ${JSON.stringify(austenWipe.refused)}; success line ${austenWipe.succeeded ? 'SHOWN' : 'absent'}`);
+    // The URL the frame was on may name data the wipe deleted, so a Wipe sets the frame's address.
+    const ownerFrame = async () => (await owner.page.locator('iframe[title="Preview"]').elementHandle())?.contentFrame();
+    const frameAt = async () => (await (await ownerFrame())?.evaluate(() => ({
+      path: location.pathname, marked: (window as unknown as { __mark?: boolean }).__mark === true,
+    })).catch(() => undefined));
+    await (await ownerFrame())?.evaluate(() => {
+      history.pushState({}, '', '/limb-four');
+      (window as unknown as { __mark?: boolean }).__mark = true;
+    });
+    const beforeWipe = await frameAt();
     const ownerWipe = await wipeOn(owner.page);
     record("limb 4 — the owner's Wipe reports success",
       ownerWipe.succeeded && ownerWipe.refused === null,
       `success line ${ownerWipe.succeeded ? 'shown' : 'absent'}; refusal ${JSON.stringify(ownerWipe.refused)}`);
+    let afterWipe = await frameAt();
+    for (const deadline = Date.now() + 15_000; !(afterWipe?.path === '/' && !afterWipe.marked) && Date.now() < deadline;) {
+      await sleep(250);
+      afterWipe = await frameAt();
+    }
+    record("limb 4 — the owner's Wipe moves the frame to the Star's root",
+      beforeWipe?.path === '/limb-four' && beforeWipe.marked && afterWipe?.path === '/' && !afterWipe.marked,
+      `before ${JSON.stringify(beforeWipe)}; after ${JSON.stringify(afterWipe)}`);
 
     // ── LIMB 5: a version change on `.dev` counts the rows its validator refuses ────────────
     // The owner's Wipe left the Star empty, so these five are the only rows it holds.

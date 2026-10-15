@@ -113,7 +113,7 @@ describe.runIf(HAS_DOCKER)('Studio UI smoke (wrangler dev + Docker)', () => {
     expect(await page.locator('dialog.modal[open]').count()).toBe(0);
     expect(await page.locator('iframe[title="Preview"]').count()).toBe(1);
     // The preview renders on connect with NO refresh cue: `dist/` serves from the Galaxy's VFS, so
-    // the iframe frames the dev Star's own host and only a build's reply ever bumps it.
+    // the iframe frames the dev Star's own host, and only a landing ever asks it to reload.
     expect(await page.locator('iframe[title="Preview"]').getAttribute('src'))
       .toBe(`${scopeOriginFrom(viteBaseUrl, `${TEST_SCOPE}.dev`)}/`);
 
@@ -169,13 +169,22 @@ describe.runIf(HAS_DOCKER)('Studio UI smoke (wrangler dev + Docker)', () => {
       previewErrors.push(`requestfailed: ${req.url().slice(-80)} ${req.failure()?.errorText ?? ''}`);
     });
 
-    // Snapshot the preview src; a build that lands appends a ?t= cache-buster
-    // (App.vue reloadPreview), so its appearance proves the full
-    // chat → Galaxy codegen → build → /app preview loop ran. A turn whose last build was held
-    // back for its type findings lands nothing and says so in its reply instead; then the
-    // build is previewed by hand and Studio's Reload button bumps the src.
-    const srcBefore = await page.locator('iframe[title="Preview"]').getAttribute('src');
+    // A mark on the preview frame's window, which a navigation of the frame clears. A build that
+    // lands records `.dev`'s newest `ServedBuild`, Studio asks its frame to reload, and the frame
+    // navigates, by its own client or, with none, by Studio setting its address. So the mark going
+    // proves the full chat → Galaxy codegen → build → landing → preview loop ran. The request and
+    // the fallback both navigate, which is why the mark is read rather than the iframe's `src`.
+    // A turn whose last build was held back for its type findings lands nothing and says so in
+    // its reply instead; then the build is previewed by hand, and that landing moves the frame.
+    const previewFrame = async () => (await page.locator('iframe[title="Preview"]').elementHandle())?.contentFrame();
+    const markFrame = async () => (await (await previewFrame())?.evaluate(() => {
+      (window as unknown as { __mark?: boolean }).__mark = true;
+      return true;
+    }).catch(() => false)) === true;
+    const frameMarked = async () => (await (await previewFrame())?.evaluate(() =>
+      (window as unknown as { __mark?: boolean }).__mark === true).catch(() => false)) === true;
     const HELD_BACK = 'The preview was not updated: ';
+    expect(await markFrame(), 'the preview frame could not be marked').toBe(true);
 
     await page.getByPlaceholder('Describe a change…').fill('Make a simple counter with an increment button');
     await page.getByPlaceholder('Describe a change…').press('Enter');
@@ -183,27 +192,12 @@ describe.runIf(HAS_DOCKER)('Studio UI smoke (wrangler dev + Docker)', () => {
     // The model call + the ephemeral container build job (ontology compile + type
     // check + vite build — every check runs in the box now) can take a while (cold
     // container + FUSE mount on the first build). Generous timeout.
-    await page.waitForFunction(
-      ([prev, heldBack]) => {
-        const src = document.querySelector('iframe[title="Preview"]')?.getAttribute('src') ?? '';
-        return (src.includes('?t=') && src !== prev) || (document.body.textContent ?? '').includes(heldBack!);
-      },
-      [srcBefore, HELD_BACK],
-      { timeout: 180_000, polling: 500 },
-    );
-    if ((await page.getByText(HELD_BACK).count()) > 0) {
+    await expect.poll(async () => !(await frameMarked()) || (await page.getByText(HELD_BACK).count()) > 0,
+      { timeout: 180_000, interval: 500 }).toBe(true);
+    if (await frameMarked()) {
       const previewed = await previewLastBuild({ workerBaseUrl, session: ownerSession!, scope: TEST_SCOPE });
       expect(previewed.refreshed, `previewing the held-back build landed nothing: ${previewed.why}`).toBe(true);
-      const srcHeld = await page.locator('iframe[title="Preview"]').getAttribute('src');
-      await page.getByTitle('Reload preview').click();
-      await page.waitForFunction(
-        (prev) => {
-          const src = document.querySelector('iframe[title="Preview"]')?.getAttribute('src') ?? '';
-          return src.includes('?t=') && src !== prev;
-        },
-        srcHeld,
-        { timeout: 30_000, polling: 250 },
-      );
+      await expect.poll(async () => !(await frameMarked()), { timeout: 30_000, interval: 250 }).toBe(true);
     }
 
     // The regenerated app actually RENDERS in the container-served preview — catches the

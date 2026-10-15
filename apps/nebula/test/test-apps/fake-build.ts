@@ -1,7 +1,7 @@
 /**
  * The build job, faked for the vitest-plugin lane, where no container exists. Both test Galaxies'
- * `build()` seams run this, so the layer above them — the landing, the preview decision and the
- * announcement — runs unchanged. It mirrors `container/compiler/job.ts` where the Galaxy reads the
+ * `build()` seams run this, so the layer above them — the landing decision, the landing and the
+ * `ServedBuild` it records — runs unchanged. It mirrors `container/compiler/job.ts` where the Galaxy reads the
  * result: the row lands at ROW_PATH, a failed compile skips the bundle, and a bundle that ran writes
  * `dist/index.html` and reports its digest, which the landing's arrival check reads.
  *
