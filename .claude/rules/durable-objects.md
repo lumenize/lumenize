@@ -34,6 +34,17 @@ catch the bug. Bit us on an abort-cooldown timestamp that never persisted. The v
 survives a reset belongs there (`packages/mesh/test/identity-stamp.test.ts`, measured 2026-10-09);
 whether it drops a write made just before the abort is unmeasured.
 
+## A failed `alarm()` retries by one rule, and gives up silently
+**When an `alarm()` fails, Cloudflare retries it the same way whatever the failure: a throw, `ctx.abort()`, or a kill for exceeding the CPU or memory limit.** Measured deployed 2026-10-15, `experiments/do-alarm-retry/RESULTS.md`:
+
+- **Seven attempts, then nothing.** The first run and six retries, backing off from 2 s and doubling, take about 2.5 minutes, with `alarmInfo.retryCount` 0 through 6. After the seventh nothing runs and nothing is logged; each failed attempt's own Workers Issues occurrence is the only trace.
+- **`getAlarm()` keeps answering the dead alarm's past time**, not `null`. Code MUST NOT decide whether an alarm is pending from `getAlarm() === null`, because an object whose retries ran out would never be re-armed.
+- **A kill cannot be caught by the code it kills**, even across awaits, so a handler's `catch` never sees a CPU or memory kill.
+- **A re-arm made durable before the failure replaces the retry**, and `retryCount` restarts at 0. A handler that re-arms first and is then killed every time loops forever, and the limit of six never applies.
+- **`ctx.abort(reason, { retryAlarm: false })` ends an alarm after one attempt**, the way to stop a retry on purpose.
+
+⇒ A handler that has to bound its own retries MUST count its attempts in storage before the work runs, made durable first as § *Persist before `ctx.abort()` — yield a macrotask first* shows, and MUST NOT count them in a `catch`.
+
 ## Initialization (schema setup, in-DO migrations)
 One-time setup — `CREATE TABLE IF NOT EXISTS`, in-DO schema migration, config — MUST run at startup so it completes before any request.
 - **Raw DOs**: synchronous setup in the constructor body is enough — the constructor runs to completion before any request is dispatched, and sync storage needs no `await`. `ctx.blockConcurrencyWhile(async () => …)` MAY be used **only** when setup must `await`; it's unnecessary for purely-sync setup.
