@@ -79,6 +79,14 @@ touched, trace the caller you are citing** — open it, confirm it reaches this 
 cannot, write that the parameter is unexplained rather than supplying a reason for it. An invented
 justification is worse than none: the next reader treats it as a decision (`calibration.md` §7).
 
+**When a phase turns an advisory signal into a gate, run what the docs teach through the gate
+before the phase closes.** A false positive cost nothing while the signal only advised, and now it
+blocks correct work. So list what the gate reads, and feed it the code the docs and the platform
+guidance tell users to write. Bit 2026-10-15: type findings began holding a build back from `.dev`,
+and the SFC contract the type check reads (`apps/nebula/src/sfc-contract.ts`) lacked
+`subscribeQuery`, a `*.vue` module and `Symbol.dispose`. Each held a correct app back; a scenario
+found the first, and the verifier panel the rest.
+
 **Why this and not the verifier panel:** the panel in step 3 checks each phase against its *success criteria*, and a confidently-worded false claim satisfies those. The discriminator is mechanical and was measured (2026-07-30, `nebula-impersonation-client` review): **every claim verified with a targeted tool call was right; every claim inferred from adjacent context was wrong** — five in one sitting. ⚠️ **"I already read that file" is NOT the check** — in the worst instance the disproving line was in the session's own earlier tool output, so the failure was not looking but failing to ask what the read implied. Per-*claim*, not per-file.
 
 ⚠️ **A runtime fact you record, in a memory, a rule or a test's header, owes the probe that rules out its nearest rival explanation.** Name the rival, and make the one change that tells them apart. A targeted check verifies what you observed, not the explanation you attach to it, and the explanation is what gets recorded and reused. Bit 2026-10-09: `registeredRoutes()` read `undefined` in a test, and the build recorded that the test held a separate copy of the module. The rival, that the Worker's entry had not run yet, was one added `cloudflare:test` import away, and the false version shipped in a memory, a test header and a task note until a test leaned on it. It is the repo's most expensive recurring pattern: a local seeding bug held for a day as a structural fact (`live.md` § *Two venues, one registry*), and an email waiter's filter bug cost three wrong theories about the provider (`testing.md` § *An email waiter MUST name whose mail it is waiting for*).

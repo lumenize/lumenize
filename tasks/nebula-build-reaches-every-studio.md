@@ -232,6 +232,13 @@ Each phase leaves `npm run type-check` and `npm test` green, and its changed sou
 
 ## Build notes
 
+**Open for Larry, by dependency, then risk.** Two decisions, then notes that need none:
+
+1. Whether a build with type findings stays held back while the SFC contract is written by hand (Phase 1, and the panel's first major).
+2. Whether the frame's build guard keys on the build requested or on the pair (§ *The verifier panel*).
+
+Notes: Studio's one extra reload of a page with no client (Phase 4); the `.draft` Star and the newest `.dev` row, and the record from served bytes (§ *The verifier panel*); the certificate stalls and the bodied-GET fix (§ *The deployed pass*).
+
 ### Phase 1 — a build lands on `.dev` only when it is previewed (2026-10-14)
 
 **For Larry:**
@@ -239,8 +246,6 @@ Each phase leaves `npm run type-check` and `npm test` green, and its changed sou
 - **A turn that changes files and never builds now ends `Saved the changes; nothing was built, so the preview is unchanged.`** The task said only that `Updated the preview.` appears when the last build landed, which left the no-build case without a sentence; the old fallback claimed a preview that had not moved.
 - **The SFC contract was missing most of the client surface `api-reference.md` teaches, and this phase made that gap hold builds back.** `NEBULA_API_DTS` in `apps/nebula/src/sfc-contract.ts` listed five `client.resources` methods and no `subscribeQuery`, so a list view drew a false finding. Findings were advisory until now; with a held-back default, a correct app that lists anything stays off `.dev` until the model previews it. `dev-star-follows-the-build` limb 8 found it: its list app was held back and its page waited on an app `.dev` never served. The contract now carries every documented `client.*` call, loosely typed where the doc's types are rich, and `codegen-gate.test.ts` pins the list case. Deriving the contract from the client's own types would remove the class rather than patch it, and is proposed as a backlog row at close-out.
 - **The asset test changes the bytes of `assets/logo-a1b2c3d4.png`,** where vite puts `public/assets/logo-a1b2c3d4.png`, through `BuildFaults.distFiles`, as the criterion asks. *(Corrected after the verifier panel: this note first named a different file.)*
-
-- **`first-app-built`'s real turn ended on a held-back build in the sweep.** The model stopped `loop-detected` after 23 rounds and 5 builds, the last held back for type findings; the reply carried the line, and the scenario's preview-anyway landed it. Which findings held it back went unrecorded, since the manifest printed a `steps` field the report does not have; it now prints the last build's findings. If they prove false, the contract gap above is wider than the client surface, and Vue's shim in the same file is the next suspect.
 
 **Verified:** `drive.ts all` with Docker, 65 of 65 in 35.9 min; the ui-smoke lane, 8 of 8; `apps/nebula`'s `npm test`, 1061 passed, its three failures being Phase 2's frontend tests written ahead of their code and left out of this commit. Limb 10 reds alone when `.dev` serves `/workspace/dist/` and when `buildVersion` is read from `/workspace/dist/index.html`, each a run of its own.
 
@@ -309,7 +314,7 @@ Each phase leaves `npm run type-check` and `npm test` green, and its changed sou
 
 **For Larry:**
 
-- **The guidance scenarios moved, and two causes moved at once.** `first-app-built`'s real turn ended `loop-detected` with its last build held back in the Phase 1 sweep, and completed with a clean landing in this phase's sweep, after the build tool's prose changed and the SFC contract widened. The findings lines in `nebula-pre-alpha.md` § *Data-bound generation* record both runs and credit neither.
+- **The guidance scenarios moved, and two causes moved at once.** `first-app-built`'s real turn ended `loop-detected` in the Phase 1 sweep, after 23 rounds and 5 builds, the last held back for type findings; the reply carried the held-back line, and the scenario's preview-anyway landed it. It completed with a clean landing in this phase's sweep, after the build tool's prose changed and the SFC contract widened. The findings lines in `nebula-pre-alpha.md` § *Data-bound generation* record both runs and credit neither. The manifest now prints the last build's findings, which the Phase 1 run did not record.
 
 **Retro:**
 
@@ -350,12 +355,13 @@ The second pass ran on `a83690d`, the panel's fixed tree, and its Workers Issues
 
 - **Workers Issues showed a 500 older than this build, and it is fixed.** A scanner sent `GET /auth/login` with `content-length: 0` to the platform host. The Worker's forward there copied every request whose `body` was not null, and `new Request` refuses to copy a GET with a body: *Request with a GET or HEAD method cannot have a body*. The copy came in with `c1bb1b1` (2026-10-03). The forward now sends a GET or HEAD on without its body, which no browser sends.
 - **The new scenario, `bodied-get-answers`, is container-free.** It sends a GET and a HEAD by raw `node:http`, with no body, an empty one and five bytes, and asserts each answers as the plain request. On the unfixed deployed Worker the empty body reds it, as the scanner's did. Locally only the five bytes do: before the fix, the local stack answered the empty-body GET 200, and where it loses that body was not traced. Dropping either method from the fix reds it.
-- **Certificate validation stopped three of today's nine deployed runs, each before any of this task's code.** A new app's certificate pack sat in `pending_validation` through the whole six-minute wait. `dev-star-follows-the-build` hit it in the first pass and passed in the second; `dev-tab-frame` and `build-box` passed in the first and hit it in the second.
+- **Certificate validation stopped three of today's nine deployed runs, each before any of this task's code.** A new app's certificate pack sat in `pending_validation` through the whole six-minute wait. `dev-star-follows-the-build` hit it in the first pass and passed in the second; `dev-tab-frame` and `build-box` passed in the first, hit it in the second, and passed after the fix's redeploy. Today's stalls ran past the six minutes; `waitForHost`'s JSDoc expects two and a half to four.
 
 **Retro:**
 
 - Second pass: `dev-star-follows-the-build` passed in 418 s, all ten limbs, and `build-reaches-every-studio` in 302 s, all seven.
 - Issues since the deploy: the bodied GET, four times, one of them the new scenario's red run; and the standing `scope-deleted`.
+- After the fix, `test-nebula` redeployed at `df2e2b9`: `bodied-get-answers` passed, then `dev-tab-frame` in 192 s and `build-box` in 199 s. Issues since that deploy: `scope-deleted` alone.
 
 **Close-out:**
 
@@ -389,4 +395,4 @@ The second pass ran on `a83690d`, the panel's fixed tree, and its Workers Issues
 
 5. **Process changes?**
    - Two rules added to `live-scenarios.md`: a wait for one client's line matches its id, and a mark on a frame waits for the frame's own document.
-   - Proposed for `/build-task`: when a phase changes a default from advisory to gating, as Phase 1 did for type findings, list what feeds the gate (here the SFC contract) and check it against what the docs teach before the phase closes. It would have found the contract's gaps in Phase 1 instead of at the panel.
+   - Added to `/build-task`'s implement step: when a phase turns an advisory signal into a gate, as Phase 1 did for type findings, run what the docs teach through what the gate reads (here the SFC contract) before the phase closes. It would have found the contract's gaps in Phase 1 instead of at the panel.
