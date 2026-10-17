@@ -43,7 +43,7 @@ whether it drops a write made just before the abort is unmeasured.
 - **A re-arm made durable before the failure replaces the retry**, and `retryCount` restarts at 0. A handler that re-arms first and is then killed every time loops forever, and the limit of six never applies.
 - **`ctx.abort(reason, { retryAlarm: false })` ends an alarm after one attempt**, the way to stop a retry on purpose.
 
-⇒ A handler that has to bound its own retries MUST count its attempts in storage before the work runs, made durable first as § *Persist before `ctx.abort()` — yield a macrotask first* shows, and MUST NOT count them in a `catch`.
+⇒ **Most handlers need no attempt count of their own, and SHOULD NOT write one.** A count is a storage write on every run, and writes are the dominant cost (§ *SQLite write-cost optimization*). A handler that does not re-arm before its work is already bounded by the seven attempts above. In Mesh code a job that throws runs once: `svc.alarms` catches it, logs it and drops the job, so only a kill is retried. **A handler that re-arms before its work, and could be killed on every attempt, MAY count its attempts in storage before the work runs**, made durable first as § *Persist before `ctx.abort()` — yield a macrotask first* shows. It MUST NOT keep that count in a `catch`, which never sees a kill. Re-arming after the work avoids the count altogether.
 
 ## Initialization (schema setup, in-DO migrations)
 One-time setup — `CREATE TABLE IF NOT EXISTS`, in-DO schema migration, config — MUST run at startup so it completes before any request.
