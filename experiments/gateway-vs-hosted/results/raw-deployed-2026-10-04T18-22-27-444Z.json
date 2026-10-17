@@ -1,0 +1,54 @@
+{
+  "base": "https://experiment-gateway-vs-hosted.transformation.workers.dev",
+  "which": "latency",
+  "rounds": 2,
+  "windowS": 15,
+  "latency": [
+    {
+      "round": 0,
+      "arm": "gateway",
+      "workload": "heavy",
+      "runId": "lat-heavy-gateway-fd748107",
+      "n": 300,
+      "p50": 48.285250000000815,
+      "p90": 53.92512499999975,
+      "p99": 91.12033299999894,
+      "max": 162.88937499999975
+    },
+    {
+      "round": 0,
+      "arm": "hosted",
+      "workload": "heavy",
+      "runId": "lat-heavy-hosted-2ed762ac",
+      "n": 300,
+      "p50": 41.05841599999985,
+      "p90": 44.84466600000087,
+      "p99": 64.02991699999984,
+      "max": 123.1028750000005
+    },
+    {
+      "round": 1,
+      "arm": "hosted",
+      "workload": "heavy",
+      "runId": "lat-heavy-hosted-4cef2dcd",
+      "n": 300,
+      "p50": 30.31658299999981,
+      "p90": 35.929000000003725,
+      "p99": 56.806375000000116,
+      "max": 96.90312499999709
+    },
+    {
+      "round": 1,
+      "arm": "gateway",
+      "workload": "heavy",
+      "runId": "lat-heavy-gateway-9589a170",
+      "n": 300,
+      "p50": 71.21016600000439,
+      "p90": 77.38908400000219,
+      "p99": 181.37766700000066,
+      "max": 549.060249999995
+    }
+  ],
+  "throughput": [],
+  "broadcast": []
+}

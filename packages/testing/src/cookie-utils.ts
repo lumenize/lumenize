@@ -17,6 +17,55 @@ export interface Cookie {
   httpOnly?: boolean;
   secure?: boolean;
   sameSite?: 'Strict' | 'Lax' | 'None';
+  /** Set without a `Domain` attribute, so it goes back only to the exact host that set it. */
+  hostOnly?: boolean;
+}
+
+/**
+ * Whether a host is a secure context over plain `http`, as a browser judges it: `localhost`, the
+ * loopback addresses, and every `*.localhost` name.
+ *
+ * @internal
+ */
+export function isSecureContextHost(host: string): boolean {
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]'
+    || host.endsWith('.localhost');
+}
+
+/**
+ * Domain-match per RFC 6265 §5.1.3: the host equals the domain, or ends with it on a dot boundary,
+ * so `crm.example.com` does not match `xcrm.example.com`.
+ *
+ * @internal
+ */
+export function domainMatches(host: string, domain: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
+/**
+ * Admit a cookie a response set on `url`, as a browser would, or refuse it with `null`.
+ *
+ * A cookie without `Domain` becomes host-only on the setting host. A `Domain` that does not
+ * domain-match the host is refused. A `Secure` cookie needs a secure context to be set. A
+ * `__Secure-` name requires `Secure`; a `__Host-` name requires `Secure`, no `Domain`, and
+ * `Path=/`. A missing `Path` defaults to `/`.
+ *
+ * @internal
+ */
+export function admitSetCookie(cookie: Cookie, url: URL): Cookie | null {
+  const host = url.hostname;
+  const secureContext = url.protocol === 'https:' || isSecureContextHost(host);
+  if (cookie.secure && !secureContext) return null;
+  if (cookie.name.startsWith('__Secure-') && !cookie.secure) return null;
+  if (cookie.name.startsWith('__Host-') && (!cookie.secure || cookie.domain !== undefined || cookie.path !== '/')) {
+    return null;
+  }
+  if (cookie.domain !== undefined) {
+    const domain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+    if (!domainMatches(host, domain)) return null;
+    return { ...cookie, domain, path: cookie.path ?? '/' };
+  }
+  return { ...cookie, domain: host, hostOnly: true, path: cookie.path ?? '/' };
 }
 
 /**
@@ -49,7 +98,10 @@ export function parseSetCookie(setCookieHeader: string): Cookie | null {
     const lowerPart = part.toLowerCase();
     
     if (lowerPart.startsWith('domain=')) {
-      cookie.domain = part.substring(7);
+      // RFC 6265 §5.2.3: an empty value is ignored, so the cookie stays host-only, and a domain is
+      // compared case-insensitively, so it is kept lowercased.
+      const domain = part.substring(7).trim().toLowerCase();
+      if (domain) cookie.domain = domain;
     } else if (lowerPart.startsWith('path=')) {
       cookie.path = part.substring(5);
     } else if (lowerPart.startsWith('expires=')) {
@@ -110,10 +162,11 @@ export function serializeCookies(cookies: Cookie[]): string {
  * Check if a cookie matches the given request URL
  *
  * Validates:
- * - **Domain**: Cookie domain must match or be a parent of the request domain
+ * - **Domain**: a host-only cookie matches its own host exactly; a domain cookie matches its
+ *   domain and every host beneath it, on a dot boundary
  * - **Path**: Cookie path must be a prefix of the request path
  * - **Expiration**: Cookie must not be expired
- * - **Secure**: Secure cookies only sent over HTTPS (localhost exempt per spec)
+ * - **Secure**: Secure cookies only sent in a secure context — HTTPS, or a localhost host
  *
  * **SameSite limitation**: This implementation does not enforce SameSite restrictions.
  * Real browsers block cross-site cookies based on SameSite=Strict/Lax/None, but this
@@ -128,19 +181,15 @@ export function serializeCookies(cookies: Cookie[]): string {
  * @returns True if the cookie should be included in the request
  */
 export function cookieMatches(cookie: Cookie, domain: string, path: string, isSecure = true): boolean {
-  // Check Secure attribute - secure cookies only sent over HTTPS
-  // Exception: localhost is exempt per browser spec (allows testing without HTTPS)
-  if (cookie.secure) {
-    const isLocalhost = domain === 'localhost' || domain === '127.0.0.1' || domain === '::1';
-    if (!isSecure && !isLocalhost) {
-      return false;
-    }
+  // Secure cookies go only to a secure context: HTTPS, or a localhost host over http.
+  if (cookie.secure && !isSecure && !isSecureContextHost(domain)) {
+    return false;
   }
 
   // Check domain
   if (cookie.domain) {
     const cookieDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-    if (!domain.endsWith(cookieDomain)) {
+    if (cookie.hostOnly ? domain !== cookieDomain : !domainMatches(domain, cookieDomain)) {
       return false;
     }
   }

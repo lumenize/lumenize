@@ -16,10 +16,9 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Snapshot, TransactionOutcome, ResourceHandler } from '@lumenize/nebula';
-import { createAuthenticatedClient, createSubject } from '../../test-helpers';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { Snapshot, TransactionOutcome, ResourceHandler } from '@lumenize/resources';
+import { adminClientAt, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -28,7 +27,7 @@ const TEST_TYPES = `interface TestResource { title: string; }`;
 const TWO_TYPES = `interface TestResource { title: string; }\ninterface Note { body: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 /** Pull the committed eTag for `rid` out of a committed outcome. */
@@ -52,9 +51,9 @@ function resolutionSnapshot(outcome: TransactionOutcome, rid: string): Snapshot 
 }
 
 async function setupAdminClient(star: string) {
-  const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  a.client.callStarApplyOntology(star, {
+  a.client.callStarInstallOntology(star, {
     version: ONTOLOGY_VERSION,
     types: TEST_TYPES,
   });
@@ -65,7 +64,7 @@ async function setupAdminClient(star: string) {
 /** Two independent admin clients on the same Star, sharing the same scope. */
 async function twoAdminClients(star: string) {
   const a = await setupAdminClient(star);
-  const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   return { a, b };
 }
 
@@ -73,7 +72,10 @@ async function twoAdminClients(star: string) {
  *  with NO DAG grants — the caller grants what it needs via `setPermission`. */
 async function setupNonAdminUser(star: string, adminAccessToken: string, email = 'user@example.com') {
   await createSubject(new Browser(), star, adminAccessToken, email);
-  return createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, email);
+  // createInvitedClient, NOT createAuthenticatedClient: the invite already minted this identity at
+  // `star`, so it logs in there. The admin factory would claim the universe and mint them a
+  // SECOND, admin identity — silently turning this non-admin fixture into an admin one.
+  return createInvitedClient(NebulaClientTest, new Browser(), star, star, email);
 }
 
 /** Wait for a `callStarXxx` initiator to complete and return its `lastResult`. */
@@ -87,7 +89,7 @@ async function awaitCall(client: NebulaClientTest): Promise<unknown> {
  * stale (V1) eTag B should submit against to force a conflict.
  */
 async function setupConflict(star: string, a: { client: NebulaClientTest }, b: { client: NebulaClientTest }) {
-  const resourceId = generateUuid();
+  const resourceId = crypto.randomUUID();
 
   const created = await a.client.resources.transaction({
     [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } },
@@ -415,14 +417,14 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     // to the Note too (shadowing its per-type), which this probe forbids.
     const star = uniqueStar();
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-    a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TWO_TYPES });
+    const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    a.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TWO_TYPES });
     await awaitCall(a.client);
-    const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
     // Set up a stale-eTag conflict for one resource of EACH type.
-    const todoId = generateUuid();
-    const noteId = generateUuid();
+    const todoId = crypto.randomUUID();
+    const noteId = crypto.randomUUID();
     const todoCreate = await a.client.resources.transaction({
       [todoId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'T1' } },
     });
@@ -492,15 +494,15 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
 
     // N1: user gets write. N2: user gets nothing.
     admin.client.callStarCreateNode(star, ROOT_NODE_ID, 'shared', 'Shared');
-    const n1 = (await awaitCall(admin.client)) as number;
+    const n1 = (await awaitCall(admin.client)) as string;
     admin.client.callStarCreateNode(star, ROOT_NODE_ID, 'locked', 'Locked');
-    const n2 = (await awaitCall(admin.client)) as number;
+    const n2 = (await awaitCall(admin.client)) as string;
     admin.client.callStarSetPermission(star, n1, userSub, 'write');
     await awaitCall(admin.client);
 
     // ridA on N1 (user CAN write) — advance it so the user's eTag is stale → conflict.
-    const ridA = generateUuid();
-    const ridB = generateUuid();
+    const ridA = crypto.randomUUID();
+    const ridB = crypto.randomUUID();
     const aCreate = await admin.client.resources.transaction({
       [ridA]: { op: 'create', typeName: 'TestResource', nodeId: n1, value: { title: 'A-v1' } },
     });

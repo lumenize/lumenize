@@ -7,10 +7,10 @@ import { routeDORequest } from '@lumenize/routing';
 export { LumenizeAuth };
 
 // AuthEmailSender for the Resend e2e smoke test — keeps the Resend path exercised
-// alongside the default Cloudflare path. Uses the verified test.lumenize.com
-// Resend sending domain.
+// alongside the default Cloudflare path. Sends from `lumenize.io`, which is verified
+// on Resend as well as on Cloudflare Email Sending.
 export class AuthEmailSender extends AuthEmailSenderBase {
-  from = 'auth@test.lumenize.com';
+  from = 'test@lumenize.io';
   appName = 'Lumenize Test (Resend)';
 }
 

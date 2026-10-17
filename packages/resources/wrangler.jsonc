@@ -1,0 +1,47 @@
+{
+  // The test Worker `npm test` runs, never deployed: a host node composing the Resources plane, and
+  // Mesh's auth beside it, so a test's Client logs in and connects as a page's Client does.
+  "name": "resources-test",
+  "main": "test/test-worker.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // The Worker Loader the plane runs each ontology version's validator bundle in.
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "services": [
+    {
+      "binding": "AUTH_FACADE",
+      "service": "resources-test",
+      "entrypoint": "AuthFacade"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      // The host every scope's page connects to, under the binding `NebulaClient` names by default.
+      { "name": "STAR", "class_name": "ResourcesHostDO" },
+      // Mesh's auth: the Registry every login goes through, and the Profile.
+      { "name": "AUTH_REGISTRY", "class_name": "AuthRegistry" },
+      { "name": "PROFILE", "class_name": "Profile" }
+    ]
+  },
+  "exports": {
+    "ResourcesHostDO": { "type": "durable-object", "storage": "sqlite" },
+    "AuthRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "Profile": { "type": "durable-object", "storage": "sqlite" }
+  },
+  // The refresh-token records the Registry writes and the refresh route reads.
+  "kv_namespaces": [
+    { "binding": "REFRESH_TOKEN_KV", "id": "resources-refresh-token-kv-test" }
+  ],
+  "ratelimits": [
+    {
+      "name": "AUTH_CONNECTION_RATE_LIMITER",
+      "namespace_id": "2003",
+      "simple": { "limit": 1000, "period": 60 }
+    }
+  ],
+  "vars": {
+    "PRIMARY_JWT_KEY": "BLUE",
+    // The deployment's origin, from which every host and the token issuer derive.
+    "LUMENIZE_ORIGIN": "http://lumenize.localhost"
+  }
+}

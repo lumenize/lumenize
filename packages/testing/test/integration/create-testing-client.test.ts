@@ -96,4 +96,15 @@ describe('createTestingClient', () => {
     const count2 = await client2.getCount();
     expect(count2).toBe(1); // Count persists because it's in DO storage
   });
+
+  it('replays a call through a returned method with its arguments unchanged', async () => {
+    await using client = createTestingClient<TestDOType>('TEST_DO', 'args-replay');
+    const args = [null, { $type: 'x' }, { $$x: 1 }];
+
+    const described = await client.describeArgs(...args);
+    expect(described.received).toEqual(args);
+    // The method's marker carries this call's chain, arguments included, so
+    // calling it sends them back to the DO from the marker.
+    expect(await described.replay()).toEqual(args);
+  });
 });

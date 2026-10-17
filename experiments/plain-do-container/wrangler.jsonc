@@ -1,0 +1,22 @@
+{
+  // SPIKE (Q7): a container binding pointing at a DO that does NOT `extends Container`.
+  "name": "plain-do-container-spike",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-03-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "containers": [
+    {
+      "class_name": "PlainContainerDO",
+      "image": "./Dockerfile",
+      "max_instances": 1,
+      "instance_type": "basic"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "PLAIN_DO", "class_name": "PlainContainerDO" }]
+  },
+  // Repo now registers DO classes via the declarative `exports` map (not `migrations`).
+  "exports": {
+    "PlainContainerDO": { "type": "durable-object", "storage": "sqlite" }
+  }
+}

@@ -98,7 +98,7 @@ should always be up to date.
 ```typescript test
 import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
 it('detects package version', () => {
-  expect(lumenizeRpcPackage.version).toBe('0.24.0');
+  expect(lumenizeRpcPackage.version).toBe('0.26.0');
 });
 ```
 
@@ -178,8 +178,8 @@ The fact that you can see exactly what it's doing under the covers by
 showing the actual data structure that's going over the wire is a great 
 example of how Lumenize prioritizes DDX over everything else.
 
-The byte count for the above payload is larger than it strictly needs to be. We 
-could eliminate the overhead by using an integer code for the operation and 1-2 
+The byte count for the above payload is larger than it strictly needs to be. We
+could eliminate the overhead by using an integer code for the operation and 1-2
 character keys. '__isNestedOperation' shown below could have been '_n'.
 
 However, DDX doesn't just apply to our users. It applies to our own 
@@ -328,7 +328,7 @@ it('demonstrates automatic batching', async () => {
 ```bash npm2yarn
 npm install --save-dev vitest@3.2
 npm install --save-dev @vitest/coverage-istanbul@3.2
-npm install --save-dev @cloudflare/vitest-pool-workers
+npm install --save-dev @cloudflare/vitest-plugin
 npm install --save-dev @lumenize/rpc
 npm install --save-dev @lumenize/routing
 npm install --save-dev capnweb
@@ -392,7 +392,7 @@ export default {
 {
   "name": "rpc-operation-chaining-and-nesting",
   "main": "src/index.ts",
-  "compatibility_date": "2026-03-12",
+  "compatibility_date": "2026-10-01",
   "durable_objects": {
     "bindings": [
       {
@@ -401,12 +401,9 @@ export default {
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["DataService"]
-    }
-  ]
+  "exports": {
+    "DataService": { "type": "durable-object", "storage": "sqlite" }
+  }
 }
 
 ```
@@ -414,7 +411,7 @@ export default {
 ### vitest.config.js
 
 ```javascript vitest.config.js
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
 
 import { defineConfig } from "vitest/config";
 

@@ -13,31 +13,119 @@ export interface StoredEmail {
   receivedAt: string;
   /**
    * Value of the `X-Lumenize-Auth-Instance` header (populated by
-   * `NebulaEmailSender.magicLinkHeaders`). Used by concurrent test runs to
+   * `AuthEmailSender.headers`). Used by concurrent test runs to
    * subscribe to only their own scope's emails — see fetch('/ws?instance=...').
    * Empty string if the header was absent.
    */
   instance: string;
 }
 
-/** Per-instance email storage. Keyed by attached `instance` string. */
-const EMAILS_KEY_PREFIX = 'emails:';
-/** Catch-all key used when an email arrives with no instance header. */
-const NO_INSTANCE_KEY = `${EMAILS_KEY_PREFIX}<none>`;
+/**
+ * What Resend reported about one send to one recipient, from its webhook. `type` is Resend's event
+ * name (`email.delivered`, `email.bounced`, …); `reason` is the bounce's or the failure's own words.
+ */
+export interface DeliveryEvent {
+  type: string;
+  recipient: string;
+  /** Resend's id for the send. */
+  emailId: string;
+  subject?: string;
+  /** When Resend says the event happened. */
+  occurredAt: string;
+  /** When this Worker heard of it. */
+  receivedAt: string;
+  reason?: string;
+}
+
+/** What a socket subscribed with `?events=1` receives for a delivery event; mail arrives as a bare `StoredEmail`. */
+export interface DeliveryEventMessage {
+  kind: 'delivery-event';
+  event: DeliveryEvent;
+}
+
+/** The shape of a Resend webhook delivery this Worker reads; every other field is kept but not read. */
+export interface ResendWebhookPayload {
+  type: string;
+  created_at: string;
+  data: {
+    email_id?: string;
+    to?: string[];
+    subject?: string;
+    bounce?: { message?: string; type?: string; subType?: string };
+    failed?: { reason?: string };
+  };
+}
+
+/**
+ * The recipient domains whose mail Cloudflare's routing already hands this Worker. A delivery event for
+ * any other recipient is dropped unstored: Resend's webhook reports every send the account makes,
+ * production's included, and a person's address does not belong in a test mailbox it never reached.
+ */
+const RECEIVED_DOMAINS = ['lumenize-test.dev', 'lumenize.io'];
+
+/** How long mail and delivery events are kept: long enough to look into a failed run the next day. */
+const RETENTION_DAYS = 14;
+const RETENTION_SWEEP_EVERY_MS = 60 * 60_000;
+
 /** Header name (lowercased — postal-mime exposes header keys lowercase). */
 const INSTANCE_HEADER = 'x-lumenize-auth-instance';
+
+/** Before 2026-10-08 each instance's mail was ONE KV array under this prefix, read and rewritten whole on every arrival. */
+const LEGACY_KEY_PREFIX = 'emails:';
+const LEGACY_NO_INSTANCE_KEY = `${LEGACY_KEY_PREFIX}<none>`;
 
 /** Attachment shape persisted across WS hibernation via serializeAttachment. */
 interface WsAttachment {
   /** Empty string means "match all" (broadcast subscriber, default). */
   instance: string;
+  /** Set by `?events=1`. A socket that did not ask gets mail only, so an older client never sees an event. */
+  events?: boolean;
 }
 
 export class EmailTestDO extends DurableObject {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    const sql = ctx.storage.sql;
+    // `seq` orders mail as it arrived, which `receivedAt` cannot: the clock does not advance within an invocation.
+    sql.exec(`CREATE TABLE IF NOT EXISTS Emails (
+      emailId TEXT PRIMARY KEY, instance TEXT NOT NULL, seq INTEGER NOT NULL, receivedAt TEXT NOT NULL, email TEXT NOT NULL
+    ) WITHOUT ROWID`);
+    sql.exec(`CREATE INDEX IF NOT EXISTS idx_Emails_byInstance ON Emails (instance, seq)`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS DeliveryEvents (
+      recipient TEXT NOT NULL, eventId TEXT NOT NULL, receivedAt TEXT NOT NULL, event TEXT NOT NULL,
+      PRIMARY KEY (recipient, eventId)
+    ) WITHOUT ROWID`);
+    this.migrateLegacyBuckets();
+  }
+
+  /**
+   * Move mail stored the old way, one KV array per instance, into rows, then delete the arrays. A no-op
+   * once they are gone. Mail past the retention window is not carried over.
+   */
+  migrateLegacyBuckets(): number {
+    const legacy = [...this.ctx.storage.kv.list<StoredEmail[]>({ prefix: LEGACY_KEY_PREFIX })];
+    if (legacy.length === 0) return 0;
+    const cutoff = this.#retentionCutoff();
+    const firstSeq = this.ctx.storage.kv.get<number>('emailSeq') ?? 0;
+    let moved = 0;
+    // One transaction, so a constructor cut short leaves the arrays to move again rather than half moved.
+    this.ctx.storage.transactionSync(() => {
+      for (const [key, emails] of legacy) {
+        for (const email of emails ?? []) {
+          if ((email.receivedAt ?? '') < cutoff) continue;
+          moved++;
+          this.#insertRow(email, key === LEGACY_NO_INSTANCE_KEY ? '' : key.slice(LEGACY_KEY_PREFIX.length), firstSeq + moved);
+        }
+        this.ctx.storage.kv.delete(key);
+      }
+      this.ctx.storage.kv.put('emailSeq', firstSeq + moved);
+    });
+    return moved;
+  }
 
   /**
    * Accept a raw email (from the Worker's email() handler), parse it with
-   * postal-mime, store in KV (keyed by the `X-Lumenize-Auth-Instance` header
+   * postal-mime, store it as a row (with its `X-Lumenize-Auth-Instance` header
    * if present), and push to matching WebSocket clients.
    */
   async receiveEmail(raw: ArrayBuffer): Promise<StoredEmail> {
@@ -58,12 +146,8 @@ export class EmailTestDO extends DurableObject {
       instance,
     };
 
-    // Append to per-instance KV bucket. Keeps concurrent test runs from
-    // overwriting each other's stored emails.
-    const key = this.#emailsKeyFor(instance);
-    const emails = this.ctx.storage.kv.get<StoredEmail[]>(key) ?? [];
-    emails.push(stored);
-    this.ctx.storage.kv.put(key, emails);
+    this.#insertEmail(stored, instance);
+    this.#sweepIfDue();
 
     // Push to matching WebSocket subscribers: a subscriber's attached
     // `instance` must match the email's `instance` exactly, OR be empty
@@ -80,18 +164,53 @@ export class EmailTestDO extends DurableObject {
   }
 
   /**
+   * Store what a verified Resend webhook delivery reports, one row per recipient this Worker receives
+   * mail for, and push each to the sockets that asked for events. `eventId` is the delivery's `svix-id`,
+   * which a retry repeats, so a retried delivery stores and pushes nothing new. Returns what was new.
+   */
+  receiveDeliveryEvent(eventId: string, payload: ResendWebhookPayload): DeliveryEvent[] {
+    const receivedAt = new Date().toISOString();
+    const reason = payload.data?.bounce?.message ?? payload.data?.bounce?.subType ?? payload.data?.failed?.reason;
+    const fresh: DeliveryEvent[] = [];
+    for (const to of payload.data?.to ?? []) {
+      const recipient = to.toLowerCase();
+      if (!RECEIVED_DOMAINS.includes(recipient.slice(recipient.lastIndexOf('@') + 1))) continue;
+      const event: DeliveryEvent = {
+        type: payload.type, recipient, emailId: payload.data.email_id ?? '', subject: payload.data.subject,
+        occurredAt: payload.created_at, receivedAt, ...(reason ? { reason } : {}),
+      };
+      const cursor = this.ctx.storage.sql.exec(
+        `INSERT OR IGNORE INTO DeliveryEvents (recipient, eventId, receivedAt, event) VALUES (?, ?, ?, ?)`,
+        recipient, eventId, receivedAt, JSON.stringify(event),
+      );
+      if (cursor.rowsWritten > 0) fresh.push(event);
+    }
+    this.#sweepIfDue();
+    for (const event of fresh) {
+      const message = JSON.stringify({ kind: 'delivery-event', event } satisfies DeliveryEventMessage);
+      for (const ws of this.ctx.getWebSockets()) {
+        if ((ws.deserializeAttachment() as WsAttachment | null)?.events) ws.send(message);
+      }
+    }
+    return fresh;
+  }
+
+  /** Every delivery event stored for `recipient`, oldest first. */
+  getDeliveryEvents(recipient: string): DeliveryEvent[] {
+    return [...this.ctx.storage.sql.exec<{ event: string }>(
+      `SELECT event FROM DeliveryEvents WHERE recipient = ? ORDER BY receivedAt`, recipient.toLowerCase(),
+    )].map((row) => JSON.parse(row.event) as DeliveryEvent);
+  }
+
+  /**
    * Return stored emails. With `instance` set, only emails whose
    * `X-Lumenize-Auth-Instance` header matched; otherwise everything.
    */
   getEmails(instance?: string): StoredEmail[] {
-    if (instance !== undefined) {
-      return this.ctx.storage.kv.get<StoredEmail[]>(this.#emailsKeyFor(instance)) ?? [];
-    }
-    const out: StoredEmail[] = [];
-    for (const [, value] of this.ctx.storage.kv.list<StoredEmail[]>({ prefix: EMAILS_KEY_PREFIX })) {
-      out.push(...value);
-    }
-    return out;
+    const rows = instance !== undefined
+      ? this.ctx.storage.sql.exec<{ email: string }>(`SELECT email FROM Emails WHERE instance = ? ORDER BY seq`, instance)
+      : this.ctx.storage.sql.exec<{ email: string }>(`SELECT email FROM Emails ORDER BY seq`);
+    return [...rows].map((row) => JSON.parse(row.email) as StoredEmail);
   }
 
   /**
@@ -101,16 +220,38 @@ export class EmailTestDO extends DurableObject {
    */
   clearEmails(instance?: string): void {
     if (instance !== undefined) {
-      this.ctx.storage.kv.delete(this.#emailsKeyFor(instance));
+      this.ctx.storage.sql.exec(`DELETE FROM Emails WHERE instance = ?`, instance);
       return;
     }
-    for (const [key] of this.ctx.storage.kv.list<StoredEmail[]>({ prefix: EMAILS_KEY_PREFIX })) {
-      this.ctx.storage.kv.delete(key);
-    }
+    this.ctx.storage.sql.exec(`DELETE FROM Emails`);
   }
 
-  #emailsKeyFor(instance: string): string {
-    return instance === '' ? NO_INSTANCE_KEY : `${EMAILS_KEY_PREFIX}${instance}`;
+  #insertEmail(email: StoredEmail, instance: string): void {
+    const seq = (this.ctx.storage.kv.get<number>('emailSeq') ?? 0) + 1;
+    this.ctx.storage.kv.put('emailSeq', seq);
+    this.#insertRow(email, instance, seq);
+  }
+
+  #insertRow(email: StoredEmail, instance: string, seq: number): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO Emails (emailId, instance, seq, receivedAt, email) VALUES (?, ?, ?, ?, ?)`,
+      crypto.randomUUID(), instance, seq, email.receivedAt, JSON.stringify(email),
+    );
+  }
+
+  #retentionCutoff(): string {
+    return new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60_000).toISOString();
+  }
+
+  /** Delete mail and events past the retention window, at most once an hour. */
+  #sweepIfDue(): void {
+    const now = Date.now();
+    const last = this.ctx.storage.kv.get<string>('lastSweepAt');
+    if (last !== undefined && now - Date.parse(last) < RETENTION_SWEEP_EVERY_MS) return;
+    this.ctx.storage.kv.put('lastSweepAt', new Date(now).toISOString());
+    const cutoff = this.#retentionCutoff();
+    this.ctx.storage.sql.exec(`DELETE FROM Emails WHERE receivedAt < ?`, cutoff);
+    this.ctx.storage.sql.exec(`DELETE FROM DeliveryEvents WHERE receivedAt < ?`, cutoff);
   }
 
   // --- Hibernation WebSocket API ---
@@ -129,7 +270,7 @@ export class EmailTestDO extends DurableObject {
       this.ctx.acceptWebSocket(server);
       // Persist instance filter across hibernation. Empty string = broadcast
       // (legacy callers that don't pass ?instance= subscribe to everything).
-      const attachment: WsAttachment = { instance };
+      const attachment: WsAttachment = { instance, ...(url.searchParams.get('events') === '1' ? { events: true } : {}) };
       server.serializeAttachment(attachment);
 
       return new Response(null, { status: 101, webSocket: client });
@@ -139,6 +280,12 @@ export class EmailTestDO extends DurableObject {
       // ?instance= filters; absent → everything across all buckets
       const filter = url.searchParams.has('instance') ? instance : undefined;
       return Response.json(this.getEmails(filter));
+    }
+
+    if (url.pathname === '/events') {
+      const to = url.searchParams.get('to');
+      if (!to) return new Response('Name the recipient with ?to=', { status: 400 });
+      return Response.json(this.getDeliveryEvents(to));
     }
 
     if (url.pathname === '/clear' && request.method === 'POST') {

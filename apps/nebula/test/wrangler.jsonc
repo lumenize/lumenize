@@ -1,10 +1,11 @@
 {
   "name": "nebula-unit-test",
-  "compatibility_date": "2026-04-01",
+  "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [{ "binding": "LOADER" }],
   "vars": {
-    "PRIMARY_JWT_KEY": "BLUE",
-    "NEBULA_AUTH_REDIRECT": "/app"
+    // The deployment's origin, which every host and the JWT issuer derive from (Mesh's `auth/hosts.ts`).
+    "LUMENIZE_ORIGIN": "http://lumenize.localhost",
+    "PRIMARY_JWT_KEY": "BLUE"
   }
 }

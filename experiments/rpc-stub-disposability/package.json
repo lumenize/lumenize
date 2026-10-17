@@ -1,0 +1,21 @@
+{
+  "name": "@lumenize/rpc-stub-disposability",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Experiment: is a Workers RPC stub (DO / service / RpcTarget / facet) disposable (Symbol.dispose)? Resolves H1 (local-pointer, never disposable) vs H2 (cloudflare:test strips it) across pool-workers / wrangler dev / deployed.",
+  "type": "module",
+  "//": "NOT listed in the root package.json `workspaces` (unlike other experiments). Deliberate: this experiment pins the LATEST wrangler/vitest, and the monorepo packages use `wrangler: ^4.86.0` which would hoist our newer 4.111 across the whole repo. Standalone `npm install` inside this dir keeps the newer toolchain isolated. Run: `cd experiments/rpc-stub-disposability && npm install`.",
+  "scripts": {
+    "test": "vitest run",
+    "types": "wrangler types",
+    "dev": "wrangler dev --config ./wrangler.jsonc",
+    "deploy": "wrangler deploy --config ./wrangler.jsonc",
+    "tail": "wrangler tail --config ./wrangler.jsonc",
+    "delete": "wrangler delete --config ./wrangler.jsonc"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.111.0"
+  }
+}

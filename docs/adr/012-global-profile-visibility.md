@@ -1,0 +1,80 @@
+# ADR-012: Global Cross-Scope Profile Visibility via an Unguessable Handle
+
+**Date**: 2026-08-04
+**Status**: Accepted
+**Deciders**: Larry
+**Evidence**: the Profile DO (`packages/mesh/src/auth/profile.ts` — open `read()`/`subscribe()`, `requireOwnerOrAdmin` gates public writes + the private fields); the registry's acceptance predicates on this ADR's two sites (`getScopesForProfile` and `getIdentityScope`, pinned by the capable-of-failing manufacture test in `packages/mesh/test/auth/identity-mint-point.test.ts` and the acceptance test in `packages/mesh/test/auth/impersonation-mint.test.ts`); ADR-008 (intra-Star tree visibility); ADR-010 (random opaque keys); design + capable-of-failing tests in `tasks/archive/nebula-profile-store.md`.
+
+## Context
+
+A person's public profile (`name`/`nickname`/`picture`) must resolve from a bare `sub` wherever it is encountered — a chat roster, `actingToken` attribution, the org tree — and those encounters routinely cross scope/Star/Universe boundaries (a roster in scope X references a `sub` whose profile lives in scope Y). The `profileId` is a random opaque registry UUID (ADR-010): unguessable and non-enumerable, but **not scarce**. The mesh hands it out wherever display resolution is legitimate (the bearer's own JWT claim, [ADR-013](013-identity-profileid-resolution.md)'s attribution stamps on every snapshot, rosters, URLs per ADR-017), so holding one is ordinary, not evidence of anything.
+
+ADR-008 established "identity is not confidential" but is **explicitly intra-Star** and disclaims cross-tenant visibility, so it does not by itself license a global read. A scope-intersection gate on the profile read would break exactly the cross-scope resolution the feature exists for.
+
+⚠️ **Not to be confused with [ADR-013](013-identity-profileid-resolution.md), its same-day sibling**. **This ADR is AUTHZ: who may read and write a profile.** ADR-013 is the **DATA MODEL: where the `profileId` lives, and what may key on it.** When the question is *"may this caller see or change it?"* it is answered here; when it is *"where is it stored, may I copy it, may I key or FK on it?"* it is answered there. They meet at one place: the owner short-circuit below reads the JWT `profileId` claim, which is one of ADR-013's licensed copies.
+
+## Decision
+
+**Public profile fields (`name`/`nickname`/`picture`) are readable and subscribable by ANY authenticated caller that holds the `profileId`**, across scope, Star and Universe boundaries. No scope-intersection gate and no registry read sit on the read or subscribe path.
+
+- **Holding the `profileId` is the whole ADDRESSING story.** It is not a secret, and unguessability is not what carries the trust.
+- **Three things make the open read safe, in order:**
+  1. **The mesh admits no anonymous caller.** A Profile is reachable only by a mesh call, and the only way into the mesh from outside is a Client's authenticated connection.
+  2. **The `PUBLIC_FIELDS` allow-list at the DO.** The read reveals only public display fields, so it would be safe **even if handles were guessable**.
+  3. **The acceptance predicate** on the scoped-admin branch, for everything past the public set.
+- **Unguessability buys exactly one thing on top:** an authenticated caller cannot **enumerate** the platform-wide directory of display fields. Weight it accordingly.
+- ⚠️ **The analogy is a public GitHub profile with an unguessable handle instead of a slug, and it stops there.** A GitHub profile is readable **logged out**; this one never was (item 1). The Profile DO has no `fetch()` handler and no route, so it cannot be curled, crawled, or linked to.
+
+This **generalizes** ADR-008's principle from within-a-Star to a global handle, which is why it is a commitment of its own.
+
+**Exactly two capability levels — no finer-grained model.** (1) **Read the public fields** — any authenticated caller holding the `profileId`, per the paragraph above. (2) **Read and write the private fields, and write the public ones** — the owner, and an admin whose page holds dominion over a scope in which this profile holds an **accepted** membership. Anyone who can read a private field can also write it and write every public field; do not introduce per-field roles or a permission matrix.
+
+**Private-by-default, DERIVED not enumerated.** The public set is an allow-list (`PUBLIC_FIELDS` — `name`/`nickname`/`picture`); **every other field is private by construction**. `privateNotes` ("what the LLM knows about you") is simply the first of them. A newly added field is therefore private without anyone deciding, and **cannot leak into a snapshot by omission** — the pushed/subscribed `Snapshot.value` is built from the allow-list, never by removing known-private keys from the stored record.
+
+**Every site that reads a membership to confer authority requires an ACCEPTED one.** That is a property, not a list. Two of them are this ADR's: the scoped-admin branch here, and the narrower mint's subject read. `requireOwnerOrAdmin` qualifies the owner (JWT `profileId` claim) and a scoped admin with dominion (`hasDominionOver`, read from the host's scope) over a scope returned by `getScopesForProfile(profileId)` — which counts **only memberships the person actually took up**. A superuser qualifies the same way, from the page they are on ([ADR-015](015-passage-and-dominion.md)). The system's own Profile belongs to no scope, so it is the one a superuser's membership alone qualifies for. Acceptance is what makes that branch safe, and it is not a tidy-up:
+
+- **Without it, the authority is MANUFACTURABLE and therefore bounds nothing.** Universe self-signup is open *by design*, and `issueInvites` mints the invitee's membership immediately. Once `profileId` hangs off the email row, *"same email, any scope → same `profileId`"* is a structural fact. So **anyone** could claim a Universe, invite any address they can guess, and thereby become "an admin of a scope that stranger's profile touches", unilaterally and in seconds. A rule of that shape grants its rights to *everyone*.
+- **Acceptance closes it because it needs the MAILBOX *and* an explicit act.** The mailbox is proved by an emailed link or the cookie one placed, and the act is a clicked Accept behind a consent screen, which every page offering one sends to the same Registry method. Proving the mailbox is not enough: it places a session that mints nothing. An attacker can forge neither half, and an invited-but-never-accepted membership confers nothing.
+  - ⚠️ **The marker is the MEMBERSHIP's acceptance — NOT `emailVerified`.** The reflex is to reuse the verified-email flag, and it reopens the hole. Proving a mailbox is a property of the **ADDRESS**, so a victim who proved it in any *other* scope already carries `emailVerified=1`, and an invite mints their membership immediately and un-taken-up. The flag would therefore be satisfied by someone who never touched the invitation. What must be per-membership is *"was this invitation taken up?"* — conflating the two hands the attacker exactly the authority acceptance exists to deny.
+
+⚠️ **Two consequences are ACCEPTED here, not answered — say so rather than rediscovering them:**
+1. **Direction.** A `profileId` is global and scope-free by this ADR's own decision, while a scope admin's dominion is scope-local (ADR-015: dominion flows strictly downward *within a scope tree*). This branch therefore points **sideways**, across the tree. Acceptance bounds *who* can point sideways to people who genuinely joined; it does not make the direction downward.
+2. **Extent.** One profile per person means it touches **every scope that person belongs to**, so an admin of any one of them can write a *global* object — including for someone whose profile also spans Stars that admin has nothing to do with.
+
+Both are the price of admins curating a member's private fields at all, the capability this branch exists for. **Scope-keyed private fields are the answer if it ever bites** — see § *Alternatives considered*; that change makes the object scope-local, at which point the authority points downward and the residual disappears.
+
+**An impersonation token is the owner, because acceptance is enforced where that token is born.** The impersonation mint issues a token whose `sub` and `profileId` claim are the subject's, so the owner branch — a zero-read equality on that claim — fires for it. An admin impersonating someone therefore has exactly that person's access to their own profile, as impersonation means everywhere else. The manufacture above would defeat that, so the mint resolves its subject through a read answering **only for an accepted membership**:
+
+```typescript
+if (claims?.profileId && claims.profileId === profileId) return;
+```
+
+A caller who claims a Universe and invites an address they guessed therefore gets no token at all, and nothing reaches this branch carrying the victim's `profileId`.
+
+**Blast radius:** the profile holds display fields plus the private set and nothing else, never Universe, Galaxy or Star contents. This is a correctness boundary, not a data-plane one.
+
+**Accepted cost:** the scoped-admin branch keeps the Profile DO's one registry read and the fail-closed complexity around it, so the write path is **not** gate-free like the read path. It is on an authz path, so it wants an index on the reverse `profileId` lookup.
+
+## Alternatives considered
+
+| Approach | Why rejected |
+|---|---|
+| **Scope-intersection gate** on the profile read | § *Context* says what it breaks. It is the designated **fallback if this ADR is ever un-ratified**, and the profile-store build's tests pin which paths would flip. |
+| **A guessable handle, such as a username** | Any authenticated caller could crawl the whole display-fields directory, one mesh call per guess. That bulk-enumeration bound is all unguessability buys (§ *Decision*), and a guessable handle spends it for nothing. ADR-010 rules out keying on a natural attribute anyway. |
+| **Per-scope profile copies** | Re-introduces the stale-copy / re-key problem [ADR-013](013-identity-profileid-resolution.md) exists to avoid, and defeats "one profile a person edits once." |
+| **Retire the scoped-admin branch entirely** (owner + super-admin only) | It was the decision here until 2026-08-04, on the grounds that scope-local authority over a global object points sideways and can be manufactured. The manufacture half is answered by requiring an **accepted** membership; the sideways half is real and is accepted above. What settles it is that admins curating a member's private fields is a **wanted capability**, not an oversight — retiring the branch removes it with no replacement short of super-admin, and the read it deletes is a cost worth paying for the capability. |
+| **Per-scope (scope-keyed) private fields** | ⏳ **Deferred, not rejected — and it is the designated answer if the sideways residual bites.** Keying the private set by scope makes the object scope-local, so an admin writing it holds ordinary downward dominion (ADR-015) and the residual disappears structurally rather than by gate. Declined for now because it adds a dimension to a field set with **no production consumers yet**, and because one person holding many scopes — the case that makes it hurt — does not exist at this population. |
+| **Per-field roles / a permission matrix** on the private set | Two levels is the decision (§ *Decision*); a finer model buys nothing today and is a surface every future field has to be classified against. |
+| **`&& !claims.act` on the owner branch** (the decision here 2026-07-28 to 2026-09-08) | It closed the manufacture at the wrong end. The mint would issue a token over a membership nobody had accepted, so the dangerous token existed and this clause stopped it owning the profile; requiring acceptance at the mint stops it existing. That closes the class rather than one branch, and it costs nothing to keep closed — where the clause, while it stood, was an `act`-presence test inside a read-side authz decision, and took a person's own profile away from an admin whose accepted membership already gave them dominion over it. |
+
+## Consequences
+
+### Positive
+- `sub → display` resolves uniformly wherever a handle is legitimately held; the hot path is gate-free (zero registry reads on read/subscribe).
+- **Open-resolution ≠ enumeration** — a caller can only resolve handles the mesh actually handed them; there is no directory to crawl.
+
+### Negative / mitigations
+- The trust rests on the **public/private field split being enforced at the DO**, and on the mesh admitting no anonymous caller (§ *Decision*).
+- **An admin of one intersecting scope can write a global object.** Accepted in § *Decision*. The mitigation that matters meanwhile is that acceptance requires mailbox proof, so the population holding this is people the person actually joined.
+- **Acceptance is load-bearing AUTHZ and it lives in a query rather than a gate** — a place nobody expects to find a security control. Each conjunct must therefore be pinned by a test that reds when it is dropped: `getScopesForProfile`'s by the manufacture test in `packages/mesh/test/auth/identity-mint-point.test.ts`, `getIdentityScope`'s by the acceptance test in `packages/mesh/test/auth/impersonation-mint.test.ts`.
+- A future *protected-class public field* would need its own gate — the open read is public-fields-**only** by construction, not a blanket "the Profile DO is open."

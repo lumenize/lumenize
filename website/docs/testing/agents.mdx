@@ -128,7 +128,7 @@ should always be up to date.
 ```typescript test
 import lumenizeTestingPackage from '../../../../packages/testing/package.json';
 it('detects package version', () => {
-  expect(lumenizeTestingPackage.version).toBe('0.24.0');
+  expect(lumenizeTestingPackage.version).toBe('0.26.0');
 });
 ```
 
@@ -244,7 +244,7 @@ First let's install some tools.
 ```bash npm2yarn
 npm install --save-dev vitest@3.2
 npm install --save-dev @vitest/coverage-istanbul@3.2
-npm install --save-dev @cloudflare/vitest-pool-workers
+npm install --save-dev @cloudflare/vitest-plugin
 npm install --save-dev @lumenize/testing
 npm install --save-dev @lumenize/routing
 ```
@@ -425,24 +425,14 @@ Test configuration includes:
 {
   "name": "testing-agent-with-agent-client",
   "main": "./test-harness.ts",  // The only difference from real wrangler.jsonc
-  "compatibility_date": "2026-03-12",
+  "compatibility_date": "2026-10-01",
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "migrations": [
-    {
-      "new_sqlite_classes": [
-        "ChatAgent"
-      ],
-      "tag": "v1"
-    },
-    {
-      "new_sqlite_classes": [
-        "AuthAgent"
-      ],
-      "tag": "v2"
-    }
-  ],
+  "exports": {
+    "ChatAgent": { "type": "durable-object", "storage": "sqlite" },
+    "AuthAgent": { "type": "durable-object", "storage": "sqlite" }
+  },
   "durable_objects": {
     "bindings": [
       {
@@ -472,7 +462,7 @@ Standard vitest configuration for Cloudflare Workers testing with:
 - Coverage configured with Istanbul provider
 
 ```javascript vitest.config.js
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
 
 import { defineConfig } from "vitest/config";
 
@@ -498,8 +488,9 @@ export default defineConfig({
       }
     },
 
-    // 2 second global timeout
-    testTimeout: 2000,
+    // 15s: the agent demos do several real WebSocket round-trips, which exceed a
+    // 2s budget under CI contention on shared runners (fine locally).
+    testTimeout: 15000,
 
     coverage: {
       provider: "istanbul",

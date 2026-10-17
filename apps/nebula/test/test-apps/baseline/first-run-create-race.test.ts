@@ -12,8 +12,8 @@
  * proceed; still absent ⇒ real failure.
  *
  * The clients authenticate as a NON-scope-admin member granted `write` on ROOT, so
- * create-under-ROOT is authorized by the DAG grant alone — a `claims.access.admin`
- * user would pass even if the grant were absent/broken (the seeded-founder intent).
+ * create-under-ROOT is authorized by the DAG grant alone — a `claims.access.scopeAdmin`
+ * user would pass even if the grant were absent or broken, through the dominion bypass.
  *
  * Capable-of-failing: the contended run asserts the loser came back NOT `committed`
  * (the disambiguation branch ran); the serialized control asserts the second tab
@@ -22,17 +22,16 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { TransactionOutcome } from '@lumenize/nebula';
-import { createAuthenticatedClient, createSubject } from '../../test-helpers';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { TransactionOutcome } from '@lumenize/resources';
+import { adminClientAt, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
 const TYPES = `interface TodoList { items: string[]; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 async function awaitCall(c: NebulaClientTest): Promise<unknown> {
@@ -41,22 +40,22 @@ async function awaitCall(c: NebulaClientTest): Promise<unknown> {
 }
 
 /**
- * Admin (scope-admin — founder-seeding fires for it on first touch) installs the
+ * Admin (scope-admin, acting through the bypass with no grant of its own) installs the
  * ontology and grants a SECOND, non-scope-admin member `write` on ROOT. Returns
  * the member's sub so its create-under-ROOT relies on the DAG grant, not scope-admin.
  */
 async function setupGrantedMember(star: string) {
-  const admin = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const admin = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  admin.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TYPES });
+  admin.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TYPES });
   await awaitCall(admin.client);
 
   await createSubject(new Browser(), star, admin.accessToken, 'member@example.com');
-  const probe = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
+  const probe = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
   const sub = probe.payload.sub;
   // Guard: the member must NOT be a scope-admin — otherwise create-under-ROOT could
-  // pass via the claims.access.admin bypass and mask a missing/broken DAG grant.
-  expect((probe.payload as { access?: { admin?: boolean } }).access?.admin).toBeFalsy();
+  // pass via the claims.access.scopeAdmin bypass and mask a missing/broken DAG grant.
+  expect((probe.payload as { access?: { scopeAdmin?: boolean } }).access?.scopeAdmin).toBeFalsy();
   probe.client[Symbol.dispose]();
 
   admin.client.callStarSetPermission(star, ROOT_NODE_ID, sub, 'write');
@@ -81,8 +80,8 @@ describe('first-run container create — race-safe (real Star)', () => {
     const star = uniqueStar();
     const { admin, sub } = await setupGrantedMember(star);
     // Two tabs for the SAME member (same sub, distinct tabId/instanceName).
-    const tab1 = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
-    const tab2 = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
+    const tab1 = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
+    const tab2 = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
     const listId = `todolist-${sub}`;
 
     // Both tabs read first — both see "absent", so both ENTER the create branch.
@@ -118,8 +117,8 @@ describe('first-run container create — race-safe (real Star)', () => {
   it('serialized (non-contended): the second tab sees the list present and never enters the create branch', async () => {
     const star = uniqueStar();
     const { admin, sub } = await setupGrantedMember(star);
-    const tab1 = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
-    const tab2 = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
+    const tab1 = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
+    const tab2 = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
     const listId = `todolist-${sub}`;
 
     // Tab 1 creates first (awaited → committed).

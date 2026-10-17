@@ -1,0 +1,15 @@
+{
+  "name": "experiment-do-socket-drop-probe",
+  "private": true,
+  "type": "module",
+  "//": "Why did a Durable Object holding its clients' WebSockets close every one of them under ~30 ms calls, while the same object behind Gateways only slowed down? And why did one JS loop cost 3–4 ms on some instances and ~30 ms on others? Follow-up to experiments/gateway-vs-hosted; a raw DO with no mesh. See RESULTS.md.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "probe": "node scripts/probe.mjs",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "wrangler": "4.124.0"
+  }
+}

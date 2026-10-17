@@ -323,11 +323,11 @@ For any field a user is actively typing into (long-form text, descriptions, comm
 3. The debounced transaction then arrives at the server with the now-stale eTag → conflict → the resolver sees the local state, the buffered server snapshot, and `base`.
 4. Under the default `'use-server'`, the user's typing is rolled back to the other client's value **at resolution time** — held off mid-keystroke, but still lost.
 
-This is the data race; debouncing and fanout-holding narrow it but don't resolve it. The reliable fix is text-merge. Annotating the field [`@longform`](./ontology.md#annotations) auto-registers exactly the handler below — most apps never write it by hand. Write your own only when you need custom merge logic; here's what the auto-registered handler does:
+This is the data race; debouncing and fanout-holding narrow it but don't resolve it. The reliable fix is text-merge. Annotate the field [`@longform`](./ontology.md#annotations), and register a handler like the one below for its type: the annotation does not register one yet. Merge every long-form field the type has in the one handler:
 
 ```js @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 // textMerge is a 3-way (LCS-based) merge helper
-import { textMerge } from '@lumenize/nebula/frontend';
+import { textMerge } from '@lumenize/resources/frontend';
 
 client.resources.onTransactionResourceResolution('doc', (rid, resolution) => {
   if (resolution.kind === 'conflict-pending') {
@@ -391,8 +391,8 @@ switch (outcome.kind) {
     break;
 
   case 'ontology-stale':
-    // The client's app version is stale; onShouldRefreshUI usually fires (page reload).
-    // Optimistic state untouched. Nothing extra to do here.
+    // The op did not run at this page's version. If the host named another one,
+    // onShouldRefreshUI has fired (page reload). Optimistic state untouched.
     break;
 }
 ```

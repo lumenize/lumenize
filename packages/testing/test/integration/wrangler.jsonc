@@ -1,22 +1,22 @@
 {
   "name": "lumenize-testing-integration",
   "main": "test-worker-and-dos.ts",
-  "compatibility_date": "2026-03-12",
+  "compatibility_date": "2026-10-01",
   "durable_objects": {
     "bindings": [
       {
         "name": "TEST_DO",
         "class_name": "TestDO"
+      },
+      {
+        "name": "INSTANCE_HANDLER_DO",
+        "class_name": "InstanceHandlerDO"
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": [
-        "TestDO"
-      ]
-    }
-  ]
+  "exports": {
+    "TestDO": { "type": "durable-object", "storage": "sqlite" },
+    "InstanceHandlerDO": { "type": "durable-object", "storage": "sqlite" }
+  }
 }
 

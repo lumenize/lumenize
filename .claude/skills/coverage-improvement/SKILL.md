@@ -41,7 +41,7 @@ Raise test coverage systematically by categorizing uncovered lines and working t
 
 Never use traditional mocking (`vi.mock`, `vi.spyOn`, stub injection, etc.) without explicit human approval.
 
-**Test infrastructure is encouraged instead.** The `@lumenize/testing` package's `Browser` class is the canonical example — it simulates real browser behavior (cookies, CORS, sessionStorage, BroadcastChannel, etc.) so tests exercise actual code paths rather than mocked interfaces. Extending test infrastructure and providing dependency injection capabilities for production code to cover new scenarios (as was done for `LumenizeClient`'s tabId uniqueness) is the ideal approach wherever possible.
+**Test infrastructure is encouraged instead.** The `@lumenize/testing` package's `Browser` class is the canonical example — it simulates real browser behavior (cookies, CORS, sessionStorage, BroadcastChannel, etc.) so tests exercise actual code paths rather than mocked interfaces. Extending test infrastructure and providing dependency injection capabilities for production code to cover new scenarios (as was done for `MeshClient`'s tabId uniqueness) is the ideal approach wherever possible.
 
 ## When a Test Fails
 

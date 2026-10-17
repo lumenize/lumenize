@@ -1,0 +1,229 @@
+/**
+ * **Scenario 5 on real infrastructure — a node invite writes BOTH planes, walked as the invitee.**
+ * `Star.resources.invite(nodeId, …)` → pending `_InviteStatus` → facade → Registry mint → REAL email through
+ * the catch-all → the invitee clicks, logs in AT the star, and acts at the node under the grant
+ * written at invite time — nothing left to apply on arrival (the whole point of the design).
+ *
+ * Six limbs; the isolating mutations for the shared code paths live in the in-lane twin
+ * (`apps/nebula/test/test-apps/baseline/node-invite.test.ts`, mutation-checked per criterion —
+ * grant write, already-member heal, validation, the no-bit cap, convergence, the flip). What only
+ * THIS tier adds is fixture-freedom + the real mail: the ontology arrives by the REAL path —
+ * a build of the app in its build container, which lands the seed ontology as the `.dev` Star's
+ * current row, and then the Star's server-originated FIRST-TOUCH pull-current, exercised by
+ * inviting before anyone has ever used the app (the invite answers `checking` and the retry
+ * converges) — the letter is the one that actually arrived, and the login is a real click.
+ *
+ * It runs on the app's `.dev` Star because that is the one Star a build's row reaches before
+ * anything is published (ADR-024), and on an app of its own (`ownApp`), since a Galaxy has one
+ * `.dev` Star and other scenarios rebuild and wipe theirs.
+ *
+ *  1. The ack returns from `callAsync` with `{ accepted, errors: [] }` — after the first-touch
+ *     install converges, which is this limb's other half: a fresh Star with no client op ever
+ *     seen installs the Galaxy's current ontology because an INVITE needed it.
+ *  2. The REAL letter arrives — `invite-new`-shaped, tagged with the STAR scope (the membership's
+ *     scope, not the node), carrying a magic link.
+ *  3. Accepting on THAT link's page logs in AT the star; the JWT carries `authScope = star` and NO
+ *     `scopeAdmin` — the node path mints no admin (the cap in degenerate form).
+ *  4. The invitee's first WRITE at the node commits — the invite-time grant authorizes it.
+ *     *Live-mutation-checked: suppress the handler's grant write → this limb reds while 1–3 stay
+ *     green (run 2026-08-19).*
+ *  5. The `_InviteStatus` row reached `sent`, read back through the public query + read path.
+ *  6. A negative control: a SECOND real member of the star with no node invite is refused the same
+ *     write — proving limb 4 was the grant, not an open node.
+ *
+ * `needsContainer = true` — the build compiles the seed ontology in the build container.
+ */
+import assert from 'node:assert/strict';
+import { Browser } from '@lumenize/testing';
+import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
+import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources/client';
+import type { Galaxy, Star } from '@lumenize/nebula';
+import type { NodeInviteAck } from '@lumenize/resources';
+import type { DevStack, Driver } from '../lib/harness';
+import { connectDriver, inviteViaMesh, readDevVar, scopeUrlOf } from '../lib/harness';
+import { ownApp, servedOntologyVersion } from '../lib/own-app';
+import { refreshAccessToken, acceptInviteAndLogin } from '../../test/lib/email-login';
+import { parseJwtUnsafe } from '@lumenize/crypto';
+
+export const needsContainer = true;
+
+export async function run(stack: DevStack): Promise<void> {
+  const testToken = readDevVar('TEST_TOKEN');
+  const origin = stack.baseUrl.replace(/\/$/, '');
+  // The `.dev` Star of an app of this scenario's own.
+  const app = await ownApp(stack, 'ninv', testToken);
+  const star = app.dev;
+  const inviteeEmail = uniqueTestEmail();
+  const adminSession = app.devToken;
+  let admin: Driver | undefined;
+  let invitee: NebulaClient | undefined;
+  const inviteeBrowser = new Browser();
+  // Armed just before the invite: its 60 s must not run while the build does, which deployed
+  // takes longer than that.
+  let waiter: ReturnType<typeof waitForEmail> | undefined;
+  try {
+    admin = await connectDriver(stack, {
+      scope: star,
+      session: { accessToken: adminSession.accessToken, sub: adminSession.sub },
+    });
+
+    // A running Star needs an installed ontology for ANY resource write — and it arrives by the
+    // REAL path, never a direct set. A build from Studio, the galaxy's own page, compiles the
+    // SEED ontology in the build container, and the build landing makes it the `.dev` Star's
+    // current row; the Star then has NOTHING installed until the invite itself triggers the
+    // first-touch pull-current below. _InviteStatus rides every version (platform-unioned).
+    const studio = await connectDriver(stack, { scope: app.galaxy, session: app.studio });
+    try {
+      const report = await studio.client.lmz.callAsync(
+        'GALAXY', app.galaxy, studio.client.ctn<Galaxy>().buildNow(), { timeoutMs: 240_000 },
+      ) as { ontology: { ran: boolean; ok?: boolean }; bundle: { ran: boolean; ok?: boolean } };
+      assert.ok(report.ontology.ran && report.ontology.ok && report.bundle.ran && report.bundle.ok,
+        `the build should compile the seed ontology and bundle: ${JSON.stringify(report).slice(0, 600)}`);
+    } finally {
+      studio.dispose();
+    }
+    const version = await servedOntologyVersion(stack, star);
+    assert.ok(version, 'the `.dev` page should carry the version the build landed');
+    const landed = { version };
+
+    // ── LIMB 1: the ack, via the first-touch install ──────────────────────────────────────────
+    // The FIRST invite lands on a Star that has never seen a client op: the gate answers
+    // `checking` (structured-clone keeps name + props across the mesh) and fires the
+    // pull-current at the Galaxy; the retry converges once the row installs. A non-`checking`
+    // error is a real failure and rethrows.
+    let ack: NodeInviteAck | undefined;
+    waiter = waitForEmail({ testToken, instance: star, to: inviteeEmail, timeout: 60_000 });
+    for (let attempt = 0; attempt < 20 && !ack; attempt++) {
+      try {
+        ack = await admin.client.lmz.callAsync(
+          'STAR', star,
+          admin.client.ctn<Star>().resources.invite(landed.version, ROOT_NODE_ID, [{ email: inviteeEmail, tier: 'write' }]),
+        );
+      } catch (e) {
+        const stale = (e as Error)?.name === 'OntologyStaleError' && (e as { checking?: boolean }).checking;
+        if (!stale) throw e;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+    assert.ok(ack, 'invite never converged — the first-touch pull-current did not install the seed ontology');
+    assert.deepEqual(ack, { accepted: 1, errors: [] }, `node invite ack: ${JSON.stringify(ack)}`);
+
+    // ── LIMB 2: the real letter — tagged with the STAR (the membership's scope) ────────────────
+    const mail = await waiter.emailPromise;
+    assert.equal(mail.instance, star, `invite mail tagged "${mail.instance ?? 'undefined'}", wanted the star`);
+    const html = mail.html ?? '';
+    const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(html)?.[1];
+    assert.ok(href, `invite email carried no magic link (starts: ${html.slice(0, 60)})`);
+    const link = href.replace(/&amp;/g, '&');
+
+    // ── LIMB 3: the click IS the login, at the star, with NO admin bit ─────────────────────────
+    const { refreshToken } = await acceptInviteAndLogin({
+      baseUrl: origin, inviteLink: link, scope: star, fetchImpl: inviteeBrowser.fetch,
+    });
+    const inviteeSession = await refreshAccessToken(
+      origin, { refreshToken, authScope: star }, star, inviteeBrowser.fetch,
+    );
+    const claims = parseJwtUnsafe(inviteeSession.accessToken)!.payload as any;
+    assert.equal(claims.access.authScope, star, "the invitee's authScope must be the star");
+    assert.equal(claims.access.scopeAdmin, undefined, 'the node path must mint NO admin bit');
+
+    // ── LIMB 4: the first write at the node commits under the invite-time grant ────────────────
+    const ctx = inviteeBrowser.context(scopeUrlOf(stack, star));
+    invitee = new NebulaClient({
+      baseUrl: scopeUrlOf(stack, star),
+      platformOrigin: stack.baseUrl,
+      ontologyVersion: landed.version,
+      accessToken: inviteeSession.accessToken,
+      instanceName: `${inviteeSession.sub}.${crypto.randomUUID().slice(0, 8)}`,
+      fetch: ctx.fetch,
+      sessionStorage: ctx.sessionStorage,
+      BroadcastChannel: ctx.BroadcastChannel,
+    });
+    const deadline = Date.now() + 30_000;
+    let committed = false;
+    let lastKind = '';
+    while (Date.now() < deadline && !committed) {
+      const outcome = await invitee.resources.transaction({
+        [crypto.randomUUID()]: {
+          op: 'create', typeName: 'Item', nodeId: ROOT_NODE_ID,
+          value: { title: 'written under the invite-time grant' },
+        },
+      });
+      lastKind = outcome.kind;
+      if (outcome.kind === 'committed') { committed = true; break; }
+      await new Promise((r) => setTimeout(r, 500)); // the traveling handler may still be landing
+    }
+    assert.ok(committed, `the invitee's write never committed (last outcome: ${lastKind}) — the invite-time grant is missing`);
+
+    // ── LIMB 5: the _InviteStatus row reached `sent` (the public query + read path) ─────────────
+    const sub = invitee.resources.subscribeQuery({
+      queryType: 'parentChild', typeName: '_InviteStatus', field: 'node', value: ROOT_NODE_ID,
+    });
+    await sub.ready;
+    assert.ok(sub.resourceIds.length >= 1, 'no _InviteStatus row visible at the node');
+    let state: string | undefined;
+    for (const id of sub.resourceIds) {
+      const snapshot = await invitee.resources.read('_InviteStatus', id);
+      const v = snapshot?.value as { email?: string; state?: string } | undefined;
+      if (v?.email === inviteeEmail) state = v.state;
+    }
+    sub[Symbol.dispose]();
+    assert.equal(state, 'sent', `the (email, node) _InviteStatus row holds "${state ?? 'no row'}", wanted "sent"`);
+
+    // ── LIMB 6: negative control — a member with NO node invite is refused the same write ──────
+    const outsiderEmail = uniqueTestEmail();
+    await inviteViaMesh(stack, adminSession, star, [{ email: outsiderEmail }]); // scope member, no grant
+    const outsiderMail = await (async () => {
+      const w = waitForEmail({ testToken, instance: star, to: outsiderEmail, timeout: 60_000 });
+      try { return await w.emailPromise; } finally { w.cleanup(); }
+    })();
+    const outsiderHref = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(outsiderMail.html ?? '')?.[1];
+    assert.ok(outsiderHref, 'the outsider control never received an invite link');
+    const outsiderBrowser = new Browser();
+    const { refreshToken: outsiderCookie } = await acceptInviteAndLogin({
+      baseUrl: origin,
+      inviteLink: outsiderHref.replace(/&amp;/g, '&'),
+      scope: star,
+      fetchImpl: outsiderBrowser.fetch,
+    });
+    const outsiderSession = await refreshAccessToken(
+      origin, { refreshToken: outsiderCookie, authScope: star }, star, outsiderBrowser.fetch,
+    );
+    const octx = outsiderBrowser.context(scopeUrlOf(stack, star));
+    const outsider = new NebulaClient({
+      baseUrl: scopeUrlOf(stack, star),
+      platformOrigin: stack.baseUrl,
+      ontologyVersion: landed.version,
+      accessToken: outsiderSession.accessToken,
+      instanceName: `${outsiderSession.sub}.${crypto.randomUUID().slice(0, 8)}`,
+      fetch: octx.fetch,
+      sessionStorage: octx.sessionStorage,
+      BroadcastChannel: octx.BroadcastChannel,
+    });
+    try {
+      const refused = await outsider.resources.transaction({
+        [crypto.randomUUID()]: {
+          op: 'create', typeName: 'Item', nodeId: ROOT_NODE_ID, value: { title: 'should be denied' },
+        },
+      });
+      assert.equal(
+        refused.kind, 'rejected',
+        `a scope member with NO node invite wrote at the node (${refused.kind}) — limb 4 would be ` +
+        'proving an open node, not the grant',
+      );
+    } finally {
+      try { outsider[Symbol.dispose](); } catch { /* already disposed */ }
+      octx.close();
+    }
+  } finally {
+    waiter?.cleanup(); // a leaked waiter's WebSocket keeps Node's event loop alive past the verdict
+    try { invitee?.[Symbol.dispose](); } catch { /* already disposed */ }
+    admin?.dispose();
+  }
+
+  console.error(
+    '[node-invite-roundtrip] ack synchronous; real letter tagged + delivered; click logged in ' +
+    'bit-less at the star; the invite-time grant authorized the first write; _InviteStatus reached ' +
+    'sent; the un-granted control was refused',
+  );
+}

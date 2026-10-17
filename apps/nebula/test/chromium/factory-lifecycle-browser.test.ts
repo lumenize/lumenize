@@ -5,9 +5,9 @@
  * many sequential steps, destructive step last), this single test strings
  * together what would otherwise be four separate real-Star tests:
  *
- *   1. CONNECTIVITY + bundle regression — `@lumenize/nebula/frontend` bundles
+ *   1. CONNECTIVITY + bundle regression — `@lumenize/resources/frontend` bundles
  *      for real chromium (Vite would fail on any transitive cloudflare:workers /
- *      node:async_hooks import), the factory connects through the proxy to a real
+ *      node:async_hooks import), the factory connects through Studio's vite to a real
  *      Star, and `ready` resolves with claims populated + `lmz.connection` connected.
  *   2. PATH 4 — mid-session drop → reconnect: `connected`→`reconnecting`→`connected`;
  *      `lastConnectedAt` never cleared while reconnecting; banner state is
@@ -15,7 +15,7 @@
  *   3. orgTree survives the reconnect: after reconnecting, a `client.orgTree`
  *      mutation still echoes to `store.lmz.orgTree` (NebulaClient re-fires
  *      `subscribeTree` on every `'connected'`). End-to-end resilience, not a
- *      re-subscribe-line isolation (a TreeSubscribers row persists across a bare
+ *      re-subscribe-line isolation (a tree row persists across a bare
  *      disconnect, and isolating the line needs a second independent actor
  *      mutating while this client is down — impossible single-page; that line is
  *      covered by the baseline `orgtree-factory-autosubscribe` + step 2's reconnect).
@@ -30,7 +30,7 @@
  * browser↔vitest-server channel and hangs the run (see ws-disconnect.ts).
  */
 import { describe, it, expect, vi } from 'vitest';
-import { ROOT_NODE_ID } from '@lumenize/nebula/frontend';
+import { ROOT_NODE_ID } from '@lumenize/resources/frontend';
 import { bootstrapFactory } from './factory-harness';
 import { recordingWebSocket, refresh401AfterFlag } from './ws-disconnect';
 
@@ -47,7 +47,7 @@ describe('factory connection lifecycle (real chromium, real WS)', () => {
     const transitions: string[] = [];
     let loginRequiredCount = 0;
 
-    const { client, store, ready, dispose } = await bootstrapFactory({
+    const { client, store, ready, dispose } = bootstrapFactory({
       WebSocket: rec.WebSocket,
       fetch: refresh401AfterFlag(() => revoked),
       onConnectionStateChange: (s) => transitions.push(s),
@@ -90,7 +90,7 @@ describe('factory connection lifecycle (real chromium, real WS)', () => {
 
       // ── Step 3: orgTree still delivers after the reconnect ────────────────
       const slug = `team-${crypto.randomUUID().slice(0, 8)}`;
-      await client.orgTree.createNode(ROOT_NODE_ID, slug, 'AfterReconnect');
+      await client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, slug, 'AfterReconnect');
       await vi.waitFor(() => {
         expect(nodeLabels(store.lmz.orgTree.value)).toContain('AfterReconnect');
       }, { timeout: 10000 });

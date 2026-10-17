@@ -93,7 +93,7 @@ describe('NadisPlugin', () => {
       NadisPlugin.register('testService', (doInstance) => new TestService(doInstance));
 
       // Get test DO stub
-      const stub = env.NADIS_PLUGIN_TEST_DO.getByName('check-access-test');
+      const stub = env.NADIS_PLUGIN_TEST_DO.getByName('check_access_test');
 
       // Access service
       const response = await stub.fetch('http://test/check-access');
@@ -109,7 +109,7 @@ describe('NadisPlugin', () => {
       NadisPlugin.register('testService', (doInstance) => new TestService(doInstance));
 
       // Get test DO stub
-      const stub = env.NADIS_PLUGIN_TEST_DO.getByName('maintain-state-test');
+      const stub = env.NADIS_PLUGIN_TEST_DO.getByName('maintain_state_test');
 
       // Increment counter multiple times
       const response1 = await stub.fetch('http://test/increment');
@@ -132,7 +132,7 @@ describe('NadisPlugin', () => {
       NadisPlugin.register('testHelper', (doInstance) => testHelper(doInstance));
 
       // Get test DO stub
-      const stub = env.NADIS_PLUGIN_TEST_DO.getByName('function-plugin-test');
+      const stub = env.NADIS_PLUGIN_TEST_DO.getByName('function_plugin_test');
 
       // Use helper
       const response = await stub.fetch('http://test/use-helper');
@@ -159,7 +159,7 @@ describe('NadisPlugin', () => {
       NadisPlugin.register('serviceWithDeps', (doInstance) => new ServiceWithDeps(doInstance));
 
       // Get test DO stub
-      const stub = env.NADIS_PLUGIN_TEST_DO.getByName('eager-validation-test');
+      const stub = env.NADIS_PLUGIN_TEST_DO.getByName('eager_validation_test');
 
       // Try to access the service - should fail at construction
       const response = await stub.fetch('http://test/use-service-with-deps');

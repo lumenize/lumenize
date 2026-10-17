@@ -331,7 +331,9 @@ describe('WebSocket Shim Integration', () => {
   it('should handle binary messages (ArrayBuffer)', async () => {
     const WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
     const ws = new WebSocketClass('wss://fake-host.com/manual-routing-do/binary-test/ws') as any;
-    
+    // Ask for ArrayBuffers as a browser app would; the spec default is Blob
+    ws.binaryType = 'arraybuffer';
+
     let wsOpened = false;
     ws.onopen = () => { wsOpened = true; };
     
@@ -349,8 +351,7 @@ describe('WebSocket Shim Integration', () => {
     // Wait for echo response
     await vi.waitFor(() => expect(receivedBinary).not.toBeNull());
     
-    // Verify binary data round-tripped correctly
-    // WebSocket binary data comes back as ArrayBuffer, not Uint8Array
+    // Verify binary data round-tripped correctly, as the ArrayBuffer binaryType asked for
     expect(receivedBinary).toBeInstanceOf(ArrayBuffer);
     const receivedArray = new Uint8Array(receivedBinary);
     expect(Array.from(receivedArray)).toEqual([1, 2, 3, 4, 5]);

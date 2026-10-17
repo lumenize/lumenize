@@ -7,7 +7,7 @@
  * REAL Star + REAL WebSocket — no mesh source change needed.
  *
  * Mechanism: a `WebSocket` subclass injected via the factory's `WebSocket`
- * config option (LumenizeClient does `new this.#WebSocketClass(url, protocols)`).
+ * config option (MeshClient does `new this.#WebSocketClass(url, protocols)`).
  * Each constructed socket is recorded, so a test can drop the live one.
  *
  * Why a *synthetic* close event rather than `ws.close(code)`: through the

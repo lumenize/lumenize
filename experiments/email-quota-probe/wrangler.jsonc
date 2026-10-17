@@ -1,0 +1,8 @@
+{
+  // Throwaway probe — run with `npx wrangler dev`, never deployed.
+  "name": "experiment-email-quota-probe",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "send_email": [{ "name": "EMAIL", "remote": true }]
+}

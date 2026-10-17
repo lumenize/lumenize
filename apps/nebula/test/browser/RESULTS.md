@@ -116,7 +116,7 @@ To redeploy after code changes:
 cd apps/nebula && npx wrangler deploy --config test/browser/worker/wrangler.jsonc
 ```
 
-Secrets for the deployed Worker (`NEBULA_AUTH_BOOTSTRAP_EMAIL`, `JWT_PRIVATE_KEY_BLUE`, `JWT_PUBLIC_KEY_BLUE`) are already set via `wrangler secret bulk`. To remove the deployed Worker entirely:
+Secrets for the deployed Worker (`AUTH_BOOTSTRAP_EMAIL`, `JWT_PRIVATE_KEY_BLUE`, `JWT_PUBLIC_KEY_BLUE`) are already set via `wrangler secret bulk`. To remove the deployed Worker entirely:
 ```
 npx wrangler delete --name nebula-browser-test
 ```

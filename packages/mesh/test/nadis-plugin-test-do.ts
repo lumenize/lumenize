@@ -3,9 +3,9 @@
  * Separated from nadis-plugin.test.ts to avoid test lifecycle interference
  */
 
-import { LumenizeDO } from '../src/index';
+import { UnscopedMeshDO } from '../src/index';
 
-export class NadisPluginTestDO extends LumenizeDO<any> {
+export class NadisPluginTestDO extends UnscopedMeshDO<any> {
   async fetch(request: Request): Promise<Response> {
     await super.fetch(request);
 

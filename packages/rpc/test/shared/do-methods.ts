@@ -103,6 +103,39 @@ export const sharedDOMethods = {
     ];
   },
 
+  // A function in each place a result can hold one, a shared object and a
+  // cycle (for testing that every function becomes a remote function marker)
+  getFunctionPlaces(label: string): any {
+    const shared = { tag: 'shared', sharedFn() { return 'shared'; } };
+    const result: any = {
+      label,
+      plain: { innerFn() { return 'inner'; } },
+      list: [1, function listFn() { return 'list'; }],
+      model: new DataModel(3, 'model'),
+      byKey: new Map<string, any>([
+        ['fn', function mapFn() { return 'map'; }],
+        ['obj', { deepFn() { return 'deep'; } }],
+      ]),
+      members: new Set<any>([function setFn() { return 'set'; }]),
+      first: shared,
+      second: shared,
+    };
+    result.self = result;
+    return result;
+  },
+
+  // An object the DO keeps changing (for testing that a call's result is
+  // copied when it returns, before a later call in the batch changes it)
+  getLiveState(this: { liveState?: { n: number } }): { n: number } {
+    this.liveState ??= { n: 0 };
+    return this.liveState;
+  },
+
+  bumpLiveState(this: { liveState?: { n: number } }): number {
+    this.liveState ??= { n: 0 };
+    return ++this.liveState.n;
+  },
+
   // Method that returns an object that will cause preprocessing to throw
   // This uses a getter that throws when accessed
   getProblematicObject(): any {
@@ -161,9 +194,8 @@ export const sharedDOMethods = {
 
   // Method that echoes through DO storage to test what types survive round-trip
   // NOTE: Just uses DO storage's built-in serialization. This has limitations:
-  // - Errors lose custom properties
   // - Request/Response/URL cannot be serialized (ReadableStream limitation)
-  // - Custom error names revert to 'Error'
+  // - Before compat date 2026-04-21, Errors lose custom properties and custom names revert to 'Error'
   echoThroughStorage(this: WithContext, value: any): any {
     this.ctx.storage.kv.put('test-echo', value);
     return this.ctx.storage.kv.get('test-echo');

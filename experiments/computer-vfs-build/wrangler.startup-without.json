@@ -1,0 +1,22 @@
+{
+  "name": "experiment-startup-without",
+  "main": "src/startup-without.ts",
+  "compatibility_date": "2026-05-26",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "VfsBuildDO",
+        "class_name": "StartupDO"
+      }
+    ]
+  },
+  "exports": {
+    "StartupDO": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+}

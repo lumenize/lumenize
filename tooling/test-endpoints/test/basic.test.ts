@@ -37,6 +37,32 @@ describe('TestEndpointsDO Basic Functionality', () => {
     expect(lastRequest.url).toContain('/uuid');
   });
 
+  it('echoes a POST body and tracks it — the endpoint and the tracker both read the body', async () => {
+    using client = createTestingClient<typeof TestEndpointsDO>(
+      'TEST_ENDPOINTS_DO',
+      'echo-test'
+    );
+
+    const browser = new Browser();
+    const response = await browser.fetch(
+      `https://test.com/test-endpoints-do/echo-test/echo?token=${env.TEST_TOKEN}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Custom-Header': 'test-value' },
+        body: JSON.stringify({ message: 'hello' }),
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const data = await response.json() as any;
+    expect(data.json).toEqual({ message: 'hello' });
+    expect(data.headers['x-custom-header']).toBe('test-value');
+
+    const lastRequest = parse(await client.ctx.storage.kv.get('request:last') as string) as RequestSync;
+    expect(lastRequest.method).toBe('POST');
+    expect(lastRequest.json()).toEqual({ message: 'hello' });
+  });
+
   it('respects stopTracking() and resetTracking()', async () => {
     using client = createTestingClient<typeof TestEndpointsDO>(
       'TEST_ENDPOINTS_DO',

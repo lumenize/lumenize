@@ -1,0 +1,45 @@
+{
+  "name": "@lumenize/sql-migrations",
+  "version": "0.26.0",
+  "description": "Minimal id-gated SQL schema migrations for SQLite-backed Cloudflare Durable Objects — synchronous, atomic, run-once",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src/**/*",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "test": "vitest --run",
+    "coverage": "vitest --run --coverage",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.3.6",
+    "@vitest/coverage-istanbul": "4.1.10",
+    "typescript": "^5.9.2",
+    "vitest": "4.1.10",
+    "wrangler": "4.147.0"
+  },
+  "keywords": [
+    "durable-objects",
+    "sqlite",
+    "migrations",
+    "schema-migrations",
+    "cloudflare-workers"
+  ],
+  "author": "Larry Maccherone",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

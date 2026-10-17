@@ -1,0 +1,11 @@
+# Mirrors the SHAPE of apps/nebula/container/Dockerfile's dep layer: curated deps
+# installed at build time, npm cache left in place (our real Dockerfile does not
+# `npm cache clean`, so the cache ships in the image — measured in [C]).
+# Deliberately NOT a copy of the real one: no git, no CA hook, no command-server.
+# This image exists only to be the starting tree for the incremental-install and
+# restore measurements.
+FROM node:22-slim
+WORKDIR /app
+COPY fixture/package.json ./
+RUN npm install --no-audit --no-fund
+COPY fixture/ ./

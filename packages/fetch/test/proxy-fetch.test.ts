@@ -20,7 +20,25 @@ import { FetchTimeoutError } from '@lumenize/fetch';
 // callCount at 2 ("expected 2 to be 1"). uniq() gives every (re)run its own DO.
 const uniq = (base: string) => `${base}-${crypto.randomUUID()}`;
 
-describe('proxyFetch - Basic Flow', () => {
+/**
+ * ⏸️ **PARKED — the proxy round trip stops working by DECISION, not by defect.**
+ *
+ * `svc.fetch.__handleProxyFetchResult(reqId, result)` is the one chain that opened on `svc` and
+ * crossed a hop, and `svc` is no longer a wire entry: the exemption that let it through was the
+ * hole a remote caller walked to read `env`, run arbitrary SQL, or reach an undecorated method on
+ * the host. `@lumenize/fetch` is all but deprecated and nobody runs it in production, so it does
+ * not get new framework surface built to keep it working.
+ *
+ * ⚠️ **Skipped rather than deleted, because revival is live rather than theoretical.** The package
+ * comes back if it ever supports streaming — the one case where proxying a fetch through a Worker
+ * genuinely saves money — and a deleted suite would have to be rewritten from nothing to prove the
+ * revived path. The break is flagged for the next release in `tasks/backlog.md` § *Lumenize Mesh*.
+ *
+ * ⓘ The package's ALARM/timeout path is untouched and still covered: it reaches the same method
+ * through a locally-authored chain, which the entry rule's carve-out permits. And
+ * `svc-is-not-an-entry.test.ts` stays ACTIVE — those limbs assert the RULE, not the package.
+ */
+describe.skip('proxyFetch - Basic Flow', () => {
   test('makes successful fetch and delivers result via worker callback', async () => {
     const stub = env.TEST_SIMPLE_DO.getByName(uniq('test'));
     await stub.clearResults();
@@ -194,7 +212,7 @@ describe('proxyFetch - Basic Flow', () => {
   });
 });
 
-describe('proxyFetch - Error Handling', () => {
+describe.skip('proxyFetch - Error Handling', () => {
   test('receives ResponseSync (not Error) for HTTP 404', async () => {
     const stub = env.TEST_SIMPLE_DO.getByName(uniq('http-404-test'));
     await stub.clearResults();

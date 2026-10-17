@@ -1,0 +1,22 @@
+{
+  "name": "nebula-devcontainer-app",
+  "private": true,
+  "type": "module",
+  "//": "Curated UI-lib set baked into the DevContainer image. 'Remove a lib' = stop importing it (vite tree-shakes); pulling a NON-listed package is the only thing needing runtime egress (deferred — deps are fully baked for the demo).",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "daisyui": "^5.0.0",
+    "lucide-vue-next": "^0.469.0",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.9.2",
+    "vite": "^6.0.7"
+  }
+}

@@ -1,12 +1,12 @@
 {
   "name": "mesh-security-test",
   "main": "./test-harness.ts",
-  "compatibility_date": "2026-03-12",
+  "compatibility_date": "2026-10-01",
   "durable_objects": {
     "bindings": [
       {
-        "name": "LUMENIZE_CLIENT_GATEWAY",
-        "class_name": "LumenizeClientGateway"
+        "name": "WORKSPACE_DO",
+        "class_name": "WorkspaceDO"
       },
       {
         "name": "USER_PROFILE_DO",
@@ -17,29 +17,70 @@
         "class_name": "TeamDocDO"
       },
       {
-        "name": "LUMENIZE_AUTH",
-        "class_name": "LumenizeAuth"
+        "name": "GATE_PAIR_DO",
+        "class_name": "GatePairDO"
+      },
+      {
+        "name": "AUTH_REGISTRY",
+        "class_name": "AuthRegistry"
+      },
+      {
+        "name": "PROFILE",
+        "class_name": "Profile"
       }
     ]
   },
-  "migrations": [
+  "services": [
     {
-      "tag": "v1",
-      "new_sqlite_classes": ["LumenizeClientGateway", "UserProfileDO", "TeamDocDO", "LumenizeAuth"]
+      "binding": "AUTH_FACADE",
+      "service": "mesh-security-test",
+      "entrypoint": "AuthFacade"
+    }
+  ],
+  "exports": {
+    "WorkspaceDO": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "UserProfileDO": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "TeamDocDO": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "GatePairDO": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "AuthRegistry": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "Profile": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "kv_namespaces": [
+    {
+      "binding": "REFRESH_TOKEN_KV",
+      "id": "mesh-security-test-refresh-token-kv"
     }
   ],
   "ratelimits": [
     {
-      "name": "LUMENIZE_AUTH_RATE_LIMITER",
-      "namespace_id": "1001",
+      "name": "AUTH_CONNECTION_RATE_LIMITER",
+      "namespace_id": "2002",
       "simple": {
-        "limit": 100,
+        "limit": 1000,
         "period": 60
       }
     }
   ],
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
-    "LUMENIZE_AUTH_REDIRECT": "/app"
+    "LUMENIZE_ORIGIN": "http://lumenize.localhost"
   }
 }

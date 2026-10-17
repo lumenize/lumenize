@@ -2,8 +2,8 @@
  * Multi-client harness for the gateway-hop benchmark's Phase 4/5 work.
  *
  * Spins up M `HarnessNebulaClient` instances against the same Worker, each
- * with its own `tabId` (so each lands on its own `NebulaClientGateway` DO
- * via `instanceName = {sub}.{tabId}`), all sharing one authenticated
+ * with its own `tabId` (so each holds its own socket on the host node its page
+ * names, under `instanceName = {sub}.{tabId}`), all sharing one authenticated
  * identity.
  *
  * **Why one shared JWT, not M independent refreshes**: NebulaAuth's
@@ -15,15 +15,16 @@
  * the bench, sequentializing M=64 refreshes adds ~6–32 s of setup time and
  * doesn't affect what we're measuring (per-call infrastructure cost), so we
  * mint one JWT upfront and pass it explicitly to each client. Each client
- * still gets a unique `instanceName` (different tabId) so they land on
- * distinct Gateway DOs — exactly what Phase 5's Shape A test requires.
+ * still gets a unique `instanceName` (different tabId), so each holds a socket
+ * of its own on the host node.
  *
  * See `tasks/gateway-hop-benchmark.md` Phase 4.
  */
 
 import { Browser, type Context } from '@lumenize/testing';
+import { scopeOriginFrom } from '../lib/email-login';
 import { HarnessNebulaClient } from './harness-client';
-import { bootstrapAdmin } from './auth-bootstrap';
+import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
 export interface MultiClientSetupArgs {
   browser: Browser;
@@ -66,20 +67,14 @@ export async function setupMultiClient(args: MultiClientSetupArgs): Promise<Mult
   if (M < 1) throw new Error(`setupMultiClient: M must be ≥ 1, got ${M}`);
 
   // Step 1: Bootstrap auth once. Cookies land on the Browser.
-  await bootstrapAdmin({ browser, baseUrl, scope: galaxyScope, email, testToken });
+  const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email, testToken });
 
   // Step 2: Mint one access JWT via the same refresh endpoint NebulaClient
   // uses internally. We extract `sub` from the JWT payload so we can build
   // explicit instanceNames for each client.
-  const refreshResponse = await browser.fetch(
-    `${baseUrl}/auth/${galaxyScope}/refresh-token`,
-    {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ activeScope }),
-    },
-  );
+  const refreshResponse = await browser.context(scopeOriginFrom(baseUrl, activeScope)).fetch(`${baseUrl}/auth/refresh-token`, {
+    method: 'POST', credentials: 'include',
+  });
   if (!refreshResponse.ok) {
     throw new Error(`setupMultiClient: refresh-token failed ${refreshResponse.status} ${await refreshResponse.text()}`);
   }
@@ -89,20 +84,19 @@ export async function setupMultiClient(args: MultiClientSetupArgs): Promise<Mult
   }
 
   // Step 3: Create M clients with distinct tabIds. Passing both `accessToken`
-  // and `instanceName` makes the LumenizeClient constructor skip its own
-  // refresh + tabId generation (see lumenize-client.ts:540), so each client
-  // connects with the shared JWT against its own Gateway DO.
+  // and `instanceName` makes the MeshClient constructor skip its own
+  // refresh + tabId generation (`MeshClient`'s `#connectInternal`), so each client
+  // connects with the shared JWT under its own id on the host node.
   const contexts: Context[] = [];
   const clients: HarnessNebulaClient[] = [];
   for (let i = 0; i < M; i++) {
-    const ctx = browser.context(baseUrl);
+    const ctx = browser.context(scopeOriginFrom(baseUrl, activeScope));
     const tabId = crypto.randomUUID().slice(0, 8);
     const client = new HarnessNebulaClient({
-      baseUrl,
-      authScope: galaxyScope,
-      activeScope,
-      appVersion: 'v1',
-      fetch: browser.fetch,
+      baseUrl: scopeOriginFrom(baseUrl, activeScope),
+      platformOrigin: baseUrl,
+      ontologyVersion: 'v1',
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
       accessToken,

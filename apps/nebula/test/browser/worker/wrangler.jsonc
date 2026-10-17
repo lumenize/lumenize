@@ -1,7 +1,7 @@
 {
   "name": "nebula-browser-test",
   "main": "./index.ts",
-  "compatibility_date": "2026-04-01",
+  "compatibility_date": "2026-10-01",
   // nodejs_compat (NOT the legacy `nodejs_compat_v2` flag-name): this worker imports
   // the @lumenize/nebula barrel, which transitively pulls DevStudio → isomorphic-git +
   // @cloudflare/shell (import `node:` builtins). Real `wrangler dev` (this harness)
@@ -12,63 +12,63 @@
   "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {
     "bindings": [
-      { "name": "NEBULA_CLIENT_GATEWAY", "class_name": "NebulaClientGateway" },
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "StarTest" },
-      { "name": "NEBULA_AUTH", "class_name": "NebulaAuth" },
-      { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" },
+      { "name": "AUTH_REGISTRY", "class_name": "AuthRegistry" },
+      { "name": "PROFILE", "class_name": "Profile" },
       { "name": "BenchAgent", "class_name": "BenchAgent" }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": [
-        "NebulaClientGateway",
-        "Universe",
-        "Galaxy",
-        "StarTest",
-        "ResourceHistory",
-        "NebulaAuth",
-        "NebulaAuthRegistry"
-      ]
-    },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": ["BenchAgent"]
-    },
-    {
-      "tag": "v3",
-      "new_sqlite_classes": ["BenchBroadcaster", "BenchFanoutHelper"]
-    },
-    {
-      "tag": "v4",
-      "deleted_classes": ["BenchBroadcaster", "BenchFanoutHelper"]
-    },
-    {
-      "tag": "v5",
-      "deleted_classes": ["ResourceHistory"]
-    },
-    {
-      "tag": "v6",
-      "new_sqlite_classes": ["DevStar"]
-    },
-    {
-      "tag": "v7",
-      "deleted_classes": ["DevStar"]
-    }
+  // The per-scope NebulaAuth DO is dissolved (tasks/archive/nebula-auth-surrogate-sub.md); refresh state lives
+  // in the REFRESH_TOKEN_KV namespace below. This is a local `wrangler dev` harness — if a stale
+  // `.wrangler` still has NebulaAuth registered under v1, `rm -rf .wrangler` before re-running.
+  // Real KV namespace provisioned 2026-07-22 (the documented PHASE-4 manual step —
+  // `wrangler kv namespace create nebula-browser-refresh-token-kv-test`) so this
+  // deployed harness can actually deploy for the cold-start bench. A real hex id
+  // still works as a local `wrangler dev` key (miniflare stays local, no remote bind).
+  "kv_namespaces": [
+    { "binding": "REFRESH_TOKEN_KV", "id": "abb2b39afdcf49dc90c0793ccd0b2099" }
   ],
+  // Declarative DO `exports` (was `migrations`) — lists only LIVE classes. The old migrations block
+  // carried tombstone entries for the removed (BenchBroadcaster, BenchFanoutHelper, ResourceHistory,
+  // DevStar); `exports` drops them, since it lists live classes only (no tombstones). This is a
+  // DEPLOYED throwaway harness: if a future redeploy is ever rejected because CF still holds the old
+  // migration history, dashboard-delete the worker + redeploy (it holds no durable state worth keeping).
+  "exports": {
+    "Universe": { "type": "durable-object", "storage": "sqlite" },
+    "Galaxy": { "type": "durable-object", "storage": "sqlite" },
+    "StarTest": { "type": "durable-object", "storage": "sqlite" },
+    "AuthRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "Profile": { "type": "durable-object", "storage": "sqlite" },
+    "BenchAgent": { "type": "durable-object", "storage": "sqlite" },
+    // Tombstones (2026-07-22): the previous deploy predated the migrations->exports switch and the
+    // surrogate-sub NebulaAuth dissolution, so CF still holds these orphaned namespaces. Retire them
+    // per wrangler's reconciliation (throwaway harness, no durable state worth keeping). Alternative
+    // per the note above: dashboard-delete the worker + redeploy, then drop these two lines.
+    "NebulaAuth": { "type": "durable-object", "state": "deleted" },
+    "ResourceHistory": { "type": "durable-object", "state": "deleted" },
+    // Renamed AuthRegistry (2026-10-08); the deployed harness still holds the old class.
+    "NebulaAuthRegistry": { "type": "durable-object", "state": "deleted" }
+  },
   "services": [
     {
       "binding": "AUTH_EMAIL_SENDER",
       "service": "nebula-browser-test",
       "entrypoint": "TestNebulaEmailSender"
     },
+    // What a session does — creating and deleting apps, among them — enters through the facade,
+    // which wipes the Durable Objects a deletion or creation touches.
     {
-      "binding": "LUMENIZE_BROADCAST_TIER",
+      "binding": "AUTH_FACADE",
       "service": "nebula-browser-test",
-      "entrypoint": "BenchFanoutTier"
+      "entrypoint": "NebulaAuthFacade"
+    },
+    // The platform host's own routes, reached for `/` and `/auth/*` on the platform host.
+    {
+      "binding": "PLATFORM_HOST",
+      "service": "nebula-browser-test",
+      "entrypoint": "PlatformHost"
     }
   ],
   // NO Cloudflare Email Sending binding — the magic-link login is incidental
@@ -79,32 +79,14 @@
   // `remote:true` binding would establish its proxy at pool-load and fail
   // there. The CF Email Sending path itself is covered by
   // packages/auth/test/e2e-email. (tasks/nebula-in-ci.md "Email everywhere = Resend".)
-  "ratelimits": [
-    {
-      "name": "NEBULA_AUTH_RATE_LIMITER",
-      "namespace_id": "3001",
-      "simple": {
-        "limit": 100,
-        "period": 60
-      }
-    }
-  ],
   "vars": {
+    // The deployment's origin, which every host and the JWT issuer derive from (Mesh's `auth/hosts.ts`).
+    // https, because this lane's `wrangler dev` serves `--local-protocol https`.
+    "LUMENIZE_ORIGIN": "https://lumenize.localhost",
     "PRIMARY_JWT_KEY": "BLUE",
-    "NEBULA_AUTH_REDIRECT": "/app",
     // Select Resend explicitly (no EMAIL binding above). Needs RESEND_API_KEY in
-    // .dev.vars + `test.lumenize.com` verified as a Resend sending domain — same
+    // .dev.vars + `lumenize.io` verified as a Resend sending domain — same
     // setup as packages/auth/test/e2e-email-resend.
-    "EMAIL_PROVIDER": "resend",
-    // Allow Playwright + Vite dev/preview origins so the browser test page can
-    // call this deployed-via-miniflare worker cross-origin. Empty in production
-    // (single-origin deploy); per-test config provides whatever origins the
-    // test runner serves the page from.
-    "LUMENIZE_APPROVED_ORIGINS": "http://localhost:5173,http://localhost:4173",
-    // Fanout-scaling bench overrides for Star.#broadcast. Comment out / unset
-    // both when not actively running an experiment to restore production
-    // behavior (svc.broadcast default threshold=100, onResult handler wired).
-    // "STAR_BROADCAST_DIRECT_THRESHOLD": "Infinity",
-    // "STAR_BROADCAST_OMIT_ON_RESULT": "1"
+    "EMAIL_PROVIDER": "resend"
   }
 }

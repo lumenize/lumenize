@@ -1,0 +1,38 @@
+{
+  "name": "experiment-preview-self-binding",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-15",
+  "workers_dev": true,
+
+  // The whole probe. `MARKER` says which deployment answered; `previews.vars` overrides it,
+  // so a response carrying "production" from a Preview URL means the call crossed over.
+  "vars": { "MARKER": "production" },
+
+  // The shape apps/nebula uses: a service binding naming its OWN worker, with a named
+  // entrypoint (AUTH_EMAIL_SENDER / NEBULA_AUTH_FACADE both do this).
+  "services": [
+    { "binding": "SELF", "service": "experiment-preview-self-binding", "entrypoint": "Probe" }
+  ],
+
+  // A DO too, so the same call shows WHICH namespace the write landed in — the Preview's
+  // auto-provisioned one, or production's.
+  "durable_objects": {
+    "bindings": [{ "name": "COUNTER", "class_name": "Counter" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Counter"] }],
+
+  // ⚠️ The `previews` block is NOT an override layer over the top-level one: a Preview's env
+  // carried NEITHER binding until each was restated here (probed 2026-09-22 — `env.COUNTER`
+  // and `env.SELF` both `undefined`, while `previews.vars` DID apply). The docs' "add
+  // previews.durable_objects.bindings only if your code reads the binding from env" is the
+  // whole rule, and it reads as optional.
+  "previews": {
+    "vars": { "MARKER": "preview" },
+    "durable_objects": {
+      "bindings": [{ "name": "COUNTER", "class_name": "Counter" }]
+    },
+    "services": [
+      { "binding": "SELF", "service": "experiment-preview-self-binding", "entrypoint": "Probe" }
+    ]
+  }
+}

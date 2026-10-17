@@ -1,46 +1,33 @@
 /**
- * Reconnect re-subscribe — Phase 5.3.4a
+ * Reconnect re-subscribe: what a reconnect restores, and what it leaves alone.
  *
- * On WebSocket reconnect (a `reconnecting → connected` state transition),
- * NebulaClient walks its `#subscriptionRegistry` and re-issues `Star.subscribe`
- * for every entry. Star's `INSERT OR REPLACE` makes this idempotent and pushes
- * a fresh initial snapshot back via `handleResourceUpdate`.
+ * A Client re-subscribes exactly when its host node says it lost something, never on a network blip
+ * or a token rotation inside the grace period. Two angles:
  *
- * Two angles:
+ *   - **The walk itself**: a test-only `_restoreSubscriptionsForTest()` hook runs the resources half
+ *     of the walk `onSubscriptionRequired` runs, so the test can assert what one re-subscribe does — registry →
+ *     Star → snapshot push → a fresh row — without first losing a subscription.
  *
- *   - **Direct unit-of-behavior**: a test-only `_resubscribeAllForTest()` hook
- *     on `NebulaClient` invokes the same internal walk that the state-machine
- *     wiring calls in production. Lets us verify resubscribe semantics
- *     (registry → Star → snapshot push → write-through) without depending on
- *     unsolicited WS-close machinery in the test harness.
+ *   - **A supersede**: a second client with the same `instanceName` and `accessToken` makes the
+ *     host node close the first one's socket with 4409. The first reconnects while the second is still
+ *     connected, so it supersedes in turn and is told `subscriptionRequired: false` — this project's
+ *     grace period is 100 ms, so a supersede is how a reconnect here keeps its record. It
+ *     re-subscribes nothing, and its row keeps delivering.
  *
- *   - **Integration smoke**: trigger a real `reconnecting → connected`
- *     transition by abusing the Gateway's supersede mechanism — construct a
- *     second client with the same `instanceName` + `accessToken`, the Gateway
- *     closes the first client's socket with `WS_CLOSE_SUPERSEDED` (4409), the
- *     first client schedules a reconnect, and the resubscribe walk fires
- *     automatically when it lands. Dispose of the second client immediately
- *     to avoid ping-pong on the first client's reconnect.
- *
- * The state-machine wiring itself (the `prev === 'reconnecting' && state ===
- * 'connected'` check in the constructor's `onConnectionStateChange` callback)
- * is small and visually obvious; the connection-state transitions are
- * separately covered by mesh-level tests at
- * `packages/mesh/test/lumenize-client.test.ts`.
+ * The 4408 and grace-expiry paths that DO re-subscribe are driven live by `resubscribe-when-lost`.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { TransactionResult, SubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient, ORIGIN } from '../../test-helpers';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { TransactionResult, SubscriberRow } from '@lumenize/resources';
+import { adminClientAt, ORIGIN, pageOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 async function waitForResult(client: NebulaClientTest) {
@@ -68,17 +55,17 @@ async function createResource(
 }
 
 async function setupSubscribedClient(star: string) {
-  const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+  a.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
   await waitForResult(a.client);
 
-  const resourceId = generateUuid();
+  const resourceId = crypto.randomUUID();
   await createResource(a.client, star, resourceId);
 
   // Subscribe via the public API so #subscriptionRegistry is populated —
-  // that's what #resubscribeAll() walks. (The test-initiator
+  // that's what #restoreSubscriptions() walks. (The test-initiator
   // `callStarSubscribe` bypasses the registry by calling lmz directly.)
   await a.client.resources.subscribe('TestResource', resourceId).snapshot;
   // resourceUpdateCount is incremented inside the NebulaClientTest override
@@ -90,7 +77,7 @@ async function setupSubscribedClient(star: string) {
 
 describe('nebula-client reconnect re-subscribe (5.3.4a)', () => {
 
-  it('_resubscribeAllForTest re-issues subscribe for every registry entry', async () => {
+  it('_restoreSubscriptionsForTest re-issues subscribe for every registry entry', async () => {
     const star = uniqueStar();
     const { a, resourceId } = await setupSubscribedClient(star);
 
@@ -101,7 +88,7 @@ describe('nebula-client reconnect re-subscribe (5.3.4a)', () => {
     expect(rowsBefore[0].resourceId).toBe(resourceId);
     const subscribedAtBefore = rowsBefore[0].subscribedAt;
 
-    // Drop the Subscribers table — without our resubscribe walk, the row
+    // Delete the resource rows — without our resubscribe walk, the row
     // stays gone and no fanouts would reach a.client.
     a.client.callStarClearSubscribersForTest(star);
     await waitForResult(a.client);
@@ -116,9 +103,8 @@ describe('nebula-client reconnect re-subscribe (5.3.4a)', () => {
     // we read the count just before triggering the walk.
     const countBeforeResubscribe = a.client.resourceUpdateCount;
 
-    // Invoke the resubscribe walk — same logic that fires on a real
-    // `reconnecting → connected` transition.
-    a.client._resubscribeAllForTest();
+    // Invoke the walk — the same one `onSubscriptionRequired` runs.
+    a.client._restoreSubscriptionsForTest();
 
     // Star receives the subscribe, INSERTs the row, and pushes the current
     // snapshot back via handleResourceUpdate. resourceUpdateCount increments.
@@ -134,22 +120,21 @@ describe('nebula-client reconnect re-subscribe (5.3.4a)', () => {
     expect(rowsAfter[0].subscribedAt).not.toBe(subscribedAtBefore);
   });
 
-  it('supersede-triggered reconnect resubscribes automatically', async () => {
+  it('a reconnect that supersedes an open socket re-subscribes nothing, and the row keeps delivering', async () => {
     const star = uniqueStar();
-    const { a } = await setupSubscribedClient(star);
-    const initialUpdateCount = a.client.resourceUpdateCount;
+    const { a, resourceId } = await setupSubscribedClient(star);
+    a.client.callStarInspectSubscribers(star);
+    const [rowBefore] = await waitForSuccess(a.client) as SubscriberRow[];
 
     // Construct a second client with the same instanceName + accessToken.
-    // Gateway sees an existing socket for this instanceName, closes it with
+    // The host node sees an existing socket for this instanceName, closes it with
     // WS_CLOSE_SUPERSEDED (4409). a.client's #handleClose routes that to
     // #scheduleReconnect → state → 'reconnecting' → 1s backoff → reconnect.
     const aInstanceName = a.client.lmz.instanceName;
     const browserB = new Browser();
     const b = new NebulaClientTest({
-      baseUrl: ORIGIN,
-      authScope: star,
-      activeScope: star,
-      appVersion: ONTOLOGY_VERSION,
+      baseUrl: pageOf(star), platformOrigin: ORIGIN,
+      ontologyVersion: ONTOLOGY_VERSION,
       instanceName: aInstanceName,
       accessToken: a.accessToken,
       fetch: browserB.fetch,
@@ -159,21 +144,29 @@ describe('nebula-client reconnect re-subscribe (5.3.4a)', () => {
     // a.client should observe the supersede close and enter 'reconnecting'.
     await vi.waitFor(() => { expect(a.client.connectionState).toBe('reconnecting'); });
 
-    // Dispose b before its connect-and-supersede cycle can ping-pong with
-    // a.client's pending reconnect. disconnect() nulls b's WS handlers
-    // synchronously, so even if Gateway closes b's socket later, b doesn't
-    // try to reconnect.
+    // a.client's reconnect timer (1s backoff) fires while b is still connected, so a supersedes b
+    // and is told `subscriptionRequired: false`. Then b is disposed, before its own reconnect timer
+    // can ping-pong: disconnect() clears it and nulls b's handlers.
+    await vi.waitFor(() => { expect(a.client.connectionState).toBe('connected'); });
     b.disconnect();
 
-    // a.client's reconnect timer (1s backoff) fires, a.client reconnects.
-    // The `reconnecting → connected` transition triggers #resubscribeAll(),
-    // which lmz.calls STAR.subscribe for the registered (rt, rid). Star
-    // pushes the current snapshot back via handleResourceUpdate →
-    // resourceUpdateCount increments.
-    await vi.waitFor(() => { expect(a.client.connectionState).toBe('connected'); });
-    await vi.waitFor(() => {
-      expect(a.client.resourceUpdateCount).toBeGreaterThan(initialUpdateCount);
-    });
-  });
+    // A round trip on the reconnected socket, so a re-subscribe the reconnect sent has landed by
+    // its answer. MUTATION: restore the blanket re-subscribe on reconnect, and the row is rewritten.
+    a.client.callStarInspectSubscribers(star);
+    const rowsAfter = await waitForSuccess(a.client) as SubscriberRow[];
+    expect(rowsAfter).toEqual([rowBefore]);
 
+    // The row still delivers: another tab's write reaches this one as a push. (A writer's own tab
+    // is excluded from its write's fan-out, so the write comes from a second client.)
+    const writer = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const snapshot = await writer.client.resources.read('TestResource', resourceId);
+    writer.client.callStarTransaction(star, ONTOLOGY_VERSION, {
+      [resourceId]: { op: 'put', eTag: snapshot!.meta.eTag, value: { title: 'After the supersede' } },
+    });
+    await waitForSuccess(writer.client);
+    await vi.waitFor(() => {
+      expect(a.client.lastResourceUpdate?.snapshot?.value).toEqual({ title: 'After the supersede' });
+    });
+    writer.client[Symbol.dispose]();
+  });
 });

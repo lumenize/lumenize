@@ -1,0 +1,10 @@
+{
+  "name": "plain-do-container-spike",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "dev": "wrangler dev"
+  }
+}

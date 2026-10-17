@@ -1,0 +1,53 @@
+{
+  "startedAt": "2026-10-15T13:01:51.294Z",
+  "finishedAt": "2026-10-15T13:02:19.239Z",
+  "waitS": 25,
+  "probes": [
+    {
+      "mode": "memory-catch",
+      "name": "memory-catch-2026-10-15T13-01-51-292Z",
+      "armedAt": "2026-10-15T13:01:52.721Z",
+      "alarmAt": "2026-10-15T13:01:54.721Z",
+      "seen": 4,
+      "report": {
+        "mode": "memory-catch",
+        "alarm": "2026-10-15T13:01:54.721Z",
+        "attempts": [
+          {
+            "seq": 1,
+            "firedAt": "2026-10-15T13:01:54.721Z",
+            "scheduledTime": "2026-10-15T13:01:54.721Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 2,
+            "firedAt": "2026-10-15T13:01:57.626Z",
+            "scheduledTime": "2026-10-15T13:01:54.721Z",
+            "retryCount": 1,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 3,
+            "firedAt": "2026-10-15T13:02:02.262Z",
+            "scheduledTime": "2026-10-15T13:01:54.721Z",
+            "retryCount": 2,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 4,
+            "firedAt": "2026-10-15T13:02:11.483Z",
+            "scheduledTime": "2026-10-15T13:01:54.721Z",
+            "retryCount": 3,
+            "isRetry": 1,
+            "completedAt": null
+          }
+        ],
+        "caught": []
+      }
+    }
+  ]
+}

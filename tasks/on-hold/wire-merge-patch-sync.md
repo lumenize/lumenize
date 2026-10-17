@@ -1,14 +1,15 @@
 # Wire Merge-Patch Synchronization (DAG + Resources)
 
-**Status**: On hold — post-demo
+**Status**: On hold — picked up as [nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 14*, after pre-alpha
 **Depends on**:
 - W4 wire format + `diff` / `applyMergePatch` utilities — shipped in [PR #11](https://github.com/lumenize/lumenize/pull/11) (merge commit `260c242`)
 - DAG normalization (originally Phase 3 of the wire-format task) — ✅ shipped 2026-05-16, archived at [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md)
+- **A format a merge patch can address — ✅ built 2026-10-14** by [archive/structured-clone-patches-small-and-exact.md](../archive/structured-clone-patches-small-and-exact.md), ahead of the wipe. A Map, Set or long id list patches one entry at a time, a shared object is a `$ref` pointer, and a patch keeps a `null`, a `__proto__` key, and every Map's, Set's and array's order.
 **Related**: [tasks/archive/nebula-frontend.md](../archive/nebula-frontend.md) "DAG-binding update strategies" Options C and D — both became cheaper after W4 shipped.
 
 ## Goal
 
-Use the W4 wire format + RFC 7396 (JSON Merge Patch) primitives to send per-mutation deltas over the wire, replacing full-snapshot sends. Two use cases:
+Use the structured-clone encoding + RFC 7396 (JSON Merge Patch) primitives to send per-mutation deltas over the wire, replacing full-snapshot sends. Two use cases:
 
 1. **DAG-tree fanout sync** — every Star pushes its DAG to every connected client on every mutation. With 1k typical (10k worst-case) nodes per Star and many connected clients per Star, full-snapshot resends don't scale. Was the original motivating use case (Phase 4 of the wire-format task).
 2. **Per-resource read sync** — when a client `read`s a resource it already has a snapshot for, server sends a patch from the last-known ETag instead of a full snapshot. Secondary use case but the plumbing largely overlaps.
@@ -18,16 +19,16 @@ Most plumbing is common; the DAG path adds a few specifics (per-Star fanout, sna
 ## Why on hold (post-demo)
 
 - The demo ships with **Option 0** for DAG (eTag-bump-and-pull per [tasks/archive/nebula-frontend.md](../archive/nebula-frontend.md)) and full-snapshot reads — both functional, just not bandwidth-optimal.
-- W4 + `diff` + `applyMergePatch` are already in place — the foundation is done. This task is purely the integration into Nebula's fanout / read paths.
+- The encoding, `diff` and `applyMergePatch` are in place, so this task is purely the integration into Nebula's fanout / read paths.
 - Worth picking up once a real workload exposes the scale concern: 1k-node DAG full-resends saturating bandwidth, or large resources read often where most reads return "unchanged."
 
 ## Foundation (already shipped)
 
 From [PR #11](https://github.com/lumenize/lumenize/pull/11):
 
-- W4 object-based wire format produced by `preprocess()`, consumed by `postprocess()` — `{ json, meta }` shape, RFC 7396-compatible (object-keyed, no tuple arrays for Map entries).
-- `diff(beforeW4, afterW4)` → RFC 7396 patch.
-- `applyMergePatch(beforeW4, patch)` → afterW4.
+- The encoding `preprocess()` writes and `postprocess()` reads, made patchable by [archive/structured-clone-patches-small-and-exact.md](../archive/structured-clone-patches-small-and-exact.md): a Map is `{"$type":"map","object":{…}}` and a Set likewise, a shared object is `{"$ref":"#/…"}`, and `null` is a tag. Its § *Build notes* records the measured patch sizes.
+- `diff(before, after)` → `{ kind: 'same' }`, `{ kind: 'patches', patches }` (one, or two when a collection under a plain object changed order) or `{ kind: 'full' }`.
+- `applyMergePatch(before, patch)` → the next encoding, one patch at a time; SQLite's `json_patch` gives the same result.
 - Both exported from `@lumenize/structured-clone`.
 - RFC 7396 Appendix A conformance suite passes.
 
@@ -35,7 +36,9 @@ From [PR #11](https://github.com/lumenize/lumenize/pull/11):
 
 ### ETag as the correlation key
 
-Both use cases use an **ETag chain**: `{ patch, fromETag, toETag }`. Receiver applies patch iff `currentETag === fromETag`. On any mismatch (or apply failure, or postprocess-produces-wrong-ETag), receiver requests a full snapshot.
+Both use cases use an **ETag chain**: `{ patch, fromETag, toETag }`. ⚠️ `diff` now answers `same`, a list of patches, or `full`, so the envelope carries a list, or the full value ([nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 14* designs it). Receiver applies patch iff `currentETag === fromETag`. On any mismatch (or apply failure, or postprocess-produces-wrong-ETag), receiver requests a full snapshot.
+
+**Decided 2026-10-14 (Larry): a subscription push is the same for every subscriber.** A client whose eTag does not match the push's base sends a read with its last eTag and gets a patch bridging the versions it missed. For a resource, ADR-004 keeps every version, so the base is usually still stored; the exception is the coalescing window, which overwrites a same-actor version in place within the hour, and that read answers with the full value. The retention strategies below are for the org tree, whose state keeps no history.
 
 ### Patch-history retention on the server
 
@@ -57,17 +60,17 @@ If 10 mutations happen in 50 ms, do we send 10 patches or 1 coalesced patch? Lik
 
 ### Where the previous state lives (diff source-of-truth)
 
-To compute `diff(prev, new)` for fanout, the server needs the *immediately previous* W4 snapshot. The DAG normalization that landed pre-demo solved the *in-memory* shape but didn't decide *where* the previous state lives. Three options, in order of recommendation:
+To compute `diff(prev, new)` for fanout, the server needs the *immediately previous* encoded snapshot. The DAG normalization that landed pre-demo solved the *in-memory* shape but didn't decide *where* the previous state lives. Three options, in order of recommendation:
 
-**C — In-memory snapshot reference (recommended, simplest).** Keep current row-level storage. Maintain a `#lastFanoutSnapshot: W4 | null` reference on the DagTree class (or in Star). Flow:
+**C — In-memory snapshot reference (recommended, simplest).** Keep current row-level storage. Maintain a `#lastFanoutSnapshot: JsonValue | null` reference on the OrgTree class (or in Star). Flow:
 1. Mutation happens → invalidate state cache (current behavior).
 2. Next access rebuilds state from rows (current behavior).
-3. On fanout: compute `newSnapshot = preprocess(state)` (needed anyway to send), `patch = diff(lastFanoutSnapshot, newSnapshot)`, fan out.
+3. On fanout: compute `newSnapshot = preprocess(state)` (needed anyway to send), `diff(lastFanoutSnapshot, newSnapshot)`, fan out.
 4. `lastFanoutSnapshot = newSnapshot`.
 
 No storage changes, no new abstractions. Drift-proof. The "previous snapshot" is a single in-memory reference, refreshed on every fanout. Eviction → `lastFanoutSnapshot` is null → first fanout after wake sends full snapshot (acceptable; rare event).
 
-**A — Whole DAG as a single Resource row (also strong).** Serialize the entire `DagTreeState` to one row; let Resources' built-in `validFrom`/`validTo` give us versioning for free. On fanout, the "previous version" is a storage read.
+**A — Whole DAG as a single Resource row (also strong).** Serialize the entire `OrgTreeState` to one row; let Resources' built-in `validFrom`/`validTo` give us versioning for free. On fanout, the "previous version" is a storage read.
 
 Pros vs C:
 - Cold-load reads collapse from `O(N + E + P)` row-reads (full table scans) to **1 row-read**. For 1k-node trees that's ~2.5k rows → 1.
@@ -76,7 +79,7 @@ Pros vs C:
 
 Cons / unknowns:
 - **Storage growth**: every version retained as a full blob. At ~30–50 KB serialized per 1k-node DAG, mutation rate × retention determines GB-month cost. Probably noise at typical ontology mutation rates.
-- **Per-row size cap**: DO SQL row size limit isn't documented as a specific number that I've verified. SQLite supports up to 1 GB rows; Cloudflare may cap lower. A 10k-node W4 blob could plausibly hit a real cap. If it does, multi-row chunking erodes the "1 read" benefit.
+- **Per-row size cap**: DO SQL row size limit isn't documented as a specific number that I've verified. SQLite supports up to 1 GB rows; Cloudflare may cap lower. A 10k-node encoded blob could plausibly hit a real cap. If it does, multi-row chunking erodes the "1 read" benefit.
 - Writes are 1 row but the row is *large* — billing is per-row not per-byte, so this is mostly fine, but worth confirming nothing in the pricing model penalizes large rows.
 
 **B — `validFrom`/`validTo` per node/edge/permission row (most "Resources-like" but most complex).** Each mutation closes an old row and opens a new one. Reconstructing state at time T means three AS-OF queries across `Nodes`/`Edges`/`Permissions`. Storage growth comparable to A but in many small rows. Beautiful for temporal queries; expensive for cross-table coherence on every read.
@@ -89,12 +92,12 @@ Cons / unknowns:
 
 ### Server-side (Star)
 
-1. Star tracks the W4-encoded snapshot of `DagTreeState` per ontology version (or computes lazily from the current normalized state). Snapshot ETag = content hash.
-2. On every mutation: recompute the W4 snapshot, compute `patch = diff(prev, new)` once.
+1. Star tracks the encoded snapshot of `OrgTreeState` per ontology version (or computes lazily from the current normalized state). Snapshot ETag = content hash.
+2. On every mutation: recompute the encoded snapshot, compute `diff(prev, new)` once.
 3. Fanout: send `{ patch, fromETag, toETag }` to every subscribed client.
 4. If a subscriber's known ETag doesn't match `prev`'s ETag → send a full snapshot instead.
 
-**DAG normalization (shipped 2026-05-16, archive: [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md))** was the hard prerequisite for this work. Without it, the inline `parentIds[]` / `childIds[]` arrays would have forced whole-array replacement under merge-patch on every edge change — defeating the diff. With normalized `{ nodes, edges, permissions }`, adding a node is two key flips (one new node entry + one new edge entry).
+**DAG normalization (shipped 2026-05-16, archive: [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md))** was the hard prerequisite for this work. Without it, the inline `parentIds[]` / `childIds[]` arrays would have forced whole-array replacement under merge-patch on every edge change — defeating the diff. With normalized `{ nodes, edges, permissions }`, adding a node is two key flips (one new node entry + one new edge entry), now that the encoding writes `OrgTreeState`'s Map and Set as objects.
 
 ### Client-side (NebulaClient)
 
@@ -110,7 +113,7 @@ Cons / unknowns:
 
 ### DAG test coverage
 
-Extend `dag-tree.test.ts` (or add `dag-tree-sync.test.ts`):
+Extend `org-tree.test.ts` (or add `org-tree-sync.test.ts`):
 - subscribe-and-get-snapshot
 - mutate-and-get-patch
 - missed-patch-recovers-via-snapshot
@@ -126,7 +129,7 @@ Extend `dag-tree.test.ts` (or add `dag-tree-sync.test.ts`):
 ### Server-side
 
 1. On `read(rt, rid, knownETag)`: if current ETag matches `knownETag`, return `{ status: 'unchanged', eTag }` — zero-cost path.
-2. If ETags differ: try to compute `patch = diff(versionAt(knownETag), current)`. Return `{ patch, fromETag, toETag }`.
+2. If ETags differ: try to compute `diff(versionAt(knownETag), current)`. Return `{ patch, fromETag, toETag }`.
 3. If `versionAt(knownETag)` isn't materializable (beyond retention window) → return full snapshot.
 
 ### Client-side
@@ -152,11 +155,11 @@ Extend `dag-tree.test.ts` (or add `dag-tree-sync.test.ts`):
 
 ## Adjacent DAG optimization: lazy access-control reads
 
-Independent of the patch-sync work but landing in the same cost-efficiency theme. Worth capturing here because the implementation reshapes the DagTree class's read paths and conflicts conceptually with the diff-source-of-truth design — they should be decided together.
+Independent of the patch-sync work but landing in the same cost-efficiency theme. Worth capturing here because the implementation reshapes the OrgTree class's read paths and conflicts conceptually with the diff-source-of-truth design — they should be decided together.
 
 ### Motivation
 
-After Phase 3 (DAG normalization), every cold-path access to `DagTree.requirePermission(...)` triggers `#buildState()`, which is a full-table scan of `Nodes`, `Edges`, and `Permissions` (~`N + E + P` row reads — ~2.5k rows for a 1k-node DAG). Under DO hibernation (10s idle → eviction), every wake-up pays this cost on the very first request.
+After Phase 3 (DAG normalization), every cold-path access to `OrgTree.requirePermission(...)` triggers `#buildState()`, which is a full-table scan of `Nodes`, `Edges`, and `Permissions` (~`N + E + P` row reads — ~2.5k rows for a 1k-node DAG). Under DO hibernation (10s idle → eviction), every wake-up pays this cost on the very first request.
 
 But 99% of requests aren't DAG mutations — they're permission checks for normal resource operations. A permission check only needs to know "does `sub` have at least `tier` on `nodeId`?" — which is bounded by tree depth × upward fanout. For typical org trees (depth 3–6, fanout 1–2), that's 3–12 row reads — and usually fewer because the check short-circuits on a direct grant near the leaf.
 
@@ -166,7 +169,7 @@ But 99% of requests aren't DAG mutations — they're permission checks for norma
 
 Add a "cold mode" path that reads adjacency and grants from SQL on demand, used when `#_view` is null:
 
-1. `DagTree.requirePermission(nodeId, tier)`: if `#_view` exists, use the in-memory walk (current behavior). Otherwise, walk via per-node SQL.
+1. `OrgTree.requirePermission(nodeId, tier)`: if `#_view` exists, use the in-memory walk (current behavior). Otherwise, walk via per-node SQL.
 2. SQL walk for permission check on `(sub, nodeId, tier)`:
    - `SELECT permission FROM Permissions WHERE nodeId = ? AND sub = ?` (uses PK index)
    - If grant >= tier → return true
@@ -185,18 +188,18 @@ Add a "cold mode" path that reads adjacency and grants from SQL on demand, used 
 Cleanest design: a thin adapter interface so the walks themselves live once.
 
 ```ts
-interface DagTreeReader {
+interface OrgTreeReader {
   getDirectGrants(nodeId: number, sub: string): PermissionTier | null;
   getParents(nodeId: number): Iterable<number>;
 }
 ```
 
-- `InMemoryReader` wraps a `DagTreeView`
+- `InMemoryReader` wraps an `OrgTreeView`
 - `SqlReader` wraps `DurableObjectState['storage']`
 
-`resolvePermission(reader, sub, nodeId, tier)` and `getEffectivePermission(reader, sub, nodeId)` accept a `DagTreeReader` instead of (or in addition to) `DagTreeView`. The walking logic stays in one place.
+`resolvePermission(reader, sub, nodeId, tier)` and `getEffectivePermission(reader, sub, nodeId)` accept an `OrgTreeReader` instead of (or in addition to) `OrgTreeView`. The walking logic stays in one place.
 
-`DagTree.requirePermission()` picks: `reader = this.#_view ? new InMemoryReader(this.#_view) : new SqlReader(this.#ctx.storage)`.
+`OrgTree.requirePermission()` picks: `reader = this.#_view ? new InMemoryReader(this.#_view) : new SqlReader(this.#ctx.storage)`.
 
 Cycle detection, slug uniqueness, `getNodeAncestors`, `getNodeDescendants`: leave on the view path; mutations rebuild it anyway.
 
@@ -220,7 +223,7 @@ Estimated effort: ~150–300 LOC + tests. Phase-3-adjacent; Phase 3 code is fres
 
 - **Patch-history retention concrete N for resources.** Memory budget vs. cache hit rate.
 - **Subscriptions on resources** — do they use the same patch fanout as DAG, or stay read-only? If subscriptions land, the DAG and Resource paths converge.
-- **Permissions-only DAG changes** — should produce a tiny patch (`{ permissions: { "42": { "alice": "admin" } } }`). Verify in benchmarks.
+- **Permissions-only DAG changes** — produce a tiny patch, `{"permissions":{"object":{"<nodeId>":{"object":{"<sub>":"admin"}}}}}`. [archive/structured-clone-patches-small-and-exact.md](../archive/structured-clone-patches-small-and-exact.md) § *Build notes* records the measured size.
 - **Patch generation cost** — `diff` is O(snapshot size). Acceptable for 1k-10k node DAGs. Watch for surprises at the high end.
 - **Compression interaction** — WS `permessage-deflate` is on by default for `compatibility_date >= 2023-08-15` (verified via the workerd#4091 thread; Lumenize is at `2026-03-12`). Patches compress less aggressively than uniform snapshots; raw bytes matter slightly more here than for snapshots.
 
@@ -229,7 +232,7 @@ Estimated effort: ~150–300 LOC + tests. Phase-3-adjacent; Phase 3 code is fres
 | Phase | Scope | Where |
 |---|---|---|
 | A | DAG-tree sync — server fanout + client apply + tests | `apps/nebula/src/{star,nebula-client}.ts`, baseline tests |
-| B | Per-resource read sync — same primitives, different drivers | `apps/nebula/src/resources.ts`, NebulaClient resources API |
+| B | Per-resource read sync — same primitives, different drivers | `packages/resources/src/snapshots.ts`, NebulaClient resources API |
 | C | Perf verification — synthetic benchmarks for both paths | `apps/nebula/test/browser/` or a new bench dir |
 
 Phase A depends on `tasks/archive/nebula-dag-normalize.md` shipping first. Phase B is independent of A and can ship in either order; co-shipping makes the most sense since the plumbing overlaps.

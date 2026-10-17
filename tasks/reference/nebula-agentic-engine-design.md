@@ -97,7 +97,7 @@ Two tiers of tools the codegen loop can call:
     markdown — `worker/agents/tools/toolkit/web-search.ts`). Key → secrets vault (`galaxy-only`
     mode = platform pays); per-tenant cost angle → `../on-hold/nebula-tenant-ai-billing.md`. *We'll pay
     for a search API eventually.* (The generated-app-facing **search recipe** is the same
-    capability from the app side — see [`../nebula-outside-world-build.md`](../nebula-outside-world-build.md).)
+    capability from the app side — see [`../nebula-outside-world.md`](../nebula-outside-world.md).)
   - **`fetch_url`** — fetch a user-/LLM-supplied URL ("get inspiration from this", "read this
     recent doc"). **Not in vibesdk** (it only has `web_search`) — ours to design, and the bigger
     **SSRF** surface: the URL isn't ours, so it MUST route through the broker's deny
@@ -166,7 +166,7 @@ bake-off. Claude as a baseline comparison. Tasks under eval = real generation jo
 kanban, simple CRM): does the model produce working ontology + UI that passes validation and
 runs with access-control + reactivity intact? The **rigorous regression suite** (deterministic
 gates first, LLM-judge only for fuzzy UI quality) is the parked eval suite
-([`../on-hold/nebula-studio-eval-suite.md`](../on-hold/nebula-studio-eval-suite.md)).
+([`../nebula-studio-self-improvement.md`](../on-hold/nebula-studio-self-improvement.md)).
 
 ## Fidelity ladders (the design constraints that span the work)
 

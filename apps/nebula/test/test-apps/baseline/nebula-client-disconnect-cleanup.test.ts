@@ -1,12 +1,12 @@
 /**
- * Drop-on-failed-fanout subscriber cleanup — Phase 5.3.5
+ * Drop-on-failed-fanout subscriber cleanup
  *
  * When a client closes its WebSocket and doesn't reconnect within the
- * Gateway's grace period, that client's `Subscribers` rows leak. The
- * cleanup mechanism is **reactive**, not proactive: the next time `Star.#broadcast`
- * (via `this.svc.broadcast`) tries to push to that client, the Gateway returns
- * `ClientDisconnectedError`, and Star's `onBroadcastResult` handler — the `onResult`
- * partial `svc.broadcast` completes per target — deletes the offending row inline.
+ * host node's grace period, that client's resource rows leak. The
+ * cleanup mechanism is **reactive**, not proactive: the next time the plane's broadcast
+ * (`this.lmz.broadcast`) tries to push to that client, its host node fires back
+ * `ClientDisconnectedError`, and the Star's `resourcesResults.onBroadcastResult` — the `onResult`
+ * partial `lmz.broadcast` completes per target — deletes the offending row at the Star's fire-back door.
  *
  * For "quiet" resources that nobody mutates after the disconnect, the row
  * stays leaked until the next deploy's push-on-clear (5.3.4b) catches it.
@@ -18,17 +18,16 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { TransactionResult, SubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { TransactionResult, SubscriberRow } from '@lumenize/resources';
+import { adminClientAt, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 async function waitForResult(client: NebulaClientTest) {
@@ -60,39 +59,39 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     const star = uniqueStar();
 
     // Client A and client B both connected, both subscribed to the same resource.
-    const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+    a.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
     await waitForResult(a.client);
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     const eTag = await createResource(a.client, star, resourceId);
 
-    const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
     // Both subscribe via the public API so registries are populated and Star
-    // has both rows in Subscribers.
+    // has both resource rows in Subscriptions.
     await a.client.resources.subscribe('TestResource', resourceId).snapshot;
     await b.client.resources.subscribe('TestResource', resourceId).snapshot;
 
-    // Sanity: 2 rows in Subscribers (one per clientId, same resourceId).
+    // Sanity: 2 resource rows in Subscriptions (one per client address, same resourceId).
     a.client.callStarInspectSubscribers(star);
     const rowsBefore = await waitForSuccess(a.client) as SubscriberRow[];
     expect(rowsBefore).toHaveLength(2);
-    const bClientId = b.client.lmz.instanceName;
+    const aAddress = addressOfClient(a.client);
 
-    // Disconnect b. b's WebSocket closes; b's Gateway sets the grace alarm
-    // for 100 ms (per vitest.config.js LUMENIZE_MESH_GRACE_PERIOD_MS).
+    // Disconnect b. b's WebSocket closes; b's host node starts its grace period,
+    // 100 ms here (per vitest.config.js LUMENIZE_MESH_GRACE_PERIOD_MS).
     b.client.disconnect();
 
-    // Wait past the grace period so b's Gateway is fully "disconnected"
+    // Wait past the grace period so b's host node holds it fully "disconnected"
     // (no active WS, no pending alarm). Generous margin to absorb any
     // miniflare-induced latency.
     await new Promise((r) => setTimeout(r, 500));
 
-    // a triggers a mutation. Star.#broadcast fans out via svc.broadcast; one of
-    // its targets is b (disconnected). The push to b's Gateway returns
-    // ClientDisconnectedError → onBroadcastResult deletes b's row inline.
+    // a triggers a mutation. The plane's broadcast fans out via lmz.broadcast; one of
+    // its targets is b (disconnected). b's host node fires back
+    // ClientDisconnectedError → resourcesResults.onBroadcastResult deletes b's row.
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
       [resourceId]: { op: 'put', eTag, value: { title: 'Updated by a' } },
     });
@@ -103,22 +102,23 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
       a.client.callStarInspectSubscribers(star);
       const rows = await waitForSuccess(a.client) as SubscriberRow[];
       expect(rows).toHaveLength(1);
-      expect(rows[0].clientId).not.toBe(bClientId);
+      // Exactly A's row survives: the reaper deleted the address the failed push went to.
+      expect(rows[0].clientAddress).toBe(aAddress);
     });
   });
 
   it('successful fanout does NOT trigger cleanup (success path is a no-op)', async () => {
     const star = uniqueStar();
 
-    const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+    a.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
     await waitForResult(a.client);
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     const eTag = await createResource(a.client, star, resourceId);
 
-    const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     await a.client.resources.subscribe('TestResource', resourceId).snapshot;
     await b.client.resources.subscribe('TestResource', resourceId).snapshot;
 

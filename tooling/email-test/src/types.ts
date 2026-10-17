@@ -1,1 +1,1 @@
-export type { StoredEmail } from './email-test-do';
+export type { StoredEmail, DeliveryEvent, DeliveryEventMessage } from './email-test-do';
