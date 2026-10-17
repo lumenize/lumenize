@@ -555,7 +555,7 @@ adds is the two commitments that keep it true *after* an answer exists:
 - **Attribution** — an agent answer is written as a Resource by a principal, so who produced it is recorded
   rather than inferred.
 - **Disclosure is a decision, not a leak** — sharing an answer beyond the asker is the permission-holder's
-  call, made in the consent loop the scenario below walks. (ADR-019's stored-observations re-check was
+  call, made in the consent loop that [`agent-first-ui.md`](agent-first-ui.md) § *Austen joins* walks. (ADR-019's stored-observations re-check was
   withdrawn 2026-08-26 in its favor: no system re-authorizes a pasted answer against source ACLs, and
   neither do we.)
 
@@ -563,47 +563,21 @@ Both are level-agnostic. A generated app's chat and Studio's chat get them from 
 
 ## A worked scenario — why the refusal is structural
 
-The cast, one Galaxy deep:
-
-- **Jennifer** is Universe admin of `gigi`, and creates the app `gigi.kaizen`.
-- **Austen** is invited as a UX designer: a plain member of `gigi.kaizen`, and `scopeAdmin` over
-  `gigi.kaizen.dev` so she can experiment in the workspace Star. She has no authority over any
-  tenant Star.
-- The app launches and acquires tenants.
-
-Austen opens Studio and asks a question that requires reading across all of them:
-
-> **Austen:** @Nebula, I'm building a feature that expands on our zorch feature. When the feature is used it creates one or more `zorch`
-> Resources. What percentage of users active in the last week have
-> ever created one? And what percentage of tenants have any user who has?
->
-> **Nebula:** I tried, and I don't have permission — I act as you, and you don't have access to
-> tenant data. I can ask someone who does. Jennifer is the nearest. Shall I (a) ping her here, or
-> (b) email her?
->
-> **Austen:** (a)
->
-> **Nebula:** @Jennifer — do you want me to (a) answer Austen's two questions, posting the answer here in this chat, (b) grant Austen
-> admin over `gigi.kaizen` permanently, so she can keep asking (note: that is read **and** write
-> **and** admin over every Star in the app), (c) the same grant, expiring after a period you choose, of (d) none of the above?
->
-> **Jennifer:** (a)
->
-> **Nebula:** 5% of weekly-active users have created a zorch. 2% of tenants have any user who has.
+The scene is [agent-first-ui.md](agent-first-ui.md) § *Austen joins*. Jennifer, Universe admin, has built a shopping list app, and households have signed up as its tenants. Austen is a UX designer she invited: `scopeAdmin` over the app's `.dev` Star, with no authority over any tenant Star. Austen asks Studio's agent a question only the tenants' data can answer. The agent can't answer from her access, and asks Jennifer, who picks (a): answer here in the chat. Her other choices were (b) making Austen an admin of the app permanently, (c) the same grant with an expiry, and (d) none of these.
 
 Had Jennifer picked (b) or (c), the answer would have been identical — Austen could simply have kept asking.
 And option (a) is a **disclosure decision**: the answer lands in a chat whose readers include Austen, exactly
 as if Jennifer had run the query and pasted the result — the act that replaced ADR-019's stored-observation
 re-check (withdrawn 2026-08-26).
 
-**The refusal is not a policy the model could be talked out of.** Nebula holds no authority of its
-own; it acts as the person who prompted it, and the query carries *that person's* reach
+**The refusal is not a policy the model could be talked out of.** Studio's agent holds no authority of its
+own over tenant data; it acts as the person who prompted it, and the query carries *that person's* reach
 ([`auth.md`](auth.md) § *When the agent acts*). There is no phrasing, no jailbreak and no
 system-prompt edit that makes Austen's token reach a tenant Star, because the check never consults
 the model at all. Standing guidance that merely *discourages* the answer would be a lock a
 sufficiently clever prompt picks; this is a lock with no keyhole on the model's side.
 
-**The escalation is the same primitive, pointed up the tree.** Nebula does not invent an approval
+**The escalation is the same primitive, pointed up the tree.** Studio's agent does not invent an approval
 flow: it fires the ordinary request-access climb to the nearest ancestor holding `admin`
 (`tasks/on-hold/nebula-request-access.md`), which is resolvable client-side precisely because the org tree
 and its grants are universally visible ([ADR-008](../adr/008-full-org-tree-visibility.md)). Nothing
@@ -625,7 +599,7 @@ locally.
 > ⏳ **Designed, not built.** The *refusal* is real today — Austen's query fails the data-plane check
 > because her token cannot reach those Stars. Everything after it is design: the request-access
 > notify/approve transport is unspecced, AI-initiated elevation is explicitly post-demo in its own
-> task file, the time-boxed grant in option (c) has no mechanism yet, and Nebula does not yet appear
+> task file, the time-boxed grant in option (c) has no mechanism yet, and Studio's agent does not yet appear
 > as an actor on the resulting records (`auth.md` § *When the agent acts*). Read this as the
 > target, not a demo script.
 
