@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-The few repo-shaping commitments — single digits, ever. The bar is not abstraction height; it's **relitigation risk**.
+The repo-shaping commitments. Few qualify, because the bar is not abstraction height; it's **relitigation risk**.
 
 ## The bar — write an ADR only when ALL of these hold
 
