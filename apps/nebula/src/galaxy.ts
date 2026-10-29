@@ -29,7 +29,6 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { addressOf, mesh, rawRpc } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { Workspace } from '@cloudflare/computer';
-import type { DurableObjectStorageLike } from '@cloudflare/computer';
 import { ContainerBackend, WorkspaceContainerAPI } from '@cloudflare/computer/backends/container';
 import type { ContainerLaunchSpec } from '@cloudflare/computer/backends/container';
 import { createGitClient } from '@cloudflare/computer/git';
@@ -1175,10 +1174,14 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       instance: BUILD_BOX_INSTANCE,
     });
     this.#ws = new Workspace({
-      storage: this.ctx.storage as unknown as DurableObjectStorageLike,
+      storage: this.ctx.storage,
       git: createGitClient(),
       defaultGitIdentity: GIT_AUTHOR,
       backends: [this.#buildBackend],
+      // Exec output stays whole and is stored nowhere. The default (0.5+) keeps each
+      // stream's last 64 KiB, which would cut the REPORT_MARKER off a long report line,
+      // and writes the full output into this DO's SQLite on every build.
+      output: false,
     });
   }
 
