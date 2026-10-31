@@ -74,7 +74,8 @@ Missing: [numbered, specific, each a thing this task adds or changes]
 [What this makes possible next, and what it must not foreclose.]
 
 ## Open questions
-[Decisions that must be made and that gate something, each with its options and a recommendation.]
+[Decisions that must be made and that gate something, each with its options and a recommendation.
+ Each is `Q1`, `Q2`, … in the order raised, never reused (`workflow.md` § *Referring to things across files*).]
 ```
 
 **Each section is a heading of its own so a sibling file can cite it by name** — `§ *Constraints*`, not a section whose title lists its children (Larry, 2026-10-06, from the pen round on `tasks/archive/mesh-is-built-on-the-scope-tree.md`, which first used this outline).
@@ -128,9 +129,9 @@ Only after the intent is approved:
 
 ```markdown
 ## Decisions
-| Decision | Rejected alternative — why |
-|---|---|
-| [what we do] | [what we don't, and the reason — this is where every negative lives] |
+| ID | Decision | Rejected alternative — why |
+|---|---|---|
+| D1 | [what we do; `(was Q2)` when it answers an open question] | [what we don't, and the reason — this is where every negative lives] |
 
 ## Phases
 1. **[Goal, not a step list.]** [What this achieves and how.]

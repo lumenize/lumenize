@@ -134,7 +134,7 @@ This is the §5.3.7 lesson: at the `/build-task` handoff, v3 carried 34 pinned d
 
 ### "Open questions" are decisions to MAKE — not design considerations to keep in mind
 
-An **open question** is a decision that *must be made* before or during the build, and that *gates* something (a phase can't be scoped, a criterion can't be written) until it's answered. It belongs in an `## Open questions` list, and resolving it removes it.
+An **open question** is a decision that *must be made* before or during the build, and that *gates* something (a phase can't be scoped, a criterion can't be written) until it's answered. It belongs in an `## Open questions` list under a `Q` ID that is never reused, and resolving it moves it to the Decisions table as a `D` that records `(was Q2)` (`.claude/rules/workflow.md` § *Referring to things across files*).
 
 A **design consideration** is different: something the builder should *hold in mind so they don't foreclose a future option* — "when you build X, shape it so Y can extend it later; don't build Y now." It gates nothing and needs no decision. It belongs **inline in the design prose** at the point it applies, phrased as forward guidance (`⚠️ Design consideration:` …), **never** as a tracked open question.
 
