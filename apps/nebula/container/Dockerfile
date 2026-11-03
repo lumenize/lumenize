@@ -20,6 +20,12 @@
 # package.json: the JS backend and this daemon speak one wire, and a skewed pair fails
 # at the first exec.
 #
+# Judge a bump by `dev-star-follows-the-build` DEPLOYED, not by local runs. On 0.7.1 and
+# 0.8.0 a deployed Galaxy reset a few seconds into a build: its computerd session and
+# every client socket dropped together, the build was lost, and no CPU, memory or
+# exception outcome was logged, while local `wrangler dev` builds passed on every version.
+# Bisected on test-nebula (0.7.0 2/2, 0.7.1 1/2, 0.8.0 0/2, then 0.9.0 3/3).
+#
 # Baked-deps placement (the containers.md pin — node_modules stays on ext4, never the
 # mount): deps are installed at the FILESYSTEM ROOT. Node resolution from /workspace walks
 # /workspace/node_modules -> /node_modules, so the app in the mount resolves the baked
@@ -36,7 +42,7 @@
 # layer-invalidation property the compiler stages exist for: a fork edit must rebundle
 # on the next image build with no manual step to forget).
 
-FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.8.0 AS computerd
+FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.9.0 AS computerd
 
 FROM debian:stable-slim
 
