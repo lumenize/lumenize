@@ -151,3 +151,5 @@ DO SQLite charges **$1.00/M rows written — 1,000× the cost of reads** ($0.001
 7. **`UNIQUE` in a column definition creates a hidden index** — 1 extra write/INSERT each; a compound PK SHOULD be considered instead.
 
 Evidence: [blog post](../../website/blog/2026-02-23-do-sqlite-write-costs/index.md) and `experiments/do-write-costs/`.
+
+To see what a deployed Worker's statements cost, run `node scripts/do-queries.mjs --worker <name>`. It ranks each statement by its share of the bill, using the span Workers Traces records for every `sql.exec`, and `--deploy <version>` limits it to one deploy.
