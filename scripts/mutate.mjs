@@ -29,7 +29,10 @@
  *   waits on, so a signal is handled while it runs rather than after.
  *
  * `run` exits 0 when the command FAILED, meaning the mutation was caught, and 1 when it passed,
- * meaning the mutation survived. Whether the RIGHT test failed is still the caller's to read.
+ * meaning the mutation survived. Whether the RIGHT test failed is still the caller's to read. It
+ * exits 2 when it REFUSED, with no verdict: an edit failed its counts, or the command could not
+ * start, as when it exits 126 or 127, a shell's codes for that. It exits 130 when interrupted. A loop around it must tell 2 from 1, or a mutation that
+ * never ran reads as a survivor.
  */
 import { createHash } from 'node:crypto';
 import { execSync, spawn } from 'node:child_process';
@@ -45,7 +48,8 @@ const sha = (text) => createHash('sha256').update(text).digest('hex');
 const count = (text, needle) => text.split(needle).length - 1;
 
 function fail(message) {
-  console.error(`mutate: ${message}`);
+  const what = command === 'run' && name ? `"${name}" was REFUSED, with no verdict` : 'REFUSED';
+  console.error(`mutate: ${what}: ${message}`);
   process.exit(2);
 }
 
@@ -140,15 +144,18 @@ switch (command) {
     for (const signal of ['SIGINT', 'SIGTERM']) {
       process.on(signal, () => { interrupted = signal; child.kill(signal); });
     }
+    let notStarted;
     const status = await new Promise((done) => {
       child.on('exit', (code) => done(code));
-      child.on('error', (e) => { console.error(`mutate: could not start ${argv[0]}: ${e.message}`); done(127); });
+      child.on('error', (e) => { notStarted = `could not start ${argv[0]}: ${e.message}`; done(null); });
     });
     restore(table, name);
+    if (notStarted) fail(notStarted);
     if (interrupted) {
       console.error(`mutate: "${name}" was interrupted by ${interrupted}; restored, with no verdict`);
       process.exit(130);
     }
+    if (status === 126 || status === 127) fail(`the command exited ${status}, as a shell does for a command it could not run`);
     const caught = status !== 0;
     console.error(`mutate: "${name}" ${caught ? `was CAUGHT (the command exited ${status})` : 'SURVIVED (the command passed)'}`);
     process.exit(caught ? 0 : 1);
