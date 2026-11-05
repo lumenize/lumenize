@@ -38,7 +38,8 @@ Workers don't have instances. When calling a Worker, pass `undefined` for the in
 this.lmz.call(
   'VALIDATION_WORKER',
   undefined,                                    // No instance name
-  this.ctn<ValidationWorker>().validate(data)
+  this.ctn<ValidationWorker>().validate(data),
+  this.ctn().handleValidation(this.ctn().$result)
 );
 ```
 
@@ -112,7 +113,7 @@ class ImageProcessingWorker extends LumenizeWorker<Env> {
 
 ### Two One-Way Call Pattern
 
-For long-running calls like the two above, use a "two one-way call" pattern: DO fires-and-forgets to Worker, Worker calls back later with result. See [Making Calls: Two One-Way Calls](./calls#two-one-way-calls) for the full pattern.
+For long-running calls like the two above, use a "two one-way call" pattern: the DO's call to the Worker hears only failures, and the Worker calls back later with the result. See [Making Calls: Two One-Way Calls](./calls#two-one-way-calls) for the full pattern.
 
 ## API Reference
 

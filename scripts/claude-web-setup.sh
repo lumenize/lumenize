@@ -65,7 +65,7 @@ echo "▸ [2/2] Start the Docker daemon for the apps/nebula ui-smoke lane (if co
 # daemon — its gate is `docker info` (test/ui-smoke/gates.ts `HAS_DOCKER`). Docker is
 # preinstalled in this image but the daemon is NOT auto-started (no systemd/PID-1 init
 # here), so start `dockerd` directly. Gated on WORKERS_AI_TOKEN — the signal that this
-# environment is provisioned for ui-smoke (its other gate, `HAS_AI_PATH`); package-only
+# environment is provisioned for ui-smoke, whose model rides that token here; package-only
 # lanes skip the daemon entirely. Idempotent: skip if a daemon is already reachable.
 # NOTE: this starts a PROCESS, not a filesystem change — unlike npm/.dev.vars above it is
 # NOT preserved by the environment's setup-step caching, so a warm session that skips this

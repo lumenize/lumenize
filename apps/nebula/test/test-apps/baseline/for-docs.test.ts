@@ -17,15 +17,14 @@
  * Capable-of-failing: every transaction asserts a real `committed` outcome (a
  * broken put/create/auto-derive-eTag path would return a non-committed kind),
  * the computeds assert real derived values off live snapshots, and the orgTree
- * sequence asserts the founder can drive every mutation against the real DAG.
+ * sequence asserts the star-scoped admin can drive every mutation against the real DAG.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import { createNebulaClient, textMerge } from '@lumenize/nebula/frontend';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import { createNebulaClient, textMerge } from '@lumenize/resources/frontend';
 import { computed } from '@vue/reactivity';
-import { browserLogin, createAuthenticatedClient, ORIGIN } from '../../test-helpers';
+import { foundAndLogin, adminClientAt, ORIGIN, ownerOf, pageOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -41,18 +40,17 @@ interface document { body: string; }
 type Todo = { title: string; description: string; status: 'open' | 'done' };
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 function makeFactoryClient(star: string, browser: Browser) {
-  const ctx = browser.context(ORIGIN);
+  const ctx = browser.context(pageOf(star));
   return createNebulaClient({
-    baseUrl: ORIGIN,
-    authScope: star,
-    activeScope: star,
-    appVersion: ONTOLOGY_VERSION,
-    fetch: browser.fetch,
-    WebSocket: browser.WebSocket,
+    baseUrl: pageOf(star),
+    platformOrigin: ORIGIN,
+    ontologyVersion: ONTOLOGY_VERSION,
+    fetch: ctx.fetch,
+    WebSocket: ctx.WebSocket,
     sessionStorage: ctx.sessionStorage,
     BroadcastChannel: ctx.BroadcastChannel,
     onShouldRefreshUI: () => {},
@@ -66,17 +64,17 @@ describe('for-docs runtime examples (real Star)', () => {
   it('factory usage, transactions, subscribe/Disposable, handlers, orgTree, outcomes', async () => {
     const star = uniqueStar();
 
-    // ── Setup: founder installs the ontology, then connects via the factory ──
-    // The first subject to reach a fresh Star becomes the founder (admin on ROOT).
-    const admin = await createAuthenticatedClient(
-      NebulaClientTest, new Browser(), star, star, 'founder@example.com', ONTOLOGY_VERSION,
+    // ── Setup: the star-scoped admin installs the ontology, then connects via the factory ──
+    // The Star's admin passes the DAG through the dominion bypass, holding no grant of its own.
+    const admin = await adminClientAt(
+      NebulaClientTest, new Browser(), star, star, 'scope-admin@example.com', ONTOLOGY_VERSION,
     );
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    admin.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: ONTOLOGY });
+    admin.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: ONTOLOGY });
     await vi.waitFor(() => { expect(admin.client.callCompleted).toBe(true); });
 
     const browser = new Browser();
-    await browserLogin(browser, star, 'founder@example.com', star);
+    await foundAndLogin(browser, star, ownerOf('scope-admin@example.com'), star);
     const bf = makeFactoryClient(star, browser);
     await bf.ready;
     // Alias to the names the doc snippets use.
@@ -85,13 +83,13 @@ describe('for-docs runtime examples (real Star)', () => {
 
     // The factory auto-subscribes the org tree on connect.
     await vi.waitFor(() => {
-      expect((store.lmz.orgTree.value as { nodes?: Map<number, unknown> } | undefined)?.nodes).toBeInstanceOf(Map);
+      expect((store.lmz.orgTree.value as { nodes?: Map<string, unknown> } | undefined)?.nodes).toBeInstanceOf(Map);
     });
 
     // ── coding-your-ui § Mutating the org/permission tree ──
-    const userAliceNodeId = await client.orgTree.createNode(ROOT_NODE_ID, 'user-alice', 'Alice');
-    const userBobNodeId = await client.orgTree.createNode(ROOT_NODE_ID, 'user-bob', 'Bob');
-    const bobsSub = generateUuid();
+    const userAliceNodeId = await client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'user-alice', 'Alice');
+    const userBobNodeId = await client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'user-bob', 'Bob');
+    const bobsSub = crypto.randomUUID();
     const nodeId = userAliceNodeId;
 
     // @doc coding-your-ui.md § Mutating the org/permission tree
@@ -105,11 +103,11 @@ describe('for-docs runtime examples (real Star)', () => {
     // Revoke. Idempotent — no-op if `sub` has no grant on this node.
     await client.orgTree.revokePermission(nodeId, bobsSub);
 
-    // Create a child node (slug rules and return shape: see API reference).
-    // Caller must hold `write` on `parentNodeId`.
-    const listShoppingId = await client.orgTree.createNode(
-      userAliceNodeId, 'list-shopping', 'Shopping',
-    );
+    // Create a child node — YOU supply the id (a UUID), so you have it immediately
+    // (no round-trip) and a retry with the same id is idempotent. Caller must hold
+    // `write` on `parentNodeId`.
+    const listShoppingId = crypto.randomUUID();
+    await client.orgTree.createNode(listShoppingId, userAliceNodeId, 'list-shopping', 'Shopping');
 
     // Co-ownership sharing — the two-party share-accept flow from Resources §
     // Access control. Step 1, owner offers (runs as Alice): grant Bob admin on
@@ -257,7 +255,7 @@ describe('for-docs runtime examples (real Star)', () => {
       // @doc api-reference.md § Example — multi-resource atomic batch
       const newId = crypto.randomUUID();
       const outcome = await client.resources.transaction({
-        [newId]: { op: 'create', typeName: 'todo', nodeId: 1,
+        [newId]: { op: 'create', typeName: 'todo', nodeId: ROOT_NODE_ID,
                    value: { title, description: '', status: 'open' } },
         // per-user keying — see Coding your UI § Lists with v-for
         [client.claims.sub]: { op: 'put', typeName: 'todoList',
@@ -314,7 +312,7 @@ describe('for-docs runtime examples (real Star)', () => {
     // ── coding-your-ui § Gating admin-only UI ──
     // @doc coding-your-ui.md § Gating admin-only UI
     const isAppAdmin = computed(() =>
-      client.claims.access.admin ||                                     // Galaxy/Universe scope admin
+      client.claims.access.scopeAdmin ||                                     // Galaxy/Universe scope admin
       store.lmz.orgTree?.value?.permissions
         .get(ROOT_NODE_ID)?.get(client.claims.sub) === 'admin'          // app admin (grant on root)
     );
@@ -506,10 +504,9 @@ describe('for-docs runtime examples (real Star)', () => {
     // fails in the background and is torn down immediately.
     // @doc api-reference.md § createNebulaClient (admin/scripting overrides)
     const { client, store } = createNebulaClient({
-      baseUrl: 'https://my-app.example.com',
-      authScope: 'acme.app.tenant-a',
-      activeScope: 'acme.app.tenant-a',
-      appVersion: 'v42',
+      baseUrl: 'https://tenant-a.app.acme.lumenize.dev',   // the page whose scope the client works in
+      platformOrigin: 'https://platform.lumenize.dev',     // where its session lives
+      ontologyVersion: 'v42',
       onShouldRefreshUI: () => {},    // opt out of auto-reload (null/undefined both KEEP the default reload)
     });
     // @end-doc

@@ -32,7 +32,7 @@ This folder contains tests that run against a live `wrangler dev` instance using
 ## How It Works
 
 - **`wrangler dev`** runs `test-harness.ts` with real Cloudflare runtime
-- **vitest** runs `full-flow.test.ts` in `vitest-pool-workers` environment
+- **vitest** runs `full-flow.test.ts` in `vitest-plugin` environment
 - **`@lumenize/testing` client** "teleports" from test into wrangler dev DOs via WebSocket
 
 ## Test Structure

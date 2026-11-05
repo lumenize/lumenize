@@ -222,28 +222,17 @@ describe('Parity (RPC path) — Cyclic values', () => {
     expect(result.valid).toBe(true);
   });
 
-  it('[observed] cycle on a named-interface self-reference field', async () => {
-    // `parent: Node | null` — named-interface reference. In the new world
-    // (Phase 6.5) this validates as an embedded Node, not a string ID. The
-    // question is whether the *filler* (WeakMap-based cycle detection) and
-    // the validator pipeline handle a self-referential cycle without
-    // stack-overflowing. Outcome is observational — record what happens.
+  it('[SUPPORTED] cycle on a named-interface self-reference field', async () => {
+    // `parent: Node | null` validates as an embedded Node, not a string ID, so the filler's
+    // WeakMap cycle detection and the validator both meet the cycle. This test used to log its
+    // outcome instead of asserting it; run 2026-10-04, it validates, which ADR-002 requires.
+    // The failure it guards against is a throw (stack overflow) or `valid: false`.
     const types = `interface Node { id: number; parent: Node | null; }`;
     const node: { id: number; parent: any } = { id: 1, parent: null };
     node.parent = node;
 
-    let threw: unknown = null;
-    let result: { valid: boolean } | null = null;
-    try {
-      result = await parse(types, 'Node', node, 'rpc-cycle-rel');
-    } catch (e) {
-      threw = e;
-    }
-    if (threw) {
-      console.log('[parity] cycle-on-named-interface-field threw:', (threw as Error).message);
-    } else {
-      console.log('[parity] cycle-on-named-interface-field result.valid:', result!.valid);
-    }
+    const result = await parse(types, 'Node', node, 'rpc-cycle-rel');
+    expect(result.valid).toBe(true);
   });
 });
 

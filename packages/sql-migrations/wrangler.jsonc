@@ -1,0 +1,13 @@
+{
+  "name": "lumenize-sql-migrations-tests",
+  "main": "test/test-worker-and-do.ts",
+  "compatibility_date": "2026-10-01",
+  "durable_objects": {
+    "bindings": [
+      { "name": "TEST_DO", "class_name": "SqlMigrationsTestDO" }
+    ]
+  },
+  "exports": {
+    "SqlMigrationsTestDO": { "type": "durable-object", "storage": "sqlite" }
+  }
+}

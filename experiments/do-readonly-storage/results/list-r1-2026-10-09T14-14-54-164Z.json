@@ -1,0 +1,76 @@
+{
+  "at": "2026-10-09T14:14:54.164Z",
+  "run": "r1",
+  "report": {
+    "NOTHING": [
+      {
+        "name": "nothing-r1-0",
+        "listed": false
+      },
+      {
+        "name": "nothing-r1-1",
+        "listed": false
+      },
+      {
+        "name": "nothing-r1-2",
+        "listed": false
+      }
+    ],
+    "SCHEMA_READ": [
+      {
+        "name": "schema_read-r1-0",
+        "listed": false
+      },
+      {
+        "name": "schema_read-r1-1",
+        "listed": false
+      },
+      {
+        "name": "schema_read-r1-2",
+        "listed": false
+      }
+    ],
+    "KV_GET": [
+      {
+        "name": "kv_get-r1-0",
+        "listed": false
+      },
+      {
+        "name": "kv_get-r1-1",
+        "listed": false
+      },
+      {
+        "name": "kv_get-r1-2",
+        "listed": false
+      }
+    ],
+    "WRITE_DELETE_ALL": [
+      {
+        "name": "write_delete_all-r1-0",
+        "listed": false
+      },
+      {
+        "name": "write_delete_all-r1-1",
+        "listed": false
+      },
+      {
+        "name": "write_delete_all-r1-2",
+        "listed": false
+      }
+    ],
+    "WRITE": [
+      {
+        "name": "write-r1-0",
+        "listed": false
+      },
+      {
+        "name": "write-r1-1",
+        "listed": false
+      },
+      {
+        "name": "write-r1-2",
+        "listed": false
+      }
+    ]
+  }
+}

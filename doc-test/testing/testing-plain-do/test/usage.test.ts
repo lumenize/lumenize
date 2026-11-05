@@ -101,7 +101,7 @@ First let's install some tools
 ```bash npm2yarn
 npm install --save-dev vitest@3.2
 npm install --save-dev @vitest/coverage-istanbul@3.2
-npm install --save-dev @cloudflare/vitest-pool-workers
+npm install --save-dev @cloudflare/vitest-plugin
 npm install --save-dev @lumenize/testing
 npm install --save-dev @lumenize/routing
 ```
@@ -178,15 +178,8 @@ it('shows testing WebSocket functionality', async () => {
   ws.send('increment');
   await vi.waitFor(() => expect(incrementResponse).toBe('1'));
   
-  // Trigger server-initiated close and verify close event
-  let closeCode: number | null = null;
-  ws.onclose = (event: any) => {
-    closeCode = event.code;
-  };
-  ws.send('test-server-close');
-  await vi.waitFor(() => expect(expect(closeCode).toBe(4001)));
-
-  // Access getWebSockets using tag that matches DO instance name
+  // Access getWebSockets using tag that matches DO instance name. Inspect a
+  // socket while it is open: once a close completes it is no longer listed.
   const webSocketsOnServer = await client.ctx.getWebSockets('test-ws');
   expect(webSocketsOnServer.length).toBe(1);
 
@@ -200,6 +193,14 @@ it('shows testing WebSocket functionality', async () => {
       'sec-websocket-protocol': 'a, b'
     })
   });
+
+  // Trigger server-initiated close and verify close event
+  let closeCode: number | null = null;
+  ws.onclose = (event: any) => {
+    closeCode = event.code;
+  };
+  ws.send('test-server-close');
+  await vi.waitFor(() => expect(expect(closeCode).toBe(4001)));
 
   // Tests ctx.setWebSocketAutoResponse w/ new connection to the same DO
   const ws2 = new WebSocket('wss://test.com/my-do/test-ws') as any;

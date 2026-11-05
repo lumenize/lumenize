@@ -15,7 +15,7 @@ Each `LumenizeClient` connects via a hibernating WebSocket to its own dedicated 
 
 This architecture means:
 - **Server-initiated calls work** — A DO can call `this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, ...)` and your client's handler executes
-- **Same API everywhere** — `this.lmz.call()`, `@mesh()`, and continuations work identically on clients
+- **Same API everywhere** — `this.lmz.call()`, `this.lmz.broadcast()`, `@mesh()`, and continuations work identically on clients
 - **Automatic reconnection** — The client reconnects seamlessly; the Gateway preserves state during brief disconnections and has mechanisms for seamless restoration of state for longer ones
 
 See [Gateway Internals](./gateway) for the full architecture and protocol details.
@@ -36,7 +36,7 @@ export class EditorClient extends LumenizeClient {
 }
 ```
 
-Extend `LumenizeClient` and define `@mesh()` methods for incoming calls — the same pattern as `LumenizeDO` and `LumenizeWorker`. Methods _without_ `@mesh()` (like `requestSpellCheck`) are local-only — callable from your UI code but invisible to the mesh.
+Extend `LumenizeClient` and define `@mesh()` members for incoming calls — the same pattern as `LumenizeDO` and `LumenizeWorker`. Members _without_ `@mesh()` (like `requestSpellCheck`) are local-only — callable from your UI code but invisible to the mesh. ⚠️ **An OVERRIDE needs its own `@mesh()`**: the decorator records itself on the function, so a subclass method that shadows a `@mesh()`-decorated one carries nothing. The refusal says so by name rather than leaving you to find it.
 
 ```typescript @skip-check-approved('conceptual')
 using client = new EditorClient({
@@ -86,7 +86,7 @@ using client = new EditorClient({
 |----------|-----------|
 | `onConnectionStateChange(state)` | State changes: `connecting`, `connected`, `reconnecting`, `disconnected` |
 | `onLoginRequired(error)` | Re-login required (not routine token refresh) |
-| `onSubscriptionRequired()` | Every connection except reconnects within 5s grace period |
+| `onSubscriptionRequired()` | Subscriptions may have been lost: a first connection, or a reconnect the Gateway reports as a loss: a delivery to the client failed, it was away past the 5s grace period, or the Gateway lost its record of it. Also an overridable method |
 | `onConnectionError(error)` | Low-level WebSocket errors (rarely actionable) |
 
 ## Client Identity (`client.claims`)
@@ -96,18 +96,49 @@ using client = new EditorClient({
 ```typescript @skip-check-approved('conceptual')
 const userId = client.claims?.sub;        // JWT subject (the user's stable ID)
 const tenant = client.claims?.aud;        // JWT audience
-const isAdmin = client.claims?.isAdmin;   // Lumenize-auth admin flag
+
+// A CUSTOM claim is not on `JwtPayload`, so declare the shape your provider mints —
+// `LumenizeClient` is generic over it — and the access is typed:
+//   class MyClient extends LumenizeClient<JwtPayload & { isAdmin?: boolean }> {}
+const isAdmin = client.claims?.isAdmin;   // typed via the client's own claim shape
 ```
 
 `claims` is `null` until the first successful token refresh or until an initial `accessToken` is parsed at construction time. Use the optional chain (`client.claims?.sub`) for any code that may run before a token is available.
 
-`@lumenize/auth` issues the JWT and defines the [`JwtPayload`](../auth/) shape. If your auth provider mints additional claims, declare them in a module augmentation alongside your client code.
+`@lumenize/auth` issues the JWT; [`JwtPayload`](../auth/#jwt-claims) — the registered claims — is defined in `@lumenize/crypto`. Anything beyond those is a first-party custom claim: pass it as `customClaims` at mint and it is spread **flat** onto the token, so it arrives on `client.claims` under its own name alongside `sub` and `aud`. Declare the shape your provider mints as its own interface (that is what `AuthClaims` is for `@lumenize/auth`) and narrow to it where you read the claims.
 
 ## Mesh API
 
 `LumenizeClient` shares the standard [Mesh API](./mesh-api) with all node types — `this.lmz` for identity and calls, `@mesh()` decorator for entry points, `onBeforeCall()` for access control, and `this.ctn<T>()` for continuations.
 
-See [Making Calls](./calls) for `this.lmz.call()` patterns, continuations, and error handling.
+See [Making Calls](./calls) for `this.lmz.call()` patterns, continuations, and error handling, and [Broadcast](./broadcast) for `this.lmz.broadcast()`.
+
+## Awaiting a result — `callAsync` (client-only)
+
+`this.lmz.call()` is one-way: it returns `void` and delivers the outcome to a handler. The **one** place you can `await` a cross-node call is the client's `callAsync` — a resilient, `Promise`-returning read/mutation:
+
+```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
+async fetchContent(documentId: string, signal?: AbortSignal): Promise<string> {
+  return this.lmz.callAsync(
+    'DOCUMENT_DO',
+    documentId,
+    this.ctn<DocumentDO>().readContent(),
+    { signal },
+  );
+}
+```
+
+Unlike an ordinary awaited RPC, `callAsync` keeps its settler **in-heap keyed by callId**, so the Promise **survives a WebSocket reconnect and a tab freeze** — delivery re-resolves to whatever socket the client is on now, and a built-in default timeout (30 s; `0`/`Infinity` disables) means it never strands. The callee just **returns a value**; the framework fires it back. The Promise rejects whenever the outcome is an Error, whether the callee threw it or returned it, so a callee that means a soft refusal returns a value that is not an Error.
+
+A `call()`'s result handler is different: it travels with the call and comes back filled, so the values bound into it cross the wire twice. They round-trip as structured clones, so a reactive object comes back as a copy, and binding a function throws at the call site.
+
+:::warning[Abort cancels the wait, not the server operation]
+
+An optional `AbortSignal` (composed with the default timeout) rejects the *wait* — the call already left one-way, so the callee may still run. Retry-after-abort is safe only for **idempotent** operations (a client-supplied UUID or a forward-only eTag). Use it to cancel a UI action (unmount, navigate-away), not to undo a server write.
+
+:::
+
+`callAsync` is **client-only** — a DO/Worker can't hold a heap Promise across hibernation, so it uses `call()` + a handler instead. It is the *only* awaitable on `client.lmz`; `call()` stays `void`. Prefer a **subscription** for live UI data, and higher-level SDK methods where they exist — `callAsync` is the one-shot read/mutation escape hatch.
 
 ## Connection Lifecycle
 
@@ -124,20 +155,22 @@ Or call `disconnect()` manually. Monitor state via `onConnectionStateChange` cal
 
 ## Access Control
 
-LumenizeClient has almost the exact same **secure-by-default** model as LumenizeDO and LumenizeWorker. The exception is that LumenizeClient's have one additional restriction. Calls originating from other LumenizeClients are rejected by default:
+LumenizeClient has almost the exact same **secure-by-default** model as LumenizeDO and LumenizeWorker. The one additional restriction: a **direct client-to-client call is rejected by default** — identified by the call's **immediate caller** (`callChain.at(-1)`), not its origin.
 
-- ✅ Calls from LumenizeDOs and LumenizeWorkers are allowed
-- ✅ Calls that originated from this same client instance (responses flowing back through the mesh) are also allowed
-- ❌ Calls originating from other LumenizeClients are rejected by default
+That check holds because a client cannot write its own chain: its call frames carry none, and the [Gateway](./gateway) builds every client call's `callChain` from the socket's verified identity alone, ignoring any chain a hostile client adds. So a direct call always arrives with the calling client as its immediate caller.
 
-### Opting In to Calls From Other LumenizeClients
+- ✅ Calls whose immediate caller is a LumenizeDO or LumenizeWorker are allowed — this covers every DO/Worker-mediated push (fanout, direct-delivery, `lmz.broadcast`), **even when the call originated from another client** (client A mutates → a DO fans out → client B receives it).
+- ✅ A call whose immediate caller is this same client instance (a response flowing back through the mesh) is allowed.
+- ❌ A **direct** client-to-client call — another LumenizeClient as the immediate caller — is rejected by default.
 
-For collaborative features (cursors, voice/video signaling, etc.), override `onBeforeCall`:
+### Opting In to Direct Client-to-Client Calls
+
+For collaborative features (cursors, voice/video signaling, etc.) where clients call each other directly, override `onBeforeCall`:
 
 ```typescript @skip-check-approved('conceptual')
 class CollaborativeClient extends LumenizeClient {
   onBeforeCall() {
-    // Note: NOT calling super.onBeforeCall() — we WANT to allow peers
+    // Note: NOT calling super.onBeforeCall() — we WANT to allow direct peer calls
     // Auth is already guaranteed by auth hooks — originAuth.sub always exists
   }
 
@@ -148,7 +181,7 @@ class CollaborativeClient extends LumenizeClient {
 }
 ```
 
-For method-level guards, see [Security](./security#method-level-meshguard).
+An app that opens peer calls must then guard its own push handlers, which the default refusal was protecting. For method-level guards, see [Security](./security#method-level-meshguard).
 
 ## Reconnection & Subscription Loss
 
@@ -158,21 +191,44 @@ LumenizeClient handles flaky networks and tab hibernation automatically.
 
 When disconnected, the mesh maintains client state for at least a **5-second grace period**:
 
-- **Within 5 seconds**: Reconnection is seamless — all subscriptions remain active
+- **Within 5 seconds**: Reconnection is seamless. A push the client had not answered is sent again on the new socket, and the client answers a repeat from its record of recent answers without running the handler twice. All subscriptions remain active, unless a push to the client failed in between or the Gateway was evicted, and either way it asks the client to resubscribe.
 - **After 5 seconds**: Mesh nodes may clean up resources. Resubscribing is necessary.
+- **A client that does not answer a push within 30 seconds** — a tab the browser froze, say — is closed with code **4408**. The node that sent the push hears `ClientDisconnectedError` and may drop the client's subscription, so the Gateway tells the client's next connection to resubscribe, however quickly it comes back.
+
+A token rotation is a reconnect inside the grace period, so it resubscribes nothing.
 
 ### Setting Up Subscriptions
 
-`onSubscriptionRequired` fires on every connection except reconnects within the 5-second grace period. Use it as the single place to establish all subscriptions:
+`onSubscriptionRequired` fires when the client's subscriptions may have been lost. That is its first connection, and any reconnect the Gateway reports as a loss: a delivery to the client failed, it was away past the grace period, or the Gateway lost its record of it, as after an eviction. Override it, or pass it in the config. Use it as the single place to establish all subscriptions:
 
 ```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
-  // Called on every connection (except reconnects within 5s grace period)
-  onSubscriptionRequired = () => {
+  // Called when subscriptions may have been lost; an ordinary reconnect skips it
+  override onSubscriptionRequired(): void {
     // (Re)subscribe to all open documents
     for (const [documentId, callbacks] of this.#documents) {
       this.#subscribe(documentId, callbacks);
     }
-  };
+  }
+```
+
+A subscribe sent just as a socket closes may never reach the Gateway, and a reconnect inside the grace period with nothing failed does not call `onSubscriptionRequired`. So keep the subscribes that have not answered yet, and send them again on any reconnect:
+
+```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
+  constructor(config: LumenizeClientConfig) {
+    super({
+      ...config,
+      onConnectionStateChange: (state) => {
+        if (this.#lastState === 'reconnecting' && state === 'connected') {
+          for (const documentId of this.#awaitingSnapshot) {
+            const callbacks = this.#documents.get(documentId);
+            if (callbacks) this.#subscribe(documentId, callbacks);
+          }
+        }
+        this.#lastState = state;
+        config.onConnectionStateChange?.(state);
+      },
+    });
+  }
 ```
 
 ## Handling Relogin
@@ -195,7 +251,7 @@ Tab ID management is built in. Each tab gets a unique ID stored in `sessionStora
 
 ### Hibernation and Backgrounding
 
-No manual handling needed. `LumenizeClient` automatically detects tab wake-up, reconnects, and triggers `onSubscriptionRequired` so your code can re-establish subscriptions.
+No manual handling needed. `LumenizeClient` automatically detects tab wake-up and reconnects. A tab paused past the Gateway's 30-second wait was closed with 4408, so it reconnects when it wakes, the Gateway reports the loss, and `onSubscriptionRequired` re-establishes subscriptions.
 
 ## Testing
 
@@ -212,10 +268,12 @@ export interface LumenizeClientConfig {
   baseUrl?: string;
   instanceName?: string;
   gatewayBindingName?: string;
+  hostFromHostname?: boolean;
   accessToken?: string;
   refresh?: string | (() => Promise<{ access_token: string; sub?: string }>);
   onConnectionStateChange?: (state: ConnectionState) => void;
   onLoginRequired?: (error: LoginRequiredError) => void;
+  onHostDeleted?: (error: HostDeletedError) => void;
   onSubscriptionRequired?: () => void;
   onConnectionError?: (error: Error) => void;
   // ...

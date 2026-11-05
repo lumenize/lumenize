@@ -1,0 +1,19 @@
+{
+  "name": "experiment-gateway-vs-hosted",
+  "private": true,
+  "type": "module",
+  "//": "Phase 5b of tasks/archive/gateway-hop-benchmark.md, run as an experiment: does a Durable Object that holds its clients' sockets itself beat one reached through a Gateway per client? Two arms on ONE DO class, so only where the socket lands differs. See RESULTS.md and tasks/nebula-pre-alpha.md § A Client connects to its scope's node.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "drive": "tsx scripts/drive.ts",
+    "types": "wrangler types"
+  },
+  "dependencies": {
+    "@lumenize/mesh": "*",
+    "@lumenize/structured-clone": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "wrangler": "4.124.0"
+  }
+}

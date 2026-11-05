@@ -1,0 +1,29 @@
+{
+  "name": "snapshot-probe-app",
+  "private": true,
+  "type": "module",
+  "//": "Nebula's baked scaffold set (apps/nebula/container/app/package.json) PLUS the four heavy libraries computer-vfs-build used for its user-dep arm — so the tree is the realistic 200 MB+ case the iceboxed browser-resolved-deps file asked an experiment to measure, not the 111 MB curated one.",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "daisyui": "^5.0.0",
+    "date-fns": "^4.1.0",
+    "echarts": "^6.0.0",
+    "lodash-es": "^4.17.21",
+    "lucide-vue-next": "^0.469.0",
+    "three": "^0.186.1",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.13.5",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/lodash-es": "^4.17.12",
+    "@types/three": "^0.186.0",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.2",
+    "unplugin-swc": "^1.5.10",
+    "vite": "^8.2.0"
+  }
+}

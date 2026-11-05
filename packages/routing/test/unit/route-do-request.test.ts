@@ -351,13 +351,14 @@ describe('routeDORequest', () => {
       });
       
       // allowlist specific origins
-      await routeDORequest(request, env, {
+      const response = await routeDORequest(request, env, {
         cors: {
           origin: ['https://app.example.com', 'https://admin.example.com']
         }
       });
-      
-      // Verified in existing allowlist tests
+
+      expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.com');
+      expect(response?.headers.get('Vary')).toBe('Origin');
     });
 
     it('should demonstrate CORS permissive mode', async () => {
@@ -365,28 +366,16 @@ describe('routeDORequest', () => {
       const request = createRequest('http://localhost/my-do/instance', {
         headers: { 'Origin': 'https://any-origin.com' }
       });
-      
+
       await routeDORequest(request, env, { cors: true }); // Allow all origins (permissive)
       await routeDORequest(request, env ); // Default, only allow `fetch` on this origin
       // Note, the default ('false') allows WebSocket access for ALL origins
-      
-      // Verified in existing CORS tests
-    });
 
-    it('should demonstrate error handling with httpErrorCode', async () => {
-      const env = { MY_DO: createMockNamespace() };
-      const request = createRequest('http://localhost/my-do'); // Missing instance name
-      
-      try {
-        const response = await routeDORequest(request, env);
-        if (response) return response;
-      } catch (error: any) {
-        // Handle MissingInstanceNameError, MultipleBindingsFoundError, etc.
-        const status = error.httpErrorCode || 500;
-        return new Response(error.message, { status });
-      }
-      
-      // Verified - error is thrown and has httpErrorCode property
+      // The docs quote both calls bare, so neither response is in hand. What both modes promise
+      // an unlisted origin is that neither refuses it: each call reaches the Durable Object.
+      const stubs = env.MY_DO.getByName.mock.results.map((r) => r.value);
+      expect(stubs).toHaveLength(2);
+      for (const stub of stubs) expect(stub.fetch).toHaveBeenCalledTimes(1);
     });
 
     it('should demonstrate complex CORS validator function', async () => {
@@ -399,7 +388,7 @@ describe('routeDORequest', () => {
         }
       });
       
-      await routeDORequest(request, env, {
+      const response = await routeDORequest(request, env, {
         cors: {
           origin: (origin, request) => {
             // Check origin allowlist/patterns
@@ -429,8 +418,9 @@ describe('routeDORequest', () => {
           }
         }
       });
-      
-      // Verified in existing CORS validator tests
+
+      // A trusted origin carrying the API key and a browser User-Agent passes every check.
+      expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.com');
     });
 
     it('should demonstrate CORS with hooks integration', async () => {
@@ -442,7 +432,7 @@ describe('routeDORequest', () => {
         }
       });
       
-      await routeDORequest(request, env, {
+      const response = await routeDORequest(request, env, {
         cors: { origin: ['https://app.example.com'] },
         onBeforeRequest: async (request, context) => {
           const token = request.headers.get('Authorization');
@@ -452,8 +442,12 @@ describe('routeDORequest', () => {
           }
         }
       });
-      
-      // Verified - CORS headers apply to hook responses
+
+      // The request carries a token, so the hook lets it through to the Durable Object, and the
+      // DO's answer comes back with the allowed origin's CORS headers.
+      expect(response?.status).toBe(200);
+      expect(await response?.text()).toBe('Response from instance');
+      expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.com');
     });
 
     it('should demonstrate custom CORS using getDOStub', async () => {
@@ -468,7 +462,7 @@ describe('routeDORequest', () => {
         }
       });
       
-      await routeDORequest(request, env, {
+      const response = await routeDORequest(request, env, {
         cors: false, // Disable built-in CORS
         
         onBeforeRequest: async (request, context) => {
@@ -507,8 +501,12 @@ describe('routeDORequest', () => {
           return response; // No CORS headers for disallowed origins
         }
       });
-      
-      // Verified - custom CORS implementation using hooks
+
+      // The hook answers the preflight itself; the Durable Object is never called.
+      expect(response?.status).toBe(204);
+      expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.com');
+      expect(response?.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, PUT, DELETE');
+      expect(env.MY_DO.getByName.mock.results.every((r) => r.value.fetch.mock.calls.length === 0)).toBe(true);
     });
   });
 
@@ -1337,6 +1335,53 @@ describe('routeDORequest', () => {
         
         expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('null');
       });
+    });
+  });
+
+  // The allow-list is the door: an unlisted binding answers `undefined`, exactly as a binding the
+  // Worker does not hold, before the missing-instance throw, CORS and any hook.
+  describe('bindings allow-list', () => {
+    const env = () => ({ ALPHA_GATEWAY: createMockNamespace(), BETA: createMockNamespace() });
+    const opts: RouteOptions = { prefix: 'gateway', bindings: ['ALPHA_GATEWAY'] };
+
+    it('refuses an unlisted binding, with or without an instance', async () => {
+      const e = env();
+      expect(await routeDORequest(createRequest('http://localhost/gateway/BETA/inst'), e, opts)).toBeUndefined();
+      expect(await routeDORequest(createRequest('http://localhost/gateway//BETA/inst'), e, opts)).toBeUndefined();
+      // No instance: refused before the missing-instance throw, so it answers rather than throws.
+      expect(await routeDORequest(createRequest('http://localhost/gateway/BETA'), e, opts)).toBeUndefined();
+      expect(e.BETA.getByName).not.toHaveBeenCalled();
+    });
+
+    it('routes a listed binding by the name the router resolved, not the raw segment', async () => {
+      const e = env();
+      const response = await routeDORequest(createRequest('http://localhost/gateway/alpha-gateway/inst'), e, opts);
+      expect(response).toBeInstanceOf(Response);
+      expect(e.ALPHA_GATEWAY.getByName).toHaveBeenCalledWith('inst');
+    });
+
+    it('gives an unlisted binding\'s preflight no CORS answer', async () => {
+      const preflight = createRequest('http://localhost/gateway/BETA/inst', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://other.example', 'Access-Control-Request-Method': 'GET' },
+      });
+      expect(await routeDORequest(preflight, env(), { ...opts, cors: true })).toBeUndefined();
+    });
+
+    it('runs no hook for an unlisted binding', async () => {
+      const onBeforeConnect = vi.fn();
+      const onBeforeRequest = vi.fn();
+      await routeDORequest(createWebSocketRequest('http://localhost/gateway/BETA/inst'), env(), { ...opts, onBeforeConnect });
+      await routeDORequest(createRequest('http://localhost/gateway/BETA/inst'), env(), { ...opts, onBeforeRequest });
+      expect(onBeforeConnect).not.toHaveBeenCalled();
+      expect(onBeforeRequest).not.toHaveBeenCalled();
+    });
+
+    it('without the option, every binding routes as today', async () => {
+      const e = env();
+      const response = await routeDORequest(createRequest('http://localhost/gateway/BETA/inst'), e, { prefix: 'gateway' });
+      expect(response).toBeInstanceOf(Response);
+      expect(e.BETA.getByName).toHaveBeenCalledWith('inst');
     });
   });
 });

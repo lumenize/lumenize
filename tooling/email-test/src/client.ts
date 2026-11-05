@@ -1,0 +1,298 @@
+/**
+ * Client helpers for the deployed `email-test` Worker — the receive half of a
+ * real magic-link round trip.
+ *
+ * ⚠️ Deliberately NOT re-exported from `src/index.ts`. That entry exports
+ * `EmailTestDO`, which imports `cloudflare:workers`; pulling this module in
+ * through it would drag that import into Node/Playwright and browser-bundled
+ * consumers. Import from `@lumenize/email-test/client`.
+ *
+ * The full loop these participate in:
+ *   1. test → app:              POST /auth/<scope>/email-magic-link
+ *   2. app → Cloudflare or Resend → SMTP
+ *   3. Cloudflare Email Routing (catch-all `*@lumenize-test.dev`) → this Worker
+ *   4. this Worker → WebSocket push back to the test   ← `waitForEmail`
+ *      …and beside it, Resend's webhook → this Worker → the same socket, so a waiter hears what
+ *      Resend reported about its send: a bounce ends the wait at once, and a timeout names the hop.
+ *   5. test → app:              GET <magic-link URL>   ← `extractMagicLink`
+ *
+ * No test-mode bypass anywhere in it — this is the path a real user walks, and
+ * it costs ~1.4 s standalone / ~0.9 s marginal (see
+ * `tasks/email-latency-cf-vs-resend.md`), which is why it can be the default
+ * tier rather than a reserved-for-headline-flows luxury.
+ */
+import type { StoredEmail, DeliveryEvent, DeliveryEventMessage } from './types';
+
+const EMAIL_TEST_HTTP_URL = 'https://email-test.transformation.workers.dev';
+const EMAIL_TEST_WS_URL = 'wss://email-test.transformation.workers.dev';
+
+/** Domain whose Email Routing catch-all delivers to this Worker. */
+export const EMAIL_TEST_DOMAIN = 'lumenize-test.dev';
+
+export interface WaitForEmailOptions {
+  /** TEST_TOKEN for authenticating with the deployed EmailTestDO. */
+  testToken: string;
+  /**
+   * Scope this listener to emails carrying `X-Lumenize-Auth-Instance: <instance>`,
+   * so concurrent tests don't race each other for the next-arriving email.
+   * Maps 1:1 to NebulaAuth's `instanceName` (a 1-3 dot-separated slug like
+   * `acme-abc.app.tenant-a`).
+   *
+   * **Every Nebula auth mail carries this header** — `EmailMessage.instanceName` is required on
+   * every variant and `AuthEmailSender.headers` stamps it directly, so a new message type is
+   * filterable here with no change to the sender and none can ship untagged. (Before 2026-07-31
+   * the tag was re-parsed out of the message's URL, so mail linking to a non-instance route —
+   * `/app`, say — landed untagged in the catch-all bucket.)
+   *
+   * Omit to subscribe to ALL emails. ⚠️ **`uniqueTestEmail()` + `to` is still the better isolation
+   * default**, and the reason has changed: not because mail might be untagged, but because two
+   * listeners on the SAME instance race for the next-arriving mail. Supplying `to` also skips the
+   * startup `clear` this helper otherwise issues — which NO waiter needs for its own sake, because
+   * the socket only ever carries mail that arrives after it opens (see `emailPromise` below). So a
+   * recipient filter requires no cooperation from the sender and cannot collide.
+   */
+  instance?: string;
+  /**
+   * Resolve only for an email addressed to this recipient, ignoring any other
+   * that arrives on the socket. Pair with `uniqueTestEmail()` to make a test
+   * independent of every other test sending mail at the same time.
+   *
+   * Filtered client-side on purpose: the EmailTestDO is *deployed* shared
+   * infrastructure, so keeping isolation here means a new test lane needs no
+   * redeploy — and no cooperation from the sender, unlike `instance` (which
+   * only works if the sender stamps the header).
+   *
+   * With `to` set, the waiter also hears Resend's delivery events for that recipient: a bounce, a
+   * failure or a suppression rejects at once with Resend's reason, and a timeout says what Resend last
+   * reported ({@link describeDelivery}). Without it, events are not subscribed to.
+   */
+  to?: string;
+  /**
+   * Give-up timeout in ms. Default 60 s — far above the measured ~1.4 s so a slow
+   * CI runner never flakes; a received email resolves immediately, so the ceiling
+   * costs the warm path nothing.
+   */
+  timeout?: number;
+}
+
+/**
+ * Wall-clock marks (ms since epoch) filled in as the receive side progresses.
+ * `wsOpenAt` is a floor on any latency measured across the whole loop: the DO
+ * pushes only to *connected* sockets and never replays stored mail, so an email
+ * beating the socket open would never be observed at all.
+ */
+export interface EmailWaitMarks {
+  wsOpenAt?: number;
+  receivedAt?: number;
+}
+
+/**
+ * A fresh address that the `*@lumenize-test.dev` catch-all routes to this Worker.
+ *
+ * Use one per test to make real-login tests independently parallelizable: the
+ * shared-mailbox race is what forced suites to serialize (`sequence.groupOrder`),
+ * and a unique recipient removes the contention at the source rather than
+ * scheduling around it.
+ */
+export function uniqueTestEmail(prefix = 'test'): string {
+  return `${prefix}-${crypto.randomUUID()}@${EMAIL_TEST_DOMAIN}`;
+}
+
+/**
+ * Connect to the deployed EmailTestDO over WebSocket, clear existing mail, and
+ * wait for the next email to arrive.
+ *
+ * Call this BEFORE triggering the send — the DO pushes only to already-connected
+ * sockets, so a listener attached afterwards misses the email entirely.
+ *
+ * ⚠️ **You MUST call `cleanup()`, and a `finally` is the only safe place** — an assertion between
+ * here and there will otherwise skip it. The reason is not tidiness: the open WebSocket keeps Node's
+ * event loop alive, so a leaked waiter makes the process **print its verdict and then hang**. That
+ * failure is nastier than it sounds because it accuses the wrong thing — a scenario that passed in
+ * 4 s looks like a 7-minute hung boot, and the natural conclusion is "the live tier is slow/flaky"
+ * rather than "my caller leaked a socket". Bit 2026-08-04, and it is exactly the impression
+ * `live.md` exists to correct.
+ */
+export function waitForEmail(options: WaitForEmailOptions): {
+  /** Resolves with the next matching email; rejects on timeout or socket close. */
+  emailPromise: Promise<StoredEmail>;
+  /** Close the WebSocket — REQUIRED, in a `finally`. Safe to call more than once. See the note above:
+   *  a leaked waiter hangs the process after its verdict prints. */
+  cleanup: () => void;
+  /** Receive-side timing, for `reportEmailLatency`. */
+  marks: EmailWaitMarks;
+  /** What Resend has reported so far about the send to `to`, oldest first. Empty without `to`. */
+  deliveryEvents: DeliveryEvent[];
+} {
+  const { testToken, instance, to, timeout = 60_000 } = options;
+  const instanceParam = instance !== undefined ? `&instance=${encodeURIComponent(instance)}` : '';
+  const matchesRecipient = (email: StoredEmail) =>
+    to === undefined || email.to?.some((addr) => addr.address?.toLowerCase() === to.toLowerCase()) === true;
+
+  const marks: EmailWaitMarks = {};
+  const deliveryEvents: DeliveryEvent[] = [];
+  let ws: WebSocket;
+  let cleanedUp = false;
+
+  const cleanup = () => {
+    if (!cleanedUp) {
+      cleanedUp = true;
+      try { ws?.close(); } catch { /* ignore */ }
+    }
+  };
+
+  const emailPromise = (async () => {
+    // ⚠️ The clear does NOT protect this waiter, and reading it that way is how a caller talks
+    // itself out of `to`. The DO pushes an email to open sockets ONLY as it arrives (its one
+    // `ws.send` of a message is in the receipt path; the `/ws` handler replays nothing), so a
+    // previous run's mail can never resolve us however full the bucket is. What the clear actually
+    // does is reset the STORED list the `/emails` HTTP endpoint reads — and it wipes a bucket
+    // shared with every concurrent test, which is why supplying `to` skips it.
+    //
+    // ⇒ `to` is safe on ANY address, historied ones included. It does not make two waiters on the
+    // SAME address independent, though — both match — so that needs a unique recipient, or one
+    // waiter (verified 2026-09-25; the older wording here claimed the opposite and was believed).
+    if (to === undefined) {
+      await fetch(`${EMAIL_TEST_HTTP_URL}/clear?token=${testToken}${instanceParam}`, { method: 'POST' });
+    }
+
+    // The instance filter persists via serializeAttachment on the DO side, so
+    // concurrent subscribers each see only their own emails.
+    ws = new WebSocket(`${EMAIL_TEST_WS_URL}/ws?token=${testToken}${instanceParam}${to !== undefined ? '&events=1' : ''}`);
+
+    await new Promise<void>((resolve, reject) => {
+      ws.addEventListener('open', () => { marks.wsOpenAt = Date.now(); resolve(); });
+      ws.addEventListener('error', () => reject(new Error('WebSocket connection to email-test Worker failed')));
+      setTimeout(() => reject(new Error('WebSocket connection timeout')), 5000);
+    });
+
+    const email = await new Promise<StoredEmail>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(`No email received within ${timeout}ms; ${describeDelivery(deliveryEvents)}`));
+      }, timeout);
+
+      ws.addEventListener('message', (event) => {
+        const parsed = JSON.parse(event.data as string) as StoredEmail | DeliveryEventMessage;
+        if (isDeliveryEventMessage(parsed)) {
+          const delivery = parsed.event;
+          if (to === undefined || delivery.recipient !== to.toLowerCase()) return;
+          deliveryEvents.push(delivery);
+          if (TERMINAL_DELIVERY_EVENTS.includes(delivery.type)) {
+            clearTimeout(timer);
+            cleanup();
+            reject(new Error(`Resend reported ${delivery.type} for ${delivery.recipient} at ${delivery.occurredAt}`
+              + (delivery.reason ? `: ${delivery.reason}` : '')));
+          }
+          return;
+        }
+        const email = parsed;
+        // Another test's email on the shared socket — keep waiting, don't
+        // resolve with it and don't consume our timer.
+        if (!matchesRecipient(email)) return;
+        clearTimeout(timer);
+        marks.receivedAt = Date.now();
+        resolve(email);
+      });
+
+      ws.addEventListener('close', () => {
+        clearTimeout(timer);
+        reject(new Error('WebSocket closed before email received'));
+      });
+    });
+
+    return email;
+  })();
+
+  // An abandoned wait must not crash the process. If the caller fails for an
+  // unrelated reason and calls cleanup() in a `finally`, closing a still-
+  // connecting socket rejects this promise with nobody awaiting it — an
+  // unhandled rejection, which is fatal in Node and masks the REAL error with a
+  // useless "WebSocket connection failed". Marking it handled here changes
+  // nothing for an actual awaiter: the returned reference still rejects.
+  emailPromise.catch(() => { /* see above — real awaiters still see the rejection */ });
+
+  return { emailPromise, cleanup, marks, deliveryEvents };
+}
+
+function isDeliveryEventMessage(message: StoredEmail | DeliveryEventMessage): message is DeliveryEventMessage {
+  return 'kind' in message && message.kind === 'delivery-event';
+}
+
+/** The events after which no mail is coming: Resend gave up on the send. */
+export const TERMINAL_DELIVERY_EVENTS: readonly string[] = ['email.bounced', 'email.failed', 'email.suppressed'];
+
+/**
+ * Which hop a missing email was lost at, from what Resend reported about it, for a waiter's timeout.
+ * Nothing at all means the send never reached Resend, or the webhook is not registered; `delivered`
+ * means Resend handed it off, so it was lost after that, in Cloudflare's routing or the email-test Worker.
+ */
+export function describeDelivery(events: readonly DeliveryEvent[]): string {
+  if (events.length === 0) {
+    return 'Resend reported nothing for this recipient: the send never reached Resend, or its webhook is not registered';
+  }
+  const last = [...events].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)).at(-1)!;
+  const reason = last.reason ? `: ${last.reason}` : '';
+  switch (last.type) {
+    case 'email.delivered':
+      return `Resend delivered it at ${last.occurredAt}, so it was lost after delivery, in Cloudflare's routing or the email-test Worker`;
+    case 'email.delivery_delayed':
+      return `Resend reported delivery delayed at ${last.occurredAt}${reason}`;
+    case 'email.sent':
+      return `Resend accepted it at ${last.occurredAt} and reported nothing further`;
+    default:
+      return `Resend's last report was ${last.type} at ${last.occurredAt}${reason}`;
+  }
+}
+
+/** Extract the magic-link URL from a parsed email's HTML. */
+export function extractMagicLink(email: StoredEmail): string {
+  const html = email.html;
+  if (!html) {
+    throw new Error('Email has no HTML content');
+  }
+
+  // `@lumenize/auth`'s links carry `one_time_token`; Nebula's carry `token`, every one of them —
+  // invites included — opening the platform host's link page.
+  const hrefMatch = html.match(/href="([^"]*magic-link[^"]*(?:one_time_token|[?&]token)=[^"]*)"/);
+  if (!hrefMatch) {
+    throw new Error(`No magic link found in email HTML. Subject: "${email.subject}"`);
+  }
+
+  return hrefMatch[1];
+}
+
+/**
+ * Log the magic-link round trip — send request issued → email in hand — in a
+ * uniform, greppable form: `[email-latency] provider=… label=… loop=…ms`.
+ *
+ * Measuring on every run is why the cost never has to be re-derived by a
+ * throwaway harness — and why a stale quote can't outlive the thing it measures
+ * (an uninstrumented "~8s" did exactly that; see ADR-009's amendment).
+ * ⚠️ vitest's default reporter swallows passing-test stdout — use
+ * `--reporter=verbose` to see these lines.
+ *
+ * `Date.now()` is trustworthy across these awaits (real network I/O advances it
+ * — see the `cf-clock-traps` correction), but both marks are read in one
+ * isolate, so treat the value as elapsed time, not absolute wall-clock.
+ */
+export function reportEmailLatency(
+  provider: string,
+  label: string,
+  startedAt: number,
+  marks: EmailWaitMarks,
+): number {
+  // No `?? Date.now()` fallback: this is only called after the email promise
+  // resolved, so an unset mark means the wiring broke — and a fallback would
+  // print a number within milliseconds of the true one, hiding that silently.
+  if (marks.receivedAt === undefined) {
+    throw new Error('reportEmailLatency: marks.receivedAt unset — waitForEmail instrumentation is broken');
+  }
+  const loop = marks.receivedAt - startedAt;
+  const wsOpen = marks.wsOpenAt !== undefined ? marks.wsOpenAt - startedAt : undefined;
+  console.log(
+    `[email-latency] provider=${provider} label=${label} loop=${loop}ms` +
+    (wsOpen !== undefined ? ` wsOpen=${wsOpen}ms` : ''),
+  );
+  return loop;
+}

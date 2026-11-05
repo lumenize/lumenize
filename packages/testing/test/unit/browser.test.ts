@@ -1087,4 +1087,53 @@ describe('Browser', () => {
       expect(starCookies).toBeNull();
     });
   });
+
+  // Set-Cookie through the jar, as a browser would store and send it.
+  describe('cookies set by a response follow the browser\'s rules', () => {
+    /** A Browser whose every response sets `cookies` on whatever URL was asked. */
+    function setting(...cookies: string[]): Browser {
+      const mockFetch = async (): Promise<Response> => {
+        const headers = new Headers();
+        for (const c of cookies) headers.append('Set-Cookie', c);
+        return new Response(null, { headers });
+      };
+      return new Browser(mockFetch);
+    }
+
+    it('a cookie without Domain stays on its host; one with Domain reaches the site', async () => {
+      const browser = setting('host=1', 'site=2; Domain=lumenize.localhost');
+      await browser.fetch('http://crm.acme.lumenize.localhost/');
+      expect(browser.getCookiesForRequest('http://crm.acme.lumenize.localhost/')).toBe('host=1; site=2');
+      expect(browser.getCookiesForRequest('http://dev.crm.acme.lumenize.localhost/')).toBe('site=2');
+    });
+
+    it('a cookie never reaches a host that merely ends with its host\'s name', async () => {
+      const browser = setting('crm=1; Domain=crm.acme.lumenize.localhost');
+      await browser.fetch('http://crm.acme.lumenize.localhost/');
+      expect(browser.getCookiesForRequest('http://xcrm.acme.lumenize.localhost/')).toBeNull();
+      expect(browser.getCookiesForRequest('http://dev.crm.acme.lumenize.localhost/')).toBe('crm=1');
+    });
+
+    it('rejects a __Host- cookie with a Domain, without Secure, or off Path=/, and a __Secure- one without Secure', async () => {
+      const browser = setting(
+        '__Host-domain=1; Secure; Path=/; Domain=lumenize.localhost',
+        '__Host-insecure=1; Path=/',
+        '__Host-path=1; Secure; Path=/auth',
+        '__Secure-insecure=1',
+        '__Host-ok=1; Secure; Path=/',
+        '__Secure-ok=1; Secure',
+      );
+      await browser.fetch('http://platform.lumenize.localhost:8787/');
+      expect(browser.getAllCookies().map((c) => c.name).sort()).toEqual(['__Host-ok', '__Secure-ok']);
+      expect(browser.getCookiesForRequest('http://crm.acme.lumenize.localhost:8787/')).toBeNull();
+    });
+
+    it('keeps a Secure cookie set over http on a *.localhost host, and sends it back over http', async () => {
+      const browser = setting('__Host-refresh-token.acme=r; Secure; HttpOnly; Path=/; SameSite=Lax');
+      await browser.fetch('http://platform.lumenize.localhost:8787/auth/magic-link');
+      expect(browser.getCookiesForRequest('http://platform.lumenize.localhost:8787/auth/refresh'))
+        .toBe('__Host-refresh-token.acme=r');
+    });
+  });
 });
+

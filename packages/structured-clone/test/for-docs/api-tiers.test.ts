@@ -22,12 +22,11 @@ describe('Tier 2: preprocess/postprocess', () => {
   it('demonstrates intermediate format without JSON', () => {
     const complexObject = { name: 'John', items: [1, 2, 3] };
     
-    const intermediate = preprocess(complexObject);  // Returns { json, meta }
+    const intermediate = preprocess(complexObject);  // Returns plain JSON
     const restored = postprocess(intermediate);      // Reconstructs from object
 
     expect(restored).toEqual(complexObject);
-    expect(intermediate).toHaveProperty('json');
-    expect(intermediate).toHaveProperty('meta');
+    expect(intermediate).toEqual({ name: 'John', items: [1, 2, 3] });
   });
 });
 

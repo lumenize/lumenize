@@ -1,20 +1,24 @@
 {
   "name": "mesh-getting-started",
   "main": "index.ts",
-  "compatibility_date": "2026-03-12",
+  "compatibility_date": "2026-10-01",
   "durable_objects": {
     "bindings": [
       {
-        "name": "LUMENIZE_CLIENT_GATEWAY",
-        "class_name": "LumenizeClientGateway"
+        "name": "WORKSPACE_DO",
+        "class_name": "WorkspaceDO"
       },
       {
         "name": "DOCUMENT_DO",
         "class_name": "DocumentDO"
       },
       {
-        "name": "LUMENIZE_AUTH",
-        "class_name": "LumenizeAuth"
+        "name": "AUTH_REGISTRY",
+        "class_name": "AuthRegistry"
+      },
+      {
+        "name": "PROFILE",
+        "class_name": "Profile"
       }
     ]
   },
@@ -25,24 +29,47 @@
       "entrypoint": "SpellCheckWorker"
     },
     {
-      "binding": "AUTH_EMAIL_SENDER",
+      "binding": "AUTH_FACADE",
       "service": "mesh-getting-started",
-      "entrypoint": "AuthEmailSender"
+      "entrypoint": "AuthFacade"
     }
   ],
-  "send_email": [
+  "exports": {
+    "WorkspaceDO": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "DocumentDO": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "AuthRegistry": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "Profile": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "kv_namespaces": [
     {
-      "name": "EMAIL"
+      "binding": "REFRESH_TOKEN_KV",
+      "id": "mesh-getting-started-refresh-token-kv"
     }
   ],
-  "migrations": [
+  "ratelimits": [
     {
-      "tag": "v1",
-      "new_sqlite_classes": ["LumenizeClientGateway", "DocumentDO", "LumenizeAuth"]
+      "name": "AUTH_CONNECTION_RATE_LIMITER",
+      "namespace_id": "2002",
+      "simple": {
+        "limit": 1000,
+        "period": 60
+      }
     }
   ],
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
-    "LUMENIZE_AUTH_REDIRECT": "/app"
+    "LUMENIZE_ORIGIN": "http://lumenize.localhost"
   }
 }

@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "experiment-tail-abort",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "observability": { "logs": { "enabled": true, "invocation_logs": false }, "issues": { "enabled": true } },
+  "durable_objects": {
+    "bindings": [{ "name": "PROBE", "class_name": "Probe" }]
+  },
+  "exports": {
+    "Probe": { "type": "durable-object", "storage": "sqlite" }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "experiment-wildcard-hosts",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "//": "Throwaway DEPLOYED experiment (2026-09-14): does one Worker, one proxied *.lumenize.dev DNS record and one Workers route serve every host depth ADR-021 names? Results in RESULTS.md. Delete the Worker from the DASHBOARD.",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.124.0",
+    "@cloudflare/vitest-pool-workers": "^0.22.0"
+  }
+}

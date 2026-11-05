@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Throwaway (2026-09-14): does one Worker, one proxied *.lumenize.dev DNS record and
+  // one route serve hosts at every depth? RESULTS.md. Delete the Worker from the DASHBOARD.
+  "name": "experiment-wildcard-hosts",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-05-26",
+  "workers_dev": false,
+  "routes": [{ "pattern": "*.lumenize.dev/*", "zone_name": "lumenize.dev" }],
+  "observability": { "enabled": true }
+}

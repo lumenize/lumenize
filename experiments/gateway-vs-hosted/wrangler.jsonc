@@ -1,0 +1,19 @@
+{
+  "name": "experiment-gateway-vs-hosted",
+  "main": "./src/index.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      // Arm A: one Gateway per client, the shape mesh ships today.
+      { "name": "LUMENIZE_CLIENT_GATEWAY", "class_name": "LumenizeClientGateway" },
+      // Both arms' target. Arm B also connects every client straight to it.
+      { "name": "BENCH_DO", "class_name": "BenchDO" }
+    ]
+  },
+  "exports": {
+    "LumenizeClientGateway": { "type": "durable-object", "storage": "sqlite" },
+    "BenchDO": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "observability": { "enabled": false }
+}

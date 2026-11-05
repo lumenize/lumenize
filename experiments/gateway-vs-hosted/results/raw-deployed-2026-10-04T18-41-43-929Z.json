@@ -1,0 +1,68 @@
+{
+  "base": "https://experiment-gateway-vs-hosted.transformation.workers.dev",
+  "which": "throughput",
+  "rounds": 3,
+  "windowS": 15,
+  "latency": [],
+  "throughput": [
+    {
+      "round": 0,
+      "arm": "hosted",
+      "workload": "heavy",
+      "M": 16,
+      "runId": "tp-heavy-16-hosted-02b5eb13",
+      "perSec": 18.1,
+      "errors": 16,
+      "errorKinds": {
+        "TimeoutError: The operation was aborted due to timeout": 16
+      },
+      "socketDrops": 16,
+      "latency": {
+        "n": 272,
+        "p50": 505.6503330000014,
+        "p90": 562.6366249999992,
+        "p99": 569.2711249999993,
+        "max": 603.076665999999
+      }
+    },
+    {
+      "round": 1,
+      "arm": "hosted",
+      "workload": "heavy",
+      "M": 16,
+      "runId": "tp-heavy-16-hosted-b9ee7475",
+      "perSec": 155.3,
+      "errors": 0,
+      "errorKinds": {},
+      "socketDrops": 0,
+      "latency": {
+        "n": 2330,
+        "p50": 100.54270800000086,
+        "p90": 115.41712499999994,
+        "p99": 187.63999999999942,
+        "max": 331.809874999999
+      }
+    },
+    {
+      "round": 2,
+      "arm": "hosted",
+      "workload": "heavy",
+      "M": 16,
+      "runId": "tp-heavy-16-hosted-54459edb",
+      "perSec": 15.4,
+      "errors": 16,
+      "errorKinds": {
+        "TimeoutError: The operation was aborted due to timeout": 16
+      },
+      "socketDrops": 16,
+      "latency": {
+        "n": 231,
+        "p50": 583.2818750000006,
+        "p90": 680.731792000006,
+        "p99": 951.3455830000021,
+        "max": 1182.6566250000033
+      }
+    }
+  ],
+  "broadcast": []
+}

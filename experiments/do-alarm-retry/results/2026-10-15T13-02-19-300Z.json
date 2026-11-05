@@ -1,0 +1,53 @@
+{
+  "startedAt": "2026-10-15T13:02:19.302Z",
+  "finishedAt": "2026-10-15T13:02:53.581Z",
+  "waitS": 30,
+  "probes": [
+    {
+      "mode": "cpu-catch",
+      "name": "cpu-catch-2026-10-15T13-02-19-300Z",
+      "armedAt": "2026-10-15T13:02:20.785Z",
+      "alarmAt": "2026-10-15T13:02:22.785Z",
+      "seen": 4,
+      "report": {
+        "mode": "cpu-catch",
+        "alarm": "2026-10-15T13:02:22.785Z",
+        "attempts": [
+          {
+            "seq": 1,
+            "firedAt": "2026-10-15T13:02:22.785Z",
+            "scheduledTime": "2026-10-15T13:02:22.785Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 2,
+            "firedAt": "2026-10-15T13:02:28.711Z",
+            "scheduledTime": "2026-10-15T13:02:22.785Z",
+            "retryCount": 1,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 3,
+            "firedAt": "2026-10-15T13:02:36.862Z",
+            "scheduledTime": "2026-10-15T13:02:22.785Z",
+            "retryCount": 2,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 4,
+            "firedAt": "2026-10-15T13:02:46.294Z",
+            "scheduledTime": "2026-10-15T13:02:22.785Z",
+            "retryCount": 3,
+            "isRetry": 1,
+            "completedAt": null
+          }
+        ],
+        "caught": []
+      }
+    }
+  ]
+}

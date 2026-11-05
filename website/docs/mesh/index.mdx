@@ -26,7 +26,6 @@ Every participant in the mesh extends one of these base classes:
 | **LumenizeDO** | Cloudflare DO | SQL/KV | Stateful server-side logic |
 | **LumenizeWorker** | Cloudflare Worker | None | Stateless server-side logic |
 | **LumenizeClient** | Browser/Node.js/Bun | Local | Client access to mesh |
-| **[LumenizeContainer](./lumenize-container)** | Cloudflare Container | SQL/KV | A node that *runs a container* (niche) |
 
 All mesh node types have access to the same APIs/utilities, are coded in the same way, and act as full peers, able to both make and receive calls. Yes, even LumenizeClients can receive calls from any other mesh node.
 
@@ -104,7 +103,7 @@ Every node is responsible for its own fine-grained access control. Lumenize prov
 | Layer | Mechanism | Purpose |
 |-------|-----------|---------|
 | **[Class-wide](./security#class-level-onbeforecall)** | `onBeforeCall()` hook | WHO can call (authentication) |
-| **[Entry Point](./security#access-control)** | `@mesh()` decorator | WHAT is exposed (method allowlist) |
+| **[Entry Point](./security#access-control)** | `@mesh()` decorator | WHAT is exposed (the `@mesh()`-decorated methods and getters — a chain's first op must name one) |
 | **[Method-level](./security#method-level-meshguard)** | `@mesh(guard)` | Fine-grained per-method permissions |
 
 See [Security](./security) for complete documentation with examples.
@@ -133,8 +132,9 @@ this.lmz.callContext    // Current request's context (during handler execution)
 ### Making Calls
 
 ```typescript @skip-check-approved('conceptual')
-// Fire-and-forget
-this.lmz.call('DOCUMENT_DO', 'draft-1', this.ctn<DocumentDO>().update(changes));
+// Only a failure needs an answer
+this.lmz.call('DOCUMENT_DO', 'draft-1', this.ctn<DocumentDO>().update(changes),
+  this.ctn().handleCallFailed('save'), { onErrorOnly: true });
 
 // With response handler
 this.lmz.call(
@@ -160,7 +160,6 @@ Ready to build? See the **[Getting Started Guide](./getting-started)** for a han
 - **[LumenizeDO](./lumenize-do)** — Stateful server-side nodes with SQL/KV storage
 - **[LumenizeWorker](./lumenize-worker)** — Stateless server-side nodes
 - **[LumenizeClient](./lumenize-client)** — Browser/Node.js client nodes
-- **[LumenizeContainer](./lumenize-container)** — A node that runs a Cloudflare Container (niche)
 - **[Gateway Internals](./gateway)** — How client-mesh bridging works
 - **[Security](./security)** — Authentication and access control
 - **[Creating Plugins](./creating-plugins)** — Build your own NADIS services

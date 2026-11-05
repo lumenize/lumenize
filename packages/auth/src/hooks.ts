@@ -1,8 +1,24 @@
 import { debug } from '@lumenize/debug';
-import { verifyJwt, verifyJwtWithRotation, importPublicKey, parseJwtUnsafe } from './jwt';
-import type { JwtPayload } from './types';
+import { verifyJwt, verifyJwtWithRotation, importPublicKey, parseJwtUnsafe } from '@lumenize/crypto';
+import type { AuthJwtPayload } from './types';
+import type { JwtPayload } from '@lumenize/crypto';
 
-// WebSocket subprotocol prefix for access tokens
+/**
+ * WebSocket subprotocol prefix for access tokens.
+ *
+ * ⚠️ **A KNOWN SECOND COPY, kept deliberately — do NOT "de-duplicate" it against
+ * `@lumenize/mesh`.** The canonical definition (and `extractWebSocketToken`) now lives in
+ * `packages/mesh/src/gateway-messages.ts`, exported from `@lumenize/mesh/client`, because mesh
+ * both produces the subprotocol and parses it, in its own auth layer's `hostedUpgrade`.
+ * `@lumenize/auth` must not depend on `@lumenize/mesh` (`mesh.md` § Package dependency
+ * direction), so this end stays independent by design. Since Mesh's suites moved onto Mesh's own
+ * auth, nothing round-trips Mesh's producer against this copy, and the copy goes with the package
+ * when `@lumenize/auth` is retired.
+ *
+ * The property is "defined once on the Nebula path", never "defined once repo-wide" — the prefix
+ * is additionally a **published wire convention** that `website/docs/mesh/security.mdx` teaches
+ * third parties to hand-implement.
+ */
 const WS_TOKEN_PREFIX = 'lmz.access-token.';
 
 /**
@@ -96,9 +112,14 @@ async function verifyAndGate(
   publicKeys: CryptoKey[],
   issuer: string,
   audience: string,
-): Promise<{ payload: JwtPayload } | { error: Response }> {
-  // Verify JWT with rotation support
-  let payload: JwtPayload | null;
+): Promise<{ payload: AuthJwtPayload } | { error: Response }> {
+  // Verify JWT with rotation support.
+  //
+  // Narrowed to `AuthJwtPayload` (registered claims + this package's own `AuthClaims`,
+  // which `createJwtPayload` spreads FLAT onto the token) so the access gate below reads
+  // statically-typed fields rather than untyped properties. This is the READ end of the
+  // contract whose MINT end is `lumenize-auth.ts` `#generateAccessToken`.
+  let payload: AuthJwtPayload | null;
 
   if (publicKeys.length === 1) {
     payload = await verifyJwt(token, publicKeys[0]);
@@ -265,10 +286,11 @@ export async function createRouteDORequestAuthHooks(
  * Extract access token from WebSocket subprotocol header.
  *
  * Expected format in Sec-WebSocket-Protocol:
- * `lmz, lmz.access-token.{base64url-encoded-jwt}`
+ * `lmz.2, lmz.access-token.{base64url-encoded-jwt}`
  *
- * The client should request both 'lmz' and 'lmz.access-token.{token}' as subprotocols.
- * We extract the token from the access-token protocol and accept 'lmz' as the actual protocol.
+ * The client should request both 'lmz.2' and 'lmz.access-token.{token}' as subprotocols.
+ * We extract the token from the access-token protocol; a mesh Gateway accepts 'lmz.2' as the
+ * actual protocol.
  *
  * @param request - WebSocket upgrade request
  * @returns Token string if found, null otherwise

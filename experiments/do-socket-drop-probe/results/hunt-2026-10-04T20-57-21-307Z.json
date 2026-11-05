@@ -1,0 +1,275 @@
+{
+  "base": "https://experiment-do-socket-drop-probe.transformation.workers.dev",
+  "mode": "hunt",
+  "out": [
+    {
+      "want": "slow",
+      "instance": "hunt-slow-943221a5",
+      "jsMs": 28.4,
+      "tries": 2,
+      "result": {
+        "name": "ws1-js",
+        "instance": "hunt-slow-943221a5",
+        "colo": "IAD",
+        "n": 2000000,
+        "durationS": 40,
+        "perSecTimeline": [
+          16,
+          19,
+          19.5,
+          20,
+          19.5,
+          20,
+          20,
+          18.5,
+          18,
+          19.5,
+          14,
+          37,
+          45,
+          44,
+          43,
+          42.5,
+          43.5,
+          42.5,
+          44,
+          44.5,
+          0.5
+        ],
+        "total": 1181,
+        "errors": 1,
+        "errorKinds": {
+          "closed 1006 ": 1
+        },
+        "clientCloses": [
+          {
+            "socket": 0,
+            "atS": 21.6,
+            "code": 1006,
+            "reason": ""
+          }
+        ],
+        "closeCodes": {
+          "1006 ": 1
+        },
+        "bootIdsSeen": 2,
+        "boots": 2,
+        "serverEvents": [
+          {
+            "at": "2026-10-04T20:54:44.540Z",
+            "boot": "db48a875-57fd-4023-80a3-a1944d587fd5",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c0\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T20:54:26.656Z",
+            "boot": "db48a875-57fd-4023-80a3-a1944d587fd5",
+            "kind": "boot",
+            "detail": "boot #2"
+          },
+          {
+            "at": "2026-10-04T20:54:04.350Z",
+            "boot": "4700af3a-d4aa-408b-bbfc-02efaa0861b9",
+            "kind": "close",
+            "detail": "{\"clientId\":\"hunt\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T20:54:04.065Z",
+            "boot": "4700af3a-d4aa-408b-bbfc-02efaa0861b9",
+            "kind": "boot",
+            "detail": "boot #1"
+          }
+        ]
+      }
+    },
+    {
+      "want": "slow",
+      "instance": "hunt-slow-ee68badc",
+      "jsMs": 37.7,
+      "tries": 2,
+      "result": {
+        "name": "rpc1-js",
+        "instance": "hunt-slow-ee68badc",
+        "colo": "IAD",
+        "n": 2000000,
+        "durationS": 40,
+        "perSecTimeline": [
+          13.5,
+          14.5,
+          14,
+          13.5,
+          15,
+          14.5,
+          14,
+          14.5,
+          14,
+          14.5,
+          14,
+          15,
+          14.5,
+          14,
+          14,
+          15,
+          15,
+          15.5,
+          16,
+          21.5,
+          0.5
+        ],
+        "total": 594,
+        "errors": 0,
+        "errorKinds": {},
+        "clientCloses": [],
+        "closeCodes": {},
+        "bootIdsSeen": 2,
+        "boots": 2,
+        "serverEvents": [
+          {
+            "at": "2026-10-04T20:55:30.943Z",
+            "boot": "5b343017-9124-4bfd-a517-7e770e822c25",
+            "kind": "boot",
+            "detail": "boot #2"
+          },
+          {
+            "at": "2026-10-04T20:54:52.123Z",
+            "boot": "abc51268-eae4-485e-914d-f275b8fc8241",
+            "kind": "close",
+            "detail": "{\"clientId\":\"hunt\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T20:54:51.719Z",
+            "boot": "abc51268-eae4-485e-914d-f275b8fc8241",
+            "kind": "boot",
+            "detail": "boot #1"
+          }
+        ]
+      }
+    },
+    {
+      "want": "fast",
+      "instance": "hunt-fast-6b48f7b1",
+      "jsMs": 2.5,
+      "tries": 11,
+      "result": {
+        "name": "ws1-js",
+        "instance": "hunt-fast-6b48f7b1",
+        "colo": "EWR",
+        "n": 2000000,
+        "durationS": 40,
+        "perSecTimeline": [
+          36,
+          37.5,
+          38,
+          37,
+          37.5,
+          37,
+          36,
+          37.5,
+          37,
+          38.5,
+          37.5,
+          38,
+          37.5,
+          36.5,
+          37,
+          37.5,
+          35.5,
+          38,
+          36.5,
+          37,
+          0.5
+        ],
+        "total": 1487,
+        "errors": 0,
+        "errorKinds": {},
+        "clientCloses": [],
+        "closeCodes": {},
+        "bootIdsSeen": 1,
+        "boots": 1,
+        "serverEvents": [
+          {
+            "at": "2026-10-04T20:56:26.103Z",
+            "boot": "0a317957-1fa5-4fd2-9c6e-d73fa22c69e1",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c0\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T20:55:46.059Z",
+            "boot": "0a317957-1fa5-4fd2-9c6e-d73fa22c69e1",
+            "kind": "close",
+            "detail": "{\"clientId\":\"hunt\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T20:55:45.693Z",
+            "boot": "0a317957-1fa5-4fd2-9c6e-d73fa22c69e1",
+            "kind": "boot",
+            "detail": "boot #1"
+          }
+        ]
+      }
+    },
+    {
+      "want": "slow",
+      "instance": "hunt-slow-7030146f",
+      "jsMs": 29.5,
+      "tries": 4,
+      "result": {
+        "name": "ws1-sql30",
+        "instance": "hunt-slow-7030146f",
+        "colo": "EWR",
+        "n": 130000,
+        "durationS": 40,
+        "perSecTimeline": [
+          17,
+          19.5,
+          19,
+          18.5,
+          19,
+          18,
+          18.5,
+          18.5,
+          19,
+          18.5,
+          17.5,
+          18.5,
+          18,
+          19,
+          18,
+          19.5,
+          19.5,
+          19.5,
+          19,
+          19,
+          0.5
+        ],
+        "total": 747,
+        "errors": 0,
+        "errorKinds": {},
+        "clientCloses": [],
+        "closeCodes": {},
+        "bootIdsSeen": 1,
+        "boots": 1,
+        "serverEvents": [
+          {
+            "at": "2026-10-04T20:57:14.151Z",
+            "boot": "54eeb8b6-7cba-4000-ad8e-93f8fbdf3e94",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c0\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T20:56:34.967Z",
+            "boot": "54eeb8b6-7cba-4000-ad8e-93f8fbdf3e94",
+            "kind": "close",
+            "detail": "{\"clientId\":\"hunt\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T20:56:34.610Z",
+            "boot": "54eeb8b6-7cba-4000-ad8e-93f8fbdf3e94",
+            "kind": "boot",
+            "detail": "boot #1"
+          }
+        ]
+      }
+    }
+  ]
+}

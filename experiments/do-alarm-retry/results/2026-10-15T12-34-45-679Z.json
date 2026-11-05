@@ -1,0 +1,28 @@
+{
+  "startedAt": "2026-10-15T12:34:45.680Z",
+  "finishedAt": "2026-10-15T12:38:48.391Z",
+  "waitS": 240,
+  "probes": [
+    {
+      "mode": "reset",
+      "name": "reset-2026-10-15T12-34-45-679Z",
+      "armedAt": "2026-10-15T12:34:47.797Z",
+      "alarmAt": "2026-10-15T12:34:49.797Z",
+      "seen": 1,
+      "report": {
+        "mode": "reset",
+        "alarm": null,
+        "attempts": [
+          {
+            "seq": 1,
+            "firedAt": "2026-10-15T12:34:49.797Z",
+            "scheduledTime": "2026-10-15T12:34:49.797Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": "2026-10-15T12:36:19.816Z"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -75,6 +75,19 @@ if [ "$LIST_ONLY" = 1 ]; then exit 0; fi
 # Run tests one package at a time. Abort-on-first by default (offending package
 # stays last on screen); --run-all collects failures and fails at the end so a
 # flake can't mask the packages after it (CI uses this with --retry).
+#
+# A workspace also fails when Vitest reports that a test pool could not start
+# ("[vitest-pool]: Failed to start <pool> worker for test files ..."), which is
+# what a compatibility date newer than the runtime, or a flag it does not know,
+# produces. The exit code cannot be trusted for this: every file in that pool is
+# skipped, the Node and browser projects still pass, and a config with
+# `dangerouslyIgnoreUnhandledErrors` then exits 0. Measured 2026-10-04:
+# structured-clone at a date its runtime refused reported `Test Files 31 passed
+# (31)` against 46, and exited 0. Match Vitest's message, not the cause beneath
+# it: the old Miniflare reported a refused date as ERR_RUNTIME_FAILURE and the
+# new one as ERR_FUTURE_COMPATIBILITY_DATE, so a code-based match went blind.
+RUN_LOG="$(mktemp)"
+trap 'rm -f "$RUN_LOG"' EXIT
 failed=""
 for pkg in "${PACKAGES[@]}"; do
   echo ""
@@ -83,9 +96,17 @@ for pkg in "${PACKAGES[@]}"; do
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   ok=1
   if [ ${#VITEST_ARGS[@]} -gt 0 ]; then
-    npm run test -w "$pkg" -- "${VITEST_ARGS[@]}" || ok=0
+    npm run test -w "$pkg" -- "${VITEST_ARGS[@]}" 2>&1 | tee "$RUN_LOG"; status=${PIPESTATUS[0]}
   else
-    npm run test -w "$pkg" || ok=0
+    npm run test -w "$pkg" 2>&1 | tee "$RUN_LOG"; status=${PIPESTATUS[0]}
+  fi
+  [ "$status" = 0 ] || ok=0
+  if grep -q '\[vitest-pool\]: Failed to start' "$RUN_LOG"; then
+    echo ""
+    echo "❌ A test pool failed to start in $pkg — the files it owns were skipped, not run."
+    echo "   Usually a compatibility date or flag the installed runtime does not support:"
+    echo "   read the 'Caused by:' line under the first 'Failed to start' error above."
+    ok=0
   fi
   if [ "$ok" = 0 ]; then
     failed="$failed $pkg"

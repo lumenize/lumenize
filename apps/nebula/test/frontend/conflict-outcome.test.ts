@@ -30,16 +30,15 @@ import {
   type Snapshot,
   type TransactionOutcome,
   type TransactionResourceResolution,
-} from '../../src/frontend/conflict-outcome';
-import type { QueueSubmission } from '../../src/frontend/debounce';
-import { makeLongformResolver } from '../../src/frontend/text-merge';
+} from '../../../../packages/resources/src/frontend/conflict-outcome';
+import type { QueueSubmission } from '../../../../packages/resources/src/frontend/debounce';
+import { makeLongformResolver } from '../../../../packages/resources/src/frontend/text-merge';
 
 type Responder = (subs: QueueSubmission[]) => Promise<ServerBatchResponse>;
 
 function makeHarness(opts: { quietMs?: number } = {}) {
   const store = new Map<string, { value: unknown; eTag?: string }>();
   const flashes: Array<{ key: string; cls: string }> = [];
-  const refreshes: unknown[] = [];
   const submitted: QueueSubmission[] = [];
   let etagCounter = 0;
   let newETagCounter = 0;
@@ -68,7 +67,6 @@ function makeHarness(opts: { quietMs?: number } = {}) {
     },
     applyOptimistic: (rt, rid, value, eTag) => store.set(keyOf(rt, rid), { value, eTag }),
     flash: (rt, rid, cls) => flashes.push({ key: keyOf(rt, rid), cls }),
-    onShouldRefreshUI: (info) => refreshes.push(info),
     quietMs: opts.quietMs ?? 0,
     timeoutMs: 10_000,
     newETag: () => `ne-${++newETagCounter}`,
@@ -92,7 +90,6 @@ function makeHarness(opts: { quietMs?: number } = {}) {
     engine,
     store,
     flashes,
-    refreshes,
     submitted,
     seed,
     type,
@@ -627,7 +624,7 @@ describe('transaction-wide failures', () => {
     expect(h.valueOf('doc', 'r1')).toEqual({ v: 'attempt' }); // rolled back to the committed baseline value
   });
 
-  it("'ontology-stale': resolves with versions (retryable false), fires onShouldRefreshUI, does NOT roll back", async () => {
+  it("'ontology-stale': resolves with versions (retryable false), does NOT roll back", async () => {
     const h = makeHarness();
     h.seed('doc', 'r1', { v: 'orig' }, 'e1');
     h.type('doc', 'r1', { v: 'painted' });
@@ -639,7 +636,6 @@ describe('transaction-wide failures', () => {
       clientVersion: '1.0',
       currentVersion: '2.0',
     });
-    expect(h.refreshes).toEqual([{ clientVersion: '1.0', currentVersion: '2.0', reason: 'ontology-stale' }]);
     expect(h.valueOf('doc', 'r1')).toEqual({ v: 'painted' }); // paint kept — reload is the remedy
   });
 });
@@ -648,7 +644,7 @@ describe('transaction-wide failures', () => {
 
 describe('connection-gated rollback (invariant 10, Mn8)', () => {
   for (const downState of ['connecting', 'reconnecting', 'disconnected'] as const) {
-    it(`in-flight during '${downState}': no timeout, no rollback; reconnect replays the SAME newETag → committed`, async () => {
+    it(`in-flight during '${downState}': no timeout, no rollback; the ORIGINAL submit re-resolves on reconnect → committed (A)`, async () => {
       const h = makeHarness();
       const d = deferredResponder();
       h.setResponder(d.responder);
@@ -667,9 +663,11 @@ describe('connection-gated rollback (invariant 10, Mn8)', () => {
 
       h.engine.setConnectionState('connected');
       await flushMicrotasks();
-      expect(h.submitted).toHaveLength(2);
-      expect(h.submitted[1]!.newETag).toBe(h.submitted[0]!.newETag); // idempotent replay
-      d.pending[1]!.resolve({ resources: [{ result: 'committed', eTag: 'e2' }] });
+      // (A): the in-flight `callAsync` re-resolves on its own — the queue does NOT re-fire a
+      // fresh mesh call. The ORIGINAL submit's Promise settles this attempt when the RESULT re-resolves
+      // on the new socket. Capable-of-failing: revert to re-submit-on-reconnect → this becomes length 2.
+      expect(h.submitted).toHaveLength(1);
+      d.pending[0]!.resolve({ resources: [{ result: 'committed', eTag: 'e2' }] });
       await flushMicrotasks();
       expect(outcome).toMatchObject({ kind: 'committed', resources: { r1: { kind: 'committed', eTag: 'e2' } } });
     });
@@ -689,12 +687,12 @@ describe('transactionOps — explicit ops (v3-port)', () => {
   it('create: paints optimistically, carries op:create to the wire, commits', async () => {
     const h = makeHarness();
     const outcome = await h.engine.transactionOps({
-      t1: { rt: 'todo', op: 'create', typeName: 'Todo', nodeId: 1, value: { title: 'buy milk' } },
+      t1: { rt: 'todo', op: 'create', typeName: 'Todo', nodeId: '00000000-0000-4000-8000-000000000001', value: { title: 'buy milk' } },
     });
     expect(outcome.kind).toBe('committed');
     expect((outcome as { resources: Record<string, TransactionResourceResolution> }).resources.t1!.kind).toBe('committed');
     expect(h.valueOf('todo', 't1')).toEqual({ title: 'buy milk' }); // optimistic paint (gut applyOptimistic → undefined)
-    expect(h.submitted[0]!.op).toMatchObject({ op: 'create', typeName: 'Todo', nodeId: 1 }); // op carriage (gut submitKeys op → undefined)
+    expect(h.submitted[0]!.op).toMatchObject({ op: 'create', typeName: 'Todo', nodeId: '00000000-0000-4000-8000-000000000001' }); // op carriage (gut submitKeys op → undefined)
     expect(h.store.get('todo:t1')!.eTag).toBe('srv-1'); // committed eTag written through
   });
 
@@ -738,7 +736,7 @@ describe('transactionOps — explicit ops (v3-port)', () => {
     const h = makeHarness();
     h.setResponder(async () => ({ resources: [{ result: 'permission-denied' }] }));
     const outcome = await h.engine.transactionOps({
-      t1: { rt: 'todo', op: 'create', typeName: 'Todo', nodeId: 1, value: { title: 'nope' } },
+      t1: { rt: 'todo', op: 'create', typeName: 'Todo', nodeId: '00000000-0000-4000-8000-000000000001', value: { title: 'nope' } },
     });
     expect(outcome).toMatchObject({ kind: 'rejected', retryable: false });
     expect((outcome as { resources: Record<string, TransactionResourceResolution> }).resources.t1!.kind).toBe('permission-denied');

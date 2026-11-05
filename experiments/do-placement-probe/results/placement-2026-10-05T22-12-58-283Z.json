@@ -1,0 +1,371 @@
+{
+  "local": [
+    {
+      "workerColo": "IAD",
+      "targetColo": "EWR",
+      "bootId": "ab14abb5",
+      "mark": null
+    },
+    {
+      "workerColo": "IAD",
+      "targetColo": "IAD",
+      "bootId": "ef038a83",
+      "mark": null
+    },
+    {
+      "workerColo": "IAD",
+      "targetColo": "IAD",
+      "bootId": "9b3b47fa",
+      "mark": null
+    },
+    {
+      "workerColo": "IAD",
+      "targetColo": "IAD",
+      "bootId": "9e15d351",
+      "mark": null
+    },
+    {
+      "workerColo": "IAD",
+      "targetColo": "IAD",
+      "bootId": "68639a20",
+      "mark": null
+    },
+    {
+      "workerColo": "IAD",
+      "targetColo": "IAD",
+      "bootId": "28b5e69d",
+      "mark": null
+    }
+  ],
+  "anchors": [
+    {
+      "hint": "wnam",
+      "anchorColo": "SEA",
+      "binding": [
+        {
+          "workerColo": "SEA",
+          "targetColo": "SEA"
+        },
+        {
+          "workerColo": "SEA",
+          "targetColo": "SEA"
+        }
+      ],
+      "fetch": [
+        {
+          "workerColo": "SEA",
+          "targetColo": "SEA",
+          "bootId": "0c153b3f",
+          "mark": null
+        },
+        {
+          "workerColo": "SEA",
+          "targetColo": "SEA",
+          "bootId": "8073e169",
+          "mark": null
+        }
+      ]
+    },
+    {
+      "hint": "enam",
+      "anchorColo": "EWR",
+      "binding": [
+        {
+          "workerColo": "EWR",
+          "targetColo": "EWR"
+        },
+        {
+          "workerColo": "EWR",
+          "targetColo": "EWR"
+        }
+      ],
+      "fetch": [
+        {
+          "workerColo": "EWR",
+          "targetColo": "EWR",
+          "bootId": "86bca89f",
+          "mark": null
+        },
+        {
+          "workerColo": "EWR",
+          "targetColo": "EWR",
+          "bootId": "4f4bb115",
+          "mark": null
+        }
+      ]
+    },
+    {
+      "hint": "sam",
+      "anchorColo": "IAD",
+      "binding": [
+        {
+          "workerColo": "IAD",
+          "targetColo": "IAD"
+        },
+        {
+          "workerColo": "IAD",
+          "targetColo": "IAD"
+        }
+      ],
+      "fetch": [
+        {
+          "workerColo": "IAD",
+          "targetColo": "IAD",
+          "bootId": "179a64b2",
+          "mark": null
+        },
+        {
+          "workerColo": "IAD",
+          "targetColo": "IAD",
+          "bootId": "87b0de60",
+          "mark": null
+        }
+      ]
+    },
+    {
+      "hint": "weur",
+      "anchorColo": "LHR",
+      "binding": [
+        {
+          "workerColo": "LHR",
+          "targetColo": "LHR"
+        },
+        {
+          "workerColo": "LHR",
+          "targetColo": "LHR"
+        }
+      ],
+      "fetch": [
+        {
+          "workerColo": "LHR",
+          "targetColo": "LHR",
+          "bootId": "cb98cb7d",
+          "mark": null
+        },
+        {
+          "workerColo": "LHR",
+          "targetColo": "LHR",
+          "bootId": "6a86ab44",
+          "mark": null
+        }
+      ]
+    },
+    {
+      "hint": "eeur",
+      "anchorColo": "OTP",
+      "binding": [
+        {
+          "workerColo": "OTP",
+          "targetColo": "OTP"
+        },
+        {
+          "workerColo": "OTP",
+          "targetColo": "OTP"
+        }
+      ],
+      "fetch": [
+        {
+          "workerColo": "OTP",
+          "targetColo": "OTP",
+          "bootId": "b546003c",
+          "mark": null
+        },
+        {
+          "workerColo": "OTP",
+          "targetColo": "OTP",
+          "bootId": "aec0f623",
+          "mark": null
+        }
+      ]
+    },
+    {
+      "hint": "apac",
+      "anchorColo": "SIN",
+      "binding": [
+        {
+          "workerColo": "SIN",
+          "targetColo": "SIN"
+        },
+        {
+          "workerColo": "SIN",
+          "targetColo": "SIN"
+        }
+      ],
+      "fetch": [
+        {
+          "workerColo": "SIN",
+          "targetColo": "SIN",
+          "bootId": "253f0fd3",
+          "mark": null
+        },
+        {
+          "workerColo": "SIN",
+          "targetColo": "SIN",
+          "bootId": "1d9430a7",
+          "mark": null
+        }
+      ]
+    },
+    {
+      "hint": "oc",
+      "anchorColo": "BNE",
+      "binding": [
+        {
+          "workerColo": "BNE",
+          "targetColo": "SYD"
+        },
+        {
+          "workerColo": "BNE",
+          "targetColo": "BNE"
+        }
+      ],
+      "fetch": [
+        {
+          "workerColo": "BNE",
+          "targetColo": "BNE",
+          "bootId": "762905ca",
+          "mark": null
+        },
+        {
+          "workerColo": "BNE",
+          "targetColo": "BNE",
+          "bootId": "0e29d117",
+          "mark": null
+        }
+      ]
+    },
+    {
+      "hint": "afr",
+      "anchorColo": "AMS",
+      "binding": [
+        {
+          "workerColo": "AMS",
+          "targetColo": "AMS"
+        },
+        {
+          "workerColo": "AMS",
+          "targetColo": "AMS"
+        }
+      ],
+      "fetch": [
+        {
+          "workerColo": "AMS",
+          "targetColo": "AMS",
+          "bootId": "90063390",
+          "mark": null
+        },
+        {
+          "workerColo": "AMS",
+          "targetColo": "AMS",
+          "bootId": "944b61f0",
+          "mark": null
+        }
+      ]
+    },
+    {
+      "hint": "me",
+      "anchorColo": "FRA",
+      "binding": [
+        {
+          "workerColo": "FRA",
+          "targetColo": "AMS"
+        },
+        {
+          "workerColo": "FRA",
+          "targetColo": "FRA"
+        }
+      ],
+      "fetch": [
+        {
+          "workerColo": "FRA",
+          "targetColo": "AMS",
+          "bootId": "5c2ef9ab",
+          "mark": null
+        },
+        {
+          "workerColo": "FRA",
+          "targetColo": "FRA",
+          "bootId": "79ce3ed5",
+          "mark": null
+        }
+      ]
+    }
+  ],
+  "replace": [
+    {
+      "hint": "apac",
+      "reset": true,
+      "firstColo": "NRT",
+      "wipe": {
+        "wiped": true,
+        "reset": true,
+        "error": "wiped"
+      },
+      "afterColo": "NRT",
+      "afterWorker": "IAD",
+      "markAfter": "first-life"
+    },
+    {
+      "hint": "apac",
+      "reset": false,
+      "firstColo": "HKG",
+      "wipe": {
+        "wiped": true,
+        "reset": false
+      },
+      "afterColo": "HKG",
+      "afterWorker": "IAD",
+      "markAfter": null
+    },
+    {
+      "hint": "oc",
+      "reset": true,
+      "firstColo": "SYD",
+      "wipe": {
+        "wiped": true,
+        "reset": true,
+        "error": "wiped"
+      },
+      "afterColo": "SYD",
+      "afterWorker": "IAD",
+      "markAfter": "first-life"
+    },
+    {
+      "hint": "oc",
+      "reset": false,
+      "firstColo": "MEL",
+      "wipe": {
+        "wiped": true,
+        "reset": false
+      },
+      "afterColo": "MEL",
+      "afterWorker": "IAD",
+      "markAfter": null
+    },
+    {
+      "hint": "weur",
+      "reset": true,
+      "firstColo": "CDG",
+      "wipe": {
+        "wiped": true,
+        "reset": true,
+        "error": "wiped"
+      },
+      "afterColo": "CDG",
+      "afterWorker": "EWR",
+      "markAfter": "first-life"
+    },
+    {
+      "hint": "weur",
+      "reset": false,
+      "firstColo": "LHR",
+      "wipe": {
+        "wiped": true,
+        "reset": false
+      },
+      "afterColo": "LHR",
+      "afterWorker": "EWR",
+      "markAfter": null
+    }
+  ]
+}

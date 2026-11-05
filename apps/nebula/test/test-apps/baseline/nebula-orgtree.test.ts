@@ -2,7 +2,7 @@
  * OrgTree dedicated channel (Phase 5.3.7-v3 / P8 server side).
  *
  * The org/permission tree is NOT a resource — it's a per-Star singleton on its
- * own channel: `subscribeTree` registers in `TreeSubscribers` (keyed by clientId
+ * own channel: `subscribeTree` registers a `tree` row (keyed by clientAddress
  * alone), and every tree mutation broadcasts the synthesized `getState()` to ALL
  * subscribers INCLUDING the originator (no optimistic local write, so the echo is
  * the only update path). Delivery is `handleOrgTreeUpdate` — wholly separate from
@@ -10,17 +10,16 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { TransactionResult } from '@lumenize/nebula';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { TransactionResult } from '@lumenize/resources';
+import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 async function waitForResult(client: NebulaClientTest) {
@@ -33,11 +32,11 @@ async function waitForSuccess(client: NebulaClientTest) {
 }
 
 async function twoAdminClients(star: string) {
-  const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+  a.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
   await waitForResult(a.client);
-  const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   return { a, b, galaxyName };
 }
 
@@ -50,10 +49,10 @@ async function createResource(client: NebulaClientTest, star: string, resourceId
   return result.eTags[resourceId];
 }
 
-type TreeState = { nodes: Map<number, { slug: string; label: string }>; edges: Set<string>; permissions: Map<number, unknown> };
+type TreeState = { nodes: Map<string, { slug: string; label: string }>; edges: Set<string>; permissions: Map<string, unknown> };
 
 describe('orgTree dedicated channel (P8 server)', () => {
-  it('subscribeTree registers a TreeSubscribers row and pushes the initial snapshot', async () => {
+  it('subscribeTree registers a tree row and pushes the initial snapshot', async () => {
     const star = uniqueStar();
     const { a } = await twoAdminClients(star);
 
@@ -101,21 +100,20 @@ describe('orgTree dedicated channel (P8 server)', () => {
     b.client[Symbol.dispose]();
   });
 
-  it('the tree subscription survives an ontology install (resource Subscribers cleared, TreeSubscribers not)', async () => {
+  it('the tree subscription survives an ontology install (resource rows cleared, tree rows not)', async () => {
     const star = uniqueStar();
     const { a, galaxyName } = await twoAdminClients(star);
 
     // Install v1 (a real op) so the v2 install below is a genuine version change.
-    await createResource(a.client, star, generateUuid(), 'v1-seed');
+    await createResource(a.client, star, crypto.randomUUID(), 'v1-seed');
     a.client.callStarSubscribeTree(star);
     await vi.waitFor(() => expect(a.client.orgTreeUpdateCount).toBeGreaterThan(0));
 
-    // Append v2 + trigger its install (a v2 op cache-misses → Star fetches + installs
-    // → #installState clears resource Subscribers; it must NOT touch TreeSubscribers).
-    a.client.callStarApplyOntology(star, { version: 'v2', types: TEST_TYPES });
+    // Install v2: the plane's install drains the resource rows; it must NOT touch the tree rows.
+    a.client.callStarInstallOntology(star, { version: 'v2', types: TEST_TYPES });
     await waitForSuccess(a.client);
     a.client.callStarTransaction(star, 'v2', {
-      [generateUuid()]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'v2' } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'v2' } },
     });
     await waitForResult(a.client);
 
@@ -156,22 +154,39 @@ describe('orgTree dedicated channel (P8 server)', () => {
     b.client[Symbol.dispose]();
   });
 
-  // ── P8b: client.orgTree.* mutators (awaited callRaw, reject-on-failure) ──
+  // ── P8b: client.orgTree.* mutators (resilient 4-arg call, reject-on-failure) ──
 
   it('client.orgTree mutators resolve on success and reject on failure', async () => {
     const star = uniqueStar();
     const { a } = await twoAdminClients(star);
 
-    const nodeId = await a.client.orgTree.createNode(ROOT_NODE_ID, 'team', 'Team');
-    expect(typeof nodeId).toBe('number');
-    expect(nodeId).toBeGreaterThan(ROOT_NODE_ID);
+    const nodeId = await a.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'team', 'Team');
+    expect(typeof nodeId).toBe('string'); // client-supplied UUID, echoed back
+    expect(nodeId).not.toBe(ROOT_NODE_ID);
 
     await a.client.orgTree.relabelNode(nodeId, 'Renamed Team'); // resolves (void)
-    await a.client.orgTree.setPermission(nodeId, generateUuid(), 'write'); // resolves
+    await a.client.orgTree.setPermission(nodeId, crypto.randomUUID(), 'write'); // resolves
 
     // Reject-on-failure: deleting a non-existent node → NodeNotFoundError rejects
     // the awaited call (NOT connection-gated, NOT swallowed).
-    await expect(a.client.orgTree.deleteNode(999999)).rejects.toThrow();
+    await expect(a.client.orgTree.deleteNode(crypto.randomUUID())).rejects.toThrow();
+
+    a.client[Symbol.dispose]();
+  });
+
+  it('a slow/lost RESULT rejects on callAsync\'s timeout instead of hanging (D4, orgTree path)', async () => {
+    const star = uniqueStar();
+    const { a } = await twoAdminClients(star);
+
+    // Star.delay(300) responds at ~300ms, but callAsync's 30ms timeout fires first → the Promise
+    // REJECTS with a TimeoutError instead of hanging. orgTree.* delegates to this same callAsync
+    // default-timeout path, so a lost/slow mutation RESULT rejects rather than spinning to reload.
+    // Timer-free client path — no engine-level timer to confound the rejection (m1). Capable-of-failing:
+    // gut callAsync's timeout and the call waits for the 300ms RESULT and RESOLVES with 300 (a number),
+    // failing both assertions.
+    const reason = await a.client.callAsyncStarDelay(star, 300, 30).catch((e) => e);
+    expect(reason).toBeInstanceOf(DOMException);
+    expect(reason.name).toBe('TimeoutError');
 
     a.client[Symbol.dispose]();
   });
@@ -182,9 +197,9 @@ describe('orgTree dedicated channel (P8 server)', () => {
 
     a.client.callStarSubscribeTree(star); // resets captures → initial snapshot lands
     await vi.waitFor(() => expect(a.client.orgTreeUpdateCount).toBeGreaterThan(0));
-    const before = a.client.orgTreeUpdateCount; // orgTree.* is callRaw (NOT a resetting initiator)
+    const before = a.client.orgTreeUpdateCount; // orgTree.* is a public 4-arg call (NOT a resetting initiator)
 
-    const nodeId = await a.client.orgTree.createNode(ROOT_NODE_ID, 'team2', 'Team2');
+    const nodeId = await a.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'team2', 'Team2');
     await vi.waitFor(() => {
       expect(a.client.orgTreeUpdateCount).toBeGreaterThan(before);
       const tree = a.client.lastOrgTree as TreeState;

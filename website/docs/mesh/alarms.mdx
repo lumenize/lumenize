@@ -232,6 +232,8 @@ Then use [@lumenize/testing](/docs/testing/usage) to schedule alarms and verify 
     expect(lastEmail).toBe('user@example.com');
 ```
 
+The count is what runs the follow-up a minute early. A count executes that many of the earliest alarms whatever their time, while `triggerAlarms()` with no count executes only the alarms already due, as the native alarm would, so here it would execute nothing.
+
 ## How It Works
 
 1. **Persistence**: All schedules stored in SQL table `__lmz_alarms` with a `time` column for next execution
@@ -329,7 +331,7 @@ Execute pending alarms. Used internally by `alarm()` and for testing.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `count` | `number?` | Number of alarms to execute (default: all overdue) |
+| `count` | `number?` | Number of the earliest alarms to execute, due or not (default: every alarm already due, so none when nothing is due) |
 
 **Returns:** `Promise<string[]>` - IDs of executed alarms
 

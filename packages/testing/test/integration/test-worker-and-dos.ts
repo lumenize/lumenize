@@ -7,11 +7,11 @@ import { instrumentDOProject } from '../../src/instrument-do-project';
 
 const { worker, dos } = instrumentDOProject({
   sourceModule,
-  doClassNames: ['TestDO']
+  doClassNames: ['TestDO', 'InstanceHandlerDO']
 });
 
-// Re-export the TestDO for type imports
-export const { TestDO } = dos;
+// Re-export the DO classes for wrangler bindings and type imports
+export const { TestDO, InstanceHandlerDO } = dos;
 
 // Export the instrumented worker as default
 export default worker;

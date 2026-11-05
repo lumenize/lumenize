@@ -1,0 +1,14 @@
+{
+  "name": "experiment-depth-chain",
+  "private": true,
+  "type": "module",
+  "//": "Deploy-only probe: does Cloudflare's subrequest depth carry through a promise a later WebSocket event resolves, as ClientGateway's #deliverToClient relies on, and does firing back from the answer's own event reset it? See RESULTS.md.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "drive": "node scripts/drive.mjs",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "wrangler": "4.147.0"
+  }
+}

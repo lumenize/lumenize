@@ -1,0 +1,16 @@
+{
+  "name": "experiment-do-read-cache",
+  "private": true,
+  "type": "module",
+  "//": "Does a SQLite-backed Durable Object cache what it reads in memory, how much, and what does a miss cost? The 2021 KV backend had an automatic in-memory cache; this measures what replaced it. See RESULTS.md.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev --port 8799",
+    "probe": "node scripts/probe.mjs",
+    "analyze": "node scripts/analyze.mjs",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "wrangler": "4.147.0"
+  }
+}

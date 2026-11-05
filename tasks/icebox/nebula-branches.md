@@ -72,7 +72,7 @@ Branch slugs follow the same rules as universe/galaxy/star slugs: URL-safe, no d
 
 ## Entrypoint impact
 
-URL parsing splits the first segment on `.` — 3 parts means `branch = 'main'`; 4 parts means `branch = parts[3]`. The 4-tuple goes into `verifyNebulaAccessToken`'s scope check. If a 4th slug is present, the entrypoint additionally requires admin claims before routing to the DO.
+URL parsing splits the first segment on `.` — 3 parts means `branch = 'main'`; 4 parts means `branch = parts[3]`. The 4-tuple goes into `verifyAccessToken`'s scope check. If a 4th slug is present, the entrypoint additionally requires admin claims before routing to the DO.
 
 ## Open considerations
 

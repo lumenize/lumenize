@@ -1,0 +1,181 @@
+# Output of measure-labels.mjs, 2026-10-09, against blueprint-ng 28879eb (its next commit, e98a798, adds only comments)
+
+## vite dev
+
+http://localhost:5199/landing  (Chromium 145.0.7632.6, 1440x900)
+
+== cold
+ms    where   label                     measured in             Roboto 300  DM Sans 400  measured  in rendered font  ratio
+ 297  ring    Engineering Excellence    DM Sans 400             loading     loading        10.438             8.887  1.175
+ 297  ring    Container-based CI        DM Sans 400             loading     loading         8.662             7.397  1.171
+ 297  ring    Working Agreements        DM Sans 400             loading     loading         9.254             8.072  1.146
+ 297  ring    Ephemeral Test Env        DM Sans 400             loading     loading         8.921             7.612  1.172
+ 297  ring    Runtime Protection        DM Sans 400             loading     loading         8.496             7.458  1.139
+ 297  ring    ADR + AVM                 DM Sans 400             loading     loading         5.285             4.406  1.199
+ 297  ring    DDoS                      DM Sans 400             loading     loading         2.665             2.148  1.241
+ 297  ring    Training                  DM Sans 400             loading     loading         3.574             3.114  1.148
+ 297  ring    Secure Coding             DM Sans 400             loading     loading         6.608             5.610  1.178
+ 297  ring    1st Party Code            DM Sans 400             loading     loading         6.608             5.716  1.156
+ 297  ring    Critical Clean            DM Sans 400             loading     loading         5.939             5.129  1.158
+ 297  ring    High Clean                DM Sans 400             loading     loading         4.944             4.208  1.175
+ 297  ring    SBoM 3rd Party Code       DM Sans 400             loading     loading         9.715             8.277  1.174
+ 298  ring    Critical Clean            DM Sans 400             loading     loading         5.939             5.129  1.158
+ 298  ring    High Clean                DM Sans 400             loading     loading         4.944             4.208  1.175
+ 298  ring    Second Set of Eyes        DM Sans 400             loading     loading         8.774             7.421  1.182
+ 298  ring    Security Peer Review      DM Sans 400             loading     loading         9.549             8.082  1.181
+ 304  legend  Culture                   Roboto Condensed 300    loading     loading         3.203             2.783  1.151
+ 304  legend  We have fully adopted th  Roboto Condensed 300    loading     loading        15.712            13.491  1.165
+ 304  legend  Actions                   Roboto Condensed 300    loading     loading         3.315             2.926  1.133
+ 304  legend  We’re in the process of   Roboto Condensed 300    loading     loading        20.192            17.403  1.160
+ 304  legend  Words                     Roboto Condensed 300    loading     loading         2.851             2.476  1.152
+ 304  legend  We’re making plans to ad  Roboto Condensed 300    loading     loading        18.506            15.926  1.162
+ 304  legend  Thoughts                  Roboto Condensed 300    loading     loading         4.166             3.680  1.132
+ 304  legend  We do not have plans for  Roboto Condensed 300    loading     loading        16.877            14.576  1.158
+ 304  legend  Unknown                   Roboto Condensed 300    loading     loading         4.163             3.594  1.158
+ 304  legend  Unassessed or Needs foll  Roboto Condensed 300    loading     loading        14.209            12.199  1.165
+ 304  legend  Tradeoff                  Roboto Condensed 300    loading     loading         3.629             3.277  1.107
+ 304  legend  This practice is not wor  Roboto Condensed 300    loading     loading        18.285            16.247  1.125
+ 304  legend  Deferral                  Roboto Condensed 300    loading     loading         3.552             3.042  1.168
+ 304  legend  Reconsider once there is  Roboto Condensed 300    loading     loading        21.856            18.971  1.152
+ring sizes, formula on measured widths : discipline 3.429  practice 3.220
+ring sizes, formula on rendered widths : discipline 4.027  practice 3.805
+ring sizes, actually rendered          : discipline 3.429  practice 3.220
+widest practice label (Security Peer Review) fills 80.7% of its slot; the formula aims for 95.2%
+legend font sizes rendered: 2.367, 1.688
+document.fonts.load('300 16px "Roboto Condensed"') called at first measurement resolved with 1 face(s)
+width per unit font-size, SVG at 1/10/100: 8.0824 / 8.0820 / 8.0830
+canvas measureText at 100px / 100 vs SVG at 1, "Security Peer Review": 8.0830 vs 8.0824
+canvas measureText at 100px / 100 vs SVG at 1, "DDoS": 2.1475 vs 2.1485
+
+== warm
+ms    where   label                     measured in             Roboto 300  DM Sans 400  measured  in rendered font  ratio
+ 306  ring    Engineering Excellence    DM Sans 400             loaded      loading        10.438             8.886  1.175
+ 306  ring    Container-based CI        DM Sans 400             loaded      loading         8.662             7.395  1.171
+ 306  ring    Working Agreements        DM Sans 400             loaded      loading         9.254             8.073  1.146
+ 306  ring    Ephemeral Test Env        DM Sans 400             loaded      loading         8.921             7.609  1.173
+ 306  ring    Runtime Protection        DM Sans 400             loaded      loading         8.496             7.459  1.139
+ 306  ring    ADR + AVM                 DM Sans 400             loaded      loading         5.285             4.407  1.199
+ 306  ring    DDoS                      DM Sans 400             loaded      loading         2.665             2.148  1.241
+ 306  ring    Training                  DM Sans 400             loaded      loading         3.574             3.113  1.148
+ 306  ring    Secure Coding             DM Sans 400             loaded      loading         6.608             5.610  1.178
+ 306  ring    1st Party Code            DM Sans 400             loaded      loading         6.608             5.715  1.156
+ 306  ring    Critical Clean            DM Sans 400             loaded      loading         5.939             5.129  1.158
+ 306  ring    High Clean                DM Sans 400             loaded      loading         4.944             4.207  1.175
+ 306  ring    SBoM 3rd Party Code       DM Sans 400             loaded      loading         9.715             8.276  1.174
+ 306  ring    Critical Clean            DM Sans 400             loaded      loading         5.939             5.129  1.158
+ 306  ring    High Clean                DM Sans 400             loaded      loading         4.944             4.207  1.175
+ 306  ring    Second Set of Eyes        DM Sans 400             loaded      loading         8.774             7.422  1.182
+ 306  ring    Security Peer Review      DM Sans 400             loaded      loading         9.549             8.079  1.182
+ 312  legend  Culture                   Roboto Condensed 300    loaded      loading         2.780             2.781  1.000
+ 312  legend  We have fully adopted th  Roboto Condensed 300    loaded      loading        13.477            13.489  0.999
+ 312  legend  Actions                   Roboto Condensed 300    loaded      loading         2.922             2.923  0.999
+ 312  legend  We’re in the process of   Roboto Condensed 300    loaded      loading        17.387            17.402  0.999
+ 312  legend  Words                     Roboto Condensed 300    loaded      loading         2.472             2.476  0.998
+ 312  legend  We’re making plans to ad  Roboto Condensed 300    loaded      loading        15.914            15.925  0.999
+ 312  legend  Thoughts                  Roboto Condensed 300    loaded      loading         3.675             3.679  0.999
+ 312  legend  We do not have plans for  Roboto Condensed 300    loaded      loading        14.563            14.573  0.999
+ 312  legend  Unknown                   Roboto Condensed 300    loaded      loading         3.590             3.594  0.999
+ 312  legend  Unassessed or Needs foll  Roboto Condensed 300    loaded      loading        12.187            12.195  0.999
+ 312  legend  Tradeoff                  Roboto Condensed 300    loaded      loading         3.274             3.276  0.999
+ 312  legend  This practice is not wor  Roboto Condensed 300    loaded      loading        16.233            16.247  0.999
+ 312  legend  Deferral                  Roboto Condensed 300    loaded      loading         3.039             3.042  0.999
+ 312  legend  Reconsider once there is  Roboto Condensed 300    loaded      loading        18.953            18.967  0.999
+ring sizes, formula on measured widths : discipline 3.429  practice 3.220
+ring sizes, formula on rendered widths : discipline 4.028  practice 3.806
+ring sizes, actually rendered          : discipline 3.429  practice 3.220
+widest practice label (Security Peer Review) fills 80.7% of its slot; the formula aims for 95.2%
+legend font sizes rendered: 2.683, 1.947
+document.fonts.load('300 16px "Roboto Condensed"') called at first measurement resolved with 1 face(s)
+width per unit font-size, SVG at 1/10/100: 8.0794 / 8.0825 / 8.0830
+canvas measureText at 100px / 100 vs SVG at 1, "Security Peer Review": 8.0830 vs 8.0794
+canvas measureText at 100px / 100 vs SVG at 1, "DDoS": 2.1475 vs 2.1477
+
+## vite build + vite preview
+
+http://localhost:5198/landing  (Chromium 145.0.7632.6, 1440x900)
+
+== cold
+ms    where   label                     measured in             Roboto 300  DM Sans 400  measured  in rendered font  ratio
+  58  ring    Engineering Excellence    Times 400               no face     no face         9.519             8.887  1.071
+  59  ring    Container-based CI        Times 400               no face     no face         7.780             7.397  1.052
+  59  ring    Working Agreements        Times 400               no face     no face         8.500             8.072  1.053
+  59  ring    Ephemeral Test Env        Times 400               no face     no face         8.073             7.612  1.061
+  59  ring    Runtime Protection        Times 400               no face     no face         7.802             7.458  1.046
+  59  ring    ADR + AVM                 Times 400               no face     no face         5.324             4.406  1.208
+  59  ring    DDoS                      Times 400               no face     no face         2.500             2.148  1.164
+  59  ring    Training                  Times 400               no face     no face         3.407             3.114  1.094
+  59  ring    Secure Coding             Times 400               no face     no face         5.913             5.610  1.054
+  59  ring    1st Party Code            Times 400               no face     no face         5.888             5.716  1.030
+  59  ring    Critical Clean            Times 400               no face     no face         5.579             5.129  1.088
+  59  ring    High Clean                Times 400               no face     no face         4.582             4.208  1.089
+  59  ring    SBoM 3rd Party Code       Times 400               no face     no face         8.915             8.277  1.077
+  59  ring    Critical Clean            Times 400               no face     no face         5.579             5.129  1.088
+  59  ring    High Clean                Times 400               no face     no face         4.582             4.208  1.089
+  59  ring    Second Set of Eyes        Times 400               no face     no face         7.746             7.421  1.044
+  59  ring    Security Peer Review      Times 400               no face     no face         8.662             8.082  1.072
+  61  legend  Culture                   Times 400               no face     no face         2.999             2.783  1.078
+  61  legend  We have fully adopted th  Times 400               no face     no face        14.101            13.491  1.045
+  61  legend  Actions                   Times 400               no face     no face         3.111             2.926  1.063
+  61  legend  We’re in the process of   Times 400               no face     no face        18.101            17.403  1.040
+  61  legend  Words                     Times 400               no face     no face         2.587             2.476  1.045
+  61  legend  We’re making plans to ad  Times 400               no face     no face        16.629            15.926  1.044
+  61  legend  Thoughts                  Times 400               no face     no face         3.778             3.680  1.027
+  61  legend  We do not have plans for  Times 400               no face     no face        15.102            14.576  1.036
+  61  legend  Unknown                   Times 400               no face     no face         3.943             3.594  1.097
+  61  legend  Unassessed or Needs foll  Times 400               no face     no face        12.549            12.199  1.029
+  61  legend  Tradeoff                  Times 400               no face     no face         3.493             3.277  1.066
+  61  legend  This practice is not wor  Times 400               no face     no face        16.935            16.247  1.042
+  61  legend  Deferral                  Times 400               no face     no face         3.329             3.042  1.094
+  61  legend  Reconsider once there is  Times 400               no face     no face        19.827            18.971  1.045
+ring sizes, formula on measured widths : discipline 3.760  practice 3.550
+ring sizes, formula on rendered widths : discipline 4.027  practice 3.805
+ring sizes, actually rendered          : discipline 3.760  practice 3.550
+widest practice label (Security Peer Review) fills 89.0% of its slot; the formula aims for 95.2%
+legend font sizes rendered: 2.501, 1.861
+document.fonts.load('300 16px "Roboto Condensed"') called at first measurement resolved with 0 face(s)
+width per unit font-size, SVG at 1/10/100: 8.0824 / 8.0820 / 8.0830
+canvas measureText at 100px / 100 vs SVG at 1, "Security Peer Review": 8.0830 vs 8.0824
+canvas measureText at 100px / 100 vs SVG at 1, "DDoS": 2.1475 vs 2.1485
+
+== warm
+ms    where   label                     measured in             Roboto 300  DM Sans 400  measured  in rendered font  ratio
+  28  ring    Engineering Excellence    DM Sans 400             loaded      loading        10.438             8.880  1.176
+  28  ring    Container-based CI        DM Sans 400             loaded      loading         8.662             7.390  1.172
+  28  ring    Working Agreements        DM Sans 400             loaded      loading         9.254             8.067  1.147
+  28  ring    Ephemeral Test Env        DM Sans 400             loaded      loading         8.921             7.603  1.173
+  28  ring    Runtime Protection        DM Sans 400             loaded      loading         8.496             7.454  1.140
+  28  ring    ADR + AVM                 DM Sans 400             loaded      loading         5.285             4.404  1.200
+  28  ring    DDoS                      DM Sans 400             loaded      loading         2.665             2.146  1.242
+  28  ring    Training                  DM Sans 400             loaded      loading         3.574             3.111  1.149
+  28  ring    Secure Coding             DM Sans 400             loaded      loading         6.608             5.606  1.179
+  28  ring    1st Party Code            DM Sans 400             loaded      loading         6.608             5.711  1.157
+  28  ring    Critical Clean            DM Sans 400             loaded      loading         5.939             5.125  1.159
+  28  ring    High Clean                DM Sans 400             loaded      loading         4.944             4.205  1.176
+  28  ring    SBoM 3rd Party Code       DM Sans 400             loaded      loading         9.715             8.270  1.175
+  28  ring    Critical Clean            DM Sans 400             loaded      loading         5.939             5.125  1.159
+  28  ring    High Clean                DM Sans 400             loaded      loading         4.944             4.205  1.176
+  28  ring    Second Set of Eyes        DM Sans 400             loaded      loading         8.774             7.417  1.183
+  28  ring    Security Peer Review      DM Sans 400             loaded      loading         9.549             8.074  1.183
+  33  legend  Culture                   Roboto Condensed 300    loaded      loading         2.780             2.779  1.000
+  33  legend  We have fully adopted th  Roboto Condensed 300    loaded      loading        13.477            13.480  1.000
+  33  legend  Actions                   Roboto Condensed 300    loaded      loading         2.922             2.922  1.000
+  33  legend  We’re in the process of   Roboto Condensed 300    loaded      loading        17.387            17.390  1.000
+  33  legend  Words                     Roboto Condensed 300    loaded      loading         2.472             2.475  0.999
+  33  legend  We’re making plans to ad  Roboto Condensed 300    loaded      loading        15.914            15.914  1.000
+  33  legend  Thoughts                  Roboto Condensed 300    loaded      loading         3.675             3.676  1.000
+  33  legend  We do not have plans for  Roboto Condensed 300    loaded      loading        14.563            14.564  1.000
+  33  legend  Unknown                   Roboto Condensed 300    loaded      loading         3.590             3.592  1.000
+  33  legend  Unassessed or Needs foll  Roboto Condensed 300    loaded      loading        12.187            12.187  1.000
+  33  legend  Tradeoff                  Roboto Condensed 300    loaded      loading         3.274             3.274  1.000
+  33  legend  This practice is not wor  Roboto Condensed 300    loaded      loading        16.233            16.236  1.000
+  33  legend  Deferral                  Roboto Condensed 300    loaded      loading         3.039             3.040  1.000
+  33  legend  Reconsider once there is  Roboto Condensed 300    loaded      loading        18.953            18.954  1.000
+ring sizes, formula on measured widths : discipline 3.429  practice 3.220
+ring sizes, formula on rendered widths : discipline 4.030  practice 3.809
+ring sizes, actually rendered          : discipline 3.429  practice 3.220
+widest practice label (Security Peer Review) fills 80.7% of its slot; the formula aims for 95.2%
+legend font sizes rendered: 2.683, 1.947
+document.fonts.load('300 16px "Roboto Condensed"') called at first measurement resolved with 1 face(s)
+width per unit font-size, SVG at 1/10/100: 8.0739 / 8.0820 / 8.0829
+canvas measureText at 100px / 100 vs SVG at 1, "Security Peer Review": 8.0830 vs 8.0739
+canvas measureText at 100px / 100 vs SVG at 1, "DDoS": 2.1475 vs 2.1463

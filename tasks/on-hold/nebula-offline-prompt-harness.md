@@ -2,7 +2,7 @@
 
 **Status**: **ON HOLD** (parked 2026-06-23). Designed, partially reviewed (`/review-task` Stage 1 run
 2026-06-22), deferred. **Un-park trigger:** the **data-bound generation** work
-([`../nebula-pre-alpha.md`](../nebula-pre-alpha.md) Wave 2) is churning and hand-driven / local prompt
+([`../nebula-pre-alpha.md`](../nebula-pre-alpha.md) § *Data-bound generation*) is churning and hand-driven / local prompt
 iteration has become too slow — then this offline replay bench is the accelerator. Master home:
 [`../nebula-pre-alpha.md`](../nebula-pre-alpha.md).
 
@@ -17,7 +17,7 @@ Re-run a recorded codegen turn — `(systemPrompt, message, currentSource[, onto
 **independently of the browser/Studio**, and **score** the output with the container-free Rung-1 gate
 (`compileSource` in `apps/nebula/src/codegen-gate.ts`). A fast, **directional** iterate loop on the
 **data-bound** prompt. It is **NOT** the regression suite (that's the parked eval suite,
-[`nebula-studio-eval-suite.md`](nebula-studio-eval-suite.md) — shares the `TurnRecord` fixture schema);
+[`nebula-studio-self-improvement.md`](nebula-studio-self-improvement.md) — shares the `TurnRecord` fixture schema);
 this is the exploratory bench.
 
 **Replay is side-effect-free over a frozen fixture** — the `TurnRecord` already carries its own
@@ -39,9 +39,9 @@ pure function; `writeFile` is an in-memory Map.
 - **S1 [runtime, was BLOCKER]:** the "truly offline / plain-Node `scripts/` tool" premise is
   **verified-false** — `compileSource` → `./galaxy` → `@lumenize/mesh` → `cloudflare:workers`, and
   `codegen-loop.ts` imports `assertSafeRelPath` (a DO file). The gate is standalone *within
-  workerd/pool-workers*, NOT plain Node. **Resolution:** the harness is a **vitest-pool-workers project**
+  workerd/vitest-plugin*, NOT plain Node. **Resolution:** the harness is a **vitest-plugin project**
   that imports the gate unchanged; the model call is a **real external `fetch` to the Workers AI REST
-  API** (pool-workers supports real external fetch) — fully automated, no `wrangler dev`. ("Offline"
+  API** (vitest-plugin supports real external fetch) — fully automated, no `wrangler dev`. ("Offline"
   means *browser/Studio-independent*, not *workerd-independent*.)
 - **S2 [YAGNI]:** support **single-inference replay only** (one model call, gate once). **Drop full-loop
   replay** — re-running the loop's own already-shipped self-correction stacks non-determinism for no
@@ -65,5 +65,5 @@ pure function; `writeFile` is an in-memory Map.
 ## Out of scope
 
 - **Turn extraction** → moved up to the pre-alpha program (the cross-tenant inspection instrument).
-- **Regression gates + LLM-judge** → the parked eval suite (`nebula-studio-eval-suite.md`).
+- **Regression gates + LLM-judge** → the eval/reward-function core, folded into [`nebula-studio-self-improvement.md`](nebula-studio-self-improvement.md).
 - **Rung-2 runtime signal** → when the container path is on the critical path.

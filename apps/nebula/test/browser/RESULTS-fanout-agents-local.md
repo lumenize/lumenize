@@ -1,23 +1,25 @@
+<!-- measured-at-commit: 7efc7d6e94790ddd62e79b1afbdfb801b57f2d78 -->
+> Measured at commit `7efc7d6e94790ddd62e79b1afbdfb801b57f2d78` ⚠️ dirty tree — not reproducible.
+
 # Fanout Bench — Cloudflare Agents naive-broadcast (local)
 
-- **baseUrl**: `https://127.0.0.1:51329`
+- **baseUrl**: `https://127.0.0.1:58849`
 - **agent class**: `BenchAgent` (extends `agents/Agent`, naive partyserver `broadcast` loop)
-- **instance**: `bench-2c38b6e8` (all M=1001 clients share one DO)
-- **N values**: 500, 1000
-- **commits per N**: 3
+- **instance**: `bench-588f6e00` (all M=101 clients share one DO)
+- **N values**: 10, 50, 100
+- **commits per N**: 5
 - **bench source**: [fanout-agents.benchmark.ts](fanout-agents.benchmark.ts) · [agents-harness-client.ts](agents-harness-client.ts)
 
 ## Latency vs N
 
-| N | commits | errors | span (mean / p50 / p99) | per-subscriber latency (mean / p50 / p99) | end-to-end (mean / p50 / p99) |
+| N | commits | errors | e2e p50 (ms) | e2e p99 (ms) | e2e max (ms) |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 500 | 3 | 0 | 8.44 / 8.44 / 9.02 ms | 27.19 / 20.54 / 46.86 ms | 27.31 / 20.61 / 47.09 ms |
-| 1000 | 3 | 0 | 14.95 / 15.06 / 15.52 ms | 13.69 / 14.98 / 19.49 ms | 13.74 / 15.03 / 19.55 ms |
+| 10 | 5 | 0 | 3.34 | 4.21 | 4.21 |
+| 50 | 5 | 0 | 2.68 | 3.00 | 3.01 |
+| 100 | 5 | 0 | 2.11 | 4.33 | 4.34 |
 
-All values in milliseconds.
+`e2e` = `t_arrived − t_before_trigger` per subscriber per commit — wall-clock from "originator called `setState`" to "subscriber's `onStateUpdate` fired." `p50` is the median subscriber's wait; `p99` is the 99th-percentile subscriber's wait; `max` is the worst observed subscriber across all commits at this N.
 
-`span` is `max(t_arrived) − min(t_arrived)` within a single state-update broadcast — how stretched partyserver's `for (conn of getConnections()) conn.send(msg)` loop was.
+`errors > 0` means at least one subscriber didn't receive the state update within `FANOUT_TIMEOUT_MS`.
 
-`per-subscriber latency` is `t_arrived − t_after_trigger` (originator's `setState` call returned at `t_after_trigger`; the actual server-side broadcast happens asynchronously after the originator's WS message lands).
-
-`end-to-end` is `t_arrived − t_before_trigger` — wall-clock from "originator called setState" to "subscriber's onStateUpdate fired."
+Raw per-subscriber arrival data + full Stats (mean, p50, p75, p95, p99, min, max) for span / per-subscriber-latency / end-to-end are in [fanout-agents-raw-local.json](fanout-agents-raw-local.json).

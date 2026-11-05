@@ -1,0 +1,23 @@
+{
+  // Latest-toolchain experiment. compat date matches the bundled workerd (1.20260710.1) so it is
+  // valid both under local wrangler dev AND when deployed — DO facets (open beta since ~Apr 2026)
+  // need a recent runtime + date. No compatibility_flags: this probe uses only raw cloudflare:workers
+  // primitives (DurableObject / WorkerEntrypoint / RpcTarget) — zero node builtins, no ALS.
+  "name": "rpc-stub-disposability",
+  "main": "./src/index.ts",
+  "compatibility_date": "2026-07-10",
+  "durable_objects": {
+    "bindings": [
+      { "name": "PROBE", "class_name": "ProbeDO" }
+    ]
+  },
+  // Self-referencing service binding (service === this worker's own name) so we can probe both the
+  // WorkerEntrypoint binding stub itself AND an RpcTarget returned from one of its methods.
+  "services": [
+    { "binding": "SELF_SERVICE", "service": "rpc-stub-disposability", "entrypoint": "ProbeEntrypoint" }
+  ],
+  // ProbeFacet is registered as a sqlite class so it can back a facet; it needs no namespace binding.
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ProbeDO", "ProbeFacet"] }
+  ]
+}

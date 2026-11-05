@@ -5,7 +5,7 @@
  * Sets, TypedArrays, or class instances (those compare by reference).
  */
 import { describe, it, expect } from 'vitest';
-import { deepEquals } from '../../src/frontend/deep-equals';
+import { deepEquals } from '../../../../packages/resources/src/frontend/deep-equals';
 
 describe('primitives', () => {
   it('identical primitives are equal', () => {

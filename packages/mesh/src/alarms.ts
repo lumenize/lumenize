@@ -70,6 +70,14 @@ export class Alarms {
   #sql: ReturnType<typeof sqlType>;
   #storage: DurableObjectStorage;
   #log: DebugLogger;
+  /**
+   * The ids whose alarm is running now, each `true` once a `schedule` has re-armed it during the
+   * run: from the handler itself, as a poll re-arms under its own id, or from another call while
+   * the handler awaits. The run then keeps the row rather than deleting the re-arm with the alarm
+   * that fired. Coordination for one run, not data: an eviction loses the run, and the row is
+   * whichever was last written.
+   */
+  #firing = new Map<string, boolean>();
 
   constructor(doInstance: any) {
     this.#doInstance = doInstance;
@@ -82,7 +90,10 @@ export class Alarms {
     this.#sql = doInstance.svc.sql;
     this.#log = debug('lmz.alarms.Alarms');
 
-    // Create table synchronously (idempotent)
+    // Create table synchronously (idempotent).
+    // ⚠️ `time` and `created_at` are epoch seconds, an exception to ADR-011's ISO 8601 text: they
+    // stay as they are until alarms are refactored, which revisits both, and the table's retry
+    // columns with them.
     this.#storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS __lmz_alarms (
         id TEXT PRIMARY KEY NOT NULL,
@@ -97,7 +108,9 @@ export class Alarms {
   }
 
   /**
-   * Schedule a task to execute in the future.
+   * Schedule a task to execute in the future. An unscoped node's identity stamp, held in memory from
+   * the call that scheduled it, is persisted here, since the alarm may wake the node with no call to
+   * bring it.
    * @param when Date, seconds delay, or cron expression
    * @param continuation OCAN chain from `this.ctn()`
    * @see https://lumenize.com/docs/mesh/alarms#scheduling-tasks
@@ -185,6 +198,7 @@ export class Alarms {
     extra: { delayInSeconds?: number; cron?: string }
   ): void {
     const serialized = JSON.stringify(preprocess(operationChain));
+    if (this.#firing.has(id)) this.#firing.set(id, true);
 
     if (type === 'scheduled') {
       this.#sql`
@@ -202,6 +216,9 @@ export class Alarms {
         VALUES (${id}, ${serialized}, ${type}, ${extra.cron!}, ${time})
       `;
     }
+    // The alarm may wake this node with no call to stamp it from, so an unscoped node's identity,
+    // held in memory from the call that scheduled it, is persisted now.
+    this.#doInstance.lmz?.__persistIdentity?.();
   }
 
   /**
@@ -280,18 +297,21 @@ export class Alarms {
 
   /**
    * Execute pending alarms. Used internally by `alarm()` and for testing.
-   * @param count Alarms to execute (default: all overdue)
+   * @param count How many of the earliest alarms to execute, due or not. Omitted, every alarm already
+   *   due runs and nothing later does, so a job scheduled ahead needs a count.
    * @see https://lumenize.com/docs/mesh/alarms#testing
    */
   async triggerAlarms(count?: number): Promise<string[]> {
     const now = Math.floor(Date.now() / 1000);
     const executedIds: string[] = [];
 
-    // If count not specified, execute all overdue alarms, or 1 if none overdue
+    // With no count, run what the runtime's alarm would run now: every job already due, and none when
+    // nothing is. A count runs the earliest jobs whatever their time, which is how a test runs one
+    // scheduled ahead.
     let effectiveCount: number;
     if (count === undefined) {
       const overdueResult = this.#sql`SELECT COUNT(*) as count FROM __lmz_alarms WHERE time <= ${now}`;
-      effectiveCount = overdueResult[0]?.count ?? 1;
+      effectiveCount = overdueResult[0].count;
     } else {
       effectiveCount = count;
     }
@@ -301,6 +321,7 @@ export class Alarms {
       if (result.length === 0) break;
 
       const row = result[0];
+      this.#firing.set(row.id, false);
 
       try {
         // Use local chain executor that allows skipping @mesh decorator check
@@ -311,15 +332,17 @@ export class Alarms {
       } catch (e) {
         this.#log.error('Error executing alarm', {
           id: row.id,
-          error: e instanceof Error ? e.message : String(e),
-          stack: e instanceof Error ? e.stack : undefined
+          error: e,
         });
       }
 
-      if (row.type === 'cron') {
+      // A row re-armed during the run is the re-arm's, not the alarm that fired, so it stays.
+      const rearmed = this.#firing.get(row.id);
+      this.#firing.delete(row.id);
+      if (!rearmed && row.type === 'cron') {
         const nextTimestamp = Math.floor(getNextCronTime(row.cron).getTime() / 1000);
         this.#sql`UPDATE __lmz_alarms SET time = ${nextTimestamp} WHERE id = ${row.id}`;
-      } else {
+      } else if (!rearmed) {
         this.#sql`DELETE FROM __lmz_alarms WHERE id = ${row.id}`;
       }
     }
@@ -328,23 +351,32 @@ export class Alarms {
     return executedIds;
   }
 
-  /** Alarm handler - called by LumenizeDO's alarm() lifecycle method */
+  /**
+   * Alarm handler, called by MeshDO's `alarm()` lifecycle method: runs every job already due, then
+   * points the alarm at the earliest job left, whether or not one ran. Cloudflare promises an alarm
+   * runs when its time comes, not that it never runs early, and a job is due once the clock reaches
+   * its whole second, so one delivered a millisecond short of that second finds nothing due. Left
+   * unarmed then, the job would wait for some later `schedule()` to arm the alarm again.
+   */
   readonly alarm = async (alarmInfo?: AlarmInvocationInfo): Promise<void> => {
-    const now = Math.floor(Date.now() / 1000);
-    const overdueResult = this.#sql`SELECT COUNT(*) as count FROM __lmz_alarms WHERE time <= ${now}`;
-    const overdueCount = overdueResult[0]?.count || 0;
-    if (overdueCount > 0) {
-      await this.triggerAlarms(overdueCount);
-    }
+    await this.triggerAlarms();
   };
 
+  /**
+   * Point the Durable Object's one alarm at the earliest stored job, overdue ones included. A job
+   * due now — `schedule(0, …)`, or a `Date` already past — stores the current second, and an overdue
+   * row a restart left behind must fire too. The time is clamped to just after now, as the `agents`
+   * SDK's scheduler clamps it, rather than handing `setAlarm` a time already past, whose handling
+   * Cloudflare does not document.
+   *
+   * ⚠️ Never filter to rows later than now. The `cloudflare/actors` code this file was adapted from
+   * does, and here it left every zero-delay job unarmed until a later schedule happened to arm the
+   * alarm: a Galaxy's certificate order waited for its own deletion.
+   */
   #scheduleNextAlarm(): void {
-    const result = this.#sql`
-      SELECT time FROM __lmz_alarms WHERE time > ${Math.floor(Date.now() / 1000)}
-      ORDER BY time ASC, id ASC LIMIT 1
-    `;
+    const result = this.#sql`SELECT time FROM __lmz_alarms ORDER BY time ASC, id ASC LIMIT 1`;
     if (result.length > 0) {
-      this.#storage.setAlarm((result[0].time as number) * 1000);
+      this.#storage.setAlarm(Math.max((result[0].time as number) * 1000, Date.now() + 1));
     }
   }
 }

@@ -60,13 +60,24 @@ for package in "${PACKAGES[@]}"; do
     pkg.main = 'src/index.ts';
     pkg.types = 'src/index.ts';
     
-    // Restore exports
-    if (pkg.exports) {
-      if (pkg.exports['.']) {
-        pkg.exports['.'].import = './src/index.ts';
-        pkg.exports['.'].types = './src/index.ts';
+    // Restore exports — the exact inverse of prepare-for-publish.sh's repoint:
+    // walk EVERY entry (subpaths, string-form exports, nested condition maps),
+    // mapping ./dist/X.js and ./dist/X.d.ts back to ./src/X.ts. The old
+    // dot-entry-only version silently left mesh's string-form subpaths,
+    // testing's ./wrangler, and debug's platform conditions pointing at dist/.
+    const repoint = (obj) => {
+      for (const [cond, target] of Object.entries(obj)) {
+        if (typeof target === 'string') {
+          if (target.startsWith('./dist/')) {
+            const base = target.slice('./dist/'.length).replace(/\.d\.ts$/, '').replace(/\.js$/, '');
+            obj[cond] = './src/' + base + '.ts';
+          }
+        } else if (target && typeof target === 'object') {
+          repoint(target);
+        }
       }
-    }
+    };
+    if (pkg.exports && typeof pkg.exports === 'object') repoint(pkg.exports);
     
     // Restore files array to src instead of dist
     if (pkg.files) {

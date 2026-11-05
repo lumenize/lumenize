@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSetCookie, parseSetCookies, serializeCookies, cookieMatches, type Cookie } from '../../src/cookie-utils';
+import { parseSetCookie, parseSetCookies, serializeCookies, cookieMatches, admitSetCookie, type Cookie } from '../../src/cookie-utils';
 
 describe('parseSetCookie', () => {
   it('should parse simple cookie', () => {
@@ -415,5 +415,51 @@ describe('cookieMatches', () => {
       };
       expect(cookieMatches(cookie, 'example.com', '/api/users')).toBe(false);
     });
+  });
+});
+
+// The jar behaves like a browser on the hosts Nebula serves, where every scope is a host under one
+// site: a cookie without `Domain` stays on its host, `Domain` matches on a dot boundary, and every
+// `*.localhost` host is a secure context.
+describe('cookieMatches — browser rules on sibling hosts', () => {
+  it('a host-only cookie is sent to its own host and to no subdomain', () => {
+    const hostOnly: Cookie = { name: 'h', value: '1', domain: 'crm.acme.lumenize.localhost', hostOnly: true };
+    expect(cookieMatches(hostOnly, 'crm.acme.lumenize.localhost', '/')).toBe(true);
+    expect(cookieMatches(hostOnly, 'dev.crm.acme.lumenize.localhost', '/')).toBe(false);
+  });
+
+  it('a Domain cookie is sent to every host beneath its domain', () => {
+    const wide: Cookie = { name: 'w', value: '1', domain: 'lumenize.localhost' };
+    expect(cookieMatches(wide, 'dev.crm.acme.lumenize.localhost', '/')).toBe(true);
+    expect(cookieMatches(wide, 'lumenize.localhost', '/')).toBe(true);
+  });
+
+  it('a domain matches on a dot boundary, never as a bare suffix', () => {
+    const crm: Cookie = { name: 'c', value: '1', domain: 'crm.acme.lumenize.localhost' };
+    expect(cookieMatches(crm, 'xcrm.acme.lumenize.localhost', '/')).toBe(false);
+    expect(cookieMatches(crm, 'dev.crm.acme.lumenize.localhost', '/')).toBe(true);
+  });
+
+  it('every *.localhost host is a secure context', () => {
+    const secure: Cookie = { name: 's', value: '1', domain: 'platform.lumenize.localhost', hostOnly: true, secure: true };
+    expect(cookieMatches(secure, 'platform.lumenize.localhost', '/', false)).toBe(true);
+    // Positive control: an ordinary host over http still withholds a Secure cookie.
+    const plain: Cookie = { name: 's', value: '1', domain: 'example.com', hostOnly: true, secure: true };
+    expect(cookieMatches(plain, 'example.com', '/', false)).toBe(false);
+  });
+});
+
+describe('admitSetCookie — the Domain attribute as a browser reads it (RFC 6265 §5.2.3)', () => {
+  const page = new URL('https://crm.acme.example.com/');
+
+  it('an empty Domain is ignored, so the cookie is host-only on the setting host', () => {
+    const admitted = admitSetCookie(parseSetCookie('a=1; Domain=; Path=/')!, page);
+    expect(admitted).toMatchObject({ domain: 'crm.acme.example.com', hostOnly: true });
+  });
+
+  it('a Domain in upper case matches the host it names', () => {
+    const admitted = admitSetCookie(parseSetCookie('a=1; Domain=ACME.Example.COM; Path=/')!, page);
+    expect(admitted?.domain).toBe('acme.example.com');
+    expect(admitted?.hostOnly).toBeUndefined();
   });
 });

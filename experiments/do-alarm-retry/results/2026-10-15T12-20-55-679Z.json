@@ -1,0 +1,304 @@
+{
+  "startedAt": "2026-10-15T12:20:55.681Z",
+  "finishedAt": "2026-10-15T12:26:04.467Z",
+  "waitS": 300,
+  "probes": [
+    {
+      "mode": "throw",
+      "name": "throw-2026-10-15T12-20-55-679Z",
+      "armedAt": "2026-10-15T12:20:57.271Z",
+      "alarmAt": "2026-10-15T12:20:59.271Z",
+      "seen": 7,
+      "report": {
+        "mode": "throw",
+        "alarm": "2026-10-15T12:20:59.271Z",
+        "attempts": [
+          {
+            "seq": 1,
+            "firedAt": "2026-10-15T12:20:59.271Z",
+            "scheduledTime": "2026-10-15T12:20:59.271Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 2,
+            "firedAt": "2026-10-15T12:21:01.398Z",
+            "scheduledTime": "2026-10-15T12:20:59.271Z",
+            "retryCount": 1,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 3,
+            "firedAt": "2026-10-15T12:21:06.006Z",
+            "scheduledTime": "2026-10-15T12:20:59.271Z",
+            "retryCount": 2,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 4,
+            "firedAt": "2026-10-15T12:21:14.446Z",
+            "scheduledTime": "2026-10-15T12:20:59.271Z",
+            "retryCount": 3,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 5,
+            "firedAt": "2026-10-15T12:21:33.200Z",
+            "scheduledTime": "2026-10-15T12:20:59.271Z",
+            "retryCount": 4,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 6,
+            "firedAt": "2026-10-15T12:22:10.937Z",
+            "scheduledTime": "2026-10-15T12:20:59.271Z",
+            "retryCount": 5,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 7,
+            "firedAt": "2026-10-15T12:23:23.248Z",
+            "scheduledTime": "2026-10-15T12:20:59.271Z",
+            "retryCount": 6,
+            "isRetry": 1,
+            "completedAt": null
+          }
+        ]
+      }
+    },
+    {
+      "mode": "abort",
+      "name": "abort-2026-10-15T12-20-55-679Z",
+      "armedAt": "2026-10-15T12:20:57.692Z",
+      "alarmAt": "2026-10-15T12:20:59.692Z",
+      "seen": 7,
+      "report": {
+        "mode": "abort",
+        "alarm": "2026-10-15T12:20:59.692Z",
+        "attempts": [
+          {
+            "seq": 1,
+            "firedAt": "2026-10-15T12:20:59.692Z",
+            "scheduledTime": "2026-10-15T12:20:59.692Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 2,
+            "firedAt": "2026-10-15T12:21:01.808Z",
+            "scheduledTime": "2026-10-15T12:20:59.692Z",
+            "retryCount": 1,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 3,
+            "firedAt": "2026-10-15T12:21:06.280Z",
+            "scheduledTime": "2026-10-15T12:20:59.692Z",
+            "retryCount": 2,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 4,
+            "firedAt": "2026-10-15T12:21:15.070Z",
+            "scheduledTime": "2026-10-15T12:20:59.692Z",
+            "retryCount": 3,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 5,
+            "firedAt": "2026-10-15T12:21:34.890Z",
+            "scheduledTime": "2026-10-15T12:20:59.692Z",
+            "retryCount": 4,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 6,
+            "firedAt": "2026-10-15T12:22:09.312Z",
+            "scheduledTime": "2026-10-15T12:20:59.692Z",
+            "retryCount": 5,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 7,
+            "firedAt": "2026-10-15T12:23:18.350Z",
+            "scheduledTime": "2026-10-15T12:20:59.692Z",
+            "retryCount": 6,
+            "isRetry": 1,
+            "completedAt": null
+          }
+        ]
+      }
+    },
+    {
+      "mode": "abort-noretry",
+      "name": "abort-noretry-2026-10-15T12-20-55-679Z",
+      "armedAt": "2026-10-15T12:20:58.251Z",
+      "alarmAt": "2026-10-15T12:21:00.251Z",
+      "seen": 1,
+      "report": {
+        "mode": "abort-noretry",
+        "alarm": "2026-10-15T12:21:00.251Z",
+        "attempts": [
+          {
+            "seq": 1,
+            "firedAt": "2026-10-15T12:21:00.251Z",
+            "scheduledTime": "2026-10-15T12:21:00.251Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          }
+        ]
+      }
+    },
+    {
+      "mode": "rearm-abort",
+      "name": "rearm-abort-2026-10-15T12-20-55-679Z",
+      "armedAt": "2026-10-15T12:20:58.570Z",
+      "alarmAt": "2026-10-15T12:21:00.570Z",
+      "seen": 7,
+      "report": {
+        "mode": "rearm-abort",
+        "alarm": null,
+        "attempts": [
+          {
+            "seq": 1,
+            "firedAt": "2026-10-15T12:21:00.570Z",
+            "scheduledTime": "2026-10-15T12:21:00.570Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 2,
+            "firedAt": "2026-10-15T12:21:10.585Z",
+            "scheduledTime": "2026-10-15T12:21:10.585Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 3,
+            "firedAt": "2026-10-15T12:21:20.600Z",
+            "scheduledTime": "2026-10-15T12:21:20.600Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 4,
+            "firedAt": "2026-10-15T12:21:30.617Z",
+            "scheduledTime": "2026-10-15T12:21:30.617Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 5,
+            "firedAt": "2026-10-15T12:21:40.632Z",
+            "scheduledTime": "2026-10-15T12:21:40.631Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 6,
+            "firedAt": "2026-10-15T12:21:50.646Z",
+            "scheduledTime": "2026-10-15T12:21:50.646Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 7,
+            "firedAt": "2026-10-15T12:22:00.660Z",
+            "scheduledTime": "2026-10-15T12:22:00.660Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": "2026-10-15T12:22:00.674Z"
+          }
+        ]
+      }
+    },
+    {
+      "mode": "rearm-throw",
+      "name": "rearm-throw-2026-10-15T12-20-55-679Z",
+      "armedAt": "2026-10-15T12:20:58.967Z",
+      "alarmAt": "2026-10-15T12:21:00.967Z",
+      "seen": 7,
+      "report": {
+        "mode": "rearm-throw",
+        "alarm": null,
+        "attempts": [
+          {
+            "seq": 1,
+            "firedAt": "2026-10-15T12:21:00.967Z",
+            "scheduledTime": "2026-10-15T12:21:00.967Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 2,
+            "firedAt": "2026-10-15T12:21:10.987Z",
+            "scheduledTime": "2026-10-15T12:21:10.987Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 3,
+            "firedAt": "2026-10-15T12:21:21.007Z",
+            "scheduledTime": "2026-10-15T12:21:21.007Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 4,
+            "firedAt": "2026-10-15T12:21:31.028Z",
+            "scheduledTime": "2026-10-15T12:21:31.028Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 5,
+            "firedAt": "2026-10-15T12:21:41.047Z",
+            "scheduledTime": "2026-10-15T12:21:41.047Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 6,
+            "firedAt": "2026-10-15T12:21:51.066Z",
+            "scheduledTime": "2026-10-15T12:21:51.066Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 7,
+            "firedAt": "2026-10-15T12:22:01.087Z",
+            "scheduledTime": "2026-10-15T12:22:01.087Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": "2026-10-15T12:22:01.107Z"
+          }
+        ]
+      }
+    }
+  ]
+}

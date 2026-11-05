@@ -13,7 +13,7 @@ description: Actor authorization, delegated tokens, and RFC 8693 act claims
 
 **Auth** = Bearer token or refresh token cookie. **Admin** = Auth + `isAdmin` required.
 
-Delegation allows one authenticated subject to act on behalf of another (e.g., admin impersonation for support). The principal's permissions apply; the actor's identity is recorded for audit. See [JWT Claims: Delegation](/docs/auth/#jwt-claims) for the `act` claim format.
+Delegation allows one authenticated subject to act on behalf of another (e.g., an admin or support engineer acting for a user). The principal's permissions apply; the actor's identity is recorded for audit. See [JWT Claims: Delegation](/docs/auth/#jwt-claims) for the `act` claim format.
 
 :::note Non-human actors (coming soon)
 Currently, the actor must be an authenticated subject and the principal must be a valid subject (exists in the database). Service account and AI agent authentication (API keys, service tokens) is planned for a future release.

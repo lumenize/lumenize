@@ -1,0 +1,7 @@
+{
+  "name": "experiment-preview-self-binding",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Probe: does a Worker Preview's SELF service binding resolve to the Preview or to production?"
+}

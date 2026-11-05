@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "experiment-fuse-bisect",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-05-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "containers": [
+    {
+      "class_name": "FuseBisectDO",
+      "image": "./Dockerfile",
+      "instance_type": "standard-2",
+      "max_instances": 5,
+      "rollout_active_grace_period": 0,
+      "rollout_step_percentage": [100]
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "FuseBisectDO", "class_name": "FuseBisectDO" }]
+  },
+  "exports": {
+    "FuseBisectDO": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "observability": { "enabled": true }
+}

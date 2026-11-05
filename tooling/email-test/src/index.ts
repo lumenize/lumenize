@@ -1,6 +1,9 @@
+import { verifySvixSignature } from './svix-verify';
+import type { ResendWebhookPayload } from './email-test-do';
+
 export { EmailTestDO } from './email-test-do';
 export { SimpleMimeMessage, createMimeMessage } from './simple-mime-message';
-export type { StoredEmail } from './email-test-do';
+export type { StoredEmail, DeliveryEvent, DeliveryEventMessage } from './email-test-do';
 
 const INSTANCE_NAME = 'email-inbox';
 
@@ -47,8 +50,20 @@ export default {
       return withCors(request, new Response(null, { status: 204 }));
     }
 
-    // Route /ws and /emails and /clear to the DO — all require TEST_TOKEN
-    if (url.pathname === '/ws' || url.pathname === '/emails' || url.pathname === '/clear') {
+    // Resend's webhook: authenticated by its signature, since Resend cannot send TEST_TOKEN. Without the
+    // secret it answers 503, which Resend retries, so deliveries made before the secret is set still land.
+    if (url.pathname === '/resend-webhook' && request.method === 'POST') {
+      const secret = (env as Env & { RESEND_WEBHOOK_SECRET?: string }).RESEND_WEBHOOK_SECRET;
+      if (!secret) return new Response('webhook secret not configured', { status: 503 });
+      const body = await request.text();
+      if (!await verifySvixSignature(secret, request.headers, body)) return new Response('bad signature', { status: 401 });
+      const stub = env.EMAIL_TEST_DO.getByName(INSTANCE_NAME);
+      await stub.receiveDeliveryEvent(request.headers.get('svix-id')!, JSON.parse(body) as ResendWebhookPayload);
+      return new Response('ok', { status: 200 });
+    }
+
+    // Route /ws, /emails, /events and /clear to the DO — all require TEST_TOKEN
+    if (url.pathname === '/ws' || url.pathname === '/emails' || url.pathname === '/events' || url.pathname === '/clear') {
       const denied = checkTestToken(url, env);
       if (denied) return withCors(request, denied);
 

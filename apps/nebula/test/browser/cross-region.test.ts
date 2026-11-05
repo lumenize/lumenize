@@ -2,28 +2,28 @@
  * Phase 6 of `tasks/gateway-hop-benchmark.md` — empirical cross-region
  * Workers RPC measurement.
  *
- * Compares `Star.delay(200)` latency for two stars on the same Gateway:
+ * Compares `Star.delay(200)` latency for two stars called from one host node, the Galaxy hosting the client:
  *
  *   - **Same-DC star**: addressed by name (`idFromName`). Cloudflare places
- *     this DO in the same colo as the user's Gateway DO (which follows the
- *     user's first-access colo). For Larry-in-Pittsburgh hitting
+ *     this DO in the same colo as the Galaxy hosting the client (which follows the
+ *     first-access colo). For Larry-in-Pittsburgh hitting
  *     `nebula-browser-test.transformation.workers.dev`, both end up in IAD.
  *   - **Cross-region star**: created via `newUniqueId({ jurisdiction: 'eu' })`
  *     at the bench Worker's `/bench/cross-region-star` endpoint, which
  *     forces EU placement (typically ARN, Stockholm). Addressed by its
  *     64-char hex ID — `getDOStub()` auto-detects IDs vs names.
  *
- * Both calls go through the same Gateway DO (same user, same connection),
- * so the WS hop client↔Gateway is constant. The only thing that changes is
- * the Workers RPC hop Gateway↔Star: same-DC for the named star,
+ * Both calls go through the same host node (same user, same connection),
+ * so the WS hop client↔host node is constant. The only thing that changes is
+ * the Workers RPC hop host node↔Star: same-DC for the named star,
  * transatlantic for the EU one. Subtracting their `gateway-onward` times
  * isolates the cross-region Workers RPC delta.
  *
  * Method: `Star.delay(200)` on the Star side, marker emitted by
- * `InstrumentedNebulaClientGateway.onBeforeCallToMesh` *before* the
+ * the instrumented Galaxy's `onBeforeCallToMesh` *before* the
  * Workers RPC dispatch. `gateway-onward = responseArrival − markerArrival`
- * isolates the entire Cloudflare-side time between Gateway entry and
- * Gateway-exit, with the WS hop cancelling out (it appears in both
+ * isolates the entire Cloudflare-side time between the host node's entry and
+ * exit, with the WS hop cancelling out (it appears in both
  * arrival times). The 200 ms `setTimeout` on Star is constant in both
  * shapes, so the delta is pure Workers RPC RT.
  *
@@ -36,10 +36,11 @@
 
 import { describe, it, inject, expect } from 'vitest';
 import { Browser } from '@lumenize/testing';
+import { scopeOriginFrom } from '../lib/email-login';
 import { HarnessNebulaClient } from './harness-client';
-import { bootstrapAdmin } from './auth-bootstrap';
+import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
-const ADMIN_EMAIL = 'test@lumenize.io';
+const ADMIN_EMAIL = 'test@lumenize-test.dev';
 const DELAY_MS = 200;
 const ITERATIONS = 20;
 
@@ -92,9 +93,9 @@ describe.runIf(process.env.BENCH_BASE_URL)('Phase 6 cross-region: same-DC vs EU 
     const galaxyScope = uniqueGalaxy();
 
     // Step 1: bootstrap auth
-    await bootstrapAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
+    const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
 
-    // Step 2: discover the Worker's colo (= Gateway colo for our consistent client)
+    // Step 2: discover the Worker's colo (= the host node's colo, which this test touched first)
     const coloRes = await browser.fetch(`${baseUrl}/bench/colo`);
     const { workerColo } = await coloRes.json() as { workerColo: string };
     console.log(`[cross-region] Worker colo: ${workerColo}`);
@@ -114,15 +115,14 @@ describe.runIf(process.env.BENCH_BASE_URL)('Phase 6 cross-region: same-DC vs EU 
       );
     }
 
-    // Step 4: construct a single client. The Gateway DO it spawns will be in
+    // Step 4: construct a single client, hosted by the Galaxy, which is in
     // the user's colo (= workerColo).
-    const ctx = browser.context(baseUrl);
+    const ctx = browser.context(scopeOriginFrom(baseUrl, galaxyScope));
     const client = new HarnessNebulaClient({
-      baseUrl,
-      authScope: galaxyScope,
-      activeScope: galaxyScope,
-      appVersion: 'v1',
-      fetch: browser.fetch,
+      baseUrl: scopeOriginFrom(baseUrl, galaxyScope),
+      platformOrigin: baseUrl,
+      ontologyVersion: 'v1',
+      fetch: ctx.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
     });
@@ -138,7 +138,7 @@ describe.runIf(process.env.BENCH_BASE_URL)('Phase 6 cross-region: same-DC vs EU 
 
       // Step 5: warm the same-DC Star + confirm its colo. We use a fresh
       // tenant scope as the same-DC Star's name; it'll be placed near the
-      // Gateway (same colo as Worker).
+      // host node (same colo as Worker).
       const sameDcStarName = `${galaxyScope}.tenant-samedc`;
       // Triggers same-DC Star creation via a delay(1) call (creates the DO)
       await client.callStarDelay(sameDcStarName, 1);
@@ -163,7 +163,7 @@ describe.runIf(process.env.BENCH_BASE_URL)('Phase 6 cross-region: same-DC vs EU 
 
       // Workers RPC RT estimate: gateway-onward minus the 200 ms artificial
       // delay on Star. The remainder is Workers RPC RT (G→S + S→G) plus
-      // small fixed overhead (Gateway processing, setTimeout slack). The
+      // small fixed overhead (host node processing, setTimeout slack). The
       // overhead is constant, so subtracting same-DC from cross-region
       // gives a clean Workers RPC RT delta.
       const sameDcRpcRt = sameDcStats.p50 - DELAY_MS;

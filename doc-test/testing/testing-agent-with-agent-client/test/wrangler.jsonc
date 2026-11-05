@@ -1,24 +1,14 @@
 {
   "name": "testing-agent-with-agent-client",
   "main": "./test-harness.ts",  // The only difference from real wrangler.jsonc
-  "compatibility_date": "2026-03-12",
+  "compatibility_date": "2026-10-01",
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "migrations": [
-    {
-      "new_sqlite_classes": [
-        "ChatAgent"
-      ],
-      "tag": "v1"
-    },
-    {
-      "new_sqlite_classes": [
-        "AuthAgent"
-      ],
-      "tag": "v2"
-    }
-  ],
+  "exports": {
+    "ChatAgent": { "type": "durable-object", "storage": "sqlite" },
+    "AuthAgent": { "type": "durable-object", "storage": "sqlite" }
+  },
   "durable_objects": {
     "bindings": [
       {

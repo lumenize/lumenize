@@ -8,7 +8,7 @@
  * connection surfacing). The full v-model → real-Star round-trip is a §5.3.8
  * e2e probe (P10); the real-browser variants are §5.3.7-v4.
  */
-import { createNebulaStore } from '../../src/frontend/create-nebula-client';
+import { createNebulaStore } from '../../../../packages/resources/src/frontend/create-nebula-client';
 import { MockClient } from './mock-client';
 
 /**
