@@ -43,10 +43,7 @@ export const scopeLifecycleHooks: ScopeLifecycleHooks = {
           log.debug('reset as ordered', { instanceName, tier, cause, operationId });
           return;
         }
-        // Named on its own because the logger writes an Error's enumerable fields, and whether
-        // workerd makes `durableObjectReset` one is unmeasured.
-        const durableObjectReset = (err as { durableObjectReset?: unknown })?.durableObjectReset;
-        log.error('teardown failed', { instanceName, tier, cause, operationId, error: err, durableObjectReset });
+        log.error('teardown failed', { instanceName, tier, cause, operationId, error: err });
       }
     }));
   },

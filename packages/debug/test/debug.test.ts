@@ -168,6 +168,21 @@ describe('@lumenize/debug', () => {
       expect(data.error).toMatchObject({ name: 'Error', message: 'upstream 503', status: 503 });
     });
 
+    // workerd sets these on an Error from a Durable Object call; whether it makes them enumerable
+    // is unmeasured, so the fixture takes the shape the enumerable-fields loop alone would drop.
+    it("writes workerd's error flags even when they are not enumerable", () => {
+      const error = new Error('internal error; reference = abc123');
+      for (const [key, value] of Object.entries({ remote: true, retryable: true, overloaded: false, durableObjectReset: true })) {
+        Object.defineProperty(error, key, { value, enumerable: false });
+      }
+      debug('test').error('teardown failed', { error });
+
+      expect(lastLine().data.error).toEqual({
+        name: 'Error', message: 'internal error; reference = abc123',
+        remote: true, retryable: true, overloaded: false, durableObjectReset: true,
+      });
+    });
+
     it('lifts the stack to the top level and does not repeat it in data', () => {
       const error = new Error('upstream 503');
       debug('test').error('pack delete failed', { error });

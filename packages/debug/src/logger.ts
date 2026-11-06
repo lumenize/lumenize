@@ -29,6 +29,15 @@ function errorIn(data: unknown): Error | undefined {
 }
 
 /**
+ * The flags workerd sets on an Error from a call to a Durable Object or over Workers RPC: whether
+ * the remote side threw it, whether retrying could succeed, whether the object was overloaded, and
+ * whether the object was reset. Read by name, because whether workerd makes them enumerable is
+ * unmeasured. Cloudflare retries a Durable Object call that fails before it arrives, so these are
+ * what tell a transient failure its retries did not cure from one it never retried.
+ */
+const WORKERD_ERROR_FLAGS = ['remote', 'retryable', 'overloaded', 'durableObjectReset'] as const;
+
+/**
  * An Error as plain fields. `JSON.stringify` would write `{}`, because an Error's `name`,
  * `message`, `stack`, `cause` and AggregateError's `errors` are not enumerable.
  */
@@ -40,6 +49,10 @@ function serializeError(error: Error, omitStack: boolean): Record<string, unknow
   if (Array.isArray(errors)) out.errors = errors;
   for (const [key, value] of Object.entries(error)) {
     if (!(key in out)) out[key] = value;
+  }
+  for (const key of WORKERD_ERROR_FLAGS) {
+    const value = (error as unknown as Record<string, unknown>)[key];
+    if (value !== undefined && !(key in out)) out[key] = value;
   }
   return out;
 }
