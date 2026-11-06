@@ -208,6 +208,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Import it from Mesh's auth router and Nebula's entrypoint, and delete both copies.
   - Rewrite that paragraph of `raw-comm.md` to point at the export, or the next move copies it again.
   - The MCP Events prototype in `../mcp-events-prototype` copies the runner too, and keeps its copy: it depends on no Lumenize package, so a working-group reader need not learn Lumenize's packages.
+- [ ] **Give a Profile's version a moment, as Resources' is (2026-11-06).** A Profile's `eTag` is a ULID the server mints for each write and stores in `ProfileFields`; the client compares it only to `NEVER_WRITTEN_ETAG`. [resources-validfrom-is-the-only-version.md](resources-validfrom-is-the-only-version.md) makes `validFrom` Resources' only version and leaves Profiles out (its D8), so after it lands a Profile is the one place a version is still called `eTag`. The change: mint a moment for each write, as that task's Design intent 1 does, call it `validFrom` in `ProfileFields` and on the snapshot's `meta`, and rename `NEVER_WRITTEN_ETAG`, a new term Larry approves first. Nothing waits on it.
 
 ## Testing & Quality
 
