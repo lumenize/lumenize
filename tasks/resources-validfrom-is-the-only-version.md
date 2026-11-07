@@ -4,9 +4,13 @@
 
 ## Objective
 
-**Each committed write gets one moment, which the server assigns as it commits, and that moment, the snapshot's `validFrom`, is the only version a resource has.** It orders every change in a Star, a writer names it to prove it read the current snapshot, and it fills any field an outside protocol wants a version in.
+**Each committed write gets one moment, which the server assigns as it commits, and that moment, the snapshot's `validFrom`, is the only version a resource has.** It orders every change in a Star [The resources data plane can be composed onto other DOs.]. It fills any version-like field that an outside protocol wants: `eTag`, `revision` in the MCP filesystem draft, etc.
 
-A moment is an ISO 8601 millisecond string, the form [ADR-011](../docs/adr/011-iso-timestamps.md) gives every timestamp: `2026-11-06T15:09:41.007Z`. Here is one put, today and after:
+A moment is an ISO 8601 millisecond string, the form [ADR-011](../docs/adr/011-iso-timestamps.md) gives every timestamp: `2026-11-06T15:09:41.007Z`. 
+
+Right now, we have two different values that serve this purpose: (1) `validFrom`, and (2) `eTag`. The goal of this task file is to reduce that to just `validFrom`. After this change, a writer shows that it had the previously most recent `validFrom` before any  changes are permitted.
+
+Here is one put, today and after:
 
 ```ts
 // Today: the client mints the new version and sends it
@@ -28,17 +32,27 @@ The field names in the second half are D7's.
 
 ## Context
 
-**Why now.** The MCP Resource Events proposal ([experimental-ext-triggers-events#19](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/pull/19)) asks this of a server's changes: a new moment for each (its R2), moments that strictly increase in byte order (R3), one moment for a write that touches several resources (R4), changes that commit in the order of their moments (R5), and a catch-up that returns every resource changed after a moment the client names. Resources is close. The server already stamps `validFrom`, it is already a string that sorts, and [ADR-004](../docs/adr/004-snodgrass-temporal-resources.md) already makes history the substrate. Larry put the pre-alpha roadmap on hold to do this first, because it serves both strategies he is weighing: Nebula, and an open-source framework with Resources included.
+**Why now.** The MCP Resource Events proposal ([experimental-ext-triggers-events#19](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/pull/19)) asks this of a server's changes: 
+
+1. A unique new moment for each version (its R2, Lumenize's snapshot). [I'm uncertain about this wording. Please help.]
+2. Moments that strictly increase in byte order (R3) [I don't say "byte order" in my proposal. I simply say "by string sort order". We should match that here.], 
+3. One moment for a write that touches several resources (R4)
+4. Changes that commit in the order of their moments (R5) [How does this differ from 1+ 2 above?]
+5. A catch-up that returns every resource changed after a moment the client names. 
+
+Resources is close. The server already stamps `validFrom`, it is already a string that sorts, and [ADR-004](../docs/adr/004-snodgrass-temporal-resources.md) already makes history the substrate. 
+
+Larry put the pre-alpha roadmap on hold to do this first, because it serves both strategies he is weighing: Nebula, and an open-source framework with Resources included.
 
 Three things in `snapshots.ts` stand in the way:
 
-1. **Coalescing keeps a write's old moment** (against R2 and R4). `#writeSnapshot` overwrites the current snapshot in place when the same actor writes within an hour of its `validFrom` (`if (withinWindow && sameActor)`), so the row keeps its key and its `validFrom`. Two writes then share one moment, so only the `eTag` tells them apart. In a batch, a resource that coalesces keeps its old `validFrom` while a sibling that doesn't gets the new one, so one write ends up with two moments. The overwrite also breaks `auth.md` § *Attribution*'s promise that "committed history is immutable", which that doc's *Today's code differs* box does not mention, and Goal 4 closes that gap.
+1. **Coalescing keeps a write's old moment** (against R2 and R4). `#writeSnapshot` overwrites the current snapshot in place when the same actor writes within an hour of its `validFrom` (`if (withinWindow && sameActor)`), so the row keeps its key and its `validFrom`. Two writes then share one moment, so only the `eTag` tells them apart. In a batch, a resource that coalesces keeps its old `validFrom` while a sibling that doesn't gets the new one, so one write ends up with two moments. The overwrite also breaks `auth.md` § *Attribution*'s promise that "committed history is immutable", which that doc's *Today's code differs* box does not mention, and Goal 4 closes that gap. [This last sentence is more a problem of precision inside auth.md. That clause should have been clarified to allow coalesing. So, I'd drop this last sentence and not let it drive us. Or, mention that auth.md is not precise in this way. Or alter auth.md to allow for it.]
 2. **A moment is unique per resource, not per Star** (against R3). `#calculateValidFrom` moves `Date.now()` past the batch's own current snapshots only, so two transactions on different resources in one millisecond share a `validFrom`. The backlog's *`validFrom` global monotonicity* row has tracked this since 2026-06-30.
-3. **A moment is picked before the validator's `await`, so commit order and moment order can disagree** (against R5). Step 2 of `transaction` picks it, Step 5 awaits `facet.parseBatch`, and Step 10 writes it. Say transaction T1 picks `…:05.100Z` and awaits. T2 arrives, picks `…:05.101Z`, needs no validation because it is a delete, and commits. T1 then commits at `.100`. A reader that has seen `.101` and asks for changes after it never sees T1.
+3. **A moment is picked before the validator's `await`, so commit order and moment order can disagree** (against R5). Step 2 of `transaction` picks it, Step 5 awaits `facet.parseBatch`, and Step 10 writes it. Say transaction T1 picks `…:05.100Z` and awaits. T2 arrives, picks `…:05.101Z`, needs no validation because it is a delete, and commits. T1 then commits at `.100`. A reader that has seen `.101` and asks for changes after it never sees T1. [To fix this, I think it would be a mistake to block concurrency for this await. We should measure but I think that will kill throughput. Rather, I think we may need to delay assiging it until the final `transactionSync`: read the KV holding the latest moment, calculate the new validFrom using the existing one and the current time, write the values. Then outside the transactionSync, we can reply with the new validFrom.]
 
 **Why the eTag goes too.** The client mints it: `newETag` is a UUID from `crypto.randomUUID()`, and the server stores it as the version. [ADR-005](../docs/adr/005-optimistic-concurrency-etags.md) gives it two jobs:
 
-1. **It proves a writer read the current snapshot.** Once coalescing goes, `validFrom` does this alone, since no two writes share one.
+1. **It proves a writer holds the current snapshot.** Once coalescing goes, `validFrom` does this alone, since no two writes share one.
 2. **It lets a repeated transaction be answered `committed`.** A repeat carries the same `newETag`, and Steps 4.5a and 6.5 find it already stored. With coalescing gone, history keeps every write, so the server can recognize a repeat from the snapshots it wrote instead.
 
 Larry's second MCP prototype, `resource-webhooks-on-events`, tried at first to keep eTag semantics alive beside moments, which added complexity, and its code got clearer once moment strings were the version (Larry, 2026-11-06). So the server mints the only version, and the code says `validFrom` throughout. An eTag-like field appears only where an outside protocol expects one, and `validFrom` fills it.
@@ -47,17 +61,17 @@ The sections below set what the build must make true, what exists now and what b
 
 ## Goals
 
-1. **One write gets one moment, and no other write in the Star has it.** Every resource a transaction writes gets the same `validFrom`, so a moment names a write. Today coalescing splits a batch's moments, and uniqueness stops at the resource (Context items 1 and 2).
+1. **One write gets one moment, and no other write in the DO has it.** Every resource a transaction writes gets the same `validFrom`, so a moment names a write. Today coalescing splits a batch's moments, and uniqueness stops at the resource (Context items 1 and 2).
 2. **Moments sort in commit order.** A reader that has seen a moment and asks for later changes misses nothing. Today a moment is picked before the validator's `await` (item 3).
 3. **Only the server mints a version.** Nothing a client chose is stored as a version. Today the client mints `newETag` and the server stores it (Context, *Why the eTag goes too*).
-4. **Every committed op is a snapshot.** History holds each write, so undo, audit and a merge base can find any version, and each records its writer. Today coalescing overwrites some (Context item 1), and a move to the node a resource is already on writes nothing.
+4. **Every committed op is a snapshot.** History holds each write, so undo, audit and a merge base can find any version, and each records its writer. Today coalescing overwrites some (Context item 1). Also, a move to the node a resource is already on writes nothing, which is a bug we found while planning this task file. It should always have created a new snapshot.
 
 ## Relationships
 
 - **Gated by:** nothing.
 - **Gates:** a Lumenize implementation of Resource Events, which has no task file yet, and the deferred query-subscription delta catch-up.
 - **Builds a backlog row's server half:** the *`validFrom` global monotonicity* row's option (B), a stored key read and written in every transaction, is Design intent 1 and D5. At completion the row keeps only its client half.
-- **Keeps a decided plan true:** the backlog's *A Client resends a call its socket lost* row lists `resources.transaction` and `postUserMessage` as safe to repeat, and [mesh-1-alpha.md](mesh-1-alpha.md) § *Item 11: Durable calls* builds on that row. Recognizing a repeat (D6) is what keeps both safe once `newETag` goes.
+- **Keeps a decided plan true:** the backlog's *A Client resends a call its socket lost* row lists `resources.transaction` and `postUserMessage` as safe to repeat, and [mesh-1-alpha.md](mesh-1-alpha.md) § *Item 11: Durable calls* builds on that row. Recognizing a repeat (D6) is what keeps both safe once `newETag` goes. [This seems very down in the weeds. How much value does it have mentioning it here?]
 - **Changes what these say**, each updated or recorded as an accepted residual:
   - The backlog's *Where we contribute: SEP-3415's Open Question 2* bullet cites `mcp-events-prototype`'s `lumenize-port.md` for why `validFrom` cannot be the cursor. Its two reasons are Context items 1 and 2, which this task removes.
   - The backlog's *Mesh's subscribe could adopt the conventions* bullet says ADR-005's eTags "come close to" an `eventId`. A write's `validFrom` does after this.
@@ -107,7 +121,7 @@ Built already, each part with its fate:
    ```
 
    A Durable Object runs one `transactionSync` at a time and the key only moves forward, so moments are unique in the Star and sort in commit order. With the latest moment at `15:09:41.007Z`, a write in that same millisecond gets `15:09:41.008Z`, and one at `.010` gets `.010`.
-2. **The latest moment is the Star's most recent moment**, the proposal's term for it. The next moment starts from it. It lives in one KV key, `latestMoment`, which each transaction reads into a local variable and writes back (D5). A `.dev` wipe deletes only the keys listed in `PLANE_KEYS`, and this key stays off that list, so moments keep rising across a wipe.
+2. **The latest moment is the Star's [The resources data plane can be composed onto things other than Stars] most recent moment**, the proposal's term for it. The next moment starts from it. It lives in one KV key, `latestMoment`, which each transaction reads into a local variable and writes back (D5). A `.dev` wipe deletes only the keys listed in `PLANE_KEYS`, and this key stays off that list, so moments keep rising across a wipe.
 3. **A writer proves it read the current snapshot by naming that snapshot's `validFrom`.** A put, move or delete names it as `ifValidFromMatches` (D7), and a mismatch is a conflict, decided at Step 9 as today. A create still asserts that the resource does not exist. ADR-005's monotonic pre-check rule, for checks outside the transaction, carries over: a resource whose `validFrom` has moved past the op's never moves back, so Step 4.5b may still skip a doomed validation.
 4. **Every committed op is a snapshot, and the client's debounce sets how many there are.** That includes a put of the value already there and a move to the node already held, whose snapshots differ from the one before only in `validFrom`, `actingToken` and `ontologyVersion` (D11). The engine's default quiet window (500 ms) and maximum wait (2 s) keep keystrokes from becoming versions, and the server keeps whatever arrives. The cost lands on writes that coalesce today:
    - **Rows written.** An in-place update writes 1 row; a new snapshot writes 4: it closes the old row, inserts the new one, and moves the partial index's entry out and in. Writing the latest moment's key (D5) makes a one-resource transaction 5. At $1.00 per million rows written (`durable-objects.md` § *SQLite write-cost optimization*), an hour of steady typing that submits every 2 s costs about $0.009 instead of $0.0018.
