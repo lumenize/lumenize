@@ -45,14 +45,19 @@ Write the file down to and including *Open questions*, then **stop and ask for a
 
 **Status:** [one line: what this is, what it blocks or is blocked by, any pinned business decision + date]
 
+## Conventions
+[What the file's IDs mean, said once, with an example: `B` a blocker in today's code, `DI` an item
+ of design intent, `C` a checkable claim, `Q` an open question, `D` a decision, each numbered in the
+ order raised and never reused, so "D7 is the seventh decision made, wherever its row sits"
+ (`workflow.md` § *Referring to things across files*). No list below repeats it.]
+
 ## Objective
 **[The capability, in the sentence a stranger would need.]**
 [Optional: a table or example of the end state, when one sentence cannot show it.]
 
 ## Context
 [Why this, and why now. One sentence when the cause is a bug; a few paragraphs when it is history.
- Each thing in today's code that stands in the way is `B1`, `B2`, …, in the order raised, never
- reused, under a first line saying so (`workflow.md` § *Referring to things across files*).]
+ Each thing in today's code that stands in the way is `B1`, `B2`, ….]
 
 ## Goals
 [Often: N goals — the properties that make the objective worth delivering, each with how
@@ -68,18 +73,18 @@ Missing: [numbered, specific, each a thing this task adds or changes]
 
 ## Design intent
 [The contract the phases must conform to. See the rules below.
- Each item is `DI1`, `DI2`, …, and each checkable claim `C1`, `C2`, …, in the order raised, never
- reused, under a first line saying so (`workflow.md` § *Referring to things across files*).]
+ Each item is `DI1`, `DI2`, …, and each checkable claim `C1`, `C2`, ….]
 
 ## Constraints
 [Which ADRs bind this, which rules apply, what the milestone allows.]
 
-## Future state
-[What this makes possible next, and what it must not foreclose.]
+## Beyond this task
+[What this makes possible next, and what it must not foreclose. Never what the system looks like
+ once this task lands: Design intent says that.]
 
 ## Open questions
 [Decisions that must be made and that gate something, each with its options and a recommendation.
- Each is `Q1`, `Q2`, … in the order raised, never reused (`workflow.md` § *Referring to things across files*).]
+ Each is `Q1`, `Q2`, ….]
 ```
 
 **Each section is a heading of its own so a sibling file can cite it by name** — `§ *Constraints*`, not a section whose title lists its children (Larry, 2026-10-06, from the pen round on `tasks/archive/mesh-is-built-on-the-scope-tree.md`, which first used this outline).
@@ -93,7 +98,7 @@ Missing: [numbered, specific, each a thing this task adds or changes]
 - **Name the invariant, not the incidental property.** "This is safe because *nothing currently mints such a principal*" expires silently. "This is safe because authority is confined to the node it runs in" does not. See `.claude/rules/calibration.md` § 4.
 - **State every load-bearing assumption as a checkable claim.** If the intent depends on "these two changes share a call chain" or "this test is blocked only on X", write it as a claim so review can falsify it. Both of those examples were false in a real file.
 - **Constraints:** which ADRs bind this, which rules apply, what the milestone allows. Cite; do not restate.
-- **Future state:** what this makes possible next, and what it must not foreclose. Mark forward guidance inline as `⚠️ Design consideration:` — it gates nothing and must not become a tracked open question (`tasks/README.md`).
+- **Beyond this task:** what this makes possible next, and what it must not foreclose. Mark forward guidance inline as `⚠️ Design consideration:` — it gates nothing and must not become a tracked open question (`tasks/README.md`). Files before 2026-11-08 call it *Future state*, a name Larry read as the state this task leaves behind, which Design intent describes.
 - **Goals, when the objective needs more than one sentence.** The objective is the *deliverable*; goals are the *properties that make it worth building*. A goal that restates the objective is not a goal; cut it.
   - ⚠️ **If the goals and the `Missing` list come out near-parallel, MERGE them** — give each goal its own "today, this is how it goes wrong" clause and delete `Missing`. Keep both lists only where they sit on genuinely different axes (`Missing` = specific defects, goals = outcome properties, as in `nebula-passage-dominion-from-scope.md`). Two parallel lists say everything twice and then drift, which is the defect this skill exists to prevent, reproduced inside one file.
 - **`Built already` states a FATE, not just an inventory.** For each part: carried over unchanged, adapted, or left behind. "What exists" alone leaves a cold implementer to guess which existing code they may keep, and the guess is usually "all of it". The verdicts are also load-bearing evidence — a part carried over unchanged is why a change is a migration rather than a rewrite, and that is a fact a reviewer wants when pricing it.
@@ -133,8 +138,6 @@ Only after the intent is approved:
 
 ```markdown
 ## Decisions
-IDs follow the order decisions were made, not the order shown, and a gap is a decision removed.
-
 | ID | Decision | Rejected alternative — why |
 |---|---|---|
 | D1 | [what we do; `(was Q2)` when it answers an open question] | [what we don't, and the reason — this is where every negative lives] |
