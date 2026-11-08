@@ -10,7 +10,7 @@
 
 Our philosophy on agent agency is the [Manifesto for AI Agency](../docs/vision/manifesto.md): seven "X over Y" lines, each argued in the doc it names. [`_ai-security.md`](../docs/vision/_ai-security.md) argues most of them, though it is a rough draft and already behind Larry's latest thinking, and [`auth.md`](../docs/vision/auth.md) has the details of who may do what. Three points from those lines bear on this task directly:
 
-- **Every prior state is kept, but nothing restores one yet.** The temporal data model keeps every state a resource has been in, except short-lived intermediate states that one principal coalesced with nobody else's change between them. Git keeps every committed state of code and file-based configuration. No tool rolls either back yet.
+- **Every prior state is kept, but nothing restores one yet.** The temporal data model keeps every state a resource has been in. Git keeps every committed state of code and file-based configuration. No tool rolls either back yet.
 - **Attribution has to survive a group chat.** Every resource change and every git commit is attributed to a chat participant. When it is unclear who in a group chat instructed the agent, the chat it judged from sits on the same timeline as the changes, if nothing ties them more explicitly.
 - **This task builds the innermost feedback loop.** Its feedback is the difference between the participants' latest goals and the current implementation, and its output is the next change to the codebase. A second loop around it comes later, improving the app's standing guidance: its skills, workflows, rules, vision documents and ADRs.
 

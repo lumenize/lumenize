@@ -80,4 +80,4 @@ Awaiting a network result is not banned outright. What the decision forbids is h
 ### Negative
 - "Did it land?" needs explicit machinery instead of an implicit return. Every call names a result handler, a fire-and-forget call one with `onErrorOnly`, and the client's `callAsync` wraps one in a Promise.
 - Flows are harder to trace than a call stack; `callContext.callChain` exists precisely to compensate.
-- Write retry/backpressure cannot lean on a transport response end-to-end; it must be designed at the outcome level (overload/backpressure design + ADR-005's replay idempotency).
+- Write retry/backpressure cannot lean on a transport response end-to-end; it must be designed at the outcome level (overload/backpressure design + ADR-005's recognition of a repeat).

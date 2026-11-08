@@ -23,7 +23,7 @@ Three existing commitments constrain the answer:
 
 - The ontology **write shape** rewrites relationship refs to `string` / `string[]` — the id form the wire and storage use. Validation enforces it: a reference field accepts an id string (or array of id strings), not an object.
 - **Nesting is reserved for composition *within* a single resource.** Inline object/array fields (`address: { city: string }`) are part of that one resource's value and its single snapshot. A resource's value round-trips the full structured-clone space — `Map`, `Date`, cycles, aliased sub-objects (ADR-002) — but that richness lives *inside* one value; it does not reach *across* resource references, which are always ids.
-- **A transaction is a map of independent ops that commit atomically** (single `validFrom`/`eTag`; idempotent via `newETag` — ADR-005). "Create a parent and its children together" is N ops in one `transaction(...)` call, each with a client-supplied UUID and reference fields pointing at sibling ids.
+- **A transaction is a map of independent ops that commit atomically** (one `validFrom`, and a repeat is recognized — ADR-005). "Create a parent and its children together" is N ops in one `transaction(...)` call, each with a client-supplied UUID and reference fields pointing at sibling ids.
 - **Embedding an object where an id belongs is a loud, actionable error** — the generated validator names the field and target type and says "reference by id," rather than emitting a bare `expected "(string | undefined)"`.
 
 ## Alternatives considered

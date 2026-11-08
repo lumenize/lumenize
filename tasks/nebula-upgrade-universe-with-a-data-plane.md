@@ -28,12 +28,8 @@ collecting one.
 - **It also inherits RETIRING THE THREE CONFIG PAIRS** (handed over 2026-09-22; that task proposed
   the deletion and the scope was cut to here, because this is the file that authors their
   replacement). `setUniverseConfig`/`getUniverseConfig` and the Galaxy and Star pairs all go when the
-  scope-metadata Resource lands — one blast radius rather than two. **Two preconditions, both
+  scope-metadata Resource lands — one blast radius rather than two. **One precondition,
   measured rather than assumed:**
-  - **`coalesceWindowMs` needs a home FIRST.** `Snapshots`, the storage engine, bootstraps it into the same `'config'` KV
-    bag and reads it on every write to decide snapshot coalescing, and `setStarConfig` is its only
-    setter — so the Star pair is not a probe surface and cannot simply be deleted. A constant, a
-    plane accessor, or a field on the new type.
   - **Three `/live` scenarios and four frozen test lists read these methods**, and
     `passage-not-dominion` loses one in all three limbs, including the `getStarConfig` positive
     control whose own comment records that it is not optional. Name the replacement each limb
@@ -152,8 +148,7 @@ criterion a fixture, a mutation and a positive control.
   `d = Object.getOwnPropertyDescriptor(Universe.prototype, 'resourcesResults')`, with the positive
   control that `d.get` is a function, as `resources-door.test.ts` does for the Star and the Galaxy.
 - **The config pairs are gone and nothing lost a guard.** Every `/live` limb that read a config
-  method reads its replacement instead and still discriminates by message, and `coalesceWindowMs`
-  survives the deletion with a named home. Mutation: delete the pair without re-pointing a limb and
+  method reads its replacement instead and still discriminates by message. Mutation: delete the pair without re-pointing a limb and
   `drive.ts all` reds rather than a scenario silently losing its control.
 - **The scope-metadata ontology is precompiled and drift-checked.** The generator's `--check` runs
   ahead of vitest and reds on a hand-edited literal, as it already does for the chat seed.

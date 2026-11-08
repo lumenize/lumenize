@@ -36,7 +36,7 @@ Scoping the rule to *irreversible* actions is a loophole. Reversibility is a pro
 
 A record that doubles as a **same-actor comparison key** keys on identity only, the `sub` plus the complete `act` chain, and never on a stringification of the record.
 
-`snapshots.ts`'s coalescing compare is the live instance. The column stores the full record through the projection, and `identityKey` decides same-actor. The window is an hour while an access token lives 15 minutes, so a key built from the whole record would split one person's editing session at every refresh. `profileId`, `access` and `aud` stay out of the key: `profileId` is derived from `sub`, and a snapshot must not split because someone's admin bit or page changed mid-window. A wire allow-list, `WireActingToken`, keeps the asserted `access` and `aud` in the column, so a snapshot delivered to a client carries identity and display `profileId`s only.
+`snapshots.ts`'s recognition of a repeat is the live instance (ADR-005). The column stores the full record through the projection, and `identityKey` decides whether a resend is the same writer's. An access token lives 15 minutes, so a resend can carry a re-minted token, and a key built from the whole record would refuse a person's own resend after a refresh. `profileId`, `access` and `aud` stay out of the key: `profileId` is derived from `sub`, and a resend must not become another writer's because someone's admin bit or page changed. A wire allow-list, `WireActingToken`, keeps the asserted `access` and `aud` in the column, so a snapshot delivered to a client carries identity and display `profileId`s only.
 
 ### In scope today
 
@@ -54,7 +54,7 @@ Scope deletion (`executeScopeDeletion`) · identity-authority changes (`setIdent
 |---|---|
 | **Record the `sub` only** | Under impersonation this names the wrong human, with no marker that it did. |
 | **Record `sub` + `act.sub`, nothing else** | Fixes the wrong person but loses *what authority was asserted*, which is the question a post-incident reader has ("how was this permitted?"). It also needs a live registry hop to render a departed actor's name. |
-| **Widen the record but keep it as the coalesce key** | The naive route to uniformity, and it silently breaks coalescing, since one window spans several tokens. See the Corollary. |
+| **Widen the record and key on all of it** | The naive route to uniformity, and it silently breaks recognition, since a resend can carry a re-minted token. See the Corollary. |
 | **Exempt resource writes permanently** | Two record shapes and two rules to keep in sync forever, for a reason that was an implementation conflation (2026-07-28). |
 | **Defer until an audit mechanism exists** | Inverts what is replaceable. It is also how the gap arose: every site reached for a debug log, and no two agreed on what a "caller" is. |
 | **Scope it to *irreversible* actions** | A loophole, per § *Context* (2026-07-28). |

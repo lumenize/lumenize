@@ -439,7 +439,8 @@ export interface LmzApiClient {
    *
    * ⚠️ Abort cancels the WAIT. It cancels the server OPERATION only if the call had not yet left the
    * client — a queued call is dropped with its wait — and a call that has left runs regardless, so a
-   * retry-after-abort is safe ONLY for idempotent ops (client-supplied UUID / ADR-005 eTag).
+   * retry-after-abort is safe ONLY for idempotent ops (a client-supplied UUID, or a Resources write,
+   * whose repeat is recognized — ADR-005).
    */
   callAsync<T = any>(
     calleeBindingName: string,

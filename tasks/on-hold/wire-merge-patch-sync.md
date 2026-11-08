@@ -12,7 +12,7 @@
 Use the structured-clone encoding + RFC 7396 (JSON Merge Patch) primitives to send per-mutation deltas over the wire, replacing full-snapshot sends. Two use cases:
 
 1. **DAG-tree fanout sync** — every Star pushes its DAG to every connected client on every mutation. With 1k typical (10k worst-case) nodes per Star and many connected clients per Star, full-snapshot resends don't scale. Was the original motivating use case (Phase 4 of the wire-format task).
-2. **Per-resource read sync** — when a client `read`s a resource it already has a snapshot for, server sends a patch from the last-known ETag instead of a full snapshot. Secondary use case but the plumbing largely overlaps.
+2. **Per-resource read sync** — when a client `read`s a resource it already has a snapshot for, server sends a patch from the last-known version, its `validFrom` ([ADR-005](../../docs/adr/005-optimistic-concurrency.md)), instead of a full snapshot. Secondary use case but the plumbing largely overlaps.
 
 Most plumbing is common; the DAG path adds a few specifics (per-Star fanout, snapshot ETag chain) that don't apply to the per-resource path.
 
@@ -36,9 +36,11 @@ From [PR #11](https://github.com/lumenize/lumenize/pull/11):
 
 ### ETag as the correlation key
 
+For a resource, the ETag in this chain is its `validFrom`; the org tree's stays a content hash.
+
 Both use cases use an **ETag chain**: `{ patch, fromETag, toETag }`. ⚠️ `diff` now answers `same`, a list of patches, or `full`, so the envelope carries a list, or the full value ([nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 14* designs it). Receiver applies patch iff `currentETag === fromETag`. On any mismatch (or apply failure, or postprocess-produces-wrong-ETag), receiver requests a full snapshot.
 
-**Decided 2026-10-14 (Larry): a subscription push is the same for every subscriber.** A client whose eTag does not match the push's base sends a read with its last eTag and gets a patch bridging the versions it missed. For a resource, ADR-004 keeps every version, so the base is usually still stored; the exception is the coalescing window, which overwrites a same-actor version in place within the hour, and that read answers with the full value. The retention strategies below are for the org tree, whose state keeps no history.
+**Decided 2026-10-14 (Larry): a subscription push is the same for every subscriber.** A client whose version does not match the push's base sends a read with its last version and gets a patch bridging the versions it missed. For a resource, ADR-004 keeps every version, so the base is still stored while it is in hot storage. The retention strategies below are for the org tree, whose state keeps no history.
 
 ### Patch-history retention on the server
 

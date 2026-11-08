@@ -5,6 +5,7 @@
 **Supersedes**: `tasks/icebox/nebula-5.4-capability-tickets.md` (per-resource `ResourceHistory` DO + capability tickets — iceboxed)
 **Master task file**: `tasks/archive/nebula.md` (archived)
 **Relevant engine**: `packages/resources/src/snapshots.ts` (`Snapshots` table, Snodgrass-style temporal storage in Star)
+**Version**: written when each snapshot carried an `eTag`. It now carries only `validFrom` ([ADR-005](../../docs/adr/005-optimistic-concurrency.md)), which is what each eTag check below compares.
 
 ## Goal
 
@@ -54,19 +55,16 @@ the per-resource-DO design made *worse* and R2 makes *better*:
 ## How it maps onto today's engine (`Snapshots` in `snapshots.ts`)
 
 The `Snapshots` table is already Snodgrass-temporal: `PRIMARY KEY (resourceId, validFrom)`,
-`validTo` defaults to `END_OF_TIME` for the current version, debounce window
-`config.debounceMs` (default 60 min). The change is surgical:
+`validTo` defaults to `END_OF_TIME` for the current version, and every write closes the
+current row and opens a new one. The change is surgical:
 
 - **Drop the `value` TEXT column to R2.** Star keeps the metadata row; the blob is in R2.
 - **R2 key = `<resourceId>/<validFrom>`** — resource id first, `validFrom` appended. This
   is a 1:1 mirror of the SQLite PK, so the existing temporal logic already produces the
   right key on every path.
-  - **Within the debounce window** the engine updates the current row *in place* (same
-    `validFrom`) → same R2 key → **PUT overwrites**. Coalesced edits = one history entry,
-    new eTag each time.
-  - **Outside the window** the engine closes the current row (`validTo = now`) and inserts
-    a new row (`validFrom = now`) → **new R2 key**. R2 grows as the complete history,
-    naturally.
+  - Every write closes the current row (`validTo` = the transaction's moment) and inserts a
+    new row at that moment → **a new R2 key per write**. R2 grows as the complete history,
+    naturally, and no key is ever overwritten.
 
 ## Write path (one transaction)
 
@@ -79,7 +77,7 @@ The `Snapshots` table is already Snodgrass-temporal: `PRIMARY KEY (resourceId, v
 3. Star updates its **metadata** first (the SQL `INSERT`/in-place update on `Snapshots`,
    minus `value`).
 4. Star writes the blob to R2 at `<resourceId>/<validFrom>` (the outbox op):
-   in-window → PUT overwrites the current key; out-of-window → PUT to the new `validFrom` key.
+   a new key for every write, never an overwrite.
 5. **The DO output gate holds the client response until the R2 PUT confirms**, so the client
    never sees an eTag that isn't yet backed by a blob. (Mechanics + cost of awaiting R2 from
    a DO is Open decision D1.)
@@ -224,6 +222,6 @@ async R2 fetch (it is sync-from-SQLite today); the Star needs an R2 binding.
 - [ ] `Snapshots.value` blobs stored in R2 at scope-namespaced `<resourceId>/<validFrom>` keys
 - [ ] `transaction()` holds the client response until the R2 write is durable (D1 mechanism)
 - [ ] `read()`/`reads()` validate the R2 blob eTag against Star's eTag; stale-read retry path tested
-- [ ] eTag conflict, debounce-coalesce, and out-of-window-new-version paths all green with R2 backing
+- [ ] version-conflict and new-version paths green with R2 backing
 - [ ] Cross-tenant R2 isolation test: a Star cannot read/write another scope's keys
 - [ ] Public `transaction()`/`read()` API and subscription/fanout behavior unchanged

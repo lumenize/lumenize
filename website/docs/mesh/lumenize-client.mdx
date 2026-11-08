@@ -134,7 +134,7 @@ A `call()`'s result handler is different: it travels with the call and comes bac
 
 :::warning[Abort cancels the wait, not the server operation]
 
-An optional `AbortSignal` (composed with the default timeout) rejects the *wait* — the call already left one-way, so the callee may still run. Retry-after-abort is safe only for **idempotent** operations (a client-supplied UUID or a forward-only eTag). Use it to cancel a UI action (unmount, navigate-away), not to undo a server write.
+An optional `AbortSignal` (composed with the default timeout) rejects the *wait* — the call already left one-way, so the callee may still run. Retry-after-abort is safe only for **idempotent** operations (a client-supplied UUID, or a write the server recognizes when it is repeated). Use it to cancel a UI action (unmount, navigate-away), not to undo a server write.
 
 :::
 
