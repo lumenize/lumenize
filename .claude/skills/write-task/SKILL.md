@@ -50,7 +50,9 @@ Write the file down to and including *Open questions*, then **stop and ask for a
 [Optional: a table or example of the end state, when one sentence cannot show it.]
 
 ## Context
-[Why this, and why now. One sentence when the cause is a bug; a few paragraphs when it is history.]
+[Why this, and why now. One sentence when the cause is a bug; a few paragraphs when it is history.
+ Each thing in today's code that stands in the way is `B1`, `B2`, …, in the order raised, never
+ reused, under a first line saying so (`workflow.md` § *Referring to things across files*).]
 
 ## Goals
 [Often: N goals — the properties that make the objective worth delivering, each with how
@@ -65,7 +67,9 @@ Built already: [what exists, anchored on symbol + quoted fragment — never line
 Missing: [numbered, specific, each a thing this task adds or changes]
 
 ## Design intent
-[The contract the phases must conform to. See the rules below.]
+[The contract the phases must conform to. See the rules below.
+ Each item is `DI1`, `DI2`, …, and each checkable claim `C1`, `C2`, …, in the order raised, never
+ reused, under a first line saying so (`workflow.md` § *Referring to things across files*).]
 
 ## Constraints
 [Which ADRs bind this, which rules apply, what the milestone allows.]
@@ -129,6 +133,8 @@ Only after the intent is approved:
 
 ```markdown
 ## Decisions
+IDs follow the order decisions were made, not the order shown, and a gap is a decision removed.
+
 | ID | Decision | Rejected alternative — why |
 |---|---|---|
 | D1 | [what we do; `(was Q2)` when it answers an open question] | [what we don't, and the reason — this is where every negative lives] |
