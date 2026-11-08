@@ -281,6 +281,19 @@ Every phase that changes code ends on the same gate: `npm run type-check` passes
      - Phases 2 and 3 change docs Studio's model reads, so if a limb of `studio-guidance-loop`, `four-party-chat` or `first-app-built` moves, a dated findings line goes in `nebula-pre-alpha.md` § *Data-bound generation* (`studio-guidance.md`).
    - **Mutation note:** the scenario's limbs carry theirs from Phases 1 and 2, and this phase runs them where only a deploy can.
 
+## Build notes
+
+### Phase 1 (2026-11-08)
+
+- **For the human:** nothing needs a decision. D16's facts are now measured inside workerd, not only inferred from SQLite 3.53 and 3.54: with the old `validTo = ?` filter a read of a resource with 100 snapshots read 100 rows, and by primary key it reads 1; `enumerateCurrentByField` read 3 rows with `idx_Snapshots_current` and 102 with the index dropped.
+- **Retro:**
+  - `vi.waitFor` advances faked timers on every poll, so it moved a pinned `Date` by 50 ms and broke the commit-order test's exact moments. The test polls with a real `setTimeout` loop instead, which `toFake: ['Date']` leaves real.
+  - A scan of the current rows reads one entry past its last match: `rowsRead` was 3 with 2 current rows and 4 with 3. The query's bound is the current count plus one.
+  - Counting a statement's rows works in the vitest-plugin lane by replacing `ctx.storage.sql.exec` from `runInDurableObject` with a wrapper that keeps each cursor. A cursor keeps its `rowsRead` after the code under test consumes it.
+  - The scenario records every limb's failure and fails at the end, so one run showed all three limbs red on the old tree, each for its own reason.
+- **Mutation checks, each restored:** the old `snapshots.ts` reds all five new or inverted baseline tests. On the new code: the key written at the top of `transactionSync` reds the refused-transaction check (`.005` for `.001`); the moment taken before the `await` gives the delete and the waiting create the same moment; the `validTo` filter reads 100 rows; dropping the index reads 102; the key in `PLANE_KEYS` leaves it `undefined` after the wipe; deleting the pin or the hold reds its test. The same-node skip alone reds only scenario limb 3 and the inverted move test, and a moment per op reds only limb 2. `GalaxyTest.admitted` returning another string reds all three positive controls, and `certificate-wake`'s limb 4 fails when it calls a Galaxy it has no passage into.
+- **Close-out:** the backlog's *`validFrom` global monotonicity* row loses its server half (Phase 4 edits it). `identityKey` has no caller until Phase 2, and its JSDoc still argues from coalescing; Phase 2 rewrites both. `mint-narrower-token-payoff.test.ts`'s same-identity case is parked with `it.skip` until recognition gives `identityKey` a caller again.
+
 ## Non-goals
 
 - **The catch-up read, the oldest moment it answers from, and a Resource Events implementation**: § *Beyond this task*, with no task file yet.

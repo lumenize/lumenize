@@ -160,9 +160,11 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── 4. A mesh call to a galaxy nobody created wakes nothing ─────────────────────────────────
     const never = `${universe}.never`;
-    const config = await driver.client.lmz.callAsync('GALAXY', never, driver.client.ctn<Galaxy>().getGalaxyConfig());
-    assert.ok(config && typeof config === 'object' && 'coalesceWindowMs' in config,
-      'the call must reach the never-created Galaxy and read its default config');
+    // `getCurrentOntology` checks nothing past passage, and a Galaxy with no landed build answers
+    // null, so a null back means the call reached it. Mutation: refuse the never-created name at
+    // passage → callAsync rejects.
+    const row = await driver.client.lmz.callAsync('GALAXY', never, driver.client.ctn<Galaxy>().getCurrentOntology());
+    assert.equal(row, null, 'the call must reach the never-created Galaxy, which has no landed build');
     {
       const all = await waitForDebugLines(stack, (a) => a.some((l) => l.namespace === 'lmz.mesh.ScopedMeshDO.passage'
         && l.data.instanceName === never), `the never-created Galaxy's entry marker`);

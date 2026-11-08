@@ -157,13 +157,12 @@ describe('structural scope isolation (Fix 1)', () => {
       NebulaClientTest, browser, galaxyX, galaxyX, 'admin@example.com',
     );
 
-    // Positive: reaches its own Galaxy X (covered by `galaxyX.*`). A fresh Galaxy's
-    // config carries the composed Resources plane's coalesce default (the collapse gave
-    // Galaxy a data plane; same shared-'config'-key shape a fresh Star has always had).
-    client.callGalaxyGetConfig(galaxyX);
+    // Positive: reaches its own Galaxy X (covered by `galaxyX.*`). Mutation: refuse the
+    // covering pattern at passage → this reads an error, not 'admitted'.
+    client.callGalaxyAdmitted(galaxyX);
     await vi.waitFor(() => { expect(client.callCompleted).toBe(true); });
     expect(client.lastError).toBeUndefined();
-    expect(client.lastResult).toEqual({ coalesceWindowMs: 3600000 });
+    expect(client.lastResult).toBe('admitted');
 
     // Negative: the SAME admin calls an admin method on foreign Galaxy Y.
     // The Gateway's passage check refuses it before Y wakes, so requireDominionHere never runs →
@@ -221,12 +220,12 @@ describe('structural scope isolation (Fix 1)', () => {
       NebulaClientTest, browser, universe, universe, 'admin@example.com',
     );
 
-    // Reaches the descendant Galaxy (covered by `<u>.*`; the coalesce default is the
-    // composed data plane's config bootstrap — see T2).
-    client.callGalaxyGetConfig(galaxy);
+    // Reaches the descendant Galaxy (covered by `<u>.*`). Mutation: refuse the universe pattern
+    // at passage → this reads an error, not 'admitted'.
+    client.callGalaxyAdmitted(galaxy);
     await vi.waitFor(() => { expect(client.callCompleted).toBe(true); });
     expect(client.lastError).toBeUndefined();
-    expect(client.lastResult).toEqual({ coalesceWindowMs: 3600000 });
+    expect(client.lastResult).toBe('admitted');
 
     // Reaches a descendant Star too.
     client.callStarWhoAmI(star);

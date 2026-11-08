@@ -36,7 +36,6 @@ describe('guard enforcement', () => {
       });
 
       // Non-admin calls getStarConfig → succeeds (no guard beyond @mesh())
-      // Config bag may contain defaults bootstrapped by Snapshots (e.g., coalesceWindowMs)
       userClient.callStarGetConfig(star);
       await vi.waitFor(() => {
         expect(userClient.lastResult).toBeDefined();

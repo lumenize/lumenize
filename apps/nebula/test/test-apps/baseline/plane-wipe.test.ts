@@ -239,6 +239,38 @@ describe('a transaction or invite held at the validator across a wipe writes not
   }, 60_000);
 });
 
+describe('the latest moment survives Studio\'s Wipe', () => {
+  // A pinned `Date`, because only a clock that went back across the wipe can tell the stored key
+  // from the wall clock: a wipe takes longer than a millisecond, so on a clock that only moves
+  // forward the next moment is later either way.
+  it('a moment minted after the wipe is later than every moment before it, though the clock went back', async () => {
+    const { galaxy, dev } = newDev();
+    const a = await admin(galaxy, dev);
+    await install(a, dev, { version: 'v1', types: V1 });
+    const ahead = Math.ceil((Date.now() + 5 * 60_000) / 1000) * 1000;
+    const storage = (read: (c: DurableObjectState) => unknown) =>
+      (runInDurableObject as any)((env as any).STAR.getByName(dev), (_i: unknown, c: DurableObjectState) => read(c));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(ahead);
+      expect((await create(a, dev, 'v1')).out.ok).toBe(true);
+      vi.setSystemTime(ahead - 5 * 60_000); // the clock goes back five minutes
+      await resetDev(a, dev);
+      expect(await storage((c) => c.storage.kv.get('resources:latestMoment'))).toBe(new Date(ahead).toISOString());
+
+      await install(a, dev, { version: 'v1', types: V1 });
+      const { rid, out } = await create(a, dev, 'v1');
+      expect(out.ok).toBe(true);
+      const moment = await storage((c) => c.storage.sql.exec('SELECT validFrom FROM Snapshots WHERE resourceId = ?', rid)
+        .toArray()[0].validFrom) as string;
+      expect(moment).toBe(new Date(ahead + 1).toISOString());
+    } finally {
+      vi.useRealTimers();
+      a[Symbol.dispose]();
+    }
+  }, 60_000);
+});
+
 describe('Studio\'s Wipe records no ontology, so the next op installs once and wipes nothing', () => {
   it('the index is empty, the next op is first told `checking`, it installs without a second wipe, and a tree row made after the reset survives', async () => {
     const { galaxy, dev } = newDev();

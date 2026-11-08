@@ -110,6 +110,7 @@ import * as hostRule from './scenarios/host-rule';
 import * as personaHost from './scenarios/persona-host';
 import * as certificateWake from './scenarios/certificate-wake';
 import * as deletedOnCloudflare from './scenarios/deleted-on-cloudflare';
+import * as eachTransactionGetsOneMoment from './scenarios/each-transaction-gets-one-moment';
 // @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with deploy-test.sh.
 import { TEST_ORIGIN } from '../scripts/test-deploy-config.mjs';
 
@@ -156,6 +157,7 @@ interface Scenario {
 /** Registry of runnable scenarios (add new ones here — arbitrary, not a fixed test). */
 const SCENARIOS: Record<string, Scenario> = {
   'message-roundtrip': messageRoundtrip,   // API driver round-trip + negative control
+  'each-transaction-gets-one-moment': eachTransactionGetsOneMoment, // one moment per transaction, every op a snapshot, repeats recognized (no Docker)
   'downward-dominion': downwardDominion,        // real-login covering admin acts in a Star beneath; non-admin denied
   'superuser-end-to-end': superuserEndToEnd,    // real bootstrap login: verify → refresh → enumerate → Profile gate
   'passage-not-dominion': passageNotDominion,   // upward read RETURNS while upward write REFUSES; sibling Star refused

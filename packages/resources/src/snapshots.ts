@@ -29,6 +29,13 @@ import type { PermissionTier } from './org-ops';
 
 export const END_OF_TIME = '9999-01-01T00:00:00.000Z';
 
+/**
+ * The KV key holding the Durable Object's latest moment: the `validFrom` of the last transaction
+ * that wrote. The next moment is minted past it, so moments are unique in the Durable Object and
+ * sort in commit order. A `.dev` wipe keeps it (see `PLANE_KEYS` in `resources.ts`).
+ */
+const LATEST_MOMENT_KEY = 'resources:latestMoment';
+
 // ─── Types ─────────────────────────────────────────────────────────
 
 /**
@@ -152,10 +159,9 @@ export class Snapshots {
     this.#getCallContext = getCallContext;
     this.#orgTree = orgTree;
     this.#createSchema();
-    this.#bootstrapConfig();
   }
 
-  // ─── Schema & Config ──────────────────────────────────────────────
+  // ─── Schema ───────────────────────────────────────────────────────
 
   #createSchema() {
     this.#ctx.storage.sql.exec(`
@@ -180,21 +186,23 @@ export class Snapshots {
     `);
   }
 
-  #bootstrapConfig() {
-    const config = this.#ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
-    let dirty = false;
-    if (!('coalesceWindowMs' in config)) { config.coalesceWindowMs = 3_600_000; dirty = true; }
-    if (dirty) this.#ctx.storage.kv.put('config', config);
-  }
-
   // ─── Private Helpers ──────────────────────────────────────────────
 
+  /**
+   * The resource's current snapshot, a tombstone included. Read by primary key, latest moment
+   * first: every write closes the row before it and opens one at a later moment, so the last row
+   * is the current one. A `validTo = END_OF_TIME` filter would read no fewer rows, because with no
+   * statistics SQLite searches the primary key's `resourceId` prefix rather than the partial index,
+   * walking every past snapshot of the resource.
+   */
   #getCurrentSnapshot(resourceId: string): Snapshot | null {
     const rows = this.#ctx.storage.sql.exec(
       `SELECT resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, eTag, actingToken, deleted, value
        FROM Snapshots
-       WHERE resourceId = ? AND validTo = ?`,
-      resourceId, END_OF_TIME,
+       WHERE resourceId = ?
+       ORDER BY validFrom DESC
+       LIMIT 1`,
+      resourceId,
     ).toArray();
 
     if (rows.length === 0) return null;
@@ -219,28 +227,18 @@ export class Snapshots {
   }
 
   /**
-   * Calculate validFrom for a transaction batch.
-   *
-   * Uses Date.now() as the starting timestamp, then checks all resources in the
-   * batch — if Date.now() is <= any existing snapshot's validFrom, it advances
-   * to prev + 1. This is intentional and correct for Cloudflare Workers where
-   * the clock doesn't advance during synchronous execution: for a multi-resource
-   * transaction, the result is always at least 1ms above the highest existing
-   * validFrom across all resources.
+   * The moment a committing transaction writes at: the later of now and one millisecond past the
+   * latest moment, compared as ISO strings, which sort as they compare because every moment has
+   * `toISOString()`'s fixed width (ADR-011). Called inside the `transactionSync` that writes, so
+   * no other transaction can take a moment between the read and the write. Above about 1,000
+   * commits a second each commit pushes the moment a millisecond ahead, and `validFrom` runs ahead
+   * of the clock until the rate drops.
    */
-  #calculateValidFrom(currentSnapshots: Map<string, Snapshot | null>): string {
-    let ts = Date.now();
-
-    for (const [, snap] of currentSnapshots) {
-      if (snap) {
-        const prev = new Date(snap.meta.validFrom).getTime();
-        if (ts <= prev) {
-          ts = prev + 1;
-        }
-      }
-    }
-
-    return new Date(ts).toISOString();
+  #nextMoment(): string {
+    const latestMoment = this.#ctx.storage.kv.get<string>(LATEST_MOMENT_KEY);
+    const now = new Date().toISOString();
+    const next = latestMoment ? new Date(Date.parse(latestMoment) + 1).toISOString() : now;
+    return next > now ? next : now;
   }
 
   /** Project the caller's verified claims into the ADR-016 record; when a server-composed
@@ -266,9 +264,6 @@ export class Snapshots {
     typeName: string,
     ontologyVersion: string,
   ): void {
-    const config = this.#ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
-    const coalesceWindowMs = (config.coalesceWindowMs as number) ?? 3_600_000;
-
     // Determine new values based on op type
     let nodeId: string;
     let value: string;
@@ -286,7 +281,6 @@ export class Snapshots {
         deleted = current!.meta.deleted;
         break;
       case 'move':
-        // Move to same node — idempotent no-op handled by caller
         nodeId = op.nodeId;
         value = stringify(current!.value);
         deleted = current!.meta.deleted;
@@ -302,26 +296,8 @@ export class Snapshots {
     // asserted `access`); the wire copies are projected at #getCurrentSnapshot.
     const actingTokenJson = JSON.stringify(actingToken);
 
-    // Coalesce check: same actor within window overwrites in place. "Same actor" is decided by
-    // identityKey — NEVER by comparing the stored records, which now carry claims a re-mint can
-    // change mid-window (see identityKey's JSDoc).
-    if (current && op.op !== 'create') {
-      const withinWindow = Date.now() - new Date(current.meta.validFrom).getTime() < coalesceWindowMs;
-      const sameActor = identityKey(current.meta.actingToken) === identityKey(actingToken);
-
-      if (withinWindow && sameActor) {
-        // Overwrite in place — same PK (resourceId, validFrom), new value/eTag
-        this.#ctx.storage.sql.exec(
-          `UPDATE Snapshots
-           SET nodeId = ?, typeName = ?, ontologyVersion = ?, eTag = ?, actingToken = ?, deleted = ?, value = ?
-           WHERE resourceId = ? AND validFrom = ?`,
-          nodeId, typeName, ontologyVersion, eTag, actingTokenJson, deleted ? 1 : 0, value,
-          resourceId, current.meta.validFrom,
-        );
-        return;
-      }
-
-      // New timeline entry: close current snapshot
+    // Every committed op is a snapshot: close the current one, then open one at this moment.
+    if (current) {
       this.#ctx.storage.sql.exec(
         `UPDATE Snapshots SET validTo = ? WHERE resourceId = ? AND validFrom = ?`,
         validFrom, resourceId, current.meta.validFrom,
@@ -369,8 +345,8 @@ export class Snapshots {
    */
   currentTypeName(resourceId: string): string | undefined {
     const row = this.#ctx.storage.sql.exec(
-      `SELECT typeName FROM Snapshots WHERE resourceId = ? AND validTo = ?`,
-      resourceId, END_OF_TIME,
+      `SELECT typeName FROM Snapshots WHERE resourceId = ? ORDER BY validFrom DESC LIMIT 1`,
+      resourceId,
     ).toArray()[0];
     return row ? (row.typeName as string) : undefined;
   }
@@ -378,9 +354,9 @@ export class Snapshots {
   /**
    * Enumerate the CURRENT resources of `typeName` whose to-one relationship
    * `field` equals `fieldValue` — the v1 `parentChild` query primitive. Returns
-   * `{ resourceId, nodeId, validFrom }` ordered by `(validFrom, resourceId)`: `validFrom` is
-   * server-stamped and chronological, and `resourceId` the deterministic tiebreaker for co-created
-   * rows.
+   * `{ resourceId, nodeId, validFrom }` ordered by `(validFrom, resourceId)`, which is the order of
+   * each resource's latest write, with `resourceId` breaking ties among resources one transaction
+   * wrote, and promises no more. A list whose order matters keeps it in a container's array of ids.
    *
    * **No permission check here** — membership authorization happens at delivery
    * (the per-target `evaluatePermissions` in the membership-delivery routine);
@@ -436,14 +412,11 @@ export class Snapshots {
       if (!resourceId) throw new Error('resourceId must not be empty');
     }
 
-    // Step 1: Read current snapshots outside transaction (for validFrom calculation)
+    // Step 1: Read current snapshots outside transaction (for the Step 4.5 pre-checks)
     const currentSnapshots = new Map<string, Snapshot | null>();
     for (const [resourceId] of entries) {
       currentSnapshots.set(resourceId, this.#getCurrentSnapshot(resourceId));
     }
-
-    // Step 2: Calculate single validFrom
-    const validFrom = this.#calculateValidFrom(currentSnapshots);
 
     // Step 3: Use the caller-supplied per-transaction eTag (one for the whole
     // batch). The client generates this so it can also serve as the
@@ -678,20 +651,16 @@ export class Snapshots {
 
       if (Object.keys(errors).length > 0) {
         result = { ok: false, errors };
-        return; // Exit transactionSync — nothing written, automatic rollback
+        return; // nothing has been written, and the latest moment is untouched
       }
 
-      // Step 10: Write all changes
+      // Step 10: Write all changes at one moment, taken here, after the validator's `await`, so
+      // moments sort in commit order. Every op writes a snapshot, a move to the node a resource is
+      // already on included.
+      const validFrom = this.#nextMoment();
       const eTags: Record<string, string> = {};
       for (const [resourceId, op] of entries) {
         const current = authoritative.get(resourceId) ?? null;
-
-        // Move to same node — idempotent no-op (no write, no fanout)
-        if (op.op === 'move' && current && op.nodeId === current.meta.nodeId) {
-          eTags[resourceId] = current.meta.eTag;
-          continue;
-        }
-
         const typeName = op.op === 'create'
           ? op.typeName
           : authoritative.get(resourceId)!.meta.typeName;
@@ -706,6 +675,7 @@ export class Snapshots {
         if (written) writtenSnapshots.set(resourceId, written);
       }
 
+      this.#ctx.storage.kv.put(LATEST_MOMENT_KEY, validFrom);
       result = { ok: true, eTags };
     });
 

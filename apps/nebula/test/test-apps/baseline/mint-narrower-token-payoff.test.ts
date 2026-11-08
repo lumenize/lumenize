@@ -88,16 +88,14 @@ describe('the impersonation mint — the DAG verdict', () => {
     admin[Symbol.dispose](); memberClient[Symbol.dispose]();
   });
 
-  // ── `actingToken` is the FULL ADR-016 record — and "same actor" derives from IDENTITY alone ─────
+  // ── `actingToken` is the FULL ADR-016 record, and the wire copy carries the chain ──────────────
   // The persisted column stores the whole projected claims: subject `sub` + `profileId`, the widened
-  // `act` chain (the actor PAIR, actor `profileId` included), and the asserted `access`. The coalesce
-  // key is deliberately NOT the record — it is `sub` + the chain's `sub`s, so a claims delta a
-  // re-mint can produce mid-window cannot split an editing session's rows.
+  // `act` chain (the actor PAIR, actor `profileId` included), and the asserted `access`.
   //
   // **Principal, pinned:** the subject is granted an explicit `write` tier on the node FIRST. Without
   // it a narrower token for a non-admin subject holds no DAG grant in a fresh Star and the write is
   // denied for an unrelated reason (the very denial the test above asserts).
-  it('persists actingToken = the FULL claims record, coalesces same-identity writes, and SPLITS on a changed act chain', async () => {
+  it('persists actingToken = the FULL claims record, and the wire copy carries the act chain', async () => {
     const universe = `mnt-${crypto.randomUUID().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const browser = new Browser();
@@ -160,27 +158,13 @@ describe('the impersonation mint — the DAG verdict', () => {
     expect('access' in wire.meta.actingToken).toBe(false);
     expect('aud' in wire.meta.actingToken).toBe(false);
 
-    // ...two same-actor writes inside the window still coalesce to ONE row...
-    const second = await impersonating.lmz.callAsync('STAR', star,
-      impersonating.ctn<Star>().resources.transaction(VERSION, crypto.randomUUID(),
-        { [rid]: { op: 'put', eTag: (first as { ok: true; eTags: Record<string, string> }).eTags[rid], value: { label: 'two' } } })) as TransactionResult;
-    expect(second.ok).toBe(true);
-    expect(await rows()).toHaveLength(1);
-
-    // ...and a DIFFERENT act chain within the window SPLITS: the member's OWN write is the same
-    // `sub` with no chain, so it must land a NEW row. Mutation: derive the identity key from `sub`
-    // alone (ignore the chain) → this stays at 1 row → reds.
-    memberClient.callStarTransaction(star, VERSION, {
-      [rid]: { op: 'put', eTag: (second as { ok: true; eTags: Record<string, string> }).eTags[rid], value: { label: 'three' } },
-    });
-    await vi.waitFor(() => expect(memberClient.callCompleted).toBe(true));
-    expect((memberClient.lastResult as TransactionResult).ok).toBe(true);
-    expect(await rows()).toHaveLength(2);
-
     admin[Symbol.dispose](); memberClient[Symbol.dispose]();
   });
 
-  // ── Same IDENTITY, different CLAIMS → still ONE row ─────────────────────────────────────────────
+  // ── Same IDENTITY, different CLAIMS → the same writer ──────────────────────────────────────────
+  // ⚠️ Skipped while `identityKey` has no caller: every write now opens a snapshot, so the row count
+  // this asserted no longer depends on the key. It comes back as recognition's case for a repeat
+  // sent under a token whose `profileId` and `access` differ from the original's.
   // ADR-009 rung 3, justified in place: the TWO deltas this fixture varies are unreachable through
   // real issuance — a person's `profileId` never changes, and `access.authScope` is pinned to the
   // membership. (A same-sub `access` delta is not impossible in general — `setIdentityAdmin` flips
@@ -189,7 +173,7 @@ describe('the impersonation mint — the DAG verdict', () => {
   // `authScope`.) So the dangerous shape is hand-minted: two tokens sharing one `sub` with different
   // `profileId` AND different `access.authScope`. Both carry dominion over the star, so DAG
   // permission is not the variable.
-  it('a claims delta under the SAME identity still coalesces — profileId and access stay out of the key', async () => {
+  it.skip('a claims delta under the SAME identity still coalesces — profileId and access stay out of the key', async () => {
     const universe = `mnt-${crypto.randomUUID().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const sub = crypto.randomUUID();

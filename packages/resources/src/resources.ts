@@ -146,7 +146,9 @@ const rowKey = (version: string) => `ontology:${version}`;
  * `OrgTree`'s three tables, `Snapshots`', and the one `Subscriptions` table with its migration
  * marker. The ontology keys go by their `ontology:` prefix. Anything a host keeps outside the
  * plane — the Star's `config` — survives, and so does mesh's identity, which is why the same call
- * can send straight after a wipe. Listed in drop order: a table goes before the one it references,
+ * can send straight after a wipe. One plane key survives too, `resources:latestMoment`, and must:
+ * moments can run ahead of the clock, so only the stored key keeps a moment minted after a wipe
+ * later than every moment a client saw before it. Listed in drop order: a table goes before the one it references,
  * since dropping `Nodes` under a `Snapshots` row that points at it fails its foreign key. A list and
  * not a derivation, so `plane-wipe.test.ts` reads every table from `sqlite_master` after a wipe and
  * matches the set exactly: a table a part adds reds it until someone decides whether it goes here.

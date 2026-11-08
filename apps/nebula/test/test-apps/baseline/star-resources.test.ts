@@ -336,83 +336,41 @@ describe('star-resources', () => {
     });
   });
 
-  // ─── Debounce ─────────────────────────────────────────────────────
+  // ─── Every write is a snapshot ────────────────────────────────────
 
-  describe('debounce', () => {
+  describe('every write is a snapshot', () => {
 
-    it('same sub within debounce window overwrites in place (no new timeline entry)', async () => {
+    it('a same-person write within the hour opens a new snapshot at a later moment', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       const resourceId = crypto.randomUUID();
 
-      // Default coalesceWindowMs is 1 hour — all writes within this test are within the window
-
-      // Create
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('v1') },
       });
       const createResult = await waitForSuccess(client) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
+      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
+      const created = await waitForSuccess(client) as Snapshot;
 
-      // Update (same sub, within debounce window — should overwrite in place)
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'put', eTag: createResult.eTags[resourceId], value: makeTestValue('v2') },
       });
       const updateResult = await waitForSuccess(client) as TransactionResult;
       if (!updateResult.ok) throw new Error('Expected ok');
 
-      // Read — should see v2
+      // A new snapshot, not an overwrite: a later moment. Mutation: restore coalescing's in-place
+      // UPDATE → the put keeps the create's validFrom.
       client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const snap = await waitForSuccess(client) as Snapshot;
       expect(snap.value.title).toBe('v2');
-
-      // The validFrom should be the same as the create (debounced in place)
-      // The eTag should be different (new eTag per transaction)
-      expect(snap.meta.eTag).toBe(updateResult.eTags[resourceId]);
+      expect(snap.meta.validFrom > created.meta.validFrom).toBe(true);
+      expect(snap.meta.validTo).toBe(END_OF_TIME);
 
       client[Symbol.dispose]();
     });
 
-    it('coalesceWindowMs: 0 creates new snapshot on every update', async () => {
-      const star = uniqueStar();
-      const { client } = await adminClient(star);
-      const resourceId = crypto.randomUUID();
-
-      // Set coalesceWindowMs to 0
-      client.callStarSetConfig(star, 'coalesceWindowMs', 0);
-      await waitForSuccess(client);
-
-      // Create
-      client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('v1') },
-      });
-      const createResult = await waitForSuccess(client) as TransactionResult;
-      if (!createResult.ok) throw new Error('Expected ok');
-
-      // Read to get validFrom
-      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
-      const snap1 = await waitForSuccess(client) as Snapshot;
-      const validFrom1 = snap1.meta.validFrom;
-
-      // Update
-      client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'put', eTag: createResult.eTags[resourceId], value: makeTestValue('v2') },
-      });
-      const updateResult = await waitForSuccess(client) as TransactionResult;
-      if (!updateResult.ok) throw new Error('Expected ok');
-
-      // Read — validFrom should be different (new snapshot created)
-      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
-      const snap2 = await waitForSuccess(client) as Snapshot;
-      expect(snap2.value.title).toBe('v2');
-      expect(snap2.meta.validFrom).not.toBe(validFrom1);
-      // Previous snapshot should have validTo set to new validFrom
-      expect(snap2.meta.validTo).toBe(END_OF_TIME);
-
-      client[Symbol.dispose]();
-    });
-
-    it('different sub chain within window creates new snapshot', async () => {
+    it('a write by someone else records them as its writer', async () => {
       const star = uniqueStar();
       const { client: admin, accessToken } = await adminClient(star);
       const resourceId = crypto.randomUUID();
@@ -441,7 +399,7 @@ describe('star-resources', () => {
       admin.callStarSetPermission(star, nodeId, userSub, 'write');
       await waitForSuccess(admin);
 
-      // Update resource as user (different sub chain — should create new snapshot)
+      // Update the resource as the user
       user.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'put', eTag: createResult.eTags[resourceId], value: makeTestValue('v2') },
       });
@@ -470,14 +428,10 @@ describe('star-resources', () => {
 
   describe('temporal storage', () => {
 
-    it('validTo of previous snapshot equals validFrom of new snapshot (coalesceWindowMs: 0)', async () => {
+    it('validTo of previous snapshot equals validFrom of new snapshot', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       const resourceId = crypto.randomUUID();
-
-      // Set coalesceWindowMs to 0 for full audit trail
-      client.callStarSetConfig(star, 'coalesceWindowMs', 0);
-      await waitForSuccess(client);
 
       // Create then update twice
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -717,29 +671,32 @@ describe('star-resources', () => {
       client[Symbol.dispose]();
     });
 
-    it('move to same node is idempotent no-op', async () => {
+    it('a move to the node a resource is already on writes a snapshot', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       const resourceId = crypto.randomUUID();
 
-      // Create
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
       });
       const createResult = await waitForSuccess(client) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
-      const originalETag = createResult.eTags[resourceId];
+      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
+      const created = await waitForSuccess(client) as Snapshot;
 
-      // Move to same node
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'move', eTag: originalETag, nodeId: ROOT_NODE_ID },
+        [resourceId]: { op: 'move', eTag: createResult.eTags[resourceId], nodeId: ROOT_NODE_ID },
       });
       const moveResult = await waitForSuccess(client) as TransactionResult;
-      expect(moveResult.ok).toBe(true);
       if (!moveResult.ok) throw new Error('Expected ok');
 
-      // eTag should be the original (no-op)
-      expect(moveResult.eTags[resourceId]).toBe(originalETag);
+      // The move is recorded like any op. Mutation: restore Step 10's same-node skip → the result
+      // keeps the create's version and the read keeps its validFrom.
+      expect(moveResult.eTags[resourceId]).not.toBe(createResult.eTags[resourceId]);
+      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
+      const moved = await waitForSuccess(client) as Snapshot;
+      expect(moved.meta.nodeId).toBe(ROOT_NODE_ID);
+      expect(moved.meta.validFrom > created.meta.validFrom).toBe(true);
 
       client[Symbol.dispose]();
     });

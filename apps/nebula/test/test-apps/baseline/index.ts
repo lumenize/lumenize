@@ -835,6 +835,14 @@ const withClientTestCaptures = <TBase extends new (...args: any[]) => NebulaClie
     this.lmz.call('GALAXY', instanceName, remote, this.ctn().handleResult(remote));
   }
 
+  /** Reach `GalaxyTest.admitted`, which checks nothing past the passage step: a positive control
+   *  for "this caller reaches that Galaxy" that reads no stored state. */
+  callGalaxyAdmitted(instanceName: string): void {
+    this.resetResults();
+    const remote = this.ctn<GalaxyTest>().admitted();
+    this.lmz.call('GALAXY', instanceName, remote, this.ctn().handleResult(remote));
+  }
+
   callGalaxySetConfig(instanceName: string, key: string, value: unknown): void {
     this.resetResults();
     const remote = this.ctn<Galaxy>().setGalaxyConfig(key, value);
