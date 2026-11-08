@@ -57,8 +57,8 @@ describe('per-push read recheck', () => {
     admin.callStarTransaction(star, ONTOLOGY_VERSION, {
       [rid]: { op: 'create', typeName: 'TestResource', nodeId, value: { title: 'v0' } },
     });
-    const created = await waitForSuccess(admin) as { ok: true; eTags: Record<string, string> };
-    let eTag = created.eTags[rid];
+    const created = await waitForSuccess(admin) as { ok: true; validFrom: string };
+    let version = created.validFrom;
 
     // A non-admin user, granted read on the node, subscribes.
     const adminBrowser = new Browser();
@@ -82,10 +82,10 @@ describe('per-push read recheck', () => {
 
     // Baseline: while granted, the user RECEIVES the fanout.
     admin.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [rid]: { op: 'put', eTag, value: { title: 'v1' } },
+      [rid]: { op: 'put', ifValidFromMatches: version, value: { title: 'v1' } },
     });
-    const r1 = await waitForSuccess(admin) as { ok: true; eTags: Record<string, string> };
-    eTag = r1.eTags[rid];
+    const r1 = await waitForSuccess(admin) as { ok: true; validFrom: string };
+    version = r1.validFrom;
     await waitForUpdateCount(user, 2);
     await waitForUpdateCount(anchor, 2);
     const userCountAfterGrant = user.resourceUpdateCount;
@@ -94,7 +94,7 @@ describe('per-push read recheck', () => {
     admin.callStarRevokePermission(star, nodeId, userPayload.sub);
     await waitForSuccess(admin);
     admin.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [rid]: { op: 'put', eTag, value: { title: 'v2-after-revoke' } },
+      [rid]: { op: 'put', ifValidFromMatches: version, value: { title: 'v2-after-revoke' } },
     });
     await waitForSuccess(admin);
     // Anchor (still granted) receives v2 → the broadcast loop for this mutation ran.
@@ -127,8 +127,8 @@ describe('per-push read recheck', () => {
     admin.callStarTransaction(star, ONTOLOGY_VERSION, {
       [rid]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'v0' } },
     });
-    const created = await waitForSuccess(admin) as { ok: true; eTags: Record<string, string> };
-    const eTag = created.eTags[rid];
+    const created = await waitForSuccess(admin) as { ok: true; validFrom: string };
+    const version = created.validFrom;
 
     // A second admin subscribes: access.scopeAdmin true, and no DAG grant, as no scope admin is
     // given one by being an admin. Its resource row stores dominionOverHostAtSubscribe = 1. It is
@@ -151,7 +151,7 @@ describe('per-push read recheck', () => {
     // dominionOverHostAtSubscribe bypass (it holds no DAG grant). Mutation: ignore stored
     // dominionOverHostAtSubscribe → evaluatePermissions denies it → no push → red.
     admin.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [rid]: { op: 'put', eTag, value: { title: 'v1' } },
+      [rid]: { op: 'put', ifValidFromMatches: version, value: { title: 'v1' } },
     });
     await waitForSuccess(admin);
     await waitForUpdateCount(uni, 2);

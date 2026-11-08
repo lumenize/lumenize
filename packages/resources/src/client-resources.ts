@@ -60,7 +60,7 @@ interface ResourcesHostNode {
 }
 /**
  * Public operation descriptor (the engine op shape): `typeName` on every op;
- * `eTag` optional (auto-derived from the local store when omitted — the
+ * `ifValidFromMatches` optional (auto-derived from the local store when omitted — the
  * subset still required by the server is supplied at submit time). The *wire*
  * op (`./resources`) omits `typeName` on put/move/delete — the server reads it
  * from the current snapshot — so `#buildMeshOps` strips it on the way out.
@@ -104,12 +104,12 @@ function isResourceDenied(result: unknown): result is ResourceDenied {
  * One resource's entry in the reactive store, at `store.resources[typeName][resourceId]`, written by
  * the subscription that holds it. A subscriber who cannot read the resource has `deniedNodes` naming
  * the node and no `value` or `meta` — the entry keeps nothing it can no longer read, and with no
- * `meta.eTag` a `v-model` write to it submits nothing.
+ * `meta.validFrom` a `v-model` write to it submits nothing.
  */
 export interface ResourceStoreEntry {
   /** The resource's value; absent while denied. */
   value?: unknown;
-  /** The snapshot's metadata; absent while denied, so `meta.eTag` is too. */
+  /** The snapshot's metadata; absent while denied, so `meta.validFrom` is too. */
   meta?: Snapshot['meta'];
   /** The node this subscriber cannot read the resource under — `[]` when it can. */
   deniedNodes: string[];
@@ -263,24 +263,24 @@ type PendingSubscribe = PendingPush<Snapshot | null>;
  * `resources.{typeName}.{rid}`).
  */
 export interface NebulaStoreAdapter {
-  /** Current (optimistic) value + baseline eTag the engine submits against. */
-  readResource(rt: string, rid: string): { value: unknown; eTag?: string };
+  /** Current (optimistic) value + the version the engine submits against. */
+  readResource(rt: string, rid: string): { value: unknown; validFrom?: string };
   /** Conflict `use-server`: adopt the server snapshot's value + meta. */
   applyServer(rt: string, rid: string, snapshot: Snapshot): void;
-  /** Commit: advance the cached `meta.eTag`. */
-  applyCommit(rt: string, rid: string, eTag: string): void;
+  /** Commit: advance the cached `meta.validFrom` to the moment the commit wrote at. */
+  applyCommit(rt: string, rid: string, validFrom: string): void;
   /** Terminal failure: restore the pre-write value (`undefined` removes a
    *  rolled-back optimistic create). */
   rollbackTo(rt: string, rid: string, value: unknown): void;
   /** Broadcast push (held mid-edit by the engine): write the snapshot through. */
   applyFanout(rt: string, rid: string, snapshot: Snapshot): void;
   /** A subscription's read access: write `deniedNodes` to the entry (`[]` when readable). On a loss
-   *  the entry drops its `value` and its `meta`, so with no `meta.eTag` no edit can submit against it. */
+   *  the entry drops its `value` and its `meta`, so with no `meta.validFrom` no edit can submit against it. */
   applyDenied(rt: string, rid: string, deniedNodes: string[]): void;
   /** `use-this`: paint the merged verdict value (a fresh optimistic write). */
   applyResolvedValue(rt: string, rid: string, value: unknown): void;
-  /** Explicit-transaction op value + baseline eTag (create/put paint). */
-  applyOptimistic(rt: string, rid: string, value: unknown, eTag: string): void;
+  /** Explicit-transaction op value + baseline version (create/put paint). */
+  applyOptimistic(rt: string, rid: string, value: unknown, validFrom: string): void;
   /** Default flash class (DOM in v4; no-op headless). */
   flash(rt: string, rid: string, cssClass: string): void;
 }
@@ -291,7 +291,7 @@ export interface NebulaStoreAdapter {
  * somewhere to land. The factory replaces this with a Vue-reactive adapter.
  */
 function createInMemoryStoreAdapter(): NebulaStoreAdapter {
-  const m = new Map<string, { value: unknown; eTag?: string }>();
+  const m = new Map<string, { value: unknown; validFrom?: string }>();
   const k = (rt: string, rid: string) => `${rt}:${rid}`;
   const upsertValue = (rt: string, rid: string, value: unknown) => {
     const e = m.get(k(rt, rid));
@@ -299,22 +299,22 @@ function createInMemoryStoreAdapter(): NebulaStoreAdapter {
     else m.set(k(rt, rid), { value });
   };
   return {
-    readResource: (rt, rid) => m.get(k(rt, rid)) ?? { value: undefined, eTag: undefined },
-    applyServer: (rt, rid, snap) => m.set(k(rt, rid), { value: snap.value, eTag: snap.meta.eTag }),
-    applyFanout: (rt, rid, snap) => m.set(k(rt, rid), { value: snap.value, eTag: snap.meta.eTag }),
+    readResource: (rt, rid) => m.get(k(rt, rid)) ?? { value: undefined, validFrom: undefined },
+    applyServer: (rt, rid, snap) => m.set(k(rt, rid), { value: snap.value, validFrom: snap.meta.validFrom }),
+    applyFanout: (rt, rid, snap) => m.set(k(rt, rid), { value: snap.value, validFrom: snap.meta.validFrom }),
     applyDenied: (rt, rid, deniedNodes) => {
       if (deniedNodes.length > 0) m.delete(k(rt, rid));
     },
-    applyCommit: (rt, rid, eTag) => {
+    applyCommit: (rt, rid, validFrom) => {
       const e = m.get(k(rt, rid));
-      if (e) e.eTag = eTag;
+      if (e) e.validFrom = validFrom;
     },
     rollbackTo: (rt, rid, value) => {
       if (value === undefined) m.delete(k(rt, rid));
       else upsertValue(rt, rid, value);
     },
     applyResolvedValue: (rt, rid, value) => upsertValue(rt, rid, value),
-    applyOptimistic: (rt, rid, value, eTag) => m.set(k(rt, rid), { value, eTag }),
+    applyOptimistic: (rt, rid, value, validFrom) => m.set(k(rt, rid), { value, validFrom }),
     flash: () => {},
   };
 }
@@ -470,17 +470,17 @@ export class ClientResources {
     this.#sessionStorage = options.sessionStorage ?? pageSessionStorage();
     // The engine over the store adapter and the mesh submit. Store effects delegate to
     // `#storeAdapter`, read fresh each call so `bindStore` can swap it. The engine's structural
-    // `Snapshot` ({ value, meta.eTag }) is satisfied at runtime by the real wire snapshots it
+    // `Snapshot` ({ value, meta.validFrom }) is satisfied at runtime by the real wire snapshots it
     // forwards, so the adapter casts recover the meta.
     this.#engine = createConflictOutcomeEngine({
       submitBatch: (subs) => this.#meshSubmit(subs),
       readResource: (rt, rid) => this.#storeAdapter.readResource(rt, rid),
       applyServer: (rt, rid, snap) => this.#storeAdapter.applyServer(rt, rid, snap as unknown as Snapshot),
       applyFanout: (rt, rid, snap) => this.#storeAdapter.applyFanout(rt, rid, snap as unknown as Snapshot),
-      applyCommit: (rt, rid, eTag) => this.#storeAdapter.applyCommit(rt, rid, eTag),
+      applyCommit: (rt, rid, validFrom) => this.#storeAdapter.applyCommit(rt, rid, validFrom),
       rollbackTo: (rt, rid, value) => this.#storeAdapter.rollbackTo(rt, rid, value),
       applyResolvedValue: (rt, rid, value) => this.#storeAdapter.applyResolvedValue(rt, rid, value),
-      applyOptimistic: (rt, rid, value, eTag) => this.#storeAdapter.applyOptimistic(rt, rid, value, eTag),
+      applyOptimistic: (rt, rid, value, validFrom) => this.#storeAdapter.applyOptimistic(rt, rid, value, validFrom),
       flash: (rt, rid, cls) => this.#storeAdapter.flash(rt, rid, cls),
     });
   }
@@ -650,14 +650,11 @@ export class ClientResources {
    * and reports it `retryable`; resubmitting is the app's call, as the platform docs tell it.
    */
   async #meshSubmit(subs: QueueSubmission[]): Promise<ServerBatchResponse> {
-    // One mesh `newETag` per batch (the server writes it as every resource's eTag — snapshots.ts
-    // Step 4.5a); stable across reconnect replays, so a re-issued submission is replay-idempotent.
-    const meshNewETag = subs[0]!.newETag;
     const version = this.requireOntologyVersion('transaction');
     // Ontology-stale is a version-skew signal, not an infrastructure error, so it is answered here
     // rather than thrown on; any other Error stays the engine's infrastructure-error.
     const outcome = await this.#versioned(() => this.#hostCallAsync(
-      this.#client.ctn<ResourcesHostNode>().resources.transaction(version, meshNewETag, this.#buildMeshOps(subs)),
+      this.#client.ctn<ResourcesHostNode>().resources.transaction(version, this.#buildMeshOps(subs)),
     ));
     if ('stale' in outcome) {
       return { ontologyStale: { clientVersion: outcome.stale.clientVersion || version, currentVersion: outcome.stale.currentVersion } };
@@ -696,17 +693,17 @@ export class ClientResources {
     const ops: Record<string, WireOp> = {};
     for (const s of subs) {
       const op = s.op as EngineOp | undefined;
-      ops[s.rid] = op ? this.#engineOpToWire(op, s.eTag) : { op: 'put', eTag: s.eTag, value: s.value };
+      ops[s.rid] = op ? this.#engineOpToWire(op, s.ifValidFromMatches) : { op: 'put', ifValidFromMatches: s.ifValidFromMatches, value: s.value };
     }
     return ops;
   }
 
-  #engineOpToWire(op: EngineOp, baselineETag: string): WireOp {
+  #engineOpToWire(op: EngineOp, baseline: string): WireOp {
     switch (op.op) {
       case 'create': return { op: 'create', typeName: op.typeName, nodeId: op.nodeId, value: op.value };
-      case 'put':    return { op: 'put', eTag: op.eTag ?? baselineETag, value: op.value };
-      case 'move':   return { op: 'move', eTag: op.eTag ?? baselineETag, nodeId: op.nodeId };
-      case 'delete': return { op: 'delete', eTag: op.eTag ?? baselineETag };
+      case 'put':    return { op: 'put', ifValidFromMatches: op.ifValidFromMatches ?? baseline, value: op.value };
+      case 'move':   return { op: 'move', ifValidFromMatches: op.ifValidFromMatches ?? baseline, nodeId: op.nodeId };
+      case 'delete': return { op: 'delete', ifValidFromMatches: op.ifValidFromMatches ?? baseline };
     }
   }
 
@@ -715,8 +712,8 @@ export class ClientResources {
    *  thrown Error rejects the submit promise → the engine's infrastructure-error. */
   #mapTransactionResult(result: TransactionResult, subs: QueueSubmission[]): ServerBatchResponse {
     if (result.ok) {
-      const eTag = subs[0]!.newETag;
-      return { resources: subs.map(() => ({ result: 'committed', eTag })) };
+      // One moment for the whole transaction: every resource in it committed there.
+      return { resources: subs.map(() => ({ result: 'committed', validFrom: result.validFrom })) };
     }
     return {
       resources: subs.map((s): ServerResourceResult => {
@@ -926,17 +923,20 @@ export class ClientResources {
       ops: Record<string, OperationDescriptor>,
       options?: TransactionOptions,
     ): Promise<TransactionOutcome> => {
+      // An empty transaction commits nothing, so it settles at once; sent through the queue it
+      // would occupy no key and never conclude.
+      if (Object.keys(ops).length === 0) return Promise.resolve({ kind: 'committed', resources: {} });
       const engineOps: Record<string, { rt: string } & EngineOp> = {};
       for (const [rid, op] of Object.entries(ops)) {
-        // Auto-derive eTag: a put/move/delete with no explicit eTag and no
+        // Auto-derive the version: a put/move/delete with no explicit version and no
         // baseline in the local store is a programming error (forgot to
-        // subscribe / pass eTag) — throw synchronously at the call site rather
+        // subscribe / pass `ifValidFromMatches`) — throw synchronously at the call site rather
         // than letting it surface as an opaque outcome (api-reference
-        // § resources.transaction). `create` asserts non-existence (no eTag).
-        if (op.op !== 'create' && op.eTag === undefined &&
-            this.#storeAdapter.readResource(op.typeName, rid).eTag === undefined) {
+        // § resources.transaction). `create` asserts non-existence and names no version.
+        if (op.op !== 'create' && op.ifValidFromMatches === undefined &&
+            this.#storeAdapter.readResource(op.typeName, rid).validFrom === undefined) {
           throw new Error(
-            `can't auto-derive eTag for (${op.typeName}, ${rid}) — not in local store; pass eTag explicitly or subscribe first`,
+            `can't auto-derive ifValidFromMatches for (${op.typeName}, ${rid}) — not in local store; pass ifValidFromMatches explicitly or subscribe first`,
           );
         }
         // resourceType === typeName (the store path is resources.{typeName}.{rid}).

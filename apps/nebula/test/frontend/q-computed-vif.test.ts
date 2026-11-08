@@ -22,7 +22,7 @@ describe('Vue computed() driving v-if (§5.3.8)', () => {
     const { store, client } = setupVueStore({
       initialState: {
         resources: {
-          Todo: { [todoId]: { value: { title: 'buy milk', done: false }, meta: { eTag: 'e0' } } },
+          Todo: { [todoId]: { value: { title: 'buy milk', done: false }, meta: { validFrom: 'e0' } } },
         },
       },
     });
@@ -58,13 +58,13 @@ describe('Vue computed() driving v-if (§5.3.8)', () => {
     expect(document.querySelector('.badge')).toBeNull();
 
     // Flip the source true → computed re-runs → v-if mounts the badge.
-    client.simulateFanout('Todo', todoId, { value: { title: 'buy milk', done: true }, meta: { eTag: 'e1' } });
+    client.simulateFanout('Todo', todoId, { value: { title: 'buy milk', done: true }, meta: { validFrom: 'e1' } });
     await vi.waitFor(() => {
       expect(document.querySelector('.badge')?.textContent).toBe('DONE');
     }, { timeout: 5000 });
 
     // Flip back false → computed re-runs → v-if unmounts the badge.
-    client.simulateFanout('Todo', todoId, { value: { title: 'buy milk', done: false }, meta: { eTag: 'e2' } });
+    client.simulateFanout('Todo', todoId, { value: { title: 'buy milk', done: false }, meta: { validFrom: 'e2' } });
     await vi.waitFor(() => {
       expect(document.querySelector('.badge')).toBeNull();
     }, { timeout: 5000 });

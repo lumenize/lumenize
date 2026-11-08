@@ -19,8 +19,8 @@ export class OntologyStaleError extends Error {
    * Set when the host has asked its ontology source what is current and the answer will arrive
    * later, by fire-back — a Star asking its Galaxy, on a version mismatch or with nothing
    * installed. The host does not yet know whether it will install anything: when the page is the
-   * old one, it installs nothing and the page reloads. Every op is idempotent (transactions replay
-   * on `newETag`, reads and subscribes re-run freely), so the client RETRIES it briefly instead of
+   * old one, it installs nothing and the page reloads. Every op is idempotent (a repeated
+   * transaction is recognized, reads and subscribes re-run freely), so the client RETRIES it briefly instead of
    * treating the version as stale; only a retry-exhausted or non-`checking` stale surfaces to the
    * refresh-UI path. A cross-node op cannot be awaited (ADR-003), which is why an install arrives
    * as a successful retry rather than as this op's own result.

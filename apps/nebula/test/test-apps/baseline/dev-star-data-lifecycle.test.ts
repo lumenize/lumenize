@@ -75,7 +75,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
 
     // Write it back at v2 → @default fills `color: 'red'` (write path, v2 facet).
     client.callStarTransaction(dev, 'v2', {
-      [rid]: { op: 'put', eTag: before.meta.eTag, value: { title: 'a', done: false } },
+      [rid]: { op: 'put', ifValidFromMatches: before.meta.validFrom, value: { title: 'a', done: false } },
     });
     expect((await waitForSuccess(client) as TransactionResult).ok).toBe(true);
 
@@ -308,7 +308,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     });
     const r1 = await waitForSuccess(client) as TransactionResult;
     expect(r1.ok).toBe(true);
-    const eTag1 = r1.ok ? r1.eTags[rid] : '';
+    const eTag1 = r1.ok ? r1.validFrom : '';
 
     // v2 — BREAKING: a required `priority`. Apply.
     await installOntology(client, dev, 'v2', TODO_V2_BREAKING);
@@ -316,7 +316,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     // The pre-edit snapshot is invalid under v2 — a put of its old shape (missing
     // required `priority`) fails validation.
     client.callStarTransaction(dev, 'v2', {
-      [rid]: { op: 'put', eTag: eTag1, value: { title: 'a', done: false } },
+      [rid]: { op: 'put', ifValidFromMatches: eTag1, value: { title: 'a', done: false } },
     });
     const rBad = await waitForSuccess(client) as TransactionResult;
     expect(rBad.ok).toBe(false);

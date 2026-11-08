@@ -94,7 +94,7 @@ export interface NodeInviteAck { accepted: number; errors: InviteeError[] }
  */
 export interface ResourcesRequests {
   /** Returns a stale version's `OntologyStaleError` as a VALUE, as it always has. */
-  transaction(ontologyVersion: string, newETag: string, ops: Record<string, OperationDescriptor>): Promise<TransactionResult | OntologyStaleError> | OntologyStaleError;
+  transaction(ontologyVersion: string, ops: Record<string, OperationDescriptor>): Promise<TransactionResult | OntologyStaleError> | OntologyStaleError;
   /** Throws a stale version's `OntologyStaleError`. */
   read(ontologyVersion: string, resourceId: string): Snapshot | null;
   /** Pushes a stale version's `OntologyStaleError` on the resource channel. */
@@ -323,9 +323,9 @@ export class Resources {
     const tree = () => this.#orgTree;
     const tab = (address: string) => [splitAddress(address)];
     return {
-      transaction: (ontologyVersion, newETag, ops) => {
+      transaction: (ontologyVersion, ops) => {
         const clientAddress = this.#caller();
-        return this.#gateClientOp(ontologyVersion) ?? this.#transaction(ontologyVersion, newETag, ops, clientAddress);
+        return this.#gateClientOp(ontologyVersion) ?? this.#transaction(ontologyVersion, ops, clientAddress);
       },
       read: (ontologyVersion, resourceId) => {
         const stale = this.#gateClientOp(ontologyVersion);
@@ -739,14 +739,14 @@ export class Resources {
         const existing = this.#findInviteStatus(nodeId, v.email);
         const value = { node: nodeId, email: v.email, tier: v.tier, state: 'pending' };
         if (existing) {
-          ops[existing.resourceId] = { op: 'put', eTag: existing.meta.eTag, value };
+          ops[existing.resourceId] = { op: 'put', ifValidFromMatches: existing.meta.validFrom, value };
         } else {
           ops[crypto.randomUUID()] = { op: 'create', nodeId, typeName: '_InviteStatus', value };
         }
       }
       let written: TransactionResult;
       try {
-        written = await this.doTransaction(crypto.randomUUID(), ops, '');
+        written = await this.doTransaction(ops, '');
       } catch (err) {
         // A wipe landed while the rows validated: nothing was written, and the inviter is told
         // stale, the answer a transaction gets.
@@ -841,7 +841,7 @@ export class Resources {
 
   /** Flip each (email, node) row's `state` (+ optional `error`), subscriber fan-out included.
    *  PER-ROW transactions, deliberately — the rows are independent, and one atomic batch would let
-   *  a single stale eTag (a concurrent re-invite converging that address mid-flight) void the
+   *  a single stale version (a concurrent re-invite converging that address mid-flight) void the
    *  SIBLING invitees' flips, stranding them at `pending` with only a warn to show for it. A row
    *  that vanished or moved on (converged by a newer writer) is skipped: that writer owns its
    *  state. */
@@ -858,8 +858,8 @@ export class Resources {
         ...(flip.error !== undefined ? { error: flip.error } : {}),
       };
       if (flip.error === undefined) delete (value as Record<string, unknown>).error;
-      const written = await this.doTransaction(crypto.randomUUID(), {
-        [existing.resourceId]: { op: 'put', eTag: existing.meta.eTag, value },
+      const written = await this.doTransaction({
+        [existing.resourceId]: { op: 'put', ifValidFromMatches: existing.meta.validFrom, value },
       }, '');
       if (!written.ok) {
         debug('nebula.Resources.invite').warn('an _InviteStatus flip did not apply (a newer writer owns the row)', {
@@ -1059,12 +1059,15 @@ export class Resources {
     resourceId: string, typeName: string, nodeId: string, value: Record<string, unknown>,
     opts: { actor?: { sub: string; profileId: string }; pinnedAtDoor?: true } = {},
   ): Promise<void> {
-    if (this.#snapshots.read(resourceId)) return; // idempotent: a live snapshot exists
+    // Existence alone, with no permission check: a second ensure does nothing even under a grant
+    // revoked since the door admitted the work (`TransactionOpts.pinnedAtDoor`).
+    if (this.#snapshots.currentTypeName(resourceId) !== undefined) return;
+    debug('nebula.Resources.ensureResource').debug('creating', { resourceId, typeName });
     const { version, facet } = this.installedOntology();
     const generation = this.#generation;
     await this.#snapshots.transaction(
       { [resourceId]: { op: 'create', typeName, nodeId, value } },
-      version, crypto.randomUUID(), facet,
+      version, facet,
       {
         onMutations: (mutations) => {
           this.#broadcast(mutations, '');
@@ -1086,10 +1089,10 @@ export class Resources {
    * refuses the commit, and the caller is answered stale, as a version change would be.
    */
   async #transaction(
-    pinned: string, newETag: string, ops: Record<string, OperationDescriptor>, clientAddress: string,
+    pinned: string, ops: Record<string, OperationDescriptor>, clientAddress: string,
   ): Promise<TransactionResult | OntologyStaleError> {
     try {
-      return await this.doTransaction(newETag, ops, clientAddress);
+      return await this.doTransaction(ops, clientAddress);
     } catch (err) {
       if (err instanceof WipedMidTransactionError) return new OntologyStaleError(pinned, this.#installedVersion());
       throw err;
@@ -1102,7 +1105,6 @@ export class Resources {
    *  wire, so no caller can dress its write as someone else's (the trust fence). Throws
    *  `WipedMidTransactionError`, having written nothing, when a wipe lands while it validates. */
   async doTransaction(
-    newETag: string,
     ops: Record<string, OperationDescriptor>,
     clientAddress: string,
   ): Promise<TransactionResult> {
@@ -1112,7 +1114,7 @@ export class Resources {
       // RETURN the result — the framework fires it back to the originating client's `callAsync`
       // (the return-value pattern). The committed-mutation broadcasts to OTHER subscribers stay a one-way
       // side effect (originator excluded via `clientAddress`). An infra throw propagates → `callAsync` rejects.
-      return await this.#snapshots.transaction(ops, version, newETag, facet, {
+      return await this.#snapshots.transaction(ops, version, facet, {
         onMutations: (mutations) => {
           // The single post-commit hook drives BOTH channels (Flow 2 + Flow 3 A):
           // single-resource content fanout, then the query rerun for touched types —

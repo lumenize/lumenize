@@ -51,7 +51,7 @@ async function createResource(
   });
   const result = await waitForSuccess(client) as TransactionResult;
   if (!result.ok) throw new Error('Expected create ok');
-  return result.eTags[resourceId];
+  return result.validFrom;
 }
 
 async function setupSubscribedClient(star: string) {
@@ -161,7 +161,7 @@ describe('nebula-client reconnect re-subscribe (5.3.4a)', () => {
     const writer = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const snapshot = await writer.client.resources.read('TestResource', resourceId);
     writer.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [resourceId]: { op: 'put', eTag: snapshot!.meta.eTag, value: { title: 'After the supersede' } },
+      [resourceId]: { op: 'put', ifValidFromMatches: snapshot!.meta.validFrom, value: { title: 'After the supersede' } },
     });
     await waitForSuccess(writer.client);
     await vi.waitFor(() => {

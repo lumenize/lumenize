@@ -55,12 +55,12 @@ describe('client.resources.createAndSubscribe', () => {
 
     using sub = client.resources.createAndSubscribe('Todo', rid, ROOT_NODE_ID, { title: 'v1', done: false });
     const created = await sub.snapshot;
-    const eTag = created!.meta.eTag;
+    const version = created!.meta.validFrom;
 
     // A second client mutates the same resource → fanout should reach our sub.
     const baselineCount = client.resourceUpdateCount;
     const outcome = await client.resources.transaction({
-      [rid]: { op: 'put', typeName: 'Todo', eTag, value: { title: 'v2', done: true } },
+      [rid]: { op: 'put', typeName: 'Todo', ifValidFromMatches: version, value: { title: 'v2', done: true } },
     });
     expect(outcome.kind).toBe('committed');
 

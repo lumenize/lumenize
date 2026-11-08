@@ -63,7 +63,7 @@ async function createResource(
   });
   const result = await waitForSuccess(client) as TransactionResult;
   if (!result.ok) throw new Error('Expected create ok');
-  return result.eTags[resourceId];
+  return result.validFrom;
 }
 
 describe('nebula-client.resources.subscribe (5.3.3a)', () => {
@@ -72,12 +72,12 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
     const star = uniqueStar();
     const { a } = await twoAdminClients(star);
     const resourceId = crypto.randomUUID();
-    const eTag = await createResource(a.client, star, resourceId, 'Initial value');
+    const version = await createResource(a.client, star, resourceId, 'Initial value');
 
     const snap = await a.client.resources.subscribe('TestResource', resourceId).snapshot;
     expect(snap).not.toBeNull();
     expect(snap!.value.title).toBe('Initial value');
-    expect(snap!.meta.eTag).toBe(eTag);
+    expect(snap!.meta.validFrom).toBe(version);
     expect(snap!.meta.typeName).toBe('TestResource');
 
     a.client[Symbol.dispose]();
@@ -111,8 +111,8 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
     expect(s2!.value.title).toBe('Coalesced');
     expect(s3!.value.title).toBe('Coalesced');
     // All three resolved with the same snapshot (deep-equal check)
-    expect(s1!.meta.eTag).toBe(s2!.meta.eTag);
-    expect(s2!.meta.eTag).toBe(s3!.meta.eTag);
+    expect(s1!.meta.validFrom).toBe(s2!.meta.validFrom);
+    expect(s2!.meta.validFrom).toBe(s3!.meta.validFrom);
 
     a.client[Symbol.dispose]();
   });

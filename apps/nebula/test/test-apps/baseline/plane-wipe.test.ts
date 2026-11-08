@@ -73,7 +73,7 @@ async function ontologyKv(c: NebulaClientTest, star: string) {
 }
 async function create(c: NebulaClientTest, star: string, version: string, nodeId = ROOT_NODE_ID) {
   const rid = uuid();
-  const out = await c.lmz.callAsync('STAR', star, door(c).transaction(version, uuid(), {
+  const out = await c.lmz.callAsync('STAR', star, door(c).transaction(version, {
     [rid]: { op: 'create', typeName: 'TestResource', nodeId, value: { title: 'x' } },
   })) as TransactionResult;
   return { rid, out };
@@ -213,7 +213,7 @@ describe('a transaction or invite held at the validator across a wipe writes not
     const held = `held-${uuid().slice(0, 6)}`;
     await install(a, dev, { version: held, types: V1 }, HOLD_MS);
     const holder = await admin(galaxy, dev);
-    const pending = answer(holder.lmz.callAsync('STAR', dev, door(holder).transaction(held, uuid(), {
+    const pending = answer(holder.lmz.callAsync('STAR', dev, door(holder).transaction(held, {
       [uuid()]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'held' } },
     }), { timeoutMs: 30_000 }));
     await vi.waitFor(() => expect(marks('nebula.Resources.ontology', 'facet cold load').some((e) => e.data?.version === held)).toBe(true));
@@ -336,8 +336,8 @@ describe('an answer that installs nothing new changes nothing', () => {
     const [resourceBefore, queryBefore] = [listener.resourceUpdateCount, listener.queryUpdateCount];
     const snap = await a.lmz.callAsync('STAR', star, door(a).read('v1', rid)) as Snapshot;
     // One commit that changes the watched resource and adds a member to the watched query.
-    const next = await a.lmz.callAsync('STAR', star, door(a).transaction('v1', uuid(), {
-      [rid]: { op: 'put', eTag: snap.meta.eTag, value: { title: 'next' } },
+    const next = await a.lmz.callAsync('STAR', star, door(a).transaction('v1', {
+      [rid]: { op: 'put', ifValidFromMatches: snap.meta.validFrom, value: { title: 'next' } },
       [parent]: { op: 'create', typeName: 'Parent', nodeId: ROOT_NODE_ID, value: { name: 'p' } },
       [uuid()]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent, label: 'c' } },
     })) as TransactionResult;

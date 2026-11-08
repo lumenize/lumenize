@@ -29,11 +29,11 @@ function uniqueStar(): string {
   return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
-function committedETag(outcome: TransactionOutcome, rid: string): string {
+function committedMoment(outcome: TransactionOutcome, rid: string): string {
   if (outcome.kind !== 'committed') throw new Error(`Expected committed, got ${outcome.kind}`);
   const r = outcome.resources[rid];
   if (r?.kind !== 'committed') throw new Error(`Expected committed resource, got ${r?.kind}`);
-  return r.eTag;
+  return r.validFrom;
 }
 
 function makeFactoryClient(star: string, browser: Browser) {
@@ -54,7 +54,7 @@ describe('set-union merge + client-computed aggregate (§5.3.8, real Star)', () 
     const star = uniqueStar();
 
     // Admin (the "other" actor) installs the ontology, seeds an empty list, then
-    // adds 't1' — advancing the server so a second add against the seed eTag conflicts.
+    // adds 't1' — advancing the server so a second add against the seed version conflicts.
     const admin = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const galaxyName = star.split('.').slice(0, 2).join('.');
     admin.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: LIST_TYPES });
@@ -64,12 +64,12 @@ describe('set-union merge + client-computed aggregate (§5.3.8, real Star)', () 
     const created = await admin.client.resources.transaction({
       [listId]: { op: 'create', typeName: 'TodoList', nodeId: ROOT_NODE_ID, value: { items: [] } },
     });
-    const seedETag = committedETag(created, listId);
+    const seedVersion = committedMoment(created, listId);
     await admin.client.resources.transaction({
-      [listId]: { op: 'put', typeName: 'TodoList', eTag: seedETag, value: { items: ['t1'] } },
+      [listId]: { op: 'put', typeName: 'TodoList', ifValidFromMatches: seedVersion, value: { items: ['t1'] } },
     });
 
-    // B (factory): a set-union resolver, then add 't2' against the stale seed eTag.
+    // B (factory): a set-union resolver, then add 't2' against the stale seed version.
     const browserB = new Browser();
     await foundAndLogin(browserB, star, ownerOf('admin@example.com'), star);
     const bf = makeFactoryClient(star, browserB);
@@ -98,7 +98,7 @@ describe('set-union merge + client-computed aggregate (§5.3.8, real Star)', () 
     await cSub.snapshot;
 
     const outcome = await bf.client.resources.transaction({
-      [listId]: { op: 'put', typeName: 'TodoList', eTag: seedETag, value: { items: ['t2'] } },
+      [listId]: { op: 'put', typeName: 'TodoList', ifValidFromMatches: seedVersion, value: { items: ['t2'] } },
     });
     expect(outcome.kind).toBe('committed');
 

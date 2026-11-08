@@ -109,19 +109,19 @@ describe('no subscription update carries the identity of the caller whose call c
     await vi.waitFor(() => expect(count(probe, 'handleOrgTreeUpdate')).toBeGreaterThanOrEqual(1)); // initial tree
 
     // The admin's calls — each update they cause is a kind.
-    const eTagOf = async (id: string) => {
+    const versionOf = async (id: string) => {
       admin.callStarRead(star, VERSION, id);
       await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
-      return (admin.lastResult as { meta: { eTag: string } }).meta.eTag;
+      return (admin.lastResult as { meta: { validFrom: string } }).meta.validFrom;
     };
-    const eTag = await eTagOf(readable);
-    const hiddenETag = await eTagOf(hidden);
+    const version = await versionOf(readable);
+    const hiddenVersion = await versionOf(hidden);
     const before = {
       resource: count(probe, 'handleResourceUpdate'), query: count(probe, 'handleQueryUpdate'),
       roster: count(probe, 'handleQuerySubscribersUpdate'), tree: count(probe, 'handleOrgTreeUpdate'),
     };
-    await commit(admin, star, { [readable]: { op: 'put', eTag, value: { name: 'r2' } } });                         // resource update
-    await commit(admin, star, { [hidden]: { op: 'put', eTag: hiddenETag, value: { name: 'h2' } } });              // denied resource update
+    await commit(admin, star, { [readable]: { op: 'put', ifValidFromMatches: version, value: { name: 'r2' } } });                         // resource update
+    await commit(admin, star, { [hidden]: { op: 'put', ifValidFromMatches: hiddenVersion, value: { name: 'h2' } } });              // denied resource update
     await commit(admin, star, { [uuid()]: { op: 'create', typeName: 'Child', nodeId: nodeA, value: { parent: readable, label: 'x' } } }); // reader's query update
     await commit(admin, star, { [uuid()]: { op: 'create', typeName: 'Child', nodeId: nodeA, value: { parent: partial, label: 'y' } } });  // has-denial query update
     using joined = admin.resources.subscribeQuery(qReadable); await joined.ready;                                 // roster update

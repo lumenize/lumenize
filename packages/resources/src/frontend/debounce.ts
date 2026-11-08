@@ -2,8 +2,8 @@
  * Debounce + serial-per-resource submission queue. Validated in isolation
  * (`tasks/archive/debounce-serial-queue.md` D0/D1) and ported here verbatim.
  *
- * Responsibilities (and only these): WHEN a transaction submits, WHAT eTag /
- * newETag / base it carries, and serial-per-`(rt, rid)` occupancy. The
+ * Responsibilities (and only these): WHEN a transaction submits, WHAT version
+ * and base it carries, and serial-per-`(rt, rid)` occupancy. The
  * optimistic store write happens before/outside the queue (every keystroke
  * paints immediately); conflict RESOLUTION (the TransactionOutcome /
  * ConflictResolverVerdict machine) lives in the conflict-outcome engine —
@@ -16,7 +16,7 @@
  * injected `interpretCommit` and every non-commit goes to `onNonCommit`. In
  * production the factory/conflict-outcome engine supplies an `interpretCommit`
  * that reads the v3 outcome shape; the built-in default below recognizes the
- * `{ resolution: 'committed', eTag }` shape used by the queue's own tests.
+ * `{ resolution: 'committed', validFrom }` shape used by the queue's own tests.
  *
  * Pinned semantics implemented here (see the task file for the full list):
  * - quiet window (default 500 ms, restarted per write) + max wait (default
@@ -26,15 +26,15 @@
  * - serial per resource: at most one in-flight transaction per key; writes
  *   during flight buffer (latest-value coalescing — the submission re-reads
  *   the store at submit time);
- * - eTag chain: each submission's `eTag` is the previous successful
- *   submission's resulting eTag (`baselineETag` advances on commit/accept);
- * - B4 base rule: `base` = value at the baseline eTag the next submission
+ * - version chain: each submission's `ifValidFromMatches` is the moment the previous
+ *   successful submission committed at (`baselineValidFrom` advances on commit/accept);
+ * - B4 base rule: `base` = value at the baseline version the next submission
  *   uses; re-anchors at the commit boundary (committed ⇒ base := the
  *   just-submitted value), on accept-server, and on conflict re-submission;
  * - connection gate: while not `'connected'`, flush + all timers (quiet,
  *   maxWait, in-flight timeout) suspend; a disconnect never rolls back; on
- *   reconnect an in-flight submission replays with its SAME `newETag`
- *   (server replay is idempotent) and held writes flush;
+ *   reconnect an in-flight submission's own `callAsync` re-resolves (it is
+ *   never re-fired) and held writes flush;
  * - multi-resource explicit batches (m9) occupy all their keys, fold pending
  *   debounced writes for those keys in, and park until every key is free.
  */
@@ -54,13 +54,11 @@ export function isQueueSignal(o: unknown): o is QueueSignal {
 export interface QueueSubmission {
   rt: string;
   rid: string;
-  /** Baseline this submission asserts (optimistic-concurrency check). */
-  eTag: string;
-  /** Idempotency token — stable across reconnect replays of this submission. */
-  newETag: string;
+  /** The version this submission asserts it read: the `validFrom` it names (optimistic concurrency). */
+  ifValidFromMatches: string;
   /** Coalesced value, read from the store at submit time (cloned). */
   value: unknown;
-  /** Merge base: the value at `eTag` (B4 — what a conflict resolver hands textMerge). */
+  /** Merge base: the value at `ifValidFromMatches` (B4 — what a conflict resolver hands textMerge). */
   base: unknown;
   /** Replay counter for this logical submission; 1 = first send. */
   attempt: number;
@@ -68,7 +66,7 @@ export interface QueueSubmission {
    * Opaque operation descriptor for an explicit (non-debounced) submission —
    * carries the op kind (`create`/`put`/`move`/`delete`) + nodeId/typeName the
    * `submit` fn turns into the wire op. Absent on debounced writes (the
-   * submitter defaults to a `put` of `value` at `eTag`). A `use-this` resubmit
+   * submitter defaults to a `put` of `value` at `ifValidFromMatches`). A `use-this` resubmit
    * inherits no op (it's always a `put` of the merged value).
    */
   op?: unknown;
@@ -77,11 +75,11 @@ export interface QueueSubmission {
 /** Handler conclusion api for non-committed outcomes; exactly one method must be called. */
 export interface NonCommitApi {
   /** Server's value accepted (use-server): baseline advances to the snapshot; buffered writes chain off it. */
-  accept(snapshot: { value: unknown; meta: { eTag: string } }): void;
+  accept(snapshot: { value: unknown; meta: { validFrom: string } }): void;
   /** Terminal local failure (validation/permission/timeout after rollback): pending+buffered edits for the key are dropped. */
   fail(): void;
-  /** Conflict re-submission (use-this): new attempt at the server's current eTag with a re-anchored base. */
-  resubmit(args: { eTag: string; value: unknown; base: unknown }): void;
+  /** Conflict re-submission (use-this): new attempt at the server's current version with a re-anchored base. */
+  resubmit(args: { ifValidFromMatches: string; value: unknown; base: unknown }): void;
 }
 
 export interface DebounceQueueConfig {
@@ -89,14 +87,14 @@ export interface DebounceQueueConfig {
    *  A throw becomes a per-submission `{ queueSignal: 'infrastructure-error' }`. */
   submit: (submissions: QueueSubmission[]) => Promise<unknown[]>;
   /** Read the CURRENT (optimistic) resource state from the store. */
-  readResource: (rt: string, rid: string) => { value: unknown; eTag?: string };
-  /** Extract the committed eTag from an outcome, or null if not committed.
-   *  Default reads the queue-test shape `{ resolution: 'committed', eTag }`;
+  readResource: (rt: string, rid: string) => { value: unknown; validFrom?: string };
+  /** Extract the committed moment from an outcome, or null if not committed.
+   *  Default reads the queue-test shape `{ resolution: 'committed', validFrom }`;
    *  production supplies one that reads the v3 outcome shape. */
   interpretCommit?: (outcome: unknown) => string | null;
-  /** Committed: the store should adopt `eTag` (the queue has already advanced its chain).
+  /** Committed: the store should adopt `validFrom` (the queue has already advanced its chain).
    *  `context` is the opaque value passed to `explicitBatch` (undefined for debounced writes). */
-  onCommitted?: (submission: QueueSubmission, eTag: string, context?: unknown) => void;
+  onCommitted?: (submission: QueueSubmission, validFrom: string, context?: unknown) => void;
   /** Every non-committed outcome (incl. QueueSignal). The key stays occupied until the api concludes. */
   onNonCommit: (outcome: unknown, submission: QueueSubmission, api: NonCommitApi, context?: unknown) => void;
   quietMs?: number;
@@ -105,8 +103,6 @@ export interface DebounceQueueConfig {
   timeoutMs?: number;
   /** Clone for captured value/base snapshots (factory passes a toRaw-aware clone). */
   clone?: (v: unknown) => unknown;
-  /** Injectable for deterministic tests. */
-  newETag?: () => string;
 }
 
 interface KeyState {
@@ -120,7 +116,7 @@ interface KeyState {
   maxWaitTimer?: ReturnType<typeof setTimeout>;
   /** Shortest quietMs seen in the current burst (eager fields shrink the window for the whole resource). */
   burstQuietMs?: number;
-  baselineETag?: string;
+  baselineValidFrom?: string;
   baseValue?: unknown;
   inFlight?: Batch;
   /**
@@ -156,12 +152,11 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
   const maxWaitDefault = config.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const clone = config.clone ?? ((v: unknown) => (v === undefined ? undefined : structuredClone(v)));
-  const genETag = config.newETag ?? (() => globalThis.crypto.randomUUID());
   const interpretCommit =
     config.interpretCommit ??
     ((o: unknown) =>
       typeof o === 'object' && o !== null && (o as { resolution?: string }).resolution === 'committed'
-        ? (o as { eTag: string }).eTag
+        ? (o as { validFrom: string }).validFrom
         : null);
 
   const keys = new Map<string, KeyState>();
@@ -204,10 +199,10 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
 
   /** First-divergence baseline capture (B4 site a). No-op once initialized. */
   function ensureBaseline(ks: KeyState, preWriteValue: unknown, havePreWrite: boolean): boolean {
-    if (ks.baselineETag !== undefined) return true;
-    const { value, eTag } = config.readResource(ks.rt, ks.rid);
-    if (eTag === undefined) return false; // never-subscribed — no transactions
-    ks.baselineETag = eTag;
+    if (ks.baselineValidFrom !== undefined) return true;
+    const { value, validFrom } = config.readResource(ks.rt, ks.rid);
+    if (validFrom === undefined) return false; // never-subscribed — no transactions
+    ks.baselineValidFrom = validFrom;
     ks.baseValue = havePreWrite ? preWriteValue : clone(value);
     return true;
   }
@@ -278,10 +273,10 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
    * for the touched resources into the batch, occupies all keys, parks until
    * every key is free.
    *
-   * Each item may carry an explicit baseline `eTag` + pre-write `base` + the
+   * Each item may carry an explicit baseline `ifValidFromMatches` + pre-write `base` + the
    * submitted `value` + opaque `op` (the conflict-outcome engine's
-   * `transactionOps` path: creates, stashed-eTag puts, moves, deletes). When
-   * `eTag`/`value`/`op` are omitted the item behaves like the original
+   * `transactionOps` path: creates, stashed-version puts, moves, deletes). When
+   * `ifValidFromMatches`/`value`/`op` are omitted the item behaves like the original
    * key-only form — baseline + value come from the store (the `transaction`
    * put-from-store path + its tests are unchanged).
    */
@@ -289,7 +284,7 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
     items: Array<{
       rt: string;
       rid: string;
-      eTag?: string;
+      ifValidFromMatches?: string;
       base?: unknown;
       value?: unknown;
       op?: unknown;
@@ -299,10 +294,10 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
     if (disposed) return;
     const keyStates = items.map((item) => {
       const ks = getKey(item.rt, item.rid);
-      if (item.eTag !== undefined) {
-        // Explicit baseline (stashed eTag, or a create sentinel) overrides the
+      if (item.ifValidFromMatches !== undefined) {
+        // Explicit baseline (a stashed version, or a create sentinel) overrides the
         // store-derived one — and supersedes any pending debounced baseline.
-        ks.baselineETag = item.eTag;
+        ks.baselineValidFrom = item.ifValidFromMatches;
         ks.baseValue = item.base;
       } else {
         ensureBaseline(ks, item.base, Object.prototype.hasOwnProperty.call(item, 'base'));
@@ -315,7 +310,7 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
       clearTimers(ks); // pending debounced edits fold into the batch
       return ks;
     });
-    if (keyStates.some((ks) => ks.baselineETag === undefined)) return; // never-subscribed member
+    if (keyStates.some((ks) => ks.baselineValidFrom === undefined)) return; // never-subscribed member
     if (connected && keyStates.every(isFree)) {
       submitKeys(keyStates, false, context);
     } else {
@@ -349,8 +344,7 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
       return {
         rt: ks.rt,
         rid: ks.rid,
-        eTag: ks.baselineETag!,
-        newETag: genETag(),
+        ifValidFromMatches: ks.baselineValidFrom!,
         value: explicit?.hasValue ? clone(explicit.value) : clone(config.readResource(ks.rt, ks.rid).value),
         base: ks.baseValue,
         attempt: 1,
@@ -417,12 +411,12 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
     batch.keys.forEach((ks, i) => {
       const submission = batch.submissions[i]!;
       const outcome = outcomes[i] ?? { queueSignal: 'timeout' as const };
-      const committedETag = interpretCommit(outcome);
-      if (committedETag !== null) {
+      const committedAt = interpretCommit(outcome);
+      if (committedAt !== null) {
         // Commit boundary (B4 site b): the chain AND the merge base advance together.
-        ks.baselineETag = committedETag;
+        ks.baselineValidFrom = committedAt;
         ks.baseValue = submission.value;
-        config.onCommitted?.(submission, committedETag, batch.context);
+        config.onCommitted?.(submission, committedAt, batch.context);
         releaseKey(batch, ks);
       } else {
         // Key stays occupied until the handler concludes — async resolver
@@ -442,7 +436,7 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
     return {
       accept(snapshot) {
         once(() => {
-          ks.baselineETag = snapshot.meta.eTag;
+          ks.baselineValidFrom = snapshot.meta.validFrom;
           ks.baseValue = clone(snapshot.value);
           releaseKey(batch, ks);
         });
@@ -455,15 +449,14 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
           releaseKey(batch, ks);
         });
       },
-      resubmit({ eTag, value, base }) {
+      resubmit({ ifValidFromMatches, value, base }) {
         once(() => {
-          ks.baselineETag = eTag;
+          ks.baselineValidFrom = ifValidFromMatches;
           ks.baseValue = clone(base);
           const followUp: QueueSubmission = {
             rt: ks.rt,
             rid: ks.rid,
-            eTag,
-            newETag: genETag(),
+            ifValidFromMatches,
             value: clone(value),
             base: ks.baseValue,
             attempt: 1,

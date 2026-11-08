@@ -34,7 +34,7 @@ async function commit(c: NebulaClientTest, star: string, ops: Record<string, any
   c.callStarTransaction(star, VERSION, ops);
   const r = await waitForSuccess(c) as TransactionResult;
   if (!r.ok) throw new Error('expected commit ok: ' + JSON.stringify(r));
-  return r.eTags;
+  return r.validFrom;
 }
 async function vf(c: NebulaClientTest, star: string, id: string): Promise<string> {
   c.callStarRead(star, VERSION, id);
@@ -80,19 +80,19 @@ describe('child2 query rerun on commit (Phase 4)', () => {
     const c3 = crypto.randomUUID();
     const e3 = await commit(a, star, { [c3]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: Q, label: 'c3' } } });
     n = b.queryUpdateCount;
-    await commit(a, star, { [c3]: { op: 'put', eTag: e3[c3], value: { parent: P, label: 'c3' } } });
+    await commit(a, star, { [c3]: { op: 'put', ifValidFromMatches: e3, value: { parent: P, label: 'c3' } } });
     await nextPush(b, n);
     expect(b.lastQueryUpdate?.result.resourceIds).toEqual(await ordered(a, star, [c1, c2, c3]));
 
     // reparent-out: c1's parent edited away to Q → leaves membership
     n = b.queryUpdateCount;
-    await commit(a, star, { [c1]: { op: 'put', eTag: e1[c1], value: { parent: Q, label: 'c1' } } });
+    await commit(a, star, { [c1]: { op: 'put', ifValidFromMatches: e1, value: { parent: Q, label: 'c1' } } });
     await nextPush(b, n);
     expect(b.lastQueryUpdate?.result.resourceIds).toEqual(await ordered(a, star, [c2, c3]));
 
     // delete: c2 removed → leaves membership
     n = b.queryUpdateCount;
-    await commit(a, star, { [c2]: { op: 'delete', eTag: (await commitETag(a, star, c2)) } });
+    await commit(a, star, { [c2]: { op: 'delete', ifValidFromMatches: (await committedVersion(a, star, c2)) } });
     await nextPush(b, n);
     expect(b.lastQueryUpdate?.result.resourceIds).toEqual([c3]);
 
@@ -135,7 +135,7 @@ describe('child2 query rerun on commit (Phase 4)', () => {
 
     // Content-only edit (label changes, parent unchanged) → rerun, same membership.
     const n = b.queryUpdateCount;
-    await commit(a, star, { [c1]: { op: 'put', eTag: e[c1], value: { parent: P, label: 'renamed' } } });
+    await commit(a, star, { [c1]: { op: 'put', ifValidFromMatches: e, value: { parent: P, label: 'renamed' } } });
     await nextPush(b, n);
     expect(b.lastQueryUpdate?.result.resourceIds).toEqual([c1]); // unchanged set
 
@@ -188,8 +188,8 @@ describe('child2 query rerun on commit (Phase 4)', () => {
   });
 });
 
-/** Read a child's current eTag (for delete in the transitions test). */
-async function commitETag(c: NebulaClientTest, star: string, id: string): Promise<string> {
+/** Read a child's current version (for delete in the transitions test). */
+async function committedVersion(c: NebulaClientTest, star: string, id: string): Promise<string> {
   c.callStarRead(star, VERSION, id);
-  return (await waitForSuccess(c) as Snapshot).meta.eTag;
+  return (await waitForSuccess(c) as Snapshot).meta.validFrom;
 }

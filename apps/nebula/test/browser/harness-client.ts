@@ -42,13 +42,13 @@ export class HarnessNebulaClient extends NebulaClient {
   /** Map<callId, markerArrival ms>. Entries are deleted by the helper that consumed them. */
   #markersByCallId = new Map<string, number>();
   /**
-   * Map<eTag, t_arrived ms> — populated by every `handleResourceUpdate` carrying
+   * Map<version, t_arrived ms> — populated by every `handleResourceUpdate` carrying
    * a non-error Snapshot. Used by the fanout bench (`tasks/fanout-scaling-benchmark.md`)
-   * to capture per-subscriber push delivery time, correlated by the eTag the
-   * originator pre-generates via `client.resources.transaction({ newETag })`.
+   * to capture per-subscriber push delivery time, correlated by the version the
+   * originator pre-generates via `client.resources.transaction({ moment })`.
    */
-  #fanoutArrivalsByETag = new Map<string, number>();
-  /** Resolvers registered by `waitForFanoutArrival` for eTags not yet seen. */
+  #fanoutArrivalsByVersion = new Map<string, number>();
+  /** Resolvers registered by `waitForFanoutArrival` for versions not yet seen. */
   #pendingFanoutWaits = new Map<string, (t: number) => void>();
 
   #settle(v: any): void {
@@ -72,9 +72,9 @@ export class HarnessNebulaClient extends NebulaClient {
 
   /**
    * Override `handleResourceUpdate` to record the Node-side arrival time for
-   * every snapshot delivery, keyed by `snapshot.meta.eTag`. Initial-subscribe
+   * every snapshot delivery, keyed by `snapshot.meta.validFrom`. Initial-subscribe
    * snapshots and fanout pushes both flow through here — the fanout bench
-   * filters by the originator-generated eTag so initial-snapshot deliveries
+   * filters by the originator-generated version so initial-snapshot deliveries
    * don't pollute the measurement.
    *
    * Calls super to preserve normal subscribe-Promise settlement, bound-state
@@ -87,12 +87,12 @@ export class HarnessNebulaClient extends NebulaClient {
     result: Snapshot | null | Error,
   ): void {
     if (result && !(result instanceof Error)) {
-      const eTag = result.meta.eTag;
+      const version = result.meta.validFrom;
       const t = performance.now();
-      this.#fanoutArrivalsByETag.set(eTag, t);
-      const waiter = this.#pendingFanoutWaits.get(eTag);
+      this.#fanoutArrivalsByVersion.set(version, t);
+      const waiter = this.#pendingFanoutWaits.get(version);
       if (waiter) {
-        this.#pendingFanoutWaits.delete(eTag);
+        this.#pendingFanoutWaits.delete(version);
         waiter(t);
       }
     }
@@ -101,24 +101,24 @@ export class HarnessNebulaClient extends NebulaClient {
 
   /**
    * Resolve with the `performance.now()` timestamp captured when this client's
-   * `handleResourceUpdate` fired for `eTag`. If already received, resolves
+   * `handleResourceUpdate` fired for `version`. If already received, resolves
    * immediately; otherwise waits until the matching delivery arrives.
    *
-   * Test code typically pre-generates `eTag` via `crypto.randomUUID()` and
-   * passes it to `client.resources.transaction(ops, { newETag: eTag })` so the
-   * eTag is known before any subscriber receives the push.
+   * Test code typically pre-generates `version` via `crypto.randomUUID()` and
+   * passes it to `client.resources.transaction(ops, { moment: version })` so the
+   * version is known before any subscriber receives the push.
    */
-  waitForFanoutArrival(eTag: string, timeoutMs = 30_000): Promise<number> {
-    const cached = this.#fanoutArrivalsByETag.get(eTag);
+  waitForFanoutArrival(version: string, timeoutMs = 30_000): Promise<number> {
+    const cached = this.#fanoutArrivalsByVersion.get(version);
     if (cached !== undefined) {
       return Promise.resolve(cached);
     }
     return new Promise<number>((resolve, reject) => {
       const timer = globalThis.setTimeout(() => {
-        this.#pendingFanoutWaits.delete(eTag);
-        reject(new Error(`waitForFanoutArrival: timeout after ${timeoutMs}ms for eTag ${eTag}`));
+        this.#pendingFanoutWaits.delete(version);
+        reject(new Error(`waitForFanoutArrival: timeout after ${timeoutMs}ms for version ${version}`));
       }, timeoutMs);
-      this.#pendingFanoutWaits.set(eTag, (t) => {
+      this.#pendingFanoutWaits.set(version, (t) => {
         globalThis.clearTimeout(timer);
         resolve(t);
       });
@@ -127,7 +127,7 @@ export class HarnessNebulaClient extends NebulaClient {
 
   /** Drop any captured arrivals — useful between bench iterations to bound memory. */
   resetFanoutArrivals(): void {
-    this.#fanoutArrivalsByETag.clear();
+    this.#fanoutArrivalsByVersion.clear();
   }
 
   // Plain handler for callers that explicitly forward via
@@ -141,7 +141,6 @@ export class HarnessNebulaClient extends NebulaClient {
     starName: string,
     ontologyVersion: string,
     ops: Record<string, OperationDescriptor>,
-    newETag: string = crypto.randomUUID(),
   ): Promise<DecomposedCallResult<TransactionResult>> {
     return this.#callWithMarker((onSent) => {
       // Transactions now return via `callAsync` (D5 pattern (a)); route the resolved value / rejection
@@ -149,7 +148,7 @@ export class HarnessNebulaClient extends NebulaClient {
       this.lmz.callAsync(
         'STAR',
         starName,
-        (this.ctn() as any).resources.transaction(ontologyVersion, newETag, ops),
+        (this.ctn() as any).resources.transaction(ontologyVersion, ops),
         { onSent },
       ).then((r: any) => this.#settle(r), (e: any) => this.#settle(e));
     });

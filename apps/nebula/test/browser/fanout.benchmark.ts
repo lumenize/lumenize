@@ -12,12 +12,12 @@
  * is already fire-and-forget; each subscriber lands on its own Gateway DO.
  *
  * **Instrumentation**: `HarnessNebulaClient.handleResourceUpdate` records
- * `performance.now()` per arriving Snapshot keyed by `meta.eTag`. The
- * originator pre-generates `newETag` via `crypto.randomUUID()` and passes
- * it to `client.resources.transaction(ops, { newETag })`, so the eTag is
+ * `performance.now()` per arriving Snapshot keyed by `meta.validFrom`. The
+ * originator pre-generates `moment` via `crypto.randomUUID()` and passes
+ * it to `client.resources.transaction(ops, { moment })`, so the version is
  * known before any subscriber receives the push. Initial-subscribe
- * snapshots use server-generated eTags and don't collide with the
- * originator-controlled mutation eTags.
+ * snapshots use server-generated versions and don't collide with the
+ * originator-controlled mutation versions.
  *
  * **Output**:
  *   - `RESULTS-fanout-{label}.md` (overwritten per run; gitignored)
@@ -41,16 +41,15 @@ const ADMIN_EMAIL = 'test@lumenize-test.dev';
 const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; count: number; }`;
 
-// v3: the engine generates the per-transaction `newETag`, so the originator no
-// longer pre-knows it — it reads the committed eTag back off the outcome (which
-// equals the eTag every subscriber's fanout snapshot carries).
-function committedETag(outcome: unknown, rid: string): string {
-  const o = outcome as { kind?: string; resources?: Record<string, { kind?: string; eTag?: string }> };
+// The server mints each commit's moment, so the originator reads it back off the outcome; it equals
+// the `validFrom` every subscriber's fanout snapshot carries.
+function committedMoment(outcome: unknown, rid: string): string {
+  const o = outcome as { kind?: string; resources?: Record<string, { kind?: string; validFrom?: string }> };
   const r = o?.resources?.[rid];
-  if (o?.kind !== 'committed' || r?.kind !== 'committed' || !r.eTag) {
+  if (o?.kind !== 'committed' || r?.kind !== 'committed' || !r.validFrom) {
     throw new Error(`expected committed for ${rid}: ${JSON.stringify(outcome)}`);
   }
-  return r.eTag;
+  return r.validFrom;
 }
 
 const BASELINE_ITERATIONS = parseInt(process.env.FANOUT_BASELINE_ITERS ?? '20', 10);
@@ -194,7 +193,7 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
       console.log(`[fanout-bench Phase 1] M=${harness.clients.length} clients connected`);
 
       // Step 1: originator creates the resource. We use a known resourceId so
-      // we can subscribe to it. The first eTag is auto-generated for the
+      // we can subscribe to it. The first version is auto-generated for the
       // create op; we capture it from the transaction outcome.
       const resourceId = crypto.randomUUID();
       const createOutcome = await originator.resources.transaction(
@@ -207,26 +206,26 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
           },
         },
       );
-      const createETag = committedETag(createOutcome, resourceId);
-      console.log(`[fanout-bench Phase 1] resource created — id=${resourceId} eTag=${createETag.slice(0, 8)}`);
+      const createVersion = committedMoment(createOutcome, resourceId);
+      console.log(`[fanout-bench Phase 1] resource created — id=${resourceId} version=${createVersion.slice(0, 8)}`);
 
       // Step 2: subscriber subscribes. Initial snapshot arrives via
-      // handleResourceUpdate with the create-time eTag — captured but not the
+      // handleResourceUpdate with the create-time version — captured but not the
       // measurement target.
       const initialSnapshot = await subscriber.resources.subscribe('TestResource', resourceId).snapshot;
       if (!initialSnapshot) throw new Error('subscriber received null initial snapshot');
-      expect(initialSnapshot.meta.eTag).toBe(createETag);
-      console.log(`[fanout-bench Phase 1] subscriber subscribed — initial eTag matches`);
+      expect(initialSnapshot.meta.validFrom).toBe(createVersion);
+      console.log(`[fanout-bench Phase 1] subscriber subscribed — initial version matches`);
 
       // Step 3: warmup iterations — let the hot path settle before measurement.
-      let currentETag = createETag;
+      let currentVersion = createVersion;
       for (let i = 0; i < WARMUP_ITERATIONS; i++) {
         const out = await originator.resources.transaction(
-          { [resourceId]: { op: 'put', typeName: 'TestResource', eTag: currentETag, value: { title: `warmup-${i}`, count: i } } },
+          { [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: currentVersion, value: { title: `warmup-${i}`, count: i } } },
         );
-        const newETag = committedETag(out, resourceId);
-        await subscriber.waitForFanoutArrival(newETag, FANOUT_TIMEOUT_MS);
-        currentETag = newETag;
+        const moment = committedMoment(out, resourceId);
+        await subscriber.waitForFanoutArrival(moment, FANOUT_TIMEOUT_MS);
+        currentVersion = moment;
       }
       subscriber.resetFanoutArrivals();
       console.log(`[fanout-bench Phase 1] warmup done; starting ${BASELINE_ITERATIONS} measured iterations`);
@@ -234,7 +233,7 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
       // Step 4: measured iterations.
       interface IterSample {
         iter: number;
-        eTag: string;
+        version: string;
         tBeforeCommit: number;
         tAfterCommit: number;
         tArrived: number;
@@ -244,13 +243,13 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
       for (let i = 0; i < BASELINE_ITERATIONS; i++) {
         const tBeforeCommit = performance.now();
         const out = await originator.resources.transaction(
-          { [resourceId]: { op: 'put', typeName: 'TestResource', eTag: currentETag, value: { title: `measured-${i}`, count: i + 1000 } } },
+          { [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: currentVersion, value: { title: `measured-${i}`, count: i + 1000 } } },
         );
         const tAfterCommit = performance.now();
-        const newETag = committedETag(out, resourceId);
-        const tArrived = await subscriber.waitForFanoutArrival(newETag, FANOUT_TIMEOUT_MS);
-        samples.push({ iter: i, eTag: newETag, tBeforeCommit, tAfterCommit, tArrived });
-        currentETag = newETag;
+        const moment = committedMoment(out, resourceId);
+        const tArrived = await subscriber.waitForFanoutArrival(moment, FANOUT_TIMEOUT_MS);
+        samples.push({ iter: i, version: moment, tBeforeCommit, tAfterCommit, tArrived });
+        currentVersion = moment;
       }
 
       // Step 5: summarize. Two metrics:
@@ -342,8 +341,8 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
 
 interface CommitMeasurement {
   commitIndex: number;
-  /** eTag the originator pre-generated for this commit. */
-  eTag: string;
+  /** version the originator pre-generated for this commit. */
+  version: string;
   /** `performance.now()` when originator started transaction(). */
   tBeforeCommit: number;
   /** `performance.now()` when originator's transaction() resolved. */
@@ -387,7 +386,7 @@ async function runRampStep(args: {
       },
     },
   );
-  const createETag = committedETag(createOutcome, resourceId);
+  const createVersion = committedMoment(createOutcome, resourceId);
 
   // All N subscribers subscribe in parallel. Each subscribe() resolves when
   // the subscriber sees the initial snapshot.
@@ -395,20 +394,20 @@ async function runRampStep(args: {
     subscribers.map((sub) => sub.resources.subscribe('TestResource', resourceId)),
   );
 
-  // Reset per-subscriber arrival maps so initial-snapshot eTag entries don't
+  // Reset per-subscriber arrival maps so initial-snapshot version entries don't
   // sit there (memory bound only — we don't look them up).
   for (const sub of subscribers) sub.resetFanoutArrivals();
 
-  let currentETag = createETag;
+  let currentVersion = createVersion;
   const commits: CommitMeasurement[] = [];
 
   for (let c = 0; c < RAMP_COMMITS_PER_N; c++) {
     const tBeforeCommit = performance.now();
     const out = await originator.resources.transaction(
-      { [resourceId]: { op: 'put', typeName: 'TestResource', eTag: currentETag, value: { title: `ramp-N=${N}-c=${c}`, count: c + 1 } } },
+      { [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: currentVersion, value: { title: `ramp-N=${N}-c=${c}`, count: c + 1 } } },
     );
     const tAfterCommit = performance.now();
-    const newETag = committedETag(out, resourceId);
+    const moment = committedMoment(out, resourceId);
 
     // Wait for all subscribers' arrivals in parallel. Each Promise resolves
     // with the per-subscriber t_arrived. Failed (timeout) Promises go to the
@@ -418,7 +417,7 @@ async function runRampStep(args: {
     await Promise.all(
       subscribers.map(async (sub, idx) => {
         try {
-          const tArrived = await sub.waitForFanoutArrival(newETag, FANOUT_TIMEOUT_MS);
+          const tArrived = await sub.waitForFanoutArrival(moment, FANOUT_TIMEOUT_MS);
           arrivals.push({ subscriberIndex: idx, tArrived });
         } catch {
           missing.push(idx);
@@ -428,13 +427,13 @@ async function runRampStep(args: {
 
     commits.push({
       commitIndex: c,
-      eTag: newETag,
+      version: moment,
       tBeforeCommit,
       tAfterCommit,
       arrivals,
       missing,
     });
-    currentETag = newETag;
+    currentVersion = moment;
 
     // Reset arrival maps between commits to bound memory at high N.
     for (const sub of subscribers) sub.resetFanoutArrivals();

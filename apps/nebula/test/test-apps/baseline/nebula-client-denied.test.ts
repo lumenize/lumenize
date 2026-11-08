@@ -48,7 +48,7 @@ async function commit(admin: NebulaClientTest, star: string, ops: Parameters<Neb
   expect(admin.lastError).toBeUndefined();
   const result = admin.lastResult as TransactionResult;
   expect(result.ok).toBe(true);
-  return (result as { ok: true; eTags: Record<string, string> }).eTags;
+  return (result as { ok: true; validFrom: string }).validFrom;
 }
 
 /**
@@ -65,7 +65,7 @@ async function starWithMember() {
   const priv = await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'priv', 'Priv');
   const open = uuid();
   const closed = uuid();
-  const eTags = await commit(admin, star, {
+  const committedAt = await commit(admin, star, {
     [open]: { op: 'create', typeName: 'TestResource', nodeId: pub, value: { title: 'open' } },
     [closed]: { op: 'create', typeName: 'TestResource', nodeId: priv, value: { title: 'secret' } },
   });
@@ -85,7 +85,7 @@ async function starWithMember() {
   await member.ready;
   // The factory's tree subscription has answered, so a later tree update is a real change.
   await vi.waitFor(() => expect((member.store.lmz.orgTree.value as { nodes?: unknown })?.nodes).toBeInstanceOf(Map));
-  return { star, admin, member, memberSub: payload.sub, pub, priv, open, closed, eTags };
+  return { star, admin, member, memberSub: payload.sub, pub, priv, open, closed, committedAt };
 }
 
 const entry = (member: { store: Record<string, any> }, rid: string) => member.store.resources.TestResource?.[rid];
@@ -125,33 +125,33 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
   });
 
   it('an established handle turns denied after a revoke and a write: onChange fires, the entry keeps nothing, and a v-model write submits nothing', async () => {
-    const { star, admin, member, memberSub, pub, open, eTags } = await starWithMember();
+    const { star, admin, member, memberSub, pub, open, committedAt } = await starWithMember();
 
     using handle = member.client.resources.subscribe('TestResource', open);
     await handle.snapshot;
     let changes = 0;
     handle.onChange(() => { changes++; });
-    expect(entry(member, open)?.meta?.eTag).toBe(eTags[open]);
+    expect(entry(member, open)?.meta?.validFrom).toBe(committedAt);
 
     // Revoke, then write. The loss shows at the next update, not at the revoke.
     await admin.orgTree.revokePermission(pub, memberSub);
-    await commit(admin, star, { [open]: { op: 'put', eTag: eTags[open], value: { title: 'after-revoke' } } });
+    await commit(admin, star, { [open]: { op: 'put', ifValidFromMatches: committedAt, value: { title: 'after-revoke' } } });
 
     // Mutations: drop the client's handling of an established subscription, or skip onChange → red.
     await vi.waitFor(() => expect(handle.deniedNodes).toEqual([pub]));
     expect(changes).toBe(1);
-    // Mutations: don't mirror the denial into the store, or keep the eTag on a loss → red.
+    // Mutations: don't mirror the denial into the store, or keep the version on a loss → red.
     expect(entry(member, open)?.deniedNodes).toEqual([pub]);
     expect(entry(member, open)?.value).toBeUndefined();
-    expect(entry(member, open)?.meta?.eTag).toBeUndefined();
+    expect(entry(member, open)?.meta?.validFrom).toBeUndefined();
 
-    // A v-model write to the denied entry: dropped at the middleware, since there is no eTag to
+    // A v-model write to the denied entry: dropped at the middleware, since there is no version to
     // submit against, and nothing it could have committed appears.
     entry(member, open).value = { title: 'hijack' };
     member.flush();
     expect(sink.filter((e) => e.message === 'synced-state write dropped: this subscriber cannot read the resource'
       && e.data?.rid === open)).toHaveLength(1);
-    expect(entry(member, open)?.meta?.eTag).toBeUndefined();
+    expect(entry(member, open)?.meta?.validFrom).toBeUndefined();
     admin.callStarRead(star, VERSION, open);
     await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
     expect((admin.lastResult as Snapshot).value).toEqual({ title: 'after-revoke' });
@@ -185,7 +185,7 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
   });
 
   it('a denied resource subscriber that disconnects is reaped at the next write — on a Star', async () => {
-    const { star, admin, closed, eTags } = await starWithMember();
+    const { star, admin, closed, committedAt } = await starWithMember();
     const rows = async (clientAddress: string) => (runInDurableObject as any)((env as any).STAR.getByName(star), (_i: any, c: any) =>
       c.storage.sql.exec(`SELECT COUNT(*) AS n FROM Subscriptions WHERE kind = 'resource' AND topic = ? AND clientAddress = ?`,
         closed, clientAddress).toArray()[0].n as number);
@@ -200,7 +200,7 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
 
     doomed.disconnect();
     await vi.waitFor(() => expect(doomed.connectionState).toBe('disconnected'));
-    await commit(admin, star, { [closed]: { op: 'put', eTag: eTags[closed], value: { title: 'next' } } });
+    await commit(admin, star, { [closed]: { op: 'put', ifValidFromMatches: committedAt, value: { title: 'next' } } });
     // Mutation: send the denied update without the resource reaper → the row stays → red.
     await vi.waitFor(async () => expect(await rows(doomedAddress)).toBe(0));
   });
@@ -232,7 +232,7 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
     await vi.waitFor(() => expect(doomed.connectionState).toBe('disconnected'));
     const current = await admin.resources.read('Message', m) as Snapshot;
     expect((await admin.resources.transaction({
-      [m]: { op: 'put', typeName: 'Message', eTag: current.meta.eTag, value: { chat, content: 'm2' } },
+      [m]: { op: 'put', typeName: 'Message', ifValidFromMatches: current.meta.validFrom, value: { chat, content: 'm2' } },
     })).kind).toBe('committed');
     await vi.waitFor(async () => expect(await rows(doomedAddress)).toBe(0));
   });

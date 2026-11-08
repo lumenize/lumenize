@@ -44,7 +44,7 @@ function uniqueStar(): string {
 /**
  * Test-side NebulaClient. The Star round-trip uses the public
  * `client.resources.transaction()` API (Promise-returning, framework-managed
- * eTag) — no `@mesh()` overrides needed for that path. The ontology install
+ * version) — no `@mesh()` overrides needed for that path. The ontology install
  * still goes through the test-initiator pattern because `applyOntologyForTest`
  * is admin-only and has no public-API surface.
  */
@@ -171,7 +171,7 @@ describe('browser harness', () => {
       if (outcome.kind === 'committed') {
         const r = outcome.resources[resourceId];
         expect(r?.kind).toBe('committed');
-        expect(typeof (r?.kind === 'committed' ? r.eTag : undefined)).toBe('string');
+        expect(typeof (r?.kind === 'committed' ? r.validFrom : undefined)).toBe('string');
       }
     } finally {
       // Dispose the client so the WS closes and the test process can exit.

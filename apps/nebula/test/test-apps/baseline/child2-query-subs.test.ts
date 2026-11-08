@@ -38,12 +38,12 @@ async function admin(star: string) {
   await waitForResult(a.client);
   return a;
 }
-/** Commit a batch; returns the eTags map. */
+/** Commit a batch; returns the versions map. */
 async function commit(c: NebulaClientTest, star: string, ops: Record<string, any>) {
   c.callStarTransaction(star, VERSION, ops);
   const r = await waitForSuccess(c) as TransactionResult;
   if (!r.ok) throw new Error('expected commit ok: ' + JSON.stringify(r));
-  return r.eTags;
+  return r.validFrom;
 }
 async function readValidFrom(c: NebulaClientTest, star: string, rid: string): Promise<string> {
   c.callStarRead(star, VERSION, rid);
@@ -75,12 +75,12 @@ describe('child2 query subscriptions (Phase 3)', () => {
     // Noise that must NOT appear: a child of a DIFFERENT parent, a deleted child of P,
     // and a Parent-typed resource sharing the P id space.
     const cOther = crypto.randomUUID(), cDel = crypto.randomUUID();
-    const eTags = await commit(a, star, {
+    const committedAt = await commit(a, star, {
       [cOther]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: Q, label: 'other' } },
       [cDel]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'doomed' } },
       [P]: { op: 'create', typeName: 'Parent', nodeId: ROOT_NODE_ID, value: { name: 'the parent' } },
     });
-    await commit(a, star, { [cDel]: { op: 'delete', eTag: eTags[cDel] } });
+    await commit(a, star, { [cDel]: { op: 'delete', ifValidFromMatches: committedAt } });
 
     // Expected order: the three live P-children sorted by (validFrom, resourceId).
     // Read actual validFroms so the assertion is robust to cross-txn same-ms ties.

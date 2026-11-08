@@ -54,7 +54,7 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
 
     // B creates t1, t2 (one txn → same validFrom → resourceId tiebreaker).
     const t1 = crypto.randomUUID(), t2 = crypto.randomUUID();
-    const eTags = await b.resources.transaction({
+    const versions = await b.resources.transaction({
       [t1]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: S, content: 't1' } },
       [t2]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: S, content: 't2' } },
     });
@@ -73,14 +73,14 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
 
     // reparent-out: edit t1.session away from S → leaves membership.
     await b.resources.transaction({
-      [t1]: { op: 'put', typeName: 'Message', eTag: (eTags as unknown as Record<string, string>)[t1], value: { chat: Other, content: 't1' } },
+      [t1]: { op: 'put', typeName: 'Message', ifValidFromMatches: (versions as unknown as Record<string, string>)[t1], value: { chat: Other, content: 't1' } },
     });
     await vi.waitFor(() => expect(sub.resourceIds).not.toContain(t1));
     expect(sub.resourceIds).toEqual(await ordered(a, [t2, t3]));
 
     // delete t2 → leaves membership.
     const t2snap = await a.resources.read('Message', t2) as Snapshot;
-    await b.resources.transaction({ [t2]: { op: 'delete', typeName: 'Message', eTag: t2snap.meta.eTag } });
+    await b.resources.transaction({ [t2]: { op: 'delete', typeName: 'Message', ifValidFromMatches: t2snap.meta.validFrom } });
     await vi.waitFor(() => expect(sub.resourceIds).toEqual([t3]));
 
     a[Symbol.dispose](); b[Symbol.dispose]();
@@ -95,7 +95,7 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     using sub = a.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'chat', value: S });
     await sub.ready;
     const t1 = crypto.randomUUID(), t2 = crypto.randomUUID();
-    const eTags = await b.resources.transaction({
+    const versions = await b.resources.transaction({
       [t1]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: S, content: 't1-v0' } },
       [t2]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: S, content: 't2-v0' } },
     });
@@ -110,14 +110,14 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     });
     // B mutates the windowed t1 → A receives the content update (sub is live).
     await b.resources.transaction({
-      [t1]: { op: 'put', typeName: 'Message', eTag: (eTags as unknown as Record<string, string>)[t1], value: { chat: S, content: 't1-v1' } },
+      [t1]: { op: 'put', typeName: 'Message', ifValidFromMatches: (versions as unknown as Record<string, string>)[t1], value: { chat: S, content: 't1-v1' } },
     });
     await vi.waitFor(() =>
       expect((a.lastResourceUpdate?.snapshot?.value as { content?: string })?.content).toBe('t1-v1'));
     // B mutates the UNrendered t2 → A gets a query rerun (membership unchanged) but
     // NO content push for t2; the last content A saw stays t1.
     await b.resources.transaction({
-      [t2]: { op: 'put', typeName: 'Message', eTag: (eTags as unknown as Record<string, string>)[t2], value: { chat: S, content: 't2-v1' } },
+      [t2]: { op: 'put', typeName: 'Message', ifValidFromMatches: (versions as unknown as Record<string, string>)[t2], value: { chat: S, content: 't2-v1' } },
     });
     await vi.waitFor(() => expect(sub.resourceIds.length).toBe(2)); // rerun landed
     expect(a.lastResourceUpdate?.resourceId).toBe(t1); // never t2 (unrendered)

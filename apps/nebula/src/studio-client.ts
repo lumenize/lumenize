@@ -107,12 +107,11 @@ export class StudioClient extends NebulaClient {
   async postUserMessage(content: string): Promise<string> {
     const { binding, scope } = this.#chatHost();
     const messageId = crypto.randomUUID();
-    const newETag = crypto.randomUUID();
     // The door's `transaction` returns an OntologyStaleError as a VALUE on a version
     // mismatch; everything else is the ordinary TransactionResult.
     const result = await this.lmz.callAsync(
       binding, scope,
-      this.ctn<Galaxy>().resources.transaction(this.requireOntologyVersion('postUserMessage'), newETag, {
+      this.ctn<Galaxy>().resources.transaction(this.requireOntologyVersion('postUserMessage'), {
         [messageId]: {
           op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID,
           value: { chat: DEFAULT_CHAT_ID, content },

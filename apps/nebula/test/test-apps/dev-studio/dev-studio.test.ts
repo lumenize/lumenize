@@ -270,7 +270,7 @@ describe('the .dev Star runs the last landed build\'s row; nothing else moves it
     const todo = (value: object) => ({ op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value });
     const warm = crypto.randomUUID();
     await fire(env.STAR, 'STAR', star, ['resources', 'transaction'],
-      [v1, crypto.randomUUID(), { [warm]: todo({ title: 'v1', done: false }) }], admin, client);
+      [v1, { [warm]: todo({ title: 'v1', done: false }) }], admin, client);
     await vi.waitFor(async () => expect(await rows(warm)).toBe(1), { timeout: 15000 });
 
     await inDO(env.GALAXY, galaxy, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
@@ -289,9 +289,9 @@ describe('the .dev Star runs the last landed build\'s row; nothing else moves it
     const lacking = crypto.randomUUID();
     const carrying = crypto.randomUUID();
     await fire(env.STAR, 'STAR', star, ['resources', 'transaction'],
-      [v2, crypto.randomUUID(), { [lacking]: todo({ title: 'a', done: false }) }], admin, client);
+      [v2, { [lacking]: todo({ title: 'a', done: false }) }], admin, client);
     await fire(env.STAR, 'STAR', star, ['resources', 'transaction'],
-      [v2, crypto.randomUUID(), { [carrying]: todo({ title: 'b', done: false, priority: 'high' }) }], admin, client);
+      [v2, { [carrying]: todo({ title: 'b', done: false, priority: 'high' }) }], admin, client);
     await vi.waitFor(async () => expect(await rows(carrying)).toBe(1), { timeout: 15000 });
     expect(await rows(lacking)).toBe(0);
     const pinnedToV1 = await inDO(env.STAR, star, (s) => {

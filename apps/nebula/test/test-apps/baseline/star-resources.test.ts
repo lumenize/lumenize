@@ -113,7 +113,7 @@ describe('star-resources', () => {
       const txnResult = await waitForSuccess(client) as TransactionResult;
       expect(txnResult.ok).toBe(true);
       if (!txnResult.ok) throw new Error('Expected ok');
-      expect(txnResult.eTags[resourceId]).toBeDefined();
+      expect(txnResult.validFrom).toBeDefined();
 
       // Read back
       client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
@@ -122,13 +122,13 @@ describe('star-resources', () => {
       expect(snapshot.meta.nodeId).toBe(ROOT_NODE_ID);
       expect(snapshot.meta.validTo).toBe(END_OF_TIME);
       expect(snapshot.meta.deleted).toBe(false);
-      expect(snapshot.meta.eTag).toBe(txnResult.eTags[resourceId]);
+      expect(snapshot.meta.validFrom).toBe(txnResult.validFrom);
       expect(snapshot.meta.actingToken.sub).toBeDefined();
 
       client[Symbol.dispose]();
     });
 
-    it('put with correct eTag succeeds', async () => {
+    it('put with correct version succeeds', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       const resourceId = crypto.randomUUID();
@@ -139,17 +139,17 @@ describe('star-resources', () => {
       });
       const createResult = await waitForSuccess(client) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
-      const eTag = createResult.eTags[resourceId];
+      const version = createResult.validFrom;
 
       // Put (full replacement)
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'put', eTag, value: makeTestValue('Updated Task') },
+        [resourceId]: { op: 'put', ifValidFromMatches: version, value: makeTestValue('Updated Task') },
       });
       const updateResult = await waitForSuccess(client) as TransactionResult;
       expect(updateResult.ok).toBe(true);
       if (!updateResult.ok) throw new Error('Expected ok');
-      expect(updateResult.eTags[resourceId]).toBeDefined();
-      expect(updateResult.eTags[resourceId]).not.toBe(eTag);
+      expect(updateResult.validFrom).toBeDefined();
+      expect(updateResult.validFrom).not.toBe(version);
 
       // Read back
       client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
@@ -159,7 +159,7 @@ describe('star-resources', () => {
       client[Symbol.dispose]();
     });
 
-    it('put with wrong eTag returns conflict', async () => {
+    it('put with wrong version returns conflict', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       const resourceId = crypto.randomUUID();
@@ -170,9 +170,9 @@ describe('star-resources', () => {
       });
       await waitForSuccess(client);
 
-      // Update with fabricated eTag
+      // Update with fabricated version
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'put', eTag: crypto.randomUUID(), value: makeTestValue('Bad Update') },
+        [resourceId]: { op: 'put', ifValidFromMatches: crypto.randomUUID(), value: makeTestValue('Bad Update') },
       });
       const result = await waitForSuccess(client) as TransactionResult;
       expect(result.ok).toBe(false);
@@ -198,11 +198,11 @@ describe('star-resources', () => {
       });
       const createResult = await waitForSuccess(client) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
-      const eTag = createResult.eTags[resourceId];
+      const version = createResult.validFrom;
 
       // Delete
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'delete', eTag },
+        [resourceId]: { op: 'delete', ifValidFromMatches: version },
       });
       const deleteResult = await waitForSuccess(client) as TransactionResult;
       expect(deleteResult.ok).toBe(true);
@@ -228,13 +228,29 @@ describe('star-resources', () => {
       client[Symbol.dispose]();
     });
 
-    it('empty transaction is a no-op', async () => {
+    it('an empty transaction writes nothing and answers the latest moment', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
 
+      // A Star with no moment yet answers the current time.
       client.callStarTransaction(star, ONTOLOGY_VERSION, {});
-      const result = await waitForSuccess(client) as TransactionResult;
-      expect(result).toEqual({ ok: true, eTags: {} });
+      const fresh = await waitForSuccess(client) as TransactionResult;
+      if (!fresh.ok) throw new Error('Expected ok');
+      expect(fresh.validFrom).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+
+      const resourceId = crypto.randomUUID();
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      });
+      const created = await waitForSuccess(client) as TransactionResult;
+      if (!created.ok) throw new Error('Expected ok');
+      await new Promise((r) => setTimeout(r, 20)); // the wall clock moves past the commit
+
+      // The latest moment, not the later wall time. Mutation: answer the current time → this differs.
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {});
+      const after = await waitForSuccess(client) as TransactionResult;
+      if (!after.ok) throw new Error('Expected ok');
+      expect(after.validFrom).toBe(created.validFrom);
 
       client[Symbol.dispose]();
     });
@@ -266,14 +282,14 @@ describe('star-resources', () => {
       // Mixed batch: update r1, move r2 to child
       const r3 = crypto.randomUUID();
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [r1]: { op: 'put', eTag: createResult.eTags[r1], value: makeTestValue('R1 Updated') },
-        [r2]: { op: 'move', eTag: createResult.eTags[r2], nodeId: childNodeId },
+        [r1]: { op: 'put', ifValidFromMatches: createResult.validFrom, value: makeTestValue('R1 Updated') },
+        [r2]: { op: 'move', ifValidFromMatches: createResult.validFrom, nodeId: childNodeId },
         [r3]: { op: 'create', typeName: 'TestResource', nodeId: childNodeId, value: makeTestValue('R3') },
       });
       const batchResult = await waitForSuccess(client) as TransactionResult;
       expect(batchResult.ok).toBe(true);
       if (!batchResult.ok) throw new Error('Expected ok');
-      expect(Object.keys(batchResult.eTags)).toHaveLength(3);
+      expect(batchResult.validFrom > createResult.validFrom).toBe(true);
 
       // Verify r2 moved
       client.callStarRead(star, ONTOLOGY_VERSION, r2);
@@ -297,10 +313,10 @@ describe('star-resources', () => {
       const createResult = await waitForSuccess(client) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
 
-      // Batch with one bad eTag
+      // Batch with one bad version
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [r1]: { op: 'put', eTag: createResult.eTags[r1], value: makeTestValue('R1 Updated') },
-        [r2]: { op: 'put', eTag: crypto.randomUUID(), value: makeTestValue('R2 Updated') },
+        [r1]: { op: 'put', ifValidFromMatches: createResult.validFrom, value: makeTestValue('R1 Updated') },
+        [r2]: { op: 'put', ifValidFromMatches: crypto.randomUUID(), value: makeTestValue('R2 Updated') },
       });
       const result = await waitForSuccess(client) as TransactionResult;
       expect(result.ok).toBe(false);
@@ -326,11 +342,11 @@ describe('star-resources', () => {
       const result = await waitForSuccess(client) as TransactionResult;
       expect(result.ok).toBe(true);
       if (!result.ok) throw new Error('Expected ok');
-      expect(Object.keys(result.eTags)).toHaveLength(3);
-      // All share same eTag (single transaction)
-      const eTags = Object.values(result.eTags);
-      expect(eTags[0]).toBe(eTags[1]);
-      expect(eTags[1]).toBe(eTags[2]);
+      // All three carry the transaction's one moment.
+      for (const id of ids) {
+        client.callStarRead(star, ONTOLOGY_VERSION, id);
+        expect((await waitForSuccess(client) as Snapshot).meta.validFrom).toBe(result.validFrom);
+      }
 
       client[Symbol.dispose]();
     });
@@ -354,7 +370,7 @@ describe('star-resources', () => {
       const created = await waitForSuccess(client) as Snapshot;
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'put', eTag: createResult.eTags[resourceId], value: makeTestValue('v2') },
+        [resourceId]: { op: 'put', ifValidFromMatches: createResult.validFrom, value: makeTestValue('v2') },
       });
       const updateResult = await waitForSuccess(client) as TransactionResult;
       if (!updateResult.ok) throw new Error('Expected ok');
@@ -401,7 +417,7 @@ describe('star-resources', () => {
 
       // Update the resource as the user
       user.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'put', eTag: createResult.eTags[resourceId], value: makeTestValue('v2') },
+        [resourceId]: { op: 'put', ifValidFromMatches: createResult.validFrom, value: makeTestValue('v2') },
       });
       const updateResult = await waitForSuccess(user) as TransactionResult;
       expect(updateResult.ok).toBe(true);
@@ -441,13 +457,13 @@ describe('star-resources', () => {
       if (!r1.ok) throw new Error('Expected ok');
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'put', eTag: r1.eTags[resourceId], value: makeTestValue('v2') },
+        [resourceId]: { op: 'put', ifValidFromMatches: r1.validFrom, value: makeTestValue('v2') },
       });
       const r2 = await waitForSuccess(client) as TransactionResult;
       if (!r2.ok) throw new Error('Expected ok');
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'put', eTag: r2.eTags[resourceId], value: makeTestValue('v3') },
+        [resourceId]: { op: 'put', ifValidFromMatches: r2.validFrom, value: makeTestValue('v3') },
       });
       const r3 = await waitForSuccess(client) as TransactionResult;
       if (!r3.ok) throw new Error('Expected ok');
@@ -529,7 +545,7 @@ describe('star-resources', () => {
       // User cannot write — permission failures now arrive as a typed
       // TransactionError, not a thrown Error (5.3.3b widening).
       user.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'put', eTag: createResult.eTags[resourceId], value: makeTestValue('Hacked') },
+        [resourceId]: { op: 'put', ifValidFromMatches: createResult.validFrom, value: makeTestValue('Hacked') },
       });
       const result = await waitForSuccess(user) as TransactionResult;
       expect(result.ok).toBe(false);
@@ -657,7 +673,7 @@ describe('star-resources', () => {
 
       // Move to node B
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'move', eTag: createResult.eTags[resourceId], nodeId: nodeB },
+        [resourceId]: { op: 'move', ifValidFromMatches: createResult.validFrom, nodeId: nodeB },
       });
       const moveResult = await waitForSuccess(client) as TransactionResult;
       expect(moveResult.ok).toBe(true);
@@ -685,14 +701,14 @@ describe('star-resources', () => {
       const created = await waitForSuccess(client) as Snapshot;
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'move', eTag: createResult.eTags[resourceId], nodeId: ROOT_NODE_ID },
+        [resourceId]: { op: 'move', ifValidFromMatches: createResult.validFrom, nodeId: ROOT_NODE_ID },
       });
       const moveResult = await waitForSuccess(client) as TransactionResult;
       if (!moveResult.ok) throw new Error('Expected ok');
 
       // The move is recorded like any op. Mutation: restore Step 10's same-node skip → the result
       // keeps the create's version and the read keeps its validFrom.
-      expect(moveResult.eTags[resourceId]).not.toBe(createResult.eTags[resourceId]);
+      expect(moveResult.validFrom).not.toBe(createResult.validFrom);
       client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const moved = await waitForSuccess(client) as Snapshot;
       expect(moved.meta.nodeId).toBe(ROOT_NODE_ID);
@@ -734,7 +750,7 @@ describe('star-resources', () => {
       // User tries to move — should fail (no write on dst).
       // Typed TransactionError per 5.3.3b widening.
       user.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'move', eTag: createResult.eTags[resourceId], nodeId: dstNode },
+        [resourceId]: { op: 'move', ifValidFromMatches: createResult.validFrom, nodeId: dstNode },
       });
       const moveResult = await waitForSuccess(user) as TransactionResult;
       expect(moveResult.ok).toBe(false);
@@ -785,7 +801,7 @@ describe('star-resources', () => {
       if (!r1.ok) throw new Error('Expected ok');
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'delete', eTag: r1.eTags[resourceId] },
+        [resourceId]: { op: 'delete', ifValidFromMatches: r1.validFrom },
       });
       await waitForSuccess(client);
 
@@ -812,14 +828,14 @@ describe('star-resources', () => {
       if (!r1.ok) throw new Error('Expected ok');
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'delete', eTag: r1.eTags[resourceId] },
+        [resourceId]: { op: 'delete', ifValidFromMatches: r1.validFrom },
       });
       const r2 = await waitForSuccess(client) as TransactionResult;
       if (!r2.ok) throw new Error('Expected ok');
 
       // Update the deleted resource
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'put', eTag: r2.eTags[resourceId], value: makeTestValue('Resurrected') },
+        [resourceId]: { op: 'put', ifValidFromMatches: r2.validFrom, value: makeTestValue('Resurrected') },
       });
       const r3 = await waitForSuccess(client) as TransactionResult;
       expect(r3.ok).toBe(true);
@@ -852,14 +868,14 @@ describe('star-resources', () => {
       if (!r1.ok) throw new Error('Expected ok');
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'delete', eTag: r1.eTags[resourceId] },
+        [resourceId]: { op: 'delete', ifValidFromMatches: r1.validFrom },
       });
       const r2 = await waitForSuccess(client) as TransactionResult;
       if (!r2.ok) throw new Error('Expected ok');
 
       // Move the deleted resource
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'move', eTag: r2.eTags[resourceId], nodeId: targetNode },
+        [resourceId]: { op: 'move', ifValidFromMatches: r2.validFrom, nodeId: targetNode },
       });
       const r3 = await waitForSuccess(client) as TransactionResult;
       expect(r3.ok).toBe(true);
@@ -872,7 +888,7 @@ describe('star-resources', () => {
       client[Symbol.dispose]();
     });
 
-    it('delete already-deleted resource succeeds idempotently (new eTag)', async () => {
+    it('delete already-deleted resource succeeds idempotently (new version)', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       const resourceId = crypto.randomUUID();
@@ -885,29 +901,29 @@ describe('star-resources', () => {
       if (!r1.ok) throw new Error('Expected ok');
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'delete', eTag: r1.eTags[resourceId] },
+        [resourceId]: { op: 'delete', ifValidFromMatches: r1.validFrom },
       });
       const r2 = await waitForSuccess(client) as TransactionResult;
       if (!r2.ok) throw new Error('Expected ok');
 
       // Delete again
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'delete', eTag: r2.eTags[resourceId] },
+        [resourceId]: { op: 'delete', ifValidFromMatches: r2.validFrom },
       });
       const r3 = await waitForSuccess(client) as TransactionResult;
       expect(r3.ok).toBe(true);
       if (!r3.ok) throw new Error('Expected ok');
-      expect(r3.eTags[resourceId]).not.toBe(r2.eTags[resourceId]); // new eTag
+      expect(r3.validFrom).not.toBe(r2.validFrom); // new version
 
       client[Symbol.dispose]();
     });
   });
 
-  // ─── eTag Abuse ───────────────────────────────────────────────────
+  // ─── version Abuse ───────────────────────────────────────────────────
 
-  describe('eTag abuse', () => {
+  describe('version abuse', () => {
 
-    it('fabricated eTag returns conflict', async () => {
+    it('fabricated version returns conflict', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       const resourceId = crypto.randomUUID();
@@ -919,7 +935,7 @@ describe('star-resources', () => {
 
       // Update with random UUID that never existed
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'put', eTag: crypto.randomUUID(), value: makeTestValue('Bad') },
+        [resourceId]: { op: 'put', ifValidFromMatches: crypto.randomUUID(), value: makeTestValue('Bad') },
       });
       const result = await waitForSuccess(client) as TransactionResult;
       expect(result.ok).toBe(false);
@@ -927,7 +943,7 @@ describe('star-resources', () => {
       client[Symbol.dispose]();
     });
 
-    it('eTag from different resourceId returns conflict', async () => {
+    it('version from different resourceId returns conflict', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       const r1 = crypto.randomUUID();
@@ -940,13 +956,13 @@ describe('star-resources', () => {
       const createResult = await waitForSuccess(client) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
 
-      // Use r1's eTag to update r2 — even though it's the same UUID value
-      // (all eTags in a batch are the same), the second update with a DIFFERENT
-      // eTag should fail
-      // Actually in a batch they share the same eTag, so let's create separately
+      // Use r1's version to update r2 — even though it's the same UUID value
+      // (all versions in a batch are the same), the second update with a DIFFERENT
+      // version should fail
+      // Actually in a batch they share the same version, so let's create separately
       client[Symbol.dispose]();
 
-      // Create in separate transactions for different eTags
+      // Create in separate transactions for different versions
       const { client: c2 } = await adminClient(star);
 
       const ra = crypto.randomUUID();
@@ -964,9 +980,9 @@ describe('star-resources', () => {
       const rbResult = await waitForSuccess(c2) as TransactionResult;
       if (!rbResult.ok) throw new Error('Expected ok');
 
-      // Use ra's eTag on rb
+      // Use ra's version on rb
       c2.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [rb]: { op: 'put', eTag: raResult.eTags[ra], value: makeTestValue('Bad') },
+        [rb]: { op: 'put', ifValidFromMatches: raResult.validFrom, value: makeTestValue('Bad') },
       });
       const result = await waitForSuccess(c2) as TransactionResult;
       expect(result.ok).toBe(false);
@@ -1017,7 +1033,7 @@ describe('star-resources', () => {
       if (!r1.ok) throw new Error('Expected ok');
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'put', eTag: r1.eTags[resourceId], value: null },
+        [resourceId]: { op: 'put', ifValidFromMatches: r1.validFrom, value: null },
       });
       const error = await waitForError(client);
       expect(error).toContain('must not be null or undefined');
@@ -1030,7 +1046,7 @@ describe('star-resources', () => {
       const { client } = await adminClient(star);
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [crypto.randomUUID()]: { op: 'put', eTag: crypto.randomUUID(), value: makeTestValue() },
+        [crypto.randomUUID()]: { op: 'put', ifValidFromMatches: crypto.randomUUID(), value: makeTestValue() },
       });
       const error = await waitForError(client);
       expect(error).toContain('not found');
@@ -1043,7 +1059,7 @@ describe('star-resources', () => {
       const { client } = await adminClient(star);
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [crypto.randomUUID()]: { op: 'delete', eTag: crypto.randomUUID() },
+        [crypto.randomUUID()]: { op: 'delete', ifValidFromMatches: crypto.randomUUID() },
       });
       const error = await waitForError(client);
       expect(error).toContain('not found');

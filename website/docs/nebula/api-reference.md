@@ -146,7 +146,7 @@ Subscribes synchronously (registers the subscriber row immediately); the **initi
 
 ### When you cannot read it
 
-A subscriber without `read` on the resource's node is **told, not refused**. Its `.snapshot` resolves `null` and never rejects for permission, and `deniedNodes` names the node. The store entry says the same: `store.resources.<rt>[rid].deniedNodes` is that node, and the entry has no `value` or `meta`, so a `v-model` bound to it submits nothing — there is no `meta.eTag` to submit against. When you can read it, `deniedNodes` is `[]`.
+A subscriber without `read` on the resource's node is **told, not refused**. Its `.snapshot` resolves `null` and never rejects for permission, and `deniedNodes` names the node. The store entry says the same: `store.resources.<rt>[rid].deniedNodes` is that node, and the entry has no `value` or `meta`, so a `v-model` bound to it submits nothing — there is no `meta.validFrom` to submit against. When you can read it, `deniedNodes` is `[]`.
 
 The subscription stays live either way. A revoked grant shows at the resource's next update: `deniedNodes` fills in, `value` and `meta` go, and `onChange` fires. A new grant shows without any write, because the client re-subscribes whatever was denied each time the org tree changes: the snapshot arrives, `deniedNodes` empties, and `onChange` fires. Show a request-access affordance while `deniedNodes` is non-empty, the same way as for a [query](#resourcessubscribequery).
 
@@ -236,7 +236,7 @@ interface QueryDescriptor {
   typeName: string;           // the CHILD type being matched, e.g. 'Message'
   field: string;              // its to-one relationship field, e.g. 'session'
   value: string;              // the parent id that `field` must equal
-  orderBy?: 'validFrom';      // v1 only (default)
+  orderBy?: 'validFrom';      // v1 only (default): by each resource's latest write, oldest first
 }
 ```
 
@@ -252,7 +252,7 @@ interface QuerySubscription extends Disposable {
 }
 ```
 
-**The query delivers ids, not content.** `resourceIds` is the ordered membership; read each resource's value the normal way (`store.resources.<typeName>[id].value.*`), which auto-subscribes it. For large results, call `setRenderWindow(ids)` with just the ids you're actually rendering (e.g. the 25 visible rows of a virtual list) — the factory opens per-resource content subscriptions for exactly those and releases ids that scroll out of view after a grace period. Content subs are refcounted and shared with direct [`subscribe`](#resourcessubscribe).
+**The query delivers ids, not content.** `resourceIds` is the membership in order of each resource's latest write, oldest first, with resources one transaction wrote in id order; it promises no other order, so a list whose order matters keeps it in a container resource's array of ids (see [Coding your UI § Lists](./coding-your-ui.md)). Read each resource's value the normal way (`store.resources.<typeName>[id].value.*`), which auto-subscribes it. For large results, call `setRenderWindow(ids)` with just the ids you're actually rendering (e.g. the 25 visible rows of a virtual list) — the factory opens per-resource content subscriptions for exactly those and releases ids that scroll out of view after a grace period. Content subs are refcounted and shared with direct [`subscribe`](#resourcessubscribe).
 
 `deniedNodes` lists nodes the subscriber can't reach; surface a "request access" affordance (climb the org tree to the nearest admin — see [`OrgTreeState`](#orgtreestate)). A grant or a revoke writes no resource, so the membership changes at the next update to the query; a client watching the org tree, as every `createNebulaClient` client does, re-subscribes a query with denied nodes at each tree change, so a grant reaches it with no write. `[Symbol.dispose]()` is per-handle (refcounted); the server-side `unsubscribeQuery` fires when the last handle releases.
 
@@ -302,14 +302,14 @@ Per-resource outcomes (commit, server-wins, conflict-pending, validation-failed,
 ```typescript @skip-check
 type OperationDescriptor =
   | { op: 'create'; typeName: string; nodeId: string; value: any }
-  | { op: 'put';    typeName: string; value: any;       eTag?: string }
-  | { op: 'move';   typeName: string; nodeId: string;   eTag?: string }
-  | { op: 'delete'; typeName: string;                   eTag?: string };
+  | { op: 'put';    typeName: string; value: any;       ifValidFromMatches?: string }
+  | { op: 'move';   typeName: string; nodeId: string;   ifValidFromMatches?: string }
+  | { op: 'delete'; typeName: string;                   ifValidFromMatches?: string };
 ```
 
-`typeName` is required on every op (needed for client-side `eTag` lookup on put/move/delete; matches `create`'s pre-existing requirement).
+`typeName` is required on every op (needed for the client-side version lookup on put/move/delete; matches `create`'s pre-existing requirement).
 
-**`eTag` auto-derives from the local store.** For `put` / `move` / `delete`, omitting `eTag` causes the factory to look up `store.resources.<typeName>[<resourceId>]?.meta?.eTag` at call time and use that as the optimistic-concurrency baseline. This is the normal case — UI code never has to wire eTags manually. If the resource isn't in the local store (e.g., admin/scripting code that hasn't subscribed), the call throws a clear client-side error rather than letting the server reject; pass `eTag` explicitly to bypass auto-derive (see [Explicit eTag override](#explicit-etag-override) below).
+**`ifValidFromMatches` auto-derives from the local store.** For `put` / `move` / `delete`, omitting it causes the factory to look up `store.resources.<typeName>[<resourceId>]?.meta?.validFrom` at call time and name that as the version the edit was based on. This is the normal case — UI code never has to wire versions manually. If the resource isn't in the local store (e.g., admin/scripting code that hasn't subscribed), the call throws a clear client-side error rather than letting the server reject; pass `ifValidFromMatches` explicitly to bypass auto-derive (see [Explicit version override](#explicit-version-override) below). The server mints each version: a committed transaction's one moment, its `validFrom`, is what every resource it wrote carries.
 
 Multi-resource transactions are atomic: every op commits or none do.
 
@@ -318,14 +318,13 @@ Multi-resource transactions are atomic: every op commits or none do.
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `ontologyVersion` | `string` | constructor's `ontologyVersion` | Override for admin/scripting calls. |
-| `newETag` | `string` | `crypto.randomUUID()` | One `newETag` shared across every op in the batch. Override for the idempotency-retry pattern (a dropped response is retried with the same `newETag` to avoid double-write). |
 | `onTransactionResourceResolution` | `Record<string, ResourceHandler>` | per-type registered, else framework default | Per-call handlers, **keyed by `resourceId`** — e.g. `{ 'task-42': handler }`. Each entry handles only its own resource; resources NOT in the map fall through to their per-type handler automatically (no defensive `rid` filtering needed). A listed resource's entry **layers in front of** its per-type handler — verdict-returning on `'conflict-pending'`, additive on terminal branches. See [Precedence](#precedence). |
-| `maxRetries` | `number` | per-call value, else min across involved per-type values, else `5` | **Batch-level** cap on the conflict resolve-and-resubmit loop. On exhaustion the batch lands at top-level `{ kind: 'rejected', retryable: true }` with that resource at `'retries-exhausted'`. The retry budget is client-side policy (the server stays stateless + `newETag`-idempotent). In a multi-type batch the per-call value wins, else the **min** across the involved per-type values. |
+| `maxRetries` | `number` | per-call value, else min across involved per-type values, else `5` | **Batch-level** cap on the conflict resolve-and-resubmit loop. On exhaustion the batch lands at top-level `{ kind: 'rejected', retryable: true }` with that resource at `'retries-exhausted'`. The retry budget is client-side policy (the server keeps no per-call state, and recognizes a repeat from the snapshots it wrote). In a multi-type batch the per-call value wins, else the **min** across the involved per-type values. |
 
 ### Example — single resource
 
 ```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
-// eTag auto-derives from store.resources.todo['task-42']?.meta?.eTag.
+// ifValidFromMatches auto-derives from store.resources.todo['task-42']?.meta?.validFrom.
 const outcome = await client.resources.transaction({
   'task-42': { op: 'put', typeName: 'todo', value: { title: 'New title' } },
 });
@@ -346,23 +345,23 @@ const outcome = await client.resources.transaction({
 
 If either op fails (validation, conflict, permission), neither commits. Use this shape when one resource references another by ID — atomicity prevents orphans and dangling references.
 
-### Explicit eTag override {#explicit-etag-override}
+### Explicit version override {#explicit-version-override}
 
-Pass `eTag` explicitly to bypass auto-derive. Two real use cases:
+Pass `ifValidFromMatches` explicitly to bypass auto-derive. Two real use cases:
 
-1. **Resource not in the local store** — admin/scripting code that submits a put/delete without first subscribing. Auto-derive would throw; passing `eTag` lets the call proceed.
-2. **Baseline on a stashed snapshot, not the current local one** — e.g., the human-in-the-loop conflict pattern stashes a `server.meta.eTag` at conflict-detection time and submits resolution later against that specific baseline. The local store may have moved on; the stashed eTag is the right baseline. See [Resources § human-in-the-loop verdict](./resources.md#human-in-the-loop-verdict-non-blocking--defer-to-the-app).
+1. **Resource not in the local store** — admin/scripting code that submits a put/delete without first subscribing. Auto-derive would throw; passing `ifValidFromMatches` lets the call proceed.
+2. **Baseline on a stashed snapshot, not the current local one** — e.g., the human-in-the-loop conflict pattern stashes a `server.meta.validFrom` at conflict-detection time and submits resolution later against that specific baseline. The local store may have moved on; the stashed version is the right baseline. See [Resources § human-in-the-loop verdict](./resources.md#human-in-the-loop-verdict-non-blocking--defer-to-the-app).
 
 ```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 // Explicit baseline — Bob's resolution submission against the stashed snapshot.
 const outcome = await client.resources.transaction({
   'task-42': { op: 'put', typeName: 'todo',
-               eTag: conflict.server.meta.eTag,            // ← stashed baseline, not auto-derived
+               ifValidFromMatches: conflict.server.meta.validFrom,  // ← stashed baseline, not auto-derived
                value: resolvedValue },
 });
 ```
 
-In typical UI code (every example outside this subsection), omit `eTag` and let the framework derive it.
+In typical UI code (every example outside this subsection), omit `ifValidFromMatches` and let the framework derive it.
 
 ## `client.resources.onTransactionResourceResolution` {#resourcesontransactionresourceresolution}
 
@@ -452,7 +451,7 @@ transactionDebounce(
 
 **Resource-level merge rule** when multiple fields have pending writes with different timings: **shortest active timer wins** for both `quietMs` and `maxWaitMs`. Clicking a `@debounce(0)` checkbox flushes the entire pending resource transaction immediately, including any pending text-field edits — which matches the intuition that the click was a deliberate commit.
 
-Other middleware-level behaviors (always-on, not configurable per-call): pending writes flush on input blur (a `focusout` on the bound input) and on `client.dispose()` (component unmount does not itself flush — the quiet/max-wait timers, which are per-`(rt, rid)` not per-component, still submit a buffered write on schedule). At most one transaction in flight per `(rt, rid)`; subsequent writes buffer and submit using the in-flight transaction's resulting eTag. State machine + property tests at [tasks/archive/debounce-serial-queue.md](https://github.com/lumenize/lumenize/blob/main/tasks/archive/debounce-serial-queue.md).
+Other middleware-level behaviors (always-on, not configurable per-call): pending writes flush on input blur (a `focusout` on the bound input) and on `client.dispose()` (component unmount does not itself flush — the quiet/max-wait timers, which are per-`(rt, rid)` not per-component, still submit a buffered write on schedule). At most one transaction in flight per `(rt, rid)`; subsequent writes buffer and submit using the in-flight transaction's resulting version. State machine + property tests at [tasks/archive/debounce-serial-queue.md](https://github.com/lumenize/lumenize/blob/main/tasks/archive/debounce-serial-queue.md).
 
 ## `client.dispose` {#clientdispose}
 
@@ -612,7 +611,7 @@ As with the other surfaces, you rarely call this directly — **reading the quer
 
 Two top-level prefixes on the store are framework-reserved — but "reserved" doesn't mean read-only. `store.resources.<rt>.<rid>.value.*` is the **primary write surface**: `v-model` and assignments there flow through the synced-state middleware → optimistic apply + transaction (see the `set`-trap note below). What's restricted is narrower: `meta.*` is server-owned (writes pass through but are warned in debug builds), and `store.lmz.*` is framework-written only (user writes dropped) — this prefix holds `store.lmz.connection.*` (connection state) and `store.lmz.orgTree` (the org/permission tree, delivered on its own channel and mutated via [`client.orgTree.*`](#clientorgtree), never by writing the store). For when to read off `store` vs when to call methods on `client`, see [Coding your UI § `store` vs `client`](./coding-your-ui.md#store-vs-client--what-goes-where).
 
-- **`store.resources.*`** — Synced resource snapshots, written by the framework on every server push. `store.resources.{type}.{id}.value` holds the resource value; `store.resources.{type}.{id}.meta` holds the eTag, change metadata, etc.
+- **`store.resources.*`** — Synced resource snapshots, written by the framework on every server push. `store.resources.{type}.{id}.value` holds the resource value; `store.resources.{type}.{id}.meta` holds the version (`validFrom`), change metadata, etc.
 - **`store.lmz.*`** — Other framework-owned state, each on its own dedicated channel: `store.lmz.connection.*` (connection state — see [below](#lmzconnection)), `store.lmz.orgTree` (the org/permission tree — see [OrgTreeState](#orgtreestate)), `store.lmz.profiles[profileId]` (public profiles — see [store.lmz.profiles](#lmzprofiles)), and `store.lmz.querySubscribers.<typeName>.<field>[value]` (a query's live subscriber-list roster — see [store.lmz.querySubscribers](#lmzquerysubscribers)). Future framework-meta paths land under this prefix too.
 
 Every other top-level segment is yours. Common conventions:
@@ -623,7 +622,7 @@ Every other top-level segment is yours. Common conventions:
 
 The factory pre-seeds `store.ui` and `store.app` as empty objects so first-level access works with no setup. They are conveniences, not reserved — the framework never touches them after seeding. Deeper intermediate objects are app-created (no auto-vivification under non-reserved prefixes).
 
-The factory's `set` trap routes writes under `store.resources.<rt>.<rid>.value(\.|$)` to the synced-state middleware. Writes to `store.resources.<rt>.<rid>.meta.*` pass through middleware unchanged (server-owned, intentional) — but those paths are still server-managed in practice; user-code writes to `meta.eTag` will be warned-on in debug builds.
+The factory's `set` trap routes writes under `store.resources.<rt>.<rid>.value(\.|$)` to the synced-state middleware. Writes to `store.resources.<rt>.<rid>.meta.*` pass through middleware unchanged (server-owned, intentional) — but those paths are still server-managed in practice; user-code writes to `meta.validFrom` will be warned-on in debug builds.
 
 ## `store.lmz.connection` {#lmzconnection}
 
@@ -650,7 +649,6 @@ Public profiles keyed by `profileId`, delivered on a dedicated channel (never `s
 | `store.lmz.profiles[profileId].value.name` | `string \| undefined` | Full name (OIDC). |
 | `store.lmz.profiles[profileId].value.nickname` | `string \| undefined` | Display / casual name. |
 | `store.lmz.profiles[profileId].value.picture` | `string \| undefined` | Avatar image URL. |
-| `store.lmz.profiles[profileId].meta.eTag` | `string` | Forward-only version of the profile. |
 
 Read-only through the store. Resolve `profileId`s you already hold — `client.claims.profileId` for the current user, or the ids in a roster. See [`client.subscribeProfile`](#subscribeprofile).
 
@@ -720,10 +718,9 @@ interface Snapshot {
 }
 
 interface SnapshotMeta {
-  eTag: string;        // client-generated UUID; optimistic-concurrency token + idempotency key
+  validFrom: string;   // the resource's version: ISO 8601, the moment the write that produced this snapshot committed
   nodeId?: number;     // org/permission-tree node the resource is attached to (present on every resource snapshot)
   typeName?: string;   // ontology type name
-  validFrom?: string;  // ISO 8601 — when this snapshot committed server-side
   deleted?: boolean;   // true for soft-deleted (tombstoned) resources
   mimeType?: string;   // IETF media type, set where MIME is meaningful (file resources, blobs)
 }
@@ -760,9 +757,9 @@ When the handler is called with `'conflict-pending'`, the resolution carries a `
 // Shape, when the resolution is 'conflict-pending':
 type ConflictPending = {
   kind: 'conflict-pending';
-  local:  { value: unknown; eTag: string };
+  local:  { value: unknown; validFrom: string };
   server: Snapshot;
-  base:   { value: unknown; eTag: string };
+  base:   { value: unknown; validFrom: string };
   context: { bindings: Map<string, HTMLElement[]> };
 };
 ```
@@ -808,11 +805,11 @@ Effect on the optimistic store, per branch:
 | --- | --- | --- |
 | `'committed'` | Per-resource — see [`TransactionResourceResolution`](#transactionresourceresolution) (an op may be `'use-server'`: committed, but the server's value). Per-type handler already fired (DOM flash is v4). | Usually nothing; the handler is the primary place. Inspect `outcome.resources` only for aggregate decisions (e.g., did every op commit *your* value, or did some resolve to `'use-server'`). |
 | `'rejected'` | Per-resource, per each op's [`TransactionResourceResolution`](#transactionresourceresolution): `'permission-denied'` / `'validation-failed'` / `'retries-exhausted'` → rolled back; `'human-in-the-loop'` → optimistic paint stays. | `outcome.retryable` is the resubmit verdict (an exhausted conflict → `true`; permission/validation → `false`). Per-op detail in `outcome.resources`: `'permission-denied'` → climb the orgTree to the nearest admin → request-access; `'validation-failed'` → surface per-field errors to fix. |
-| `'timeout'` | Roll back all optimistic writes. No server response within 5–10 s **while connected**. **Connection-gated** — a mere disconnect never produces it. | `retryable: true` — an idempotent resubmit (same `newETag`) can land. |
+| `'timeout'` | Roll back all optimistic writes. No server response within 5–10 s **while connected**. **Connection-gated** — a mere disconnect never produces it. | `retryable: true` — a resubmit can land; one of a write that did land is recognized and told it committed. |
 | `'infrastructure-error'` | Roll back all optimistic writes. **Connection-gated.** `error` carries the underlying `Error` (network drop, mesh crash). | `retryable: true` — resubmit (idempotent) or surface to user. |
 | `'ontology-stale'` | Optimistic state untouched. When the host named a version other than this page's, the `onShouldRefreshUI` hook has fired (typically a reload). | Usually nothing; the reload handles it. When the host named none, the op simply did not run. |
 
-The `'timeout'` and `'infrastructure-error'` outcomes fire only for failures that occur **while the client is connected**. A plain disconnect does *not* produce them: the write path suspends while `store.lmz.connection.connected` is `false` — writes are held and re-submitted on reconnect (idempotent via `newETag`) — so a transient blip never rolls anything back. That is what makes the "your changes are queued" disconnected banner honest. (Held writes live in memory only; a full page reload while offline drops anything unsent.)
+The `'timeout'` and `'infrastructure-error'` outcomes fire only for failures that occur **while the client is connected**. A plain disconnect does *not* produce them: the write path suspends while `store.lmz.connection.connected` is `false` — writes are held and re-submitted on reconnect (a repeat of one that landed is recognized) — so a transient blip never rolls anything back. That is what makes the "your changes are queued" disconnected banner honest. (Held writes live in memory only; a full page reload while offline drops anything unsent.)
 
 ## `TransactionResourceResolution` {#transactionresourceresolution}
 
@@ -826,14 +823,14 @@ type TransactionResourceResolution =
   // Undefined return falls through to the framework default ({ kind: 'use-server' }).
   | {
       kind: 'conflict-pending';
-      local:  { value: unknown; eTag: string };   // your in-flight edit + the baseline it was based on
+      local:  { value: unknown; validFrom: string };   // your in-flight edit + the version it was based on
       server: Snapshot;                            // the conflicting committed version
-      base:   { value: unknown; eTag: string };    // common ancestor — the value `local` diverged from (see below)
+      base:   { value: unknown; validFrom: string };    // common ancestor — the value `local` diverged from (see below)
       context: { bindings: Map<string, HTMLElement[]> };  // deferred-post-5.3.7; empty Map in 5.3.7
     }
 
   // Terminal — handler return is ignored.
-  | { kind: 'committed';         eTag: string }
+  | { kind: 'committed';         validFrom: string }
   | { kind: 'use-server';        snapshot: Snapshot }
   | { kind: 'human-in-the-loop'; snapshot: Snapshot }
   | { kind: 'retries-exhausted'; snapshot: Snapshot; attempts: number }
@@ -846,14 +843,14 @@ Effect on the optimistic store, per branch:
 | Resolution | Optimistic state for that resource | Notes |
 | --- | --- | --- |
 | `'conflict-pending'` | Optimistic state unchanged from pre-resolution. Handler is deciding. | Handler returns a [`ConflictResolverVerdict`](#conflictresolververdict) to drive the next step. |
-| `'committed'` | `meta.eTag` updated to the new value. Framework adds default `lumenize-commit-success` flash class. | The user's write landed. |
+| `'committed'` | `meta.validFrom` updated to the moment the write committed at. Framework adds default `lumenize-commit-success` flash class. | The user's write landed. |
 | `'use-server'` | Server's `value` + `meta` already written through. Framework adds default `lumenize-conflict-revert` flash class at diff fields. | The user's write was reverted to the server's authoritative value. |
 | `'human-in-the-loop'` | Optimistic stays painted; no flash class. | App owns the eventual resolution submission (typically a "review later" UI). |
-| `'retries-exhausted'` | Roll back to the B4 baseline (the value at the eTag the failed submission asserted; for a `use-this` chain, the last conflict's server snapshot). Framework adds default `lumenize-conflict-revert` flash. `snapshot` is the latest server snapshot; `attempts` is how many `'use-this'` re-submits ran. | Surface to user. |
-| `'validation-failed'` | Roll back to the B4 baseline (the value at the eTag the failed submission asserted; for a `use-this` chain, the last conflict's server snapshot). Framework adds default `lumenize-conflict-revert` flash. `errors` carries the server's per-field messages. | Surface validation messages. |
-| `'permission-denied'` | Roll back to the B4 baseline (the value at the eTag the failed submission asserted; for a `use-this` chain, the last conflict's server snapshot). Framework adds default `lumenize-conflict-revert` flash. | Surface "not authorized" message. |
+| `'retries-exhausted'` | Roll back to the baseline (the value at the version the failed submission named; for a `use-this` chain, the last conflict's server snapshot). Framework adds default `lumenize-conflict-revert` flash. `snapshot` is the latest server snapshot; `attempts` is how many `'use-this'` re-submits ran. | Surface to user. |
+| `'validation-failed'` | Roll back to the baseline (the value at the version the failed submission named; for a `use-this` chain, the last conflict's server snapshot). Framework adds default `lumenize-conflict-revert` flash. `errors` carries the server's per-field messages. | Surface validation messages. |
+| `'permission-denied'` | Roll back to the baseline (the value at the version the failed submission named; for a `use-this` chain, the last conflict's server snapshot). Framework adds default `lumenize-conflict-revert` flash. | Surface "not authorized" message. |
 
-The `'use-this'` verdict from the handler is intermediate — never appears as a `TransactionResourceResolution` branch — it triggers a recursive re-submission with the handler-returned value at the server's current eTag. A successful chain terminates in `'committed'`; a failed one terminates in `'retries-exhausted'`.
+The `'use-this'` verdict from the handler is intermediate — never appears as a `TransactionResourceResolution` branch — it triggers a recursive re-submission with the handler-returned value at the server's current version. A successful chain terminates in `'committed'`; a failed one terminates in `'retries-exhausted'`.
 
 **Atomicity invariant**: the server is atomic (all-or-nothing), so there is no mixed top-level outcome. A transaction's top-level [`TransactionOutcome`](#transactionoutcome) is `'committed'` whenever every op landed — even when a resource lands at `'use-server'` (the server's value won and the user's original `value` didn't, but the data is consistent and the op committed) — and `'rejected'` when an op failed for a per-op reason (`'permission-denied'` / `'validation-failed'` / `'human-in-the-loop'` / `'retries-exhausted'`). The per-resource breakdown in `resources` reveals each resource's final state.
 
@@ -871,7 +868,7 @@ type ConflictResolverVerdict =
 ```
 
 - `'use-server'` — accept the server's value, abandon local changes for this resource.
-- `'use-this'` — re-submit with `value` and the server's new `eTag`. The verdict `value` is also painted optimistically (it's a fresh optimistic write at the server baseline — the merged text is visible while the re-submission is in flight and stays painted when it commits). Bounded by `maxRetries` — on cap, the resource lands at `'retries-exhausted'`.
+- `'use-this'` — re-submit with `value` and the server's new version. The verdict `value` is also painted optimistically (it's a fresh optimistic write at the server baseline — the merged text is visible while the re-submission is in flight and stays painted when it commits). Bounded by `maxRetries` — on cap, the resource lands at `'retries-exhausted'`.
 - `'human-in-the-loop'` — defer to the user. Optimistic state stays painted; the handler (or app code outside it) is responsible for any follow-up `transaction()`.
 
 The handler can be sync or async. The in-flight queue's 5–10 s timeout is **suspended** during handler execution at `'conflict-pending'` — a modal can sit open for minutes without triggering `'timeout'`.

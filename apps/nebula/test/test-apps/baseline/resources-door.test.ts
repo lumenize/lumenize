@@ -67,7 +67,7 @@ interface Host {
   /** A `create` op the admin identity is allowed to commit. */
   createOp(): Record<string, any>;
   /** A `put` that changes the resource `rid`. */
-  putOp(rid: string, eTag: string): Record<string, any>;
+  putOp(rid: string, version: string): Record<string, any>;
   query: QueryDescriptor;
   resourceType: string;
 }
@@ -83,7 +83,7 @@ async function starHost(): Promise<Host> {
   return {
     binding: 'STAR', scope, version: 'v1', client, resourceType: 'TestResource',
     createOp: () => ({ op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'made' } }),
-    putOp: (_rid, eTag) => ({ op: 'put', eTag, value: { title: `edit-${uuid().slice(0, 4)}` } }),
+    putOp: (_rid, version) => ({ op: 'put', ifValidFromMatches: version, value: { title: `edit-${uuid().slice(0, 4)}` } }),
     query: { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: uuid() },
   };
 }
@@ -96,7 +96,7 @@ async function galaxyHost(): Promise<Host> {
   return {
     binding: 'GALAXY', scope, version: CHAT_MESSAGE_ONTOLOGY_VERSION, client, resourceType: 'Message',
     createOp: () => ({ op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'made' } }),
-    putOp: (_rid, eTag) => ({ op: 'put', eTag, value: { chat: DEFAULT_CHAT_ID, content: `edit-${uuid().slice(0, 4)}` } }),
+    putOp: (_rid, version) => ({ op: 'put', ifValidFromMatches: version, value: { chat: DEFAULT_CHAT_ID, content: `edit-${uuid().slice(0, 4)}` } }),
     query: CHAT_QUERY,
   };
 }
@@ -117,7 +117,7 @@ async function rowsOf(host: Host, kind: string, clientAddress: string): Promise<
 /** Commit through the door and return the result. */
 async function commit(client: NebulaClientTest, host: Host, ops: Record<string, any>): Promise<TransactionResult> {
   return await client.lmz.callAsync(host.binding, host.scope,
-    (client.ctn() as any).resources.transaction(host.version, uuid(), ops)) as TransactionResult;
+    (client.ctn() as any).resources.transaction(host.version, ops)) as TransactionResult;
 }
 
 /** The mesh-callable members a host class declares itself, found the way the entry rule finds them. */
@@ -139,7 +139,7 @@ describe('each host has one door, and the per-op entries are gone', () => {
     // Matched on the entry rule's ABSENT message — a passage refusal, or "not mesh-callable", would
     // mean the entry survived in some form.
     const absent = await refusal(client.lmz.callAsync(host.binding, host.scope,
-      (client.ctn() as any).transaction(host.version, uuid(), { [uuid()]: host.createOp() })));
+      (client.ctn() as any).transaction(host.version, { [uuid()]: host.createOp() })));
     expect(absent).toMatch(/No member named 'transaction' exists on this node/);
     // Positive control: the same caller, the same op, through the door.
     const result = await commit(client, host, { [uuid()]: host.createOp() });
@@ -239,8 +239,8 @@ describe('the door derives the caller\'s own address — a trailing one is ignor
     const host = await make();
     const a = await host.client();
     const b = await host.client();
-    const created = await commit(a, host, { [uuid()]: host.createOp() }) as { ok: true; eTags: Record<string, string> };
-    const rid = Object.keys(created.eTags)[0];
+    const rid = uuid();
+    await commit(a, host, { [rid]: host.createOp() });
     const hash = canonicalQueryHash(host.query);
 
     // A and B each hold a resource, query and roster row, through the public API. The handles are
@@ -277,8 +277,8 @@ describe('the door derives the caller\'s own address — a trailing one is ignor
     const b = await host.client();
     const c = await host.client();
     const bystander = await host.client();
-    const created = await commit(a, host, { [uuid()]: host.createOp() }) as { ok: true; eTags: Record<string, string> };
-    const rid = Object.keys(created.eTags)[0];
+    const rid = uuid();
+    const created = await commit(a, host, { [rid]: host.createOp() }) as { ok: true; validFrom: string };
     using heard = bystander.resources.subscribe(host.resourceType, rid);
     await heard.snapshot;
 
@@ -307,7 +307,7 @@ describe('the door derives the caller\'s own address — a trailing one is ignor
     // A third client's next commit resolves `ok` — a stored unroutable binding would have failed it
     // in the fan-out after the write landed — and the bystander hears it.
     const before = bystander.resourceUpdateCount;
-    const next = await commit(c, host, { [rid]: host.putOp(rid, created.eTags[rid]) });
+    const next = await commit(c, host, { [rid]: host.putOp(rid, created.validFrom) });
     expect(next.ok).toBe(true);
     await vi.waitFor(() => expect(bystander.resourceUpdateCount).toBeGreaterThan(before));
     for (const x of [a, b, c, bystander]) x[Symbol.dispose]();
@@ -378,7 +378,7 @@ describe('the door derives the caller\'s own address — a trailing one is ignor
     const client = await host.client();
     const mid = uuid();
     const out = await client.lmz.callAsync(host.binding, host.scope,
-      (client.ctn() as any).resources.transaction(host.version, uuid(), { [mid]: host.createOp() },
+      (client.ctn() as any).resources.transaction(host.version, { [mid]: host.createOp() },
         { actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB }, pinnedAtDoor: true })) as TransactionResult;
     expect(out.ok).toBe(true);
     const snap = await client.resources.read('Message', mid) as Snapshot;
@@ -407,7 +407,7 @@ describe('the Galaxy tells a Star-tier caller with no grant `permission`, and a 
     expect(payload.access.authScope).toBe(`${scope}.dev`); // the fixture is the Star-tier shape
     let rid = uuid();
     const txn = () => tenant.lmz.callAsync('GALAXY', scope, tenant.ctn<Galaxy>().resources.transaction(
-      CHAT_MESSAGE_ONTOLOGY_VERSION, uuid(), { [rid]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'up' } } },
+      CHAT_MESSAGE_ONTOLOGY_VERSION, { [rid]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'up' } } },
     )) as Promise<TransactionResult>;
 
     // RESOLVED, not rejected: a passage refusal would reject. The structured error names the tier

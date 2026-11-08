@@ -192,7 +192,7 @@ describe('a landing records its build as .dev\'s newest ServedBuild', () => {
     await newestNaming(o, sub, 'forged');
     const snap = await p.client.resources.read('ServedBuild', forged) as Snapshot;
     expect((await p.client.resources.transaction({
-      [forged]: { op: 'delete', typeName: 'ServedBuild', eTag: snap.meta.eTag },
+      [forged]: { op: 'delete', typeName: 'ServedBuild', ifValidFromMatches: snap.meta.validFrom },
     })).kind).toBe('committed');
 
     await g(o, scope).write('src/App.vue', '<template><p>second</p></template>');

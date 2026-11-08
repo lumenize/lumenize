@@ -127,8 +127,8 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
     await close(doomed);
     admin.callStarRead(star, VERSION, parent);
     await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
-    const eTag = (admin.lastResult as { meta: { eTag: string } }).meta.eTag;
-    await commit(admin, star, { [parent]: { op: 'put', eTag, value: { name: 'p2' } } });
+    const version = (admin.lastResult as { meta: { validFrom: string } }).meta.validFrom;
+    await commit(admin, star, { [parent]: { op: 'put', ifValidFromMatches: version, value: { name: 'p2' } } });
 
     await vi.waitFor(async () => expect(await rows('STAR', star, 'resource', id)).toBe(0));
   });

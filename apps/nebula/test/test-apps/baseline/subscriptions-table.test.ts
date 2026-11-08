@@ -171,8 +171,8 @@ describe('each kind hears only its own updates', () => {
     // One update of each kind: a resource put, a query member, a tree change, and q's leave (a roster change).
     admin.callStarRead(star, VERSION, topic);
     await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
-    const eTag = (admin.lastResult as { meta: { eTag: string } }).meta.eTag;
-    await commit(admin, star, { [topic]: { op: 'put', eTag, value: { name: 't2' } } });
+    const version = (admin.lastResult as { meta: { validFrom: string } }).meta.validFrom;
+    await commit(admin, star, { [topic]: { op: 'put', ifValidFromMatches: version, value: { name: 't2' } } });
     await commit(admin, star, { [uuid()]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c' } } });
     await vi.waitFor(() => expect(q.queryUpdateCount).toBe(before.q.query + 1));
     await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'hear', 'Hear');

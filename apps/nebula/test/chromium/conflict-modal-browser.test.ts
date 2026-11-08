@@ -10,7 +10,7 @@
  * it needs a REAL `HTMLDialogElement.showModal()` + `close(returnValue)` (jsdom
  * doesn't implement them) AND a real NebulaClient conflict (the baseline has the
  * real Star but no DOM). So: install a `todo` ontology via a browser-safe admin
- * client, connect the factory client, fire a stale-eTag conflict, and let the
+ * client, connect the factory client, fire a stale-version conflict, and let the
  * doc's async handler drive a real dialog — the user's "Keep mine" choice becomes
  * a `use-this` verdict that re-submits and commits.
  *
@@ -90,10 +90,10 @@ describe('async-modal conflict handler (real chromium, real WS + dialog)', () =>
       });
       // @end-doc
 
-      // Fire a conflict: a put against a deliberately stale eTag → server conflict
+      // Fire a conflict: a put against a deliberately stale version → server conflict
       // → the async handler runs, opens the real dialog, and parks the transaction.
       const txnPromise = client.resources.transaction({
-        t1: { op: 'put', typeName: 'todo', eTag: `stale-${crypto.randomUUID()}`, value: { title: 'my edit', status: 'open' } },
+        t1: { op: 'put', typeName: 'todo', ifValidFromMatches: `stale-${crypto.randomUUID()}`, value: { title: 'my edit', status: 'open' } },
       });
 
       // The handler stashed the conflict + called showModal(). Simulate the user
@@ -103,7 +103,7 @@ describe('async-modal conflict handler (real chromium, real WS + dialog)', () =>
       expect(modalEl.open).toBe(true); // showModal() really opened it (real browser)
       modalEl.close('mine');
 
-      // use-this re-submits local.value at the server eTag → commits with my edit.
+      // use-this re-submits local.value at the server version → commits with my edit.
       const outcome = await txnPromise;
       expect(outcome.kind).toBe('committed');
       expect(store.ui.conflict).toBeUndefined(); // handler cleared it on close

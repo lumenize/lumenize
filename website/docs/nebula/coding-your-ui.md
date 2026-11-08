@@ -7,7 +7,7 @@ description: How to build a Nebula front end with Vue 3 SFCs and TypeScript — 
 
 A Nebula front end is Vue 3 Single-File Components (SFCs) written in TypeScript, styled with DaisyUI, rendering resources whose shape you defined in your ontology (a TypeScript `.d.ts`-style file). The framework handles subscribes, transactions, and conflicts.
 
-This page is the narrative reference Nebula Studio's hosted LLM consults when generating UI code in dialog with a user-developer — naming, defaults, and example shape are tuned for that LLM-as-reader audience. For exact signatures see [API reference](./api-reference.md). For the resource data model (addressing, eTags, transactions, conflict resolution) see [Resources](./resources.md). This page is "how to wire it together"; those pages are the contract.
+This page is the narrative reference Nebula Studio's hosted LLM consults when generating UI code in dialog with a user-developer — naming, defaults, and example shape are tuned for that LLM-as-reader audience. For exact signatures see [API reference](./api-reference.md). For the resource data model (addressing, versions, transactions, conflict resolution) see [Resources](./resources.md). This page is "how to wire it together"; those pages are the contract.
 
 ## Resources at a glance
 
@@ -18,7 +18,7 @@ Resources also handle [**access control**](./access-control.md). Every resource 
 Each resource is a JavaScript object (not just JSON, but rather rich types like Map, Date, cycles, etc.) addressed by a `(resourceType, resourceId)` pair, with its shape declared in your ontology. From your UI's perspective:
 
 - `store.resources.<resourceType>[<resourceId>].value` — the resource's current value.
-- `store.resources.<resourceType>[<resourceId>].meta` — server-managed metadata (`eTag`, change metadata, etc.).
+- `store.resources.<resourceType>[<resourceId>].meta` — server-managed metadata (the version, `validFrom`, change metadata, etc.).
 
 The full resource model — addressing, optimistic concurrency, the per-type handler, transaction outcomes — is documented in [Resources](./resources.md), but other than shown in the examples in this document, you will rarely have to deal with them directly.
 
@@ -85,7 +85,7 @@ By default `v-model` listens on `input` (fires every keystroke). The optimistic 
 - **Quiet window**: wait this long after the last write to a resource before submitting (default 500 ms).
 - **Max wait**: submit at least every N ms regardless of continued typing (default 2000 ms).
 - **Flush on lifecycle**: a pending write flushes immediately on input blur (a `focusout` on the bound input) and on `client.dispose()`. Component unmount does *not* itself force a flush — but the quiet/max-wait timers above run at the client level (per `(resourceType, resourceId)`, not per component), so a buffered write still submits on schedule after the component is gone; nothing is lost.
-- **Serial per resource**: at most one transaction in flight per resource; subsequent writes buffer and submit using the in-flight transaction's resulting eTag.
+- **Serial per resource**: at most one transaction in flight per resource; subsequent writes buffer and submit using the in-flight transaction's resulting version.
 
 A typical 10-character edit produces ~1 transaction, not 10.
 
@@ -335,10 +335,11 @@ if (await client.resources.read('todoList', sub) === null) {
   });
   // A single-resource create commits iff the top-level outcome is 'committed'
   // (atomicity ⟹ if the batch committed, the create landed). Any failure is NOT
-  // 'committed': permission/validation → 'rejected'; a lost first-create race
-  // ("already exists") → 'infrastructure-error' today (M11 may reclassify it).
-  // Race-safe: when not created, re-read to disambiguate — the list now exists (a
-  // tab won the race, proceed) or it genuinely doesn't (a real failure to surface).
+  // 'committed': permission/validation → 'rejected'. Two tabs of one person racing
+  // the first-create are both told 'committed' (the second create is a repeat of the
+  // first); a create someone else won ("already exists") is NOT 'committed'.
+  // Race-safe: when not created, re-read to disambiguate — the list now exists
+  // (someone won the race, proceed) or it genuinely doesn't (a real failure to surface).
   const created = outcome.kind === 'committed';
   if (!created && await client.resources.read('todoList', sub) === null) {
     throw new Error('Could not create your list — check your connection and reload.');
@@ -364,7 +365,7 @@ async function addTodo(title: string) {
   if (!list) return;   // snapshot not arrived yet — see "Loading and first paint"
 
   // Both ops in one call → atomic. Either both commit or neither does.
-  // eTag for the put auto-derives from store.resources.todoList[...]?.meta?.eTag;
+  // ifValidFromMatches for the put auto-derives from store.resources.todoList[...]?.meta?.validFrom;
   // a missing baseline (resource never subscribed) THROWS synchronously here
   // rather than returning a non-committed outcome — the v-if/snapshot guard above
   // prevents that. The new todo attaches under the same tree node as the list
@@ -396,7 +397,7 @@ For multi-field forms that should commit together (rather than per-keystroke tra
 
 Form-scoped reactions — clear the draft on commit, surface validation errors next to fields — belong in a **per-call handler** passed to that save's `transaction()` call, NOT in the per-type handler: the per-type handler fires on *every* transaction touching the type (debounced `v-model` edits, other forms, list mutations), so form state wired there gets clobbered by unrelated commits. Keep the per-type handler (registered once in `nebula.ts`) for type-wide policy — conflict verdicts, custom flashes; see [Resources § per-resource handler](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler). Per-call handlers are **keyed by `resourceId`** — `{ 'task-42': handler }` — so each handles only its own resource, and any sibling in the batch falls through to its per-type handler automatically (the per-call entry layers in front of its resource's per-type handler — it does not replace it; see [API reference § Precedence](./api-reference.md#precedence)).
 
-Mount the form only after the resource's snapshot has arrived — the same `v-if` guard from [Loading and first paint](#loading-and-first-paint): `<TodoForm v-if="store.resources.todo['task-42']?.value" />`. Seeding the draft before the snapshot lands would stage blank values that Save then commits over the real data (the eTag auto-derive matches, so no conflict fires to stop it).
+Mount the form only after the resource's snapshot has arrived — the same `v-if` guard from [Loading and first paint](#loading-and-first-paint): `<TodoForm v-if="store.resources.todo['task-42']?.value" />`. Seeding the draft before the snapshot lands would stage blank values that Save then commits over the real data (the version auto-derive matches, so no conflict fires to stop it).
 
 ```vue @skip-check
 <!-- TodoForm.vue — local draft → explicit transaction on submit.

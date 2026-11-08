@@ -93,6 +93,11 @@ export interface FakeCertificates {
 }
 export const certificateFakes = new Map<string, FakeCertificates>();
 
+/** Test-only: the Galaxies, by scope, whose chat validator holds every parse this many ms. Set it
+ *  before the Galaxy's first touch, which installs the validator; the test and the Galaxy share one
+ *  isolate. */
+export const heldGalaxyParses = new Map<string, number>();
+
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
 // ============================================
@@ -619,7 +624,9 @@ export class GalaxyTest extends Galaxy {
   /** The row the chat-ontology source answers instead of the platform seed, when a test set one. */
   #sourceRow: OntologyVersionRow | undefined;
   protected override ontologySource(): OntologyVersionRow {
-    return this.#sourceRow ?? super.ontologySource();
+    const row = this.#sourceRow ?? super.ontologySource();
+    const holdMs = heldGalaxyParses.get(this.lmz.instanceName ?? '');
+    return holdMs ? holdingParse(row, holdMs) : row;
   }
 
   /** Make the chat-ontology source answer `versionConfig`'s row — the way a newer platform seed
@@ -981,17 +988,14 @@ const withClientTestCaptures = <TBase extends new (...args: any[]) => NebulaClie
     starName: string,
     ontologyVersion: string,
     ops: Record<string, OperationDescriptor>,
-    newETag?: string,
   ): Promise<void> {
     this.resetResults();
-    const txnETag = newETag ?? crypto.randomUUID();
-    this.lastTxnETag = txnETag;
     // Transactions now return via `callAsync`: a `TransactionResult` on success, an
     // `OntologyStaleError` as a VALUE on stale, or a rejection on infra error. Capture into the legacy
     // `lastResult` / `lastError` / `callCompleted` fields the `callStarTransaction` tests assert on.
     try {
       const result = await this.lmz.callAsync('STAR', starName,
-        this.ctn<Star>().resources.transaction(ontologyVersion, txnETag, ops));
+        this.ctn<Star>().resources.transaction(ontologyVersion, ops));
       if (result instanceof Error) {
         this.lastErrorObject = result;
         this.lastError = result.message;
@@ -1007,10 +1011,6 @@ const withClientTestCaptures = <TBase extends new (...args: any[]) => NebulaClie
     }
     this.callCompleted = true;
   }
-
-  /** Last newETag used by `callStarTransaction` — useful for tests that
-   *  need to retry with the same eTag (idempotency probe). */
-  lastTxnETag: string | undefined = undefined;
 
   /** Test-only: in-flight `callAsync` count (the transient surface — proves the retired submit-gate
    *  lets concurrent independent-resource transactions run; a re-added serial gate would keep this 1). */

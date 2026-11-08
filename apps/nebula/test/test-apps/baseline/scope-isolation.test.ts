@@ -534,7 +534,7 @@ describe('the upward arm is bounded by the callee, not by the barrier (the host 
       // The door: `transaction` is callable at all (the positive control), and answers each op by
       // grant; the node invite needs `admin` at the node before the facade ever sees it, and the
       // facade bounds a holder who has one; the tree's writes need their grants.
-      const tx = await c.lmz.callAsync('GALAXY', galaxy, g().resources.transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, crypto.randomUUID(), {
+      const tx = await c.lmz.callAsync('GALAXY', galaxy, g().resources.transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, {
         [crypto.randomUUID()]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'x' } },
       }));
       expect(JSON.stringify(tx)).toContain('"permission"');

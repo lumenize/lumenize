@@ -25,12 +25,12 @@ import { NebulaClientTest } from './index';
 
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
-/** Pull the committed eTag for `rid` out of a committed outcome. */
-function committedETag(outcome: TransactionOutcome, rid: string): string {
+/** Pull the committed version for `rid` out of a committed outcome. */
+function committedMoment(outcome: TransactionOutcome, rid: string): string {
   if (outcome.kind !== 'committed') throw new Error(`Expected committed, got ${outcome.kind}`);
   const r = outcome.resources[rid];
   if (r?.kind !== 'committed') throw new Error(`Expected committed resource, got ${r?.kind}`);
-  return r.eTag;
+  return r.validFrom;
 }
 
 function uniqueStar(): string {
@@ -62,7 +62,7 @@ async function setupStaleScenario() {
   const created = await a.client.resources.transaction({
     [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1-resource' } },
   });
-  const eTag = committedETag(created, resourceId);
+  const version = committedMoment(created, resourceId);
 
   // Advance the Star's cache to v2 (apply replaces the cached row). The v1-pinned
   // client's next op will now mismatch.
@@ -72,17 +72,17 @@ async function setupStaleScenario() {
   // client op that could detect a mismatch.
   expect(refreshHookSpy).not.toHaveBeenCalled();
 
-  return { star, resourceId, eTag, client: a.client, refreshHookSpy };
+  return { star, resourceId, version, client: a.client, refreshHookSpy };
 }
 
 describe('nebula-client ontology-stale signal (5.3.3d)', () => {
 
   it('transaction: stale-v1 → resolves with ontology-stale + fires onShouldRefreshUI', async () => {
-    const { client, resourceId, eTag, refreshHookSpy } = await setupStaleScenario();
+    const { client, resourceId, version, refreshHookSpy } = await setupStaleScenario();
 
     // Constructor-pinned v1 transaction — Star has v2 cached, mismatch fires
     const outcome = await client.resources.transaction({
-      [resourceId]: { op: 'put', typeName: 'TestResource', eTag, value: { title: 'V1-write-attempt' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: version, value: { title: 'V1-write-attempt' } },
     });
 
     expect(outcome.kind).toBe('ontology-stale');
@@ -166,7 +166,7 @@ describe('nebula-client ontology-stale signal (5.3.3d)', () => {
     const created = await a.client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } },
     });
-    const eTag = committedETag(created, resourceId);
+    const version = committedMoment(created, resourceId);
 
     a.client.callStarInstallOntology(star, { version: 'v2', types: TEST_TYPES });
     await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
@@ -174,7 +174,7 @@ describe('nebula-client ontology-stale signal (5.3.3d)', () => {
     // No hook registered — should still get the structured outcome without
     // any error from the framework
     const outcome = await a.client.resources.transaction({
-      [resourceId]: { op: 'put', typeName: 'TestResource', eTag, value: { title: 'V1-write' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: version, value: { title: 'V1-write' } },
     });
     expect(outcome.kind).toBe('ontology-stale');
 

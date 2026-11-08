@@ -41,7 +41,7 @@ async function commit(c: NebulaClientTest, star: string, ops: Record<string, any
   c.callStarTransaction(star, VERSION, ops);
   const r = await waitForSuccess(c) as TransactionResult;
   if (!r.ok) throw new Error('expected commit ok: ' + JSON.stringify(r));
-  return r.eTags;
+  return r.validFrom;
 }
 async function nextPush(c: NebulaClientTest, prev: number) {
   await vi.waitFor(() => expect(c.queryUpdateCount).toBeGreaterThan(prev));

@@ -233,7 +233,7 @@ export async function run(stack: DevStack): Promise<void> {
       () => create(writer, 'Tag', { label: 'moves .dev to v2' }));
     assert.equal(devMoved, 'committed', `the .dev Star never installed v2 (last outcome: ${devMoved})`);
 
-    // The writer subscribes too, so its `put` eTags auto-derive; the watcher is the one measured.
+    // The writer subscribes too, so its `put` versions auto-derive; the watcher is the one measured.
     watcher.client.watched = xId;
     const watchSub = watcher.client.resources.subscribe('Item', xId);
     const writeSub = writer.client.resources.subscribe('Item', xId);

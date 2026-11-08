@@ -32,11 +32,11 @@ function uniqueStar(): string {
   return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
-function committedETag(outcome: TransactionOutcome, rid: string): string {
+function committedMoment(outcome: TransactionOutcome, rid: string): string {
   if (outcome.kind !== 'committed') throw new Error(`Expected committed, got ${outcome.kind}`);
   const r = outcome.resources[rid];
   if (r?.kind !== 'committed') throw new Error(`Expected committed resource, got ${r?.kind}`);
-  return r.eTag;
+  return r.validFrom;
 }
 
 describe('client.resources.read does not write to the bound store (§5.3.8, real Star)', () => {
@@ -53,7 +53,7 @@ describe('client.resources.read does not write to the bound store (§5.3.8, real
     const created = await admin.client.resources.transaction({
       [todoId]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'buy milk', done: false } },
     });
-    committedETag(created, todoId); // assert the create committed
+    committedMoment(created, todoId); // assert the create committed
 
     // A fresh factory client that NEVER subscribes to or writes this resource.
     const browserR = new Browser();

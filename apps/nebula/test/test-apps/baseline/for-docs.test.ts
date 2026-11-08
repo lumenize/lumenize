@@ -15,7 +15,7 @@
  * each labeled step embeds a doc block verbatim and exercises it end-to-end.
  *
  * Capable-of-failing: every transaction asserts a real `committed` outcome (a
- * broken put/create/auto-derive-eTag path would return a non-committed kind),
+ * broken put/create/auto-derive-version path would return a non-committed kind),
  * the computeds assert real derived values off live snapshots, and the orgTree
  * sequence asserts the star-scoped admin can drive every mutation against the real DAG.
  */
@@ -161,7 +161,7 @@ describe('for-docs runtime examples (real Star)', () => {
     // ── api-reference § resources.transaction — single resource ──
     {
       // @doc api-reference.md § Example — single resource
-      // eTag auto-derives from store.resources.todo['task-42']?.meta?.eTag.
+      // ifValidFromMatches auto-derives from store.resources.todo['task-42']?.meta?.validFrom.
       const outcome = await client.resources.transaction({
         'task-42': { op: 'put', typeName: 'todo', value: { title: 'New title' } },
       });
@@ -202,16 +202,17 @@ describe('for-docs runtime examples (real Star)', () => {
     client.resources.unsubscribe('todo', 'task-42');                // standalone API
     // @end-doc
 
-    // ── api-reference § Explicit eTag override ──
+    // ── api-reference § Explicit version override ──
     {
-      const currentETag = store.resources.todo['task-42'].meta.eTag;
-      const conflict = { server: { meta: { eTag: currentETag } } };
+      const currentVersion = store.resources.todo['task-42'].meta.validFrom;
+      expect(currentVersion).toMatch(/Z$/); // the stashed baseline is a real version, not undefined
+      const conflict = { server: { meta: { validFrom: currentVersion } } };
       const resolvedValue = { title: 'Resolved', description: '', status: 'open' };
-      // @doc api-reference.md § Explicit eTag override
+      // @doc api-reference.md § Explicit version override
       // Explicit baseline — Bob's resolution submission against the stashed snapshot.
       const outcome = await client.resources.transaction({
         'task-42': { op: 'put', typeName: 'todo',
-                     eTag: conflict.server.meta.eTag,            // ← stashed baseline, not auto-derived
+                     ifValidFromMatches: conflict.server.meta.validFrom,  // ← stashed baseline, not auto-derived
                      value: resolvedValue },
       });
       // @end-doc
@@ -228,10 +229,11 @@ describe('for-docs runtime examples (real Star)', () => {
       });
       // A single-resource create commits iff the top-level outcome is 'committed'
       // (atomicity ⟹ if the batch committed, the create landed). Any failure is NOT
-      // 'committed': permission/validation → 'rejected'; a lost first-create race
-      // ("already exists") → 'infrastructure-error' today (M11 may reclassify it).
-      // Race-safe: when not created, re-read to disambiguate — the list now exists (a
-      // tab won the race, proceed) or it genuinely doesn't (a real failure to surface).
+      // 'committed': permission/validation → 'rejected'. Two tabs of one person racing
+      // the first-create are both told 'committed' (the second create is a repeat of the
+      // first); a create someone else won ("already exists") is NOT 'committed'.
+      // Race-safe: when not created, re-read to disambiguate — the list now exists
+      // (someone won the race, proceed) or it genuinely doesn't (a real failure to surface).
       const created = outcome.kind === 'committed';
       if (!created && await client.resources.read('todoList', sub) === null) {
         throw new Error('Could not create your list — check your connection and reload.');
@@ -274,7 +276,7 @@ describe('for-docs runtime examples (real Star)', () => {
       if (!list) return;   // snapshot not arrived yet — see "Loading and first paint"
 
       // Both ops in one call → atomic. Either both commit or neither does.
-      // eTag for the put auto-derives from store.resources.todoList[...]?.meta?.eTag;
+      // ifValidFromMatches for the put auto-derives from store.resources.todoList[...]?.meta?.validFrom;
       // a missing baseline (resource never subscribed) THROWS synchronously here
       // rather than returning a non-committed outcome — the v-if/snapshot guard above
       // prevents that. The new todo attaches under the same tree node as the list
@@ -386,7 +388,7 @@ describe('for-docs runtime examples (real Star)', () => {
         case 'conflict-pending':
           // Stash the conflict for later review.
           if (!store.app.conflicts) store.app.conflicts = {};
-          store.app.conflicts[resolution.server.meta.eTag] = {
+          store.app.conflicts[resolution.server.meta.validFrom] = {
             resourceType: 'document',
             resourceId: rid,
             local: resolution.local,
@@ -395,10 +397,10 @@ describe('for-docs runtime examples (real Star)', () => {
           return { kind: 'human-in-the-loop' };
         case 'committed':
           // The eventual review-later submission committed — clear this conflict.
-          // (Match by some app-defined key; here we clear all eTags pointing at rid.)
-          for (const eTag of Object.keys(store.app.conflicts ?? {})) {
-            if (store.app.conflicts[eTag].resourceId === rid) {
-              delete store.app.conflicts[eTag];
+          // (Match by some app-defined key; here we clear every entry pointing at rid.)
+          for (const key of Object.keys(store.app.conflicts ?? {})) {
+            if (store.app.conflicts[key].resourceId === rid) {
+              delete store.app.conflicts[key];
             }
           }
           break;
@@ -448,7 +450,7 @@ describe('for-docs runtime examples (real Star)', () => {
         case 'timeout':
         case 'infrastructure-error':
           // Transaction-wide failure; optimistic state rolled back (connection-gated — a mere
-          // disconnect never lands here). An idempotent resubmit (same newETag) can land.
+          // disconnect never lands here). A resubmit of a write that landed is told it committed.
           showToast('Connection problem — retry?');
           if (outcome.kind === 'infrastructure-error') console.error(outcome.error);
           break;

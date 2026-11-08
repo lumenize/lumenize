@@ -89,7 +89,7 @@ describe('a Galaxy serves a newer seed its source answers', () => {
 
     // The client pinned to the new version posts; its op finds the mismatch, the source answers the
     // newer row, the plane installs it and serves this op.
-    const posted = await owner.lmz.callAsync('GALAXY', scope, door(owner).transaction('chat-v2', uuid(), {
+    const posted = await owner.lmz.callAsync('GALAXY', scope, door(owner).transaction('chat-v2', {
       [uuid()]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'on v2' } },
     }), { timeoutMs: COMPILE_TIMEOUT_MS }) as TransactionResult;
     expect(posted.ok).toBe(true);
@@ -115,7 +115,7 @@ describe('a Galaxy serves a newer seed its source answers', () => {
     const owner = await galaxyOwner(scope);
     for (const next of [CHAT_V2, { version: 'chat-v3', types: `${CHAT_V2.types}\ninterface More { n: number }` }]) {
       await owner.lmz.callAsync('GALAXY', scope, owner.ctn<GalaxyTest>().setChatSourceForTest(next), { timeoutMs: COMPILE_TIMEOUT_MS });
-      const posted = await owner.lmz.callAsync('GALAXY', scope, door(owner).transaction(next.version, uuid(), {
+      const posted = await owner.lmz.callAsync('GALAXY', scope, door(owner).transaction(next.version, {
         [uuid()]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: `on ${next.version}` } },
       }), { timeoutMs: COMPILE_TIMEOUT_MS }) as TransactionResult;
       expect(posted.ok).toBe(true);
@@ -324,7 +324,7 @@ describe('every op on an empty host takes the same path', () => {
     const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: uuid() };
     const hash = canonicalQueryHash(query);
 
-    const txn = await answer(admin.lmz.callAsync('STAR', star, door(admin).transaction('v1', uuid(), {
+    const txn = await answer(admin.lmz.callAsync('STAR', star, door(admin).transaction('v1', {
       [uuid()]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'x' } },
     })));
     const read = await answer(admin.lmz.callAsync('STAR', star, door(admin).read('v1', uuid())));
@@ -350,7 +350,7 @@ describe('every op on an empty host takes the same path', () => {
   it('no op on an empty Galaxy is told `checking` — its source answers at once', async () => {
     const scope = newGalaxy();
     const owner = await galaxyOwner(scope);
-    const txn = await owner.lmz.callAsync('GALAXY', scope, door(owner).transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, uuid(), {
+    const txn = await owner.lmz.callAsync('GALAXY', scope, door(owner).transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, {
       [uuid()]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'first' } },
     })) as TransactionResult;
     expect(txn.ok).toBe(true);

@@ -67,7 +67,7 @@ describe('middleware', () => {
     });
     store.foo = 'local-write';
     // Server fanout uses source: 'remote' (via the bound adapter's applyFanout).
-    client.simulateFanout('todo', 'task-1', { value: { title: 'hello' }, meta: { eTag: 'abc' } });
+    client.simulateFanout('todo', 'task-1', { value: { title: 'hello' }, meta: { validFrom: 'abc' } });
     // Connection state uses source: 'remote' (via the factory's observer).
     client.simulateConnectionState('connected');
 
@@ -135,14 +135,14 @@ describe('hierarchical-notify (free from Vue)', () => {
 // writes under resources.<rt>.<rid>.value.* (→ client.resources.write).
 // ──────────────────────────────────────────────────────────────────────────
 describe('synced-state middleware', () => {
-  it('submits a transaction with current eTag on local write under resources.*.value', async () => {
-    // Seed with a subscribed-style resource (has meta.eTag).
+  it('submits a transaction with current validFrom on local write under resources.*.value', async () => {
+    // Seed with a subscribed-style resource (has meta.validFrom).
     const { store, client } = setup({
       resources: {
         todo: {
           'task-1': {
             value: { title: 'original', status: 'todo' },
-            meta: { eTag: 'eTag-v1' },
+            meta: { validFrom: 'validFrom-v1' },
           },
         },
       },
@@ -158,16 +158,15 @@ describe('synced-state middleware', () => {
     expect(client.txns[0]).toMatchObject({
       rt: 'todo',
       rid: 'task-1',
-      eTag: 'eTag-v1',
+      ifValidFromMatches: 'validFrom-v1',
       value: { title: 'updated', status: 'todo' },
     });
-    expect(client.txns[0].newETag).toBeTruthy();
   });
 
-  it('does NOT submit when no meta.eTag exists (never-subscribed resource)', async () => {
+  it('does NOT submit when no meta.validFrom exists (never-subscribed resource)', async () => {
     const { store, client } = setup({});
     store.resources = { todo: { 'task-orphan': { value: { title: 'orphan' } } } };
-    // Now write under .value — no baseline eTag, so the synced-state middleware
+    // Now write under .value — no baseline validFrom, so the synced-state middleware
     // must drop it (and warn) rather than submit against a phantom baseline.
     store.resources.todo['task-orphan'].value.title = 'edited';
 
@@ -180,14 +179,14 @@ describe('synced-state middleware', () => {
   it('does NOT submit for remote/rollback/computed writes', async () => {
     const { store, client } = setup({
       resources: {
-        todo: { 'task-1': { value: { title: 'orig' }, meta: { eTag: 'eTag-v1' } } },
+        todo: { 'task-1': { value: { title: 'orig' }, meta: { validFrom: 'validFrom-v1' } } },
       },
     });
 
     // Simulate server fanout — should write through but NOT trigger a txn back.
     client.simulateFanout('todo', 'task-1', {
       value: { title: 'from-server' },
-      meta: { eTag: 'eTag-v2' },
+      meta: { validFrom: 'validFrom-v2' },
     });
 
     await new Promise<void>((r) => queueMicrotask(r));
@@ -195,25 +194,25 @@ describe('synced-state middleware', () => {
 
     expect(client.txns).toHaveLength(0);
     expect(store.resources.todo['task-1'].value.title).toBe('from-server');
-    expect(store.resources.todo['task-1'].meta.eTag).toBe('eTag-v2');
+    expect(store.resources.todo['task-1'].meta.validFrom).toBe('validFrom-v2');
   });
 
-  it('updates meta.eTag on committed outcome', async () => {
+  it('updates meta.validFrom on committed outcome', async () => {
     const { store, client } = setup({
-      resources: { todo: { 'task-1': { value: { title: 'orig' }, meta: { eTag: 'eTag-v1' } } } },
+      resources: { todo: { 'task-1': { value: { title: 'orig' }, meta: { validFrom: 'validFrom-v1' } } } },
     });
-    client.txnResponder = () => ({ result: 'committed', eTag: 'eTag-v2' });
+    client.txnResponder = () => ({ result: 'committed', validFrom: 'validFrom-v2' });
 
     store.resources.todo['task-1'].value.title = 'changed';
 
     await vi.waitFor(() => {
-      expect(store.resources.todo['task-1'].meta.eTag).toBe('eTag-v2');
+      expect(store.resources.todo['task-1'].meta.validFrom).toBe('validFrom-v2');
     });
   });
 
   it('rolls back optimistic write on validation-failed outcome', async () => {
     const { store, client } = setup({
-      resources: { todo: { 'task-1': { value: { title: 'orig' }, meta: { eTag: 'eTag-v1' } } } },
+      resources: { todo: { 'task-1': { value: { title: 'orig' }, meta: { validFrom: 'validFrom-v1' } } } },
     });
     client.txnResponder = () => ({ result: 'validation-failed', errors: { bad: true } });
 
@@ -226,20 +225,20 @@ describe('synced-state middleware', () => {
 
   it('writes server snapshot on conflict → default use-server outcome', async () => {
     const { store, client } = setup({
-      resources: { todo: { 'task-1': { value: { title: 'orig' }, meta: { eTag: 'eTag-v1' } } } },
+      resources: { todo: { 'task-1': { value: { title: 'orig' }, meta: { validFrom: 'validFrom-v1' } } } },
     });
     // Server returns a conflict fact; the engine's default handler resolves it
     // as `use-server`, adopting the server snapshot.
     client.txnResponder = () => ({
       result: 'conflict',
-      snapshot: { value: { title: 'server-wins' }, meta: { eTag: 'eTag-srv' } },
+      snapshot: { value: { title: 'server-wins' }, meta: { validFrom: 'validFrom-srv' } },
     });
 
     store.resources.todo['task-1'].value.title = 'local-attempt';
 
     await vi.waitFor(() => {
       expect(store.resources.todo['task-1'].value.title).toBe('server-wins');
-      expect(store.resources.todo['task-1'].meta.eTag).toBe('eTag-srv');
+      expect(store.resources.todo['task-1'].meta.validFrom).toBe('validFrom-srv');
     });
   });
 });
@@ -380,10 +379,10 @@ describe('server fanout', () => {
     const { store, client } = setup({});
     client.simulateFanout('todo', 'task-99', {
       value: { title: 'pushed-from-server', completed: false },
-      meta: { eTag: 'push-eTag' },
+      meta: { validFrom: 'push-validFrom' },
     });
     expect(store.resources.todo['task-99'].value).toEqual({ title: 'pushed-from-server', completed: false });
-    expect(store.resources.todo['task-99'].meta).toEqual({ eTag: 'push-eTag' });
+    expect(store.resources.todo['task-99'].meta).toEqual({ validFrom: 'push-validFrom' });
   });
 
   it('a descendant-bound effect re-fires after fanout writes through', () => {
@@ -395,11 +394,11 @@ describe('server fanout', () => {
 
     client.simulateFanout('todo', 'task-99', {
       value: { title: 'first-push' },
-      meta: { eTag: 'e1' },
+      meta: { validFrom: 'e1' },
     });
     client.simulateFanout('todo', 'task-99', {
       value: { title: 'second-push' },
-      meta: { eTag: 'e2' },
+      meta: { validFrom: 'e2' },
     });
 
     expect(seen).toEqual([undefined, 'first-push', 'second-push']);
@@ -407,17 +406,17 @@ describe('server fanout', () => {
 
   it('fanout with structurally-equal value does not re-fire effect (deep-equal dedup)', () => {
     const { store, client } = setup({});
-    client.simulateFanout('todo', 'task-1', { value: { title: 'x' }, meta: { eTag: 'e1' } });
+    client.simulateFanout('todo', 'task-1', { value: { title: 'x' }, meta: { validFrom: 'e1' } });
     let fires = 0;
     effect(() => { void store.resources?.todo?.['task-1']?.value?.title; fires++; });
     expect(fires).toBe(1);
 
     // Identical structural value — should be deduped
-    client.simulateFanout('todo', 'task-1', { value: { title: 'x' }, meta: { eTag: 'e1' } });
+    client.simulateFanout('todo', 'task-1', { value: { title: 'x' }, meta: { validFrom: 'e1' } });
     expect(fires).toBe(1);
 
     // Different — should fire
-    client.simulateFanout('todo', 'task-1', { value: { title: 'y' }, meta: { eTag: 'e2' } });
+    client.simulateFanout('todo', 'task-1', { value: { title: 'y' }, meta: { validFrom: 'e2' } });
     expect(fires).toBe(2);
   });
 });
@@ -433,5 +432,41 @@ describe('store entry access', () => {
     expect(store.resources.todo['task-9'].value).toEqual({ title: 'new' });
     expect(store.resources.todo['task-9'].deniedNodes).toEqual([]);
     await done;
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// A snapshot handed to the store stays as it was handed. The store writes a commit's `validFrom`
+// into its own `meta` in place, and the same snapshot is what a subscriber's `.snapshot` resolved
+// with, what a `use-server` resolution carries, and the newest version the engine keeps.
+// ──────────────────────────────────────────────────────────────────────────
+describe('the store keeps its own copy of a snapshot', () => {
+  it('a fanout the store applied keeps its validFrom when an older resend commits', async () => {
+    const { store, client } = setup({});
+    const heard = { value: { title: 'theirs' }, meta: { validFrom: 't2' } };
+    client.simulateFanout('todo', 'task-1', heard);
+    // A resend naming t0, told t1, the moment it first committed at.
+    client.txnResponder = () => ({ result: 'committed', validFrom: 't1' });
+    await client.transactionOps({ 'task-1': { rt: 'todo', op: 'put', typeName: 'todo', ifValidFromMatches: 't0', value: { title: 'mine' } } as any });
+    // Mutation: write the fanout's own `meta` into the store → the commit writes t1 into `heard`,
+    // the engine reads its newest version as t1, and the store stays at t1 holding 'mine'.
+    expect(heard.meta.validFrom).toBe('t2');
+    expect(store.resources.todo['task-1'].meta.validFrom).toBe('t2');
+    expect(store.resources.todo['task-1'].value.title).toBe('theirs');
+  });
+
+  it('a use-server snapshot keeps its validFrom when the next write commits', async () => {
+    const { store, client } = setup({
+      resources: { todo: { 'task-1': { value: { title: 'orig' }, meta: { validFrom: 'v1' } } } },
+    });
+    const server = { value: { title: 'server' }, meta: { validFrom: 'v2' } };
+    client.txnResponder = () => ({ result: 'conflict', snapshot: server });
+    store.resources.todo['task-1'].value.title = 'mine';
+    await vi.waitFor(() => expect(store.resources.todo['task-1'].meta.validFrom).toBe('v2'));
+    client.txnResponder = () => ({ result: 'committed', validFrom: 'v3' });
+    store.resources.todo['task-1'].value.title = 'next';
+    await vi.waitFor(() => expect(store.resources.todo['task-1'].meta.validFrom).toBe('v3'));
+    // Mutation: write the server snapshot's own `meta` into the store → the commit writes v3 into it.
+    expect(server.meta.validFrom).toBe('v2');
   });
 });

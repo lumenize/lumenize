@@ -50,7 +50,7 @@ async function createResource(
   });
   const result = await waitForSuccess(client) as TransactionResult;
   if (!result.ok) throw new Error('Expected create ok');
-  return result.eTags[resourceId];
+  return result.validFrom;
 }
 
 describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
@@ -65,7 +65,7 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     await waitForResult(a.client);
 
     const resourceId = crypto.randomUUID();
-    const eTag = await createResource(a.client, star, resourceId);
+    const version = await createResource(a.client, star, resourceId);
 
     const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
@@ -93,7 +93,7 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     // its targets is b (disconnected). b's host node fires back
     // ClientDisconnectedError → resourcesResults.onBroadcastResult deletes b's row.
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [resourceId]: { op: 'put', eTag, value: { title: 'Updated by a' } },
+      [resourceId]: { op: 'put', ifValidFromMatches: version, value: { title: 'Updated by a' } },
     });
     await waitForSuccess(a.client);
 
@@ -116,7 +116,7 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     await waitForResult(a.client);
 
     const resourceId = crypto.randomUUID();
-    const eTag = await createResource(a.client, star, resourceId);
+    const version = await createResource(a.client, star, resourceId);
 
     const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     await a.client.resources.subscribe('TestResource', resourceId).snapshot;
@@ -124,7 +124,7 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
 
     // b stays connected. a mutates. Star fans out to b successfully.
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [resourceId]: { op: 'put', eTag, value: { title: 'Updated' } },
+      [resourceId]: { op: 'put', ifValidFromMatches: version, value: { title: 'Updated' } },
     });
     await waitForSuccess(a.client);
 

@@ -2,23 +2,24 @@
  * Race-safe first-run container create (§5.3.7-v3 "First-run container create" +
  * §5.3.8) — real Star.
  *
- * The coding-your-ui § Lists bootstrap attaches a per-user `todoList` under a node
- * the user can write. When two tabs first-create it concurrently they use DIFFERENT
- * `newETag`s, so the idempotency replay short-circuit does NOT apply — the loser's
- * create hits "already exists" and comes back non-`committed`. The pinned app
- * pattern (NOT the heavier typed-`already-exists` taxonomy change) is
- * read-then-create with a `committed`-disambiguation re-read: a non-`committed`
- * top-level means "didn't land", so re-read — list present ⇒ a tab won the race,
- * proceed; still absent ⇒ real failure.
+ * The coding-your-ui § Lists bootstrap attaches a `todoList` under a node the user can write.
+ * When two tabs of ONE person first-create it concurrently with the same value, the second create
+ * is a repeat of the first: it is recognized from the snapshot the first wrote and told
+ * `committed` at the same moment. When two DIFFERENT people race the same id, the second is no
+ * repeat — its create hits "already exists" and comes back non-`committed`. The pinned app pattern
+ * is read-then-create with a `committed`-disambiguation re-read: a non-`committed` top-level means
+ * "didn't land", so re-read — list present ⇒ someone won the race, proceed; still absent ⇒ real
+ * failure.
  *
  * The clients authenticate as a NON-scope-admin member granted `write` on ROOT, so
  * create-under-ROOT is authorized by the DAG grant alone — a `claims.access.scopeAdmin`
  * user would pass even if the grant were absent or broken, through the dominion bypass.
  *
- * Capable-of-failing: the contended run asserts the loser came back NOT `committed`
- * (the disambiguation branch ran); the serialized control asserts the second tab
- * sees the list already present and never enters the create branch — so a harness
- * that never actually races still can't pass the loser-path assertion.
+ * Capable-of-failing: the one-person race asserts both tabs are told `committed` at one moment
+ * (deleting recognition makes the second fail "already exists"); the two-person race asserts the
+ * loser came back NOT `committed` (keying recognition on the value alone would commit both); the
+ * serialized control asserts the second tab sees the list already present and never enters the
+ * create branch — so a harness that never actually races still can't pass the race assertions.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
@@ -63,6 +64,22 @@ async function setupGrantedMember(star: string) {
   return { admin, sub };
 }
 
+/** A second granted member, a different person from `setupGrantedMember`'s. */
+async function grantSecondMember(star: string, admin: { client: NebulaClientTest; accessToken: string }) {
+  await createSubject(new Browser(), star, admin.accessToken, 'second@example.com');
+  const second = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'second@example.com');
+  admin.client.callStarSetPermission(star, ROOT_NODE_ID, second.payload.sub, 'write');
+  await awaitCall(admin.client);
+  return second;
+}
+
+const createList = (c: NebulaClientTest, listId: string) => c.resources.transaction({
+  [listId]: { op: 'create', typeName: 'TodoList', nodeId: ROOT_NODE_ID, value: { items: [] } },
+});
+const momentOf = (o: TransactionOutcome, rid: string) =>
+  o.kind === 'committed' && o.resources[rid]?.kind === 'committed'
+    ? (o.resources[rid] as { validFrom: string }).validFrom : undefined;
+
 /** The coding-your-ui § Lists pattern: read-then-create with committed-disambiguation. */
 async function ensureList(
   client: NebulaClientTest, listId: string,
@@ -76,7 +93,7 @@ async function ensureList(
 }
 
 describe('first-run container create — race-safe (real Star)', () => {
-  it('contended: two tabs race the first-create → one commits, the loser is NOT committed, both end present', async () => {
+  it('one person, two tabs racing the first-create: both are told committed at one moment', async () => {
     const star = uniqueStar();
     const { admin, sub } = await setupGrantedMember(star);
     // Two tabs for the SAME member (same sub, distinct tabId/instanceName).
@@ -88,12 +105,25 @@ describe('first-run container create — race-safe (real Star)', () => {
     expect(await tab1.client.resources.read('TodoList', listId)).toBeNull();
     expect(await tab2.client.resources.read('TodoList', listId)).toBeNull();
 
-    // Race the two creates (different newETags → no replay short-circuit).
-    const [o1, o2] = await Promise.all([
-      tab1.client.resources.transaction({ [listId]: { op: 'create', typeName: 'TodoList', nodeId: ROOT_NODE_ID, value: { items: [] } } }),
-      tab2.client.resources.transaction({ [listId]: { op: 'create', typeName: 'TodoList', nodeId: ROOT_NODE_ID, value: { items: [] } } }),
-    ]);
+    const [o1, o2] = await Promise.all([createList(tab1.client, listId), createList(tab2.client, listId)]);
+    expect([o1.kind, o2.kind]).toEqual(['committed', 'committed']);
+    expect(momentOf(o1, listId)).toBeDefined();
+    expect(momentOf(o2, listId)).toBe(momentOf(o1, listId));
+    expect(await tab1.client.resources.read('TodoList', listId)).not.toBeNull();
 
+    admin.client[Symbol.dispose]();
+    tab1.client[Symbol.dispose]();
+    tab2.client[Symbol.dispose]();
+  });
+
+  it('two people racing the first-create of one id: one commits, the loser is NOT committed, both end present', async () => {
+    const star = uniqueStar();
+    const { admin } = await setupGrantedMember(star);
+    const first = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
+    const second = await grantSecondMember(star, admin);
+    const listId = `shared-list-${crypto.randomUUID().slice(0, 8)}`;
+
+    const [o1, o2] = await Promise.all([createList(first.client, listId), createList(second.client, listId)]);
     // Exactly one committed; the other is the race loser and is NOT committed
     // (proving the disambiguation branch must run — not a spurious success).
     const committed = [o1, o2].filter((o) => o.kind === 'committed');
@@ -101,17 +131,15 @@ describe('first-run container create — race-safe (real Star)', () => {
     const loser = o1.kind === 'committed' ? o2 : o1;
     expect(loser.kind).not.toBe('committed');
 
-    // The loser re-reads to disambiguate: list now present ⇒ a tab won ⇒ proceed.
-    const loserClient = o1.kind === 'committed' ? tab2 : tab1;
+    // The loser re-reads to disambiguate: list now present ⇒ someone won ⇒ proceed.
+    const loserClient = o1.kind === 'committed' ? second : first;
     expect(await loserClient.client.resources.read('TodoList', listId)).not.toBeNull();
-
-    // Both tabs end with the list present.
-    expect(await tab1.client.resources.read('TodoList', listId)).not.toBeNull();
-    expect(await tab2.client.resources.read('TodoList', listId)).not.toBeNull();
+    expect(await first.client.resources.read('TodoList', listId)).not.toBeNull();
+    expect(await second.client.resources.read('TodoList', listId)).not.toBeNull();
 
     admin.client[Symbol.dispose]();
-    tab1.client[Symbol.dispose]();
-    tab2.client[Symbol.dispose]();
+    first.client[Symbol.dispose]();
+    second.client[Symbol.dispose]();
   });
 
   it('serialized (non-contended): the second tab sees the list present and never enters the create branch', async () => {

@@ -283,7 +283,7 @@ export async function run(stack: DevStack): Promise<void> {
     const profileId = writer.client.claims.profileId;
     assert.ok(profileId, 'the session carries a profileId claim, so the Profile limb has a profile to write');
 
-    // ── one Chat; the writer subscribes so its `put` eTags derive, the honest tab as any tab does ──
+    // ── one Chat; the writer subscribes so its `put` versions derive, the honest tab as any tab does ──
     const chatId = crypto.randomUUID();
     forger.client.chatId = chatId;
     honest.client.chatId = chatId;
@@ -369,7 +369,7 @@ export async function run(stack: DevStack): Promise<void> {
     //    refusal are indistinguishable as booleans, and only the last one is the guard working.
     const pushed = await forging(forge, doHop(), () => forger.client.lmz.callAsync('GALAXY', `${SCOPE}/${honest.clientId}`,
       forger.client.ctn<NebulaClient>().handleResourceUpdate('Chat', chatId,
-        { value: { title: FORGED_TITLE }, meta: { typeName: 'Chat', eTag: 'forged' } } as any),
+        { value: { title: FORGED_TITLE }, meta: { typeName: 'Chat', validFrom: 'forged' } } as any),
       { timeoutMs: PUSH_TIMEOUT_MS }));
     record("tab guard: a forged DO hop does not get a push into a co-member's tab",
       pushed.rewrote > 0 && honest.client.forgedArrivals === 0

@@ -167,9 +167,9 @@ describe("round-trip in a 'use-this' resolver (the @longform shape)", () => {
   const server = { title: 'Doc (renamed)', body: 'the cat stood' };
   const conflictPending = {
     kind: 'conflict-pending' as const,
-    local: { value: local, eTag: 'etag-base' },
-    server: { value: server, meta: { eTag: 'etag-2' } },
-    base: { value: base, eTag: 'etag-base' },
+    local: { value: local, validFrom: 'etag-base' },
+    server: { value: server, meta: { validFrom: 'etag-2' } },
+    base: { value: base, validFrom: 'etag-base' },
   };
 
   it("returns { kind: 'use-this' } with the server value plus the merged @longform field", () => {

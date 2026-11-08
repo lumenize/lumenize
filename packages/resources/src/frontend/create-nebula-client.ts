@@ -556,9 +556,9 @@ export function createNebulaStore(
     if (!match) return undefined;
     const rt = match[1];
     const rid = match[2];
-    const eTag = (root as any)?.resources?.[rt]?.[rid]?.meta?.eTag as string | undefined;
-    if (!eTag) {
-      // No baseline eTag to submit against, so no transaction: the resource was never subscribed,
+    const validFrom = (root as any)?.resources?.[rt]?.[rid]?.meta?.validFrom as string | undefined;
+    if (!validFrom) {
+      // No version to submit against, so no transaction: the resource was never subscribed,
       // or this subscriber cannot read it (`deniedNodes`). The `v-if` guard pattern is supposed to
       // prevent this; an unguarded `v-model` would otherwise be invisibly broken in production, so
       // surface it to the developer.
@@ -566,7 +566,7 @@ export function createNebulaStore(
       if (deniedNodes?.length) {
         log.warn('synced-state write dropped: this subscriber cannot read the resource', { rt, rid, path, deniedNodes });
       } else {
-        log.warn('synced-state write dropped: no meta.eTag (resource not subscribed)', { rt, rid, path });
+        log.warn('synced-state write dropped: no meta.validFrom (resource not subscribed)', { rt, rid, path });
       }
       return undefined;
     }
@@ -596,30 +596,33 @@ export function createNebulaStore(
       const value = entry?.value;
       return {
         value: value !== null && typeof value === 'object' ? toRaw(value) : value,
-        eTag: entry?.meta?.eTag as string | undefined,
+        validFrom: entry?.meta?.validFrom as string | undefined,
       };
     },
+    // `meta` is copied in: `applyCommit` and `applyOptimistic` write `validFrom` into the store's
+    // `meta` in place, and the snapshot handed here is also the one a subscriber's `.snapshot`
+    // resolved with and the one the engine keeps as the newest version it heard.
     applyServer(rt, rid, snapshot: Snapshot) {
       withContext({ source: 'remote' }, () => {
         internalDeepWrite(['resources', rt, rid, 'value'], snapshot.value);
-        internalDeepWrite(['resources', rt, rid, 'meta'], snapshot.meta);
+        internalDeepWrite(['resources', rt, rid, 'meta'], { ...snapshot.meta });
       });
     },
     applyFanout(rt, rid, snapshot: Snapshot) {
       withContext({ source: 'remote' }, () => {
         internalDeepWrite(['resources', rt, rid, 'value'], snapshot.value);
-        internalDeepWrite(['resources', rt, rid, 'meta'], snapshot.meta);
+        internalDeepWrite(['resources', rt, rid, 'meta'], { ...snapshot.meta });
       });
     },
-    applyCommit(rt, rid, eTag) {
+    applyCommit(rt, rid, validFrom) {
       withContext({ source: 'remote' }, () => {
-        internalDeepWrite(['resources', rt, rid, 'meta', 'eTag'], eTag);
+        internalDeepWrite(['resources', rt, rid, 'meta', 'validFrom'], validFrom);
       });
     },
     applyDenied(rt, rid, deniedNodes) {
       // Written only when it changes, so a stream of readable pushes does not re-trigger every
       // watcher of `deniedNodes`. A loss drops `value` and `meta` — the entry keeps nothing the
-      // subscriber can no longer read, and with no `meta.eTag` the synced-state middleware
+      // subscriber can no longer read, and with no `meta.validFrom` the synced-state middleware
       // drops any write to it.
       const entry = (root as any)?.resources?.[rt]?.[rid];
       const current = entry?.deniedNodes as string[] | undefined;
@@ -644,15 +647,15 @@ export function createNebulaStore(
         internalDeepWrite(['resources', rt, rid, 'value'], value);
       });
     },
-    applyOptimistic(rt, rid, value, eTag) {
-      // Explicit transactionOps create/put paint (value + baseline eTag). This is the one paint that
+    applyOptimistic(rt, rid, value, validFrom) {
+      // Explicit transactionOps create/put paint (value + baseline version). This is the one paint that
       // can make an entry no subscription has answered for — every push records access first — so
       // it owes `ResourceStoreEntry` its `deniedNodes`: `[]`, since the painter holds the value,
       // and never over a subscription's own answer.
       const entry = (root as any)?.resources?.[rt]?.[rid];
       withContext({ source: 'remote' }, () => {
         internalDeepWrite(['resources', rt, rid, 'value'], value);
-        internalDeepWrite(['resources', rt, rid, 'meta', 'eTag'], eTag);
+        internalDeepWrite(['resources', rt, rid, 'meta', 'validFrom'], validFrom);
         if (entry?.deniedNodes === undefined) internalDeepWrite(['resources', rt, rid, 'deniedNodes'], []);
       });
     },

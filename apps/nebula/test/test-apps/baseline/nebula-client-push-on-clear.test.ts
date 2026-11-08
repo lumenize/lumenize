@@ -55,7 +55,7 @@ async function createResource(
   });
   const result = await waitForSuccess(client) as TransactionResult;
   if (!result.ok) throw new Error('Expected create ok');
-  return result.eTags[resourceId];
+  return result.validFrom;
 }
 
 describe('nebula-client push-on-clear ontology-stale (5.3.4b)', () => {

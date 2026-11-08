@@ -62,7 +62,7 @@ async function createResource(
   });
   const result = await waitForSuccess(client) as TransactionResult;
   if (!result.ok) throw new Error('Expected create ok');
-  return result.eTags[resourceId];
+  return result.validFrom;
 }
 
 // Wait until the count reaches at least `n`. Used to assert that fanout
@@ -80,7 +80,7 @@ describe('star-fanout', () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
     const resourceId = crypto.randomUUID();
-    const eTag = await createResource(a.client, star, resourceId, 'Initial');
+    const version = await createResource(a.client, star, resourceId, 'Initial');
 
     // b subscribes
     b.client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
@@ -89,7 +89,7 @@ describe('star-fanout', () => {
 
     // a mutates
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [resourceId]: { op: 'put', eTag, value: { title: 'Updated by A' } },
+      [resourceId]: { op: 'put', ifValidFromMatches: version, value: { title: 'Updated by A' } },
     });
     await waitForSuccess(a.client);
 
@@ -99,7 +99,7 @@ describe('star-fanout', () => {
     expect(b.client.lastResourceUpdate!.resourceId).toBe(resourceId);
     const snap = b.client.lastResourceUpdate!.snapshot as Snapshot;
     expect(snap.value.title).toBe('Updated by A');
-    expect(snap.meta.eTag).not.toBe(eTag); // new eTag from the update
+    expect(snap.meta.validFrom).not.toBe(version); // new version from the update
     expect(snap.meta.deleted).toBe(false);
 
     a.client[Symbol.dispose]();
@@ -110,7 +110,7 @@ describe('star-fanout', () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
     const resourceId = crypto.randomUUID();
-    const eTag = await createResource(a.client, star, resourceId, 'Initial');
+    const version = await createResource(a.client, star, resourceId, 'Initial');
 
     // Both a and b subscribe to the same resource
     a.client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
@@ -123,7 +123,7 @@ describe('star-fanout', () => {
     // a's resourceUpdateCount, so the assertion is: a.count stays 0
     // through the entire mutation cycle while b's count climbs to 2.
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [resourceId]: { op: 'put', eTag, value: { title: 'Self-mutation' } },
+      [resourceId]: { op: 'put', ifValidFromMatches: version, value: { title: 'Self-mutation' } },
     });
     await waitForSuccess(a.client); // a's transaction callAsync resolves
     await waitForUpdateCount(b.client, 2); // proves fanout completed
@@ -145,7 +145,7 @@ describe('star-fanout', () => {
     const c = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
     const resourceId = crypto.randomUUID();
-    const eTag = await createResource(a.client, star, resourceId, 'Initial');
+    const version = await createResource(a.client, star, resourceId, 'Initial');
 
     b.client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
     await waitForUpdateCount(b.client, 1);
@@ -153,7 +153,7 @@ describe('star-fanout', () => {
     await waitForUpdateCount(c.client, 1);
 
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [resourceId]: { op: 'put', eTag, value: { title: 'Broadcast' } },
+      [resourceId]: { op: 'put', ifValidFromMatches: version, value: { title: 'Broadcast' } },
     });
     await waitForSuccess(a.client);
 
@@ -183,7 +183,7 @@ describe('star-fanout', () => {
 
     // a mutates r2 (not r1)
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [r2]: { op: 'put', eTag: eTag2, value: { title: 'R2 updated' } },
+      [r2]: { op: 'put', ifValidFromMatches: eTag2, value: { title: 'R2 updated' } },
     });
     await waitForSuccess(a.client);
 
@@ -199,13 +199,13 @@ describe('star-fanout', () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
     const resourceId = crypto.randomUUID();
-    const eTag = await createResource(a.client, star, resourceId, 'About to be deleted');
+    const version = await createResource(a.client, star, resourceId, 'About to be deleted');
 
     b.client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
     await waitForUpdateCount(b.client, 1);
 
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [resourceId]: { op: 'delete', eTag },
+      [resourceId]: { op: 'delete', ifValidFromMatches: version },
     });
     await waitForSuccess(a.client);
 

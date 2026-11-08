@@ -75,7 +75,7 @@ describe('Profile store-wiring — store.lmz.profiles[id] on the dedicated chann
     expect(client.profileSubscribes.filter((s) => s.profileId === id)).toHaveLength(1);
 
     // A resource fanout lands ONLY at resources.Profile[id]; a profile fanout ONLY at lmz.profiles[id].
-    client.simulateFanout('Profile', id, { value: { title: 'dev-user resource' }, meta: { eTag: 'r1' } });
+    client.simulateFanout('Profile', id, { value: { title: 'dev-user resource' }, meta: { validFrom: 'r1' } });
     client.simulateProfileFanout(id, { value: { name: 'Global Person' }, meta: { eTag: 'p1' } });
     await vi.waitFor(() => {
       expect(document.getElementById('res')!.textContent).toBe('dev-user resource');

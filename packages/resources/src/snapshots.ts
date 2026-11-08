@@ -58,7 +58,6 @@ export interface SnapshotMeta {
   nodeId: string;
   typeName: string;
   ontologyVersion: string;
-  eTag: string;
   validFrom: string;
   validTo: string;
   actingToken: WireActingToken;
@@ -70,19 +69,29 @@ export interface Snapshot {
   meta: SnapshotMeta;
 }
 
+/**
+ * One op of a transaction. A put, move or delete names the version it read as
+ * `ifValidFromMatches`, the `validFrom` of the snapshot it saw, and applies only if that is still
+ * the resource's current one; a create asserts the resource does not exist.
+ */
 export type OperationDescriptor =
   | { op: 'create'; nodeId: string; typeName: string; value: any }
-  | { op: 'put';    eTag: string; value: any }
-  | { op: 'move';   eTag: string; nodeId: string }
-  | { op: 'delete'; eTag: string };
+  | { op: 'put';    ifValidFromMatches: string; value: any }
+  | { op: 'move';   ifValidFromMatches: string; nodeId: string }
+  | { op: 'delete'; ifValidFromMatches: string };
 
 export type TransactionError =
   | { type: 'conflict'; currentSnapshot: Snapshot }
   | { type: 'validation'; errors: ValidationError[] }
   | { type: 'permission'; requiredTier: PermissionTier; nodeId: string };
 
+/**
+ * A committed transaction answers its one moment, the `validFrom` of every snapshot it wrote; a
+ * repeat of one that committed answers the moment it committed at; an empty one answers the latest
+ * moment, or the current time in a Durable Object that has none.
+ */
 export type TransactionResult =
-  | { ok: true;  eTags: Record<string, string> }
+  | { ok: true;  validFrom: string }
   | { ok: false; errors: Record<string, TransactionError> };
 
 /**
@@ -94,9 +103,9 @@ export type TransactionResult =
  * Chat-agnostic: the option IS the actor pair, nothing here names an agent. ⚠️ Both fields
  * MUST be server-supplied (a reserved constant, or a verified claim) — nothing a wire caller
  * reaches may accept or forward a client-supplied `actor` (the trust fence: a client could
- * otherwise forge `act: { sub: NEBULA_SUB }` and dress its message as Nebula's). The door's
- * `transaction` takes three arguments and the plane's `doTransaction` takes no options, so only
- * the host-only `ensureResource` can supply one. ADR-016 blesses a server-composed actor inside a claims-shaped record.
+ * otherwise forge `act: { sub: NEBULA_SUB }` and dress its message as Nebula's). Neither the
+ * door's `transaction` nor the plane's `doTransaction` takes options, so only the host-only
+ * `ensureResource` can supply one. ADR-016 blesses a server-composed actor inside a claims-shaped record.
  */
 export interface TransactionOpts {
   /** Post-commit hook, invoked with the written snapshots (fanout + query reruns). */
@@ -130,17 +139,38 @@ function toWireActingToken(rec: ActingTokenRecord): WireActingToken {
 type ActChainLike = { sub: string; act?: ActChainLike };
 
 /**
- * The same-actor coalesce key — IDENTITY ONLY: the subject's `sub` plus the `act` chain's `sub`s, in
- * chain order. The stored record must NOT be the key: the coalesce window (1 h) spans several 15-min
- * tokens, so keying on anything a re-mint or a mid-session event can change would stop an editing
- * session coalescing and multiply rows on the highest-volume write path — `access` flips on a
- * mid-window promotion, and a `profileId` (the subject's or an actor's) re-points on a future
- * `sub`-unification. Identity is what "same actor" means.
+ * Who wrote a snapshot, for recognizing a repeat — IDENTITY ONLY: the subject's `sub` plus the `act`
+ * chain's `sub`s, in chain order. A repeat is the same write only when its writer is the same, and a
+ * resend can arrive under a re-minted token whose other claims differ: `access` flips on a
+ * promotion, and a `profileId` (the subject's or an actor's) re-points on a future
+ * `sub`-unification. So the stored record must NOT be the key. The chain stays in it: a write made
+ * under impersonation and resent from the member's own session is a different writer's.
  */
 function identityKey(t: { sub: string; act?: ActChainLike }): string {
   const subs: string[] = [t.sub];
   for (let a = t.act; a; a = a.act) subs.push(a.sub);
   return JSON.stringify(subs);
+}
+
+/** A snapshot row as recognition compares it: the value in stored form, the writer as its identity. */
+interface StoredRow {
+  validFrom: string;
+  nodeId: string;
+  typeName: string;
+  deleted: boolean;
+  value: string;
+  writer: string;
+}
+
+function storedRow(row: Record<string, SqlStorageValue>): StoredRow {
+  return {
+    validFrom: row.validFrom as string,
+    nodeId: row.nodeId as string,
+    typeName: row.typeName as string,
+    deleted: Boolean(row.deleted),
+    value: row.value as string,
+    writer: identityKey(JSON.parse(row.actingToken as string) as ActingTokenRecord),
+  };
 }
 
 // ─── Snapshots Class ───────────────────────────────────────────────
@@ -172,7 +202,6 @@ export class Snapshots {
         ontologyVersion TEXT NOT NULL,
         validFrom TEXT NOT NULL,
         validTo TEXT NOT NULL DEFAULT '${END_OF_TIME}',
-        eTag TEXT NOT NULL,
         actingToken TEXT NOT NULL,
         deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1)),
         value TEXT NOT NULL,
@@ -197,7 +226,7 @@ export class Snapshots {
    */
   #getCurrentSnapshot(resourceId: string): Snapshot | null {
     const rows = this.#ctx.storage.sql.exec(
-      `SELECT resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, eTag, actingToken, deleted, value
+      `SELECT resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, actingToken, deleted, value
        FROM Snapshots
        WHERE resourceId = ?
        ORDER BY validFrom DESC
@@ -214,7 +243,6 @@ export class Snapshots {
         nodeId: row.nodeId as string,
         typeName: row.typeName as string,
         ontologyVersion: row.ontologyVersion as string,
-        eTag: row.eTag as string,
         validFrom: row.validFrom as string,
         validTo: row.validTo as string,
         // The ONE wire choke point: every outbound Snapshot — read(), a conflict's currentSnapshot,
@@ -259,7 +287,6 @@ export class Snapshots {
     current: Snapshot | null,
     op: OperationDescriptor,
     validFrom: string,
-    eTag: string,
     actingToken: ActingTokenRecord,
     typeName: string,
     ontologyVersion: string,
@@ -306,10 +333,76 @@ export class Snapshots {
 
     // Insert new snapshot
     this.#ctx.storage.sql.exec(
-      `INSERT INTO Snapshots (resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, eTag, actingToken, deleted, value)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      resourceId, nodeId, typeName, ontologyVersion, validFrom, END_OF_TIME, eTag, actingTokenJson, deleted ? 1 : 0, value,
+      `INSERT INTO Snapshots (resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, actingToken, deleted, value)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      resourceId, nodeId, typeName, ontologyVersion, validFrom, END_OF_TIME, actingTokenJson, deleted ? 1 : 0, value,
     );
+  }
+
+  /**
+   * The snapshot that followed the one at `version`, with what that one held, or `null` when the
+   * resource never had `version` or it is still current. Two primary-key reads in one statement:
+   * the old row's `validTo` is its successor's `validFrom`.
+   */
+  #successorOf(resourceId: string, version: string): { before: StoredRow; after: StoredRow } | null {
+    const row = this.#ctx.storage.sql.exec(
+      `SELECT b.nodeId AS bNode, b.deleted AS bDeleted, b.value AS bValue,
+              a.validFrom, a.nodeId, a.typeName, a.deleted, a.value, a.actingToken
+       FROM Snapshots b JOIN Snapshots a ON a.resourceId = b.resourceId AND a.validFrom = b.validTo
+       WHERE b.resourceId = ? AND b.validFrom = ?`,
+      resourceId, version,
+    ).toArray()[0];
+    if (!row) return null;
+    return {
+      before: { validFrom: version, nodeId: row.bNode as string, typeName: row.typeName as string,
+        deleted: Boolean(row.bDeleted), value: row.bValue as string, writer: '' },
+      after: storedRow(row),
+    };
+  }
+
+  /** The resource's first snapshot, the one its create wrote, or `null` when it has none. */
+  #firstSnapshotOf(resourceId: string): StoredRow | null {
+    const row = this.#ctx.storage.sql.exec(
+      `SELECT validFrom, nodeId, typeName, deleted, value, actingToken
+       FROM Snapshots WHERE resourceId = ? ORDER BY validFrom ASC LIMIT 1`,
+      resourceId,
+    ).toArray()[0];
+    return row ? storedRow(row) : null;
+  }
+
+  /**
+   * The moment a repeat of a committed transaction committed at, or `null` when `entries` is not
+   * one. It is a repeat when, for every op, the snapshot that op would have written exists — the
+   * one that followed the version a put, move or delete names, or a create's first snapshot — and
+   * all of them share one moment, were written by `writer`, and hold what the op writes, compared
+   * in stored form after the validator filled any `@default`. Returns only a moment, and judges the
+   * writer by identity alone, never by the stored `access` or `aud`.
+   */
+  #recognize(entries: Array<[string, OperationDescriptor]>, writer: string): string | null {
+    let moment: string | undefined;
+    for (const [resourceId, op] of entries) {
+      let written: StoredRow | null;
+      let same: boolean;
+      if (op.op === 'create') {
+        written = this.#firstSnapshotOf(resourceId);
+        same = written !== null && written.nodeId === op.nodeId && written.typeName === op.typeName
+          && !written.deleted && written.value === stringify(op.value);
+      } else {
+        const pair = this.#successorOf(resourceId, op.ifValidFromMatches);
+        written = pair?.after ?? null;
+        const before = pair?.before;
+        same = written !== null && before !== undefined && (
+          op.op === 'put' ? written.nodeId === before.nodeId && written.deleted === before.deleted
+            && written.value === stringify(op.value)
+          : op.op === 'move' ? written.nodeId === op.nodeId && written.deleted === before.deleted
+            && written.value === before.value
+          : written.nodeId === before.nodeId && written.deleted && written.value === before.value);
+      }
+      if (!written || !same || written.writer !== writer) return null;
+      if (moment !== undefined && written.validFrom !== moment) return null;
+      moment = written.validFrom;
+    }
+    return moment ?? null;
   }
 
   // ─── Public API ───────────────────────────────────────────────────
@@ -398,88 +491,55 @@ export class Snapshots {
   async transaction(
     ops: Record<string, OperationDescriptor>,
     ontologyVersion: string,
-    newETag: string,
     facet: ParserValidator,
     opts: TransactionOpts = {},
   ): Promise<TransactionResult> {
     const { onMutations, actor, pinnedAtDoor, stillCurrent } = opts;
-    // Empty ops — no-op
     const entries = Object.entries(ops);
-    if (entries.length === 0) return { ok: true, eTags: {} };
+    // An empty transaction writes nothing and answers the latest moment.
+    if (entries.length === 0) {
+      return { ok: true, validFrom: this.#ctx.storage.kv.get<string>(LATEST_MOMENT_KEY) ?? new Date().toISOString() };
+    }
 
     // Validate resourceIds
     for (const [resourceId] of entries) {
       if (!resourceId) throw new Error('resourceId must not be empty');
     }
 
-    // Step 1: Read current snapshots outside transaction (for the Step 4.5 pre-checks)
+    // Step 1: Read current snapshots outside transaction (for the Step 4.5 pre-check)
     const currentSnapshots = new Map<string, Snapshot | null>();
     for (const [resourceId] of entries) {
       currentSnapshots.set(resourceId, this.#getCurrentSnapshot(resourceId));
     }
 
-    // Step 3: Use the caller-supplied per-transaction eTag (one for the whole
-    // batch). The client generates this so it can also serve as the
-    // idempotency key — if a retry lands and every resource is already at
-    // this eTag, Step 9 short-circuits to a `committed` result without
-    // writing again.
-    const eTag = newETag;
-
     // Step 4: Build the acting-token record from callContext (+ any server-composed actor)
     const actingToken = this.#buildActingToken(actor);
+    const writer = identityKey(actingToken);
 
-    // Step 4.5: Monotonic pre-checks (before the validator). Run against
-    // `currentSnapshots` (already read at Step 1 — no extra reads) so a doomed
-    // or already-applied transaction skips the ~1.4 ms validator facet call.
-    // They may ONLY act on a conclusion a concurrent commit can't reverse
-    // between the Step-1 read and the txn: a replay (commit is irreversible)
-    // and an eTag conflict (eTags are forward-only, so `current ≠ op.eTag`
-    // stays true). Op-existence and permissions are NOT monotonic (a
-    // concurrent create/grant could flip them), so they stay authoritative
-    // inside transactionSync. Everything here is re-decided authoritatively in
-    // the txn — optimization, not correctness. Only 4.5a may fast-fail
-    // (early-return), and it discloses nothing but eTags. 4.5b deliberately
-    // returns NOTHING to the caller: disclosing a snapshot must wait for the
-    // Step-8 permission gate (an early conflict return carrying
-    // `currentSnapshot` would hand any authenticated user a permission-free
-    // read via a wrong-eTag put). Idempotency MUST precede the conflict scan:
-    // a replay has `current.eTag === newETag` while `op.eTag` is the old
-    // baseline, which the conflict scan would otherwise mis-flag.
-
-    // Step 4.5a — Idempotency replay: any resource already at `newETag` means
-    // this exact transaction committed (newETag is a fresh per-attempt UUID
-    // written to the whole batch atomically at Step 10; `.some`, not `.every`,
-    // so a sibling since-mutated by a third party doesn't hide the replay).
-    if (entries.some(([resourceId]) => currentSnapshots.get(resourceId)?.meta.eTag === newETag)) {
-      const eTags: Record<string, string> = {};
-      for (const [resourceId] of entries) eTags[resourceId] = newETag;
-      return { ok: true, eTags };
-    }
-
-    // Step 4.5b — eTag-conflict validation skip (a hint, never a verdict): a
-    // present resource whose current eTag mismatches the op's baseline can't
-    // revert, so it WILL conflict at Step 9 — skip its validator work (on the
-    // use-this path the value gets superseded by the merge anyway). The
-    // conflict verdict — and the `currentSnapshot` disclosure — happens ONLY
-    // at Step 9, after the Step-8 permission gate. Skipping validation here is
-    // also what makes conflict win over an invalid value when both co-occur on
-    // one resource (its validation never runs). In a batch mixing a
-    // conflict-suspect with an invalid SIBLING, the sibling's validation
-    // failure still fails the batch first; the suspect's conflict surfaces on
-    // the retry. Absent `current` (not-found) is deferred to the authoritative
-    // Step 7; it isn't monotonic.
+    // Step 4.5: Monotonic pre-check (before the validator). It may ONLY act on a conclusion a
+    // concurrent commit can't reverse between the Step-1 read and the txn: a resource whose current
+    // `validFrom` is not the one the op names has moved on, and versions only move forward, so the
+    // op WILL conflict at Step 9 — unless it is a repeat of a write that committed, which recognition
+    // answers. So a suspect skips its validator work only when the snapshot that followed the version
+    // it names was written by someone else; that snapshot never changes once written, so the check
+    // stays monotonic, and a possible repeat still reaches the validator, whose filled value
+    // recognition compares. A hint, never a verdict: it returns NOTHING to the caller, because
+    // disclosing a snapshot must wait for the Step-8 permission gate. Skipping validation here is
+    // also what makes conflict win over an invalid value when both co-occur on one resource. Absent
+    // `current` (not-found) is deferred to the authoritative Step 7; it isn't monotonic.
     const conflictSuspects = new Set<string>();
     for (const [resourceId, op] of entries) {
       if (op.op === 'create') continue;
       const current = currentSnapshots.get(resourceId);
-      if (current && current.meta.eTag !== (op as { eTag?: string }).eTag) {
+      if (current && current.meta.validFrom !== op.ifValidFromMatches
+          && this.#successorOf(resourceId, op.ifValidFromMatches)?.after.writer !== writer) {
         conflictSuspects.add(resourceId);
       }
     }
 
     // Step 5: Parse + validate via facet (one batch call). `parse()` fills
     // `@default` values into a fresh object per item; on success we write
-    // `result.data` back so downstream Step 7+ sees the filled value.
+    // `result.data` back so downstream Step 6.5+ sees the filled value.
     // Skip ops where validation can't or shouldn't run — Step 7 catches them.
     const requests = new Map<string, ParseRequest>();
     for (const [resourceId, op] of entries) {
@@ -542,28 +602,24 @@ export class Snapshots {
     if (stillCurrent && !stillCurrent()) throw new WipedMidTransactionError();
 
     // Steps 6–10: Atomic transaction
-    let result: TransactionResult = { ok: true, eTags: {} };
+    let result: TransactionResult = { ok: false, errors: {} };
     const writtenSnapshots = new Map<string, Snapshot>();
 
     this.#ctx.storage.transactionSync(() => {
-      // Step 6: Re-read inside transaction (authoritative for eTag checking)
+      // Step 6: Re-read inside transaction (authoritative for the precondition)
       const authoritative = new Map<string, Snapshot | null>();
       for (const [resourceId] of entries) {
         authoritative.set(resourceId, this.#getCurrentSnapshot(resourceId));
       }
 
-      // Step 6.5: Authoritative idempotency replay check. The Step-4.5a
-      // pre-check catches most replays before the validator, but two retries
-      // with the same newETag can interleave at the validator's await — the
-      // first commits between this retry's Step-1 read and its Step-6 re-read,
-      // so only the authoritative re-read here sees `newETag` and stops Step 7
-      // from throwing "already exists" on a legitimate retry. Must run before
-      // op-validation, permissions, and the eTag check (a landed write must not
-      // be retroactively denied/conflicted on replay).
-      if (entries.some(([resourceId]) => authoritative.get(resourceId)?.meta.eTag === newETag)) {
-        const eTags: Record<string, string> = {};
-        for (const [resourceId] of entries) eTags[resourceId] = newETag;
-        result = { ok: true, eTags };
+      // Step 6.5: A repeat of a transaction that committed is answered with the moment it committed
+      // at, from the snapshots it wrote, and writes nothing. Before op validation, the permission
+      // check and the conflict check, so a write that landed is never refused after the fact — a
+      // repeated create would otherwise fail "already exists", and a repeated put conflict with its
+      // own write.
+      const repeatOf = this.#recognize(entries, writer);
+      if (repeatOf !== null) {
+        result = { ok: true, validFrom: repeatOf };
         return;
       }
 
@@ -632,19 +688,18 @@ export class Snapshots {
         return;
       }
 
-      // Step 9: Check eTags — conflicts produce { ok: false }. This is the
+      // Step 9: Check each op's named version — conflicts produce { ok: false }. This is the
       // ONLY place a conflict is decided or a `currentSnapshot` disclosed —
-      // deliberately AFTER the Step-8 permission gate (the Step-4.5b scan only
+      // deliberately AFTER the Step-8 permission gate (the Step-4.5 scan only
       // skips doomed validator work; it returns nothing to the caller). Runs
       // against the in-txn snapshot, so it also catches conflicts that
       // appeared during the validator's await and returns the freshest
-      // currentSnapshot for the resolver. Idempotency replays already
-      // returned at Step 6.5, so no resource here is at `newETag`.
+      // currentSnapshot for the resolver.
       const errors: Record<string, TransactionError> = {};
       for (const [resourceId, op] of entries) {
         if (op.op === 'create') continue;
         const current = authoritative.get(resourceId)!;
-        if (current.meta.eTag !== (op as any).eTag) {
+        if (current.meta.validFrom !== op.ifValidFromMatches) {
           errors[resourceId] = { type: 'conflict', currentSnapshot: current };
         }
       }
@@ -658,14 +713,12 @@ export class Snapshots {
       // moments sort in commit order. Every op writes a snapshot, a move to the node a resource is
       // already on included.
       const validFrom = this.#nextMoment();
-      const eTags: Record<string, string> = {};
       for (const [resourceId, op] of entries) {
         const current = authoritative.get(resourceId) ?? null;
         const typeName = op.op === 'create'
           ? op.typeName
           : authoritative.get(resourceId)!.meta.typeName;
-        this.#writeSnapshot(resourceId, current, op, validFrom, eTag, actingToken, typeName, ontologyVersion);
-        eTags[resourceId] = eTag;
+        this.#writeSnapshot(resourceId, current, op, validFrom, actingToken, typeName, ontologyVersion);
 
         // Capture the post-write snapshot for fanout. Re-read inside the
         // transactionSync so the captured value matches what was actually
@@ -676,7 +729,7 @@ export class Snapshots {
       }
 
       this.#ctx.storage.kv.put(LATEST_MOMENT_KEY, validFrom);
-      result = { ok: true, eTags };
+      result = { ok: true, validFrom };
     });
 
     if (result.ok && writtenSnapshots.size > 0 && onMutations) {

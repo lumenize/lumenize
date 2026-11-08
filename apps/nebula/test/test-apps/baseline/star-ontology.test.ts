@@ -255,7 +255,7 @@ describe('validation integration', () => {
 
     // Put with invalid value
     client.callStarTransaction(star, 'v1', {
-      [resourceId]: { op: 'put', eTag: r1.eTags[resourceId], value: { title: 123, done: 'not-a-bool' } },
+      [resourceId]: { op: 'put', ifValidFromMatches: r1.validFrom, value: { title: 123, done: 'not-a-bool' } },
     });
     const r2 = await waitForSuccess(client) as TransactionResult;
     expect(r2.ok).toBe(false);
@@ -279,7 +279,7 @@ describe('validation integration', () => {
     if (!r1.ok) throw new Error('Expected ok');
 
     client.callStarTransaction(star, 'v1', {
-      [resourceId]: { op: 'delete', eTag: r1.eTags[resourceId] },
+      [resourceId]: { op: 'delete', ifValidFromMatches: r1.validFrom },
     });
     const r2 = await waitForSuccess(client) as TransactionResult;
     expect(r2.ok).toBe(true);

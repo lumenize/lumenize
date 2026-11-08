@@ -16,8 +16,8 @@
  *
  * Result-correlation mechanism: each iteration creates a unique resourceId
  * (`crypto.randomUUID()`); on success, the Star's response includes
- * `result.eTags` keyed by that resourceId. The client tracks
- * `Map<resourceId, {resolve, reject}>` and dispatches by inspecting eTag keys.
+ * `result.versions` keyed by that resourceId. The client tracks
+ * `Map<resourceId, {resolve, reject}>` and dispatches by inspecting version keys.
  * No Star-side changes needed.
  *
  * Output: raw per-iteration data → throughput-raw.json (gitignored);

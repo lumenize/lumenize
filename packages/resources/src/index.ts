@@ -19,9 +19,9 @@ export type { OntologyVersionConfig, OntologyVersionRow } from './ontology-versi
 // Snapshots — the temporal storage engine
 export { Snapshots, END_OF_TIME } from './snapshots';
 export type { SnapshotMeta, Snapshot, WireActingToken, TransactionResult, TransactionError } from './snapshots';
-// The server-internal wire op shape (eTag-required put/move/delete, no typeName on those — the
-// server reads it from the current snapshot). Distinct from the public client
-// `OperationDescriptor` (typeName on every op, eTag auto-derived). Exposed for harnesses and tests
+// The server-internal wire op shape (`ifValidFromMatches` required on put/move/delete, no typeName
+// on those — the server reads it from the current snapshot). Distinct from the public client
+// `OperationDescriptor` (typeName on every op, `ifValidFromMatches` auto-derived). Exposed for harnesses and tests
 // that drive a host's `resources.transaction` directly.
 export type { OperationDescriptor as WireOperationDescriptor } from './snapshots';
 

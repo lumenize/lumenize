@@ -172,7 +172,7 @@ export async function run(stack: DevStack): Promise<void> {
   };
 
   try {
-    // ── one Chat, and a seeder subscribed to it so its `put` eTags auto-derive ─────────────
+    // ── one Chat, and a seeder subscribed to it so its `put` versions auto-derive ─────────────
     const seeder = await step('seeder connects', 45_000, () => connect());
     const chatId = crypto.randomUUID();
     await step('create the chat', 30_000, () => seeder.client.resources.transaction({

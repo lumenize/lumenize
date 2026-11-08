@@ -70,7 +70,7 @@ describe('the impersonation mint — the DAG verdict', () => {
 
     // ── The verdict ──────────────────────────────────────────────────────────────────────────────
     const denied = await impersonating.lmz.callAsync('STAR', star,
-      impersonating.ctn<Star>().resources.transaction(VERSION, crypto.randomUUID(), {
+      impersonating.ctn<Star>().resources.transaction(VERSION, {
         [crypto.randomUUID()]: { op: 'create', typeName: 'Note', nodeId: priv, value: { label: 'nope' } },
       })) as TransactionResult;
     expect(denied.ok).toBe(false);
@@ -125,7 +125,7 @@ describe('the impersonation mint — the DAG verdict', () => {
 
     const rid = crypto.randomUUID();
     const commit = (label: string) => impersonating.lmz.callAsync('STAR', star,
-      impersonating.ctn<Star>().resources.transaction(VERSION, crypto.randomUUID(),
+      impersonating.ctn<Star>().resources.transaction(VERSION,
         { [rid]: { op: 'create', typeName: 'Note', nodeId: node, value: { label } } }));
     const first = await commit('one') as TransactionResult;
     expect(first.ok).toBe(true);
@@ -158,13 +158,29 @@ describe('the impersonation mint — the DAG verdict', () => {
     expect('access' in wire.meta.actingToken).toBe(false);
     expect('aud' in wire.meta.actingToken).toBe(false);
 
+    // ── The chain is part of who wrote it ──
+    // A put made under impersonation, resent from the member's own session, is another writer's
+    // write: told it conflicts, never the impersonated write's moment. The same resend from the
+    // impersonating session is a repeat, which is what makes the writer the discriminator.
+    // Mutation: drop the `act` subs from `identityKey` → the member's resend is recognized → reds.
+    const put = { [rid]: { op: 'put' as const, ifValidFromMatches: first.ok ? first.validFrom : '', value: { label: 'two' } } };
+    const putOnce = await impersonating.lmz.callAsync('STAR', star,
+      impersonating.ctn<Star>().resources.transaction(VERSION, put)) as TransactionResult;
+    if (!putOnce.ok) throw new Error('the impersonated put failed');
+    const fromMember = await memberClient.lmz.callAsync('STAR', star,
+      memberClient.ctn<Star>().resources.transaction(VERSION, structuredClone(put))) as TransactionResult;
+    expect(fromMember.ok).toBe(false);
+    expect((fromMember as { ok: false; errors: Record<string, { type: string }> }).errors[rid].type).toBe('conflict');
+    const fromImpersonation = await impersonating.lmz.callAsync('STAR', star,
+      impersonating.ctn<Star>().resources.transaction(VERSION, structuredClone(put))) as TransactionResult;
+    expect(fromImpersonation).toEqual({ ok: true, validFrom: putOnce.validFrom });
+
     admin[Symbol.dispose](); memberClient[Symbol.dispose]();
   });
 
   // ── Same IDENTITY, different CLAIMS → the same writer ──────────────────────────────────────────
-  // ⚠️ Skipped while `identityKey` has no caller: every write now opens a snapshot, so the row count
-  // this asserted no longer depends on the key. It comes back as recognition's case for a repeat
-  // sent under a token whose `profileId` and `access` differ from the original's.
+  // A repeat sent under a token whose `profileId` and `access` differ from the original's is still
+  // the same writer's, so it is recognized.
   // ADR-009 rung 3, justified in place: the TWO deltas this fixture varies are unreachable through
   // real issuance — a person's `profileId` never changes, and `access.authScope` is pinned to the
   // membership. (A same-sub `access` delta is not impossible in general — `setIdentityAdmin` flips
@@ -173,7 +189,7 @@ describe('the impersonation mint — the DAG verdict', () => {
   // `authScope`.) So the dangerous shape is hand-minted: two tokens sharing one `sub` with different
   // `profileId` AND different `access.authScope`. Both carry dominion over the star, so DAG
   // permission is not the variable.
-  it.skip('a claims delta under the SAME identity still coalesces — profileId and access stay out of the key', async () => {
+  it('a repeat under the SAME identity with different claims is recognized — profileId and access stay out of the key', async () => {
     const universe = `mnt-${crypto.randomUUID().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const sub = crypto.randomUUID();
@@ -212,14 +228,17 @@ describe('the impersonation mint — the DAG verdict', () => {
     const created = a.lastResult as TransactionResult;
     expect(created.ok).toBe(true);
 
+    // B resends A's create. Mutation: include `profileId` OR `access` in the identity key (or key
+    // on the stringified record) → B is another writer, the create meets A's snapshot, and it
+    // throws "already exists" instead of answering A's moment → reds.
     b.callStarTransaction(star, VERSION, {
-      [rid]: { op: 'put', eTag: (created as { ok: true; eTags: Record<string, string> }).eTags[rid], value: { label: 'two' } },
+      [rid]: { op: 'create', typeName: 'Note', nodeId: ROOT_NODE_ID, value: { label: 'one' } },
     });
     await vi.waitFor(() => expect(b.callCompleted).toBe(true));
-    expect((b.lastResult as TransactionResult).ok).toBe(true);
+    expect(b.lastError).toBeUndefined();
+    expect(b.lastResult).toEqual(created);
 
-    // One row: the key is [sub] for both writes. Mutation: include `profileId` OR `access` in the
-    // identity key (or key on the stringified record) → the deltas split this into 2 rows → reds.
+    // One row: the repeat wrote nothing.
     const count = await (runInDurableObject as any)(
       (env as any).STAR.getByName(star),
       (inst: any) => [...inst.ctx.storage.sql.exec(

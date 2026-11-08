@@ -11,7 +11,7 @@
  * flash classes, `use-this` chains bounded by `maxRetries`, B4 base
  * threading, and the hold-pending-fanouts contract.
  *
- * It builds ON `createDebounceQueue` (submission timing, eTag chain,
+ * It builds ON `createDebounceQueue` (submission timing, version chain,
  * serial-per-resource occupancy, in-flight timeout, connection gating,
  * reconnect replay) — the engine is the queue's `onCommitted`/`onNonCommit`
  * consumer and drives conclusions through the `NonCommitApi`. Invariant 7
@@ -38,19 +38,19 @@ import type { ConflictResolverVerdict } from './text-merge';
 
 export interface Snapshot {
   value: unknown;
-  meta: { eTag: string; [k: string]: unknown };
+  meta: { validFrom: string; [k: string]: unknown };
 }
 
 /** Per-resource resolution (api-reference § TransactionResourceResolution). */
 export type TransactionResourceResolution =
   | {
       kind: 'conflict-pending';
-      local: { value: unknown; eTag: string };
+      local: { value: unknown; validFrom: string };
       server: Snapshot;
-      base: { value: unknown; eTag: string };
+      base: { value: unknown; validFrom: string };
       context: { bindings: Map<string, HTMLElement[]> }; // bindings deferred-post-5.3.7; empty Map in 5.3.7
     }
-  | { kind: 'committed'; eTag: string }
+  | { kind: 'committed'; validFrom: string }
   | { kind: 'use-server'; snapshot: Snapshot }
   | { kind: 'human-in-the-loop'; snapshot: Snapshot }
   | { kind: 'retries-exhausted'; snapshot: Snapshot; attempts: number }
@@ -79,7 +79,7 @@ export type ResourceHandler = (
 
 /** What the mock (and later the real client layer) returns per submitted resource. */
 export type ServerResourceResult =
-  | { result: 'committed'; eTag: string }
+  | { result: 'committed'; validFrom: string }
   | { result: 'conflict'; snapshot: Snapshot }
   | { result: 'validation-failed'; errors: unknown }
   | { result: 'permission-denied' };
@@ -92,21 +92,21 @@ export type ServerBatchResponse =
  * A single operation in an explicit `transactionOps` batch — mirrors the
  * server's `OperationDescriptor` (api-reference § resources.transaction). The
  * engine carries it opaquely onto the queue submission (`QueueSubmission.op`)
- * and hands it to `submitBatch`, which turns it into the wire op. `eTag` is the
+ * and hands it to `submitBatch`, which turns it into the wire op. `ifValidFromMatches` is the
  * stashed/explicit baseline; when omitted the engine auto-derives it from the
  * local store (a `create` uses no baseline — it asserts non-existence).
  */
 export type EngineOp =
   | { op: 'create'; typeName: string; nodeId: string; value: unknown }
-  | { op: 'put'; typeName: string; value: unknown; eTag?: string }
-  | { op: 'move'; typeName: string; nodeId: string; eTag?: string }
-  | { op: 'delete'; typeName: string; eTag?: string };
+  | { op: 'put'; typeName: string; value: unknown; ifValidFromMatches?: string }
+  | { op: 'move'; typeName: string; nodeId: string; ifValidFromMatches?: string }
+  | { op: 'delete'; typeName: string; ifValidFromMatches?: string };
 
 const FLASH_COMMIT = 'lumenize-commit-success';
 const FLASH_REVERT = 'lumenize-conflict-revert';
 const DEFAULT_MAX_RETRIES = 5;
 /** Baseline placeholder a `create` carries (it asserts non-existence; the wire
- *  op has no eTag, so `submitBatch` ignores this). Lets the queue's baseline
+ *  op names no version, so `submitBatch` ignores this). Lets the queue's baseline
  *  gate pass for a resource that isn't in the local store yet. */
 const CREATE_SENTINEL = '__lumenize_create__';
 
@@ -114,29 +114,28 @@ export interface ConflictOutcomeEngineConfig {
   /** The server (mock in tests). A throw becomes `infrastructure-error`. */
   submitBatch: (subs: QueueSubmission[]) => Promise<ServerBatchResponse>;
   /** Read the CURRENT (optimistic) resource state from the store. */
-  readResource: (rt: string, rid: string) => { value: unknown; eTag?: string };
+  readResource: (rt: string, rid: string) => { value: unknown; validFrom?: string };
   /** Store effects (the factory writes through 'remote'/'rollback' contexts in v3). */
   applyServer: (rt: string, rid: string, snapshot: Snapshot) => void;
-  applyCommit: (rt: string, rid: string, eTag: string) => void;
+  applyCommit: (rt: string, rid: string, validFrom: string) => void;
   rollbackTo: (rt: string, rid: string, value: unknown) => void;
   applyFanout: (rt: string, rid: string, snapshot: Snapshot) => void;
   /** Paint a `use-this` verdict value — it's a fresh optimistic write at the
    *  server baseline (the merged text must be visible while its re-submission
    *  is in flight, and stays painted when that re-submission commits). */
   applyResolvedValue: (rt: string, rid: string, value: unknown) => void;
-  /** Paint an explicit `transactionOps` op value + seed its baseline `eTag`
+  /** Paint an explicit `transactionOps` op value + seed its baseline version
    *  (the create/put path; move/delete don't paint). The store slot is created
    *  for a `create`. Rollback restores the pre-paint base captured by the
    *  engine. Optional: omit it if only the debounced `write`/`transaction`
    *  paths are used (the engine's own unit harness does not exercise it). */
-  applyOptimistic?: (rt: string, rid: string, value: unknown, eTag: string) => void;
+  applyOptimistic?: (rt: string, rid: string, value: unknown, validFrom: string) => void;
   /** Default flash class application (DOM classes in v4; captured in the harness). */
   flash: (rt: string, rid: string, cssClass: string) => void;
   quietMs?: number;
   maxWaitMs?: number;
   timeoutMs?: number;
   clone?: (v: unknown) => unknown;
-  newETag?: () => string;
 }
 
 interface TxContext {
@@ -163,6 +162,9 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
   const chainAttempts = new Map<string, number>();
   /** Hold-pending-fanouts (invariant 8): latest held snapshot per key while the resource has pending optimistic state. */
   const heldFanouts = new Map<string, Snapshot>();
+  /** The newest fanout snapshot per key, applied or held: what a commit answered with an older
+   *  moment — a repeat recognized at the moment it first committed — must not move the store back past. */
+  const newestFanouts = new Map<string, Snapshot>();
 
   const keyOf = (rt: string, rid: string) => `${rt}:${rid}`;
 
@@ -171,7 +173,6 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
     maxWaitMs: config.maxWaitMs,
     timeoutMs: config.timeoutMs,
     clone: config.clone,
-    newETag: config.newETag,
     readResource: config.readResource,
     submit: async (subs) => {
       const resp = await config.submitBatch(subs); // a throw → queue's infrastructure-error signal
@@ -180,12 +181,12 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
     },
     interpretCommit: (o) =>
       typeof o === 'object' && o !== null && (o as { result?: string }).result === 'committed'
-        ? (o as { eTag: string }).eTag
+        ? (o as { validFrom: string }).validFrom
         : null,
-    onCommitted: (s, eTag, context) => {
-      config.applyCommit(s.rt, s.rid, eTag);
+    onCommitted: (s, validFrom, context) => {
+      config.applyCommit(s.rt, s.rid, validFrom);
       config.flash(s.rt, s.rid, FLASH_COMMIT);
-      const resolution: TransactionResourceResolution = { kind: 'committed', eTag };
+      const resolution: TransactionResourceResolution = { kind: 'committed', validFrom };
       void deliverTerminal(context as TxContext | undefined, s, resolution).then(() => {
         conclude(context as TxContext | undefined, s, resolution, 'drop-held');
       });
@@ -289,9 +290,9 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
     heldFanouts.delete(key);
     const pending: TransactionResourceResolution = {
       kind: 'conflict-pending',
-      local: { value: s.value, eTag: s.eTag },
+      local: { value: s.value, validFrom: s.ifValidFromMatches },
       server: snapshot,
-      base: { value: s.base, eTag: s.eTag }, // B4: the value at the asserted baseline
+      base: { value: s.base, validFrom: s.ifValidFromMatches }, // B4: the value at the asserted baseline
       context: { bindings: new Map() },
     };
     const verdict = (await dispatchConflictVerdict(ctx, s, pending)) ?? { kind: 'use-server' as const };
@@ -308,7 +309,7 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
     if (verdict.kind === 'human-in-the-loop') {
       // Optimistic stays painted; no flash; app owns the follow-up. The
       // baseline still advances to the server snapshot so a later edit
-      // submits at the server's eTag with the server value as its base.
+      // submits at the server's version with the server value as its base.
       const resolution: TransactionResourceResolution = { kind: 'human-in-the-loop', snapshot };
       await deliverTerminal(ctx, s, resolution);
       api.accept(snapshot);
@@ -336,10 +337,10 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
     }
     chainAttempts.set(key, used + 1);
     // Paint the verdict value (a fresh optimistic write at the server
-    // baseline), then re-submit at the server's eTag; base re-anchors to the
-    // server snapshot (B4 site c). Fresh newETag, fresh timeout.
+    // baseline), then re-submit at the server's version; base re-anchors to the
+    // server snapshot (B4 site c). Fresh timeout.
     config.applyResolvedValue(s.rt, s.rid, verdict.value);
-    api.resubmit({ eTag: snapshot.meta.eTag, value: verdict.value, base: snapshot.value });
+    api.resubmit({ ifValidFromMatches: snapshot.meta.validFrom, value: verdict.value, base: snapshot.value });
   }
 
   /** conflict-pending verdict chain: per-call → per-type → framework default (first non-undefined wins). */
@@ -410,6 +411,16 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
   ): void {
     const key = keyOf(s.rt, s.rid);
     chainAttempts.delete(key);
+    // A commit answered with an older moment than a version this client already holds keeps the
+    // later version and its value, so the next write names it. Only on an idle key: a buffered
+    // edit was made over the older value, so it submits at the older version and conflicts.
+    const newest = newestFanouts.get(key);
+    if (resolution?.kind === 'committed' && newest && newest.meta.validFrom > resolution.validFrom
+        && queue.isIdle(s.rt, s.rid)) {
+      heldFanouts.delete(key);
+      config.applyFanout(s.rt, s.rid, newest);
+      queue.noteRemoteSnapshot(s.rt, s.rid);
+    }
     const heldSnapshot = heldFanouts.get(key);
     if (heldSnapshot) {
       if (held === 'drop-held') {
@@ -446,11 +457,11 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
       // baseline can't submit — fail fast instead of hanging the promise
       // (explicitBatch would silently drop the batch).
       for (const { rt, rid } of keys) {
-        if (config.readResource(rt, rid).eTag === undefined) {
+        if (config.readResource(rt, rid).validFrom === undefined) {
           resolve({
             kind: 'infrastructure-error',
             retryable: true,
-            error: new Error(`no baseline eTag for ${rt}:${rid} (never subscribed)`),
+            error: new Error(`no baseline version for ${rt}:${rid} (never subscribed)`),
           });
           return;
         }
@@ -474,7 +485,7 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
    * Unlike `transaction` (put-from-store, for already-subscribed resources),
    * each op carries its own value/baseline, so this path supports creates (no
    * store baseline — a `CREATE_SENTINEL` lets the queue's baseline gate pass)
-   * and stashed-eTag puts. It paints each create/put value optimistically
+   * and stashed-version puts. It paints each create/put value optimistically
    * (so the UI reflects it immediately), captures the pre-paint value as the
    * rollback/merge `base` (B4 first-divergence), records the op on the
    * submission for `submitBatch` to turn into the wire op, and stages all ops
@@ -489,39 +500,39 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
   ): Promise<TransactionOutcome> {
     return new Promise<TransactionOutcome>((resolve) => {
       const clone = config.clone ?? ((v: unknown) => v);
-      const items: Array<{ rt: string; rid: string; eTag: string; base: unknown; value?: unknown; op: EngineOp }> = [];
+      const items: Array<{ rt: string; rid: string; ifValidFromMatches: string; base: unknown; value?: unknown; op: EngineOp }> = [];
       for (const [rid, op] of Object.entries(ops)) {
         const rt = op.rt;
         const current = config.readResource(rt, rid);
-        const baselineETag =
+        const baselineValidFrom =
           op.op === 'create'
             ? CREATE_SENTINEL
-            : 'eTag' in op && op.eTag !== undefined
-              ? op.eTag
-              : current.eTag;
-        if (baselineETag === undefined) {
+            : 'ifValidFromMatches' in op && op.ifValidFromMatches !== undefined
+              ? op.ifValidFromMatches
+              : current.validFrom;
+        if (baselineValidFrom === undefined) {
           // Mirror the auto-derive throw: a put/move/delete with no stashed
-          // eTag and no local baseline can't submit — fail fast.
+          // version and no local baseline can't submit — fail fast.
           resolve({
             kind: 'infrastructure-error',
             retryable: true,
             error: new Error(
-              `can't auto-derive eTag for (${op.typeName}, ${rid}) — not in local store; pass eTag explicitly or subscribe first`,
+              `can't auto-derive ifValidFromMatches for (${op.typeName}, ${rid}) — not in local store; pass ifValidFromMatches explicitly or subscribe first`,
             ),
           });
           return;
         }
         // B4 first-divergence: the value the store held BEFORE this op paints.
         const base = current.value === undefined ? undefined : clone(current.value);
-        const item: { rt: string; rid: string; eTag: string; base: unknown; value?: unknown; op: EngineOp } = {
+        const item: { rt: string; rid: string; ifValidFromMatches: string; base: unknown; value?: unknown; op: EngineOp } = {
           rt,
           rid,
-          eTag: baselineETag,
+          ifValidFromMatches: baselineValidFrom,
           base,
           op,
         };
         if (op.op === 'create' || op.op === 'put') {
-          config.applyOptimistic?.(rt, rid, op.value, baselineETag);
+          config.applyOptimistic?.(rt, rid, op.value, baselineValidFrom);
           item.value = op.value;
         }
         items.push(item);
@@ -549,6 +560,9 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
 
   /** Fanout entry implementing hold-pending-fanouts (invariant 8). */
   function notifyFanout(rt: string, rid: string, snapshot: Snapshot): void {
+    const key = keyOf(rt, rid);
+    const newest = newestFanouts.get(key);
+    if (!newest || snapshot.meta.validFrom > newest.meta.validFrom) newestFanouts.set(key, snapshot);
     if (queue.isIdle(rt, rid)) {
       config.applyFanout(rt, rid, snapshot);
       queue.noteRemoteSnapshot(rt, rid);

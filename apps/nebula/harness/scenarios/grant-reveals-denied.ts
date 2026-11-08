@@ -88,7 +88,7 @@ export async function run(stack: DevStack): Promise<void> {
     const priv = await admin.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'priv', 'Priv');
     const item = crypto.randomUUID();
     const created = await whileInstalling(() => admin!.client.lmz.callAsync('STAR', star, admin!.client.ctn<Star>().resources.transaction(
-      version, crypto.randomUUID(),
+      version,
       { [item]: { op: 'create', typeName: 'Item', nodeId: priv, value: { title: 'behind the grant' } } },
     )) as Promise<{ ok: boolean }>);
     assert.equal(created.ok, true, `the admin's create of the Item failed: ${JSON.stringify(created)}`);

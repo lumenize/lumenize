@@ -65,7 +65,7 @@ async function waitForError(client: NebulaClientTest) {
   return client.lastError!;
 }
 
-// Helper: create a resource at the root node and return its eTag.
+// Helper: create a resource at the root node and return its version.
 async function createResource(
   client: NebulaClientTest,
   star: string,
@@ -78,7 +78,7 @@ async function createResource(
   });
   const result = await waitForSuccess(client) as TransactionResult;
   if (!result.ok) throw new Error('Expected create ok');
-  return result.eTags[resourceId];
+  return result.validFrom;
 }
 
 describe('star-subscribe', () => {
@@ -87,7 +87,7 @@ describe('star-subscribe', () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
     const resourceId = crypto.randomUUID();
-    const eTag = await createResource(client, star, resourceId, 'Hello');
+    const version = await createResource(client, star, resourceId, 'Hello');
 
     client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
     await waitForResult(client);
@@ -98,7 +98,7 @@ describe('star-subscribe', () => {
     expect(client.lastResourceUpdate!.resourceId).toBe(resourceId);
     const snap = client.lastResourceUpdate!.snapshot as Snapshot;
     expect(snap.value.title).toBe('Hello');
-    expect(snap.meta.eTag).toBe(eTag);
+    expect(snap.meta.validFrom).toBe(version);
     expect(snap.meta.typeName).toBe('TestResource');
     expect(snap.meta.deleted).toBe(false);
 

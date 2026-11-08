@@ -80,11 +80,11 @@ describe('Galaxy resources e2e (real NebulaClient, resourceHostBinding: GALAXY)'
     using sub = a.resources.createAndSubscribe('Message', messageId, ROOT_NODE_ID, { chat: 'chat-x', content: 'v1' });
     const created = await sub.snapshot;
     expect(created).not.toBeNull();
-    const eTag = created!.meta.eTag;
+    const version = created!.meta.validFrom;
 
     const baseline = a.resourceUpdateCount;
     const out = await b.resources.transaction({
-      [messageId]: { op: 'put', typeName: 'Message', eTag, value: { chat: 'chat-x', content: 'v2-from-b' } },
+      [messageId]: { op: 'put', typeName: 'Message', ifValidFromMatches: version, value: { chat: 'chat-x', content: 'v2-from-b' } },
     });
     expect(out.kind).toBe('committed');
 

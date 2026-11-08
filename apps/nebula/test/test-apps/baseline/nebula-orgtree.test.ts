@@ -46,7 +46,7 @@ async function createResource(client: NebulaClientTest, star: string, resourceId
   });
   const result = await waitForSuccess(client) as TransactionResult;
   if (!result.ok) throw new Error('Expected create ok');
-  return result.eTags[resourceId];
+  return result.validFrom;
 }
 
 type TreeState = { nodes: Map<string, { slug: string; label: string }>; edges: Set<string>; permissions: Map<string, unknown> };
@@ -129,7 +129,7 @@ describe('orgTree dedicated channel (P8 server)', () => {
 
     // A real resource whose resourceId collides with the tree's conceptual name.
     const rid = 'orgTree';
-    const eTag = await createResource(a.client, star, rid, 'a real resource');
+    const version = await createResource(a.client, star, rid, 'a real resource');
 
     // A subscribes BOTH the resource and the tree.
     a.client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', rid);
@@ -140,7 +140,7 @@ describe('orgTree dedicated channel (P8 server)', () => {
 
     // B mutates the RESOURCE (B originator → A gets the resource fanout).
     b.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [rid]: { op: 'put', eTag, value: { title: 'mutated' } },
+      [rid]: { op: 'put', ifValidFromMatches: version, value: { title: 'mutated' } },
     });
     await vi.waitFor(() => expect(a.client.resourceUpdateCount).toBe(1)); // POSITIVE: resource delivered
     expect(a.client.orgTreeUpdateCount).toBe(1); // NO LEAK: tree channel untouched by the resource mutation

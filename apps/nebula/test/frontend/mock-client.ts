@@ -30,12 +30,12 @@ import type { Snapshot as WireSnapshot } from '../../../../packages/resources/sr
 /** Per-resource server fact (what `Star.resources.transaction` resolves to per op). */
 export type MockServerResult = ServerResourceResult;
 
-let etagCounter = 0;
+let versionCounter = 0;
 
 export class MockClient implements StoreClient {
-  // Call log — `txns` records each submitted resource (eTag = baseline asserted,
-  // newETag = idempotency token, value = coalesced submitted value).
-  txns: Array<{ rt: string; rid: string; eTag: string; value: unknown; newETag: string }> = [];
+  // Call log — `txns` records each submitted resource (validFrom = baseline asserted,
+  // value = coalesced submitted value).
+  txns: Array<{ rt: string; rid: string; ifValidFromMatches: string; value: unknown }> = [];
   subscribes: Array<{ rt: string; rid: string }> = [];
   unsubscribes: Array<{ rt: string; rid: string }> = [];
   /** Dedicated global-Profile channel recorders (kept SEPARATE from `subscribes`, which are resources). */
@@ -45,9 +45,9 @@ export class MockClient implements StoreClient {
   querySubscribersSubscribes: Array<{ query: QueryDescriptor }> = [];
   querySubscribersUnsubscribes: Array<{ query: QueryDescriptor }> = [];
 
-  /** Programmable per-submission server response. Default: commit with a fresh eTag. */
+  /** Programmable per-submission server response. Default: commit with a fresh validFrom. */
   txnResponder: (sub: QueueSubmission) => MockServerResult =
-    () => ({ result: 'committed', eTag: `eTag-auto-${etagCounter++}` });
+    () => ({ result: 'committed', validFrom: `validFrom-auto-${versionCounter++}` });
 
   /** Programmable subscribe response (reject to exercise the auto-subscribe error path). */
   subscribeResponder: (rt: string, rid: string) => Promise<unknown> = async () => null;
@@ -78,10 +78,10 @@ export class MockClient implements StoreClient {
       // Snapshot the adapter expects (same cast NebulaClient uses).
       applyServer: (rt, rid, snap) => this.#adapter!.applyServer(rt, rid, snap as unknown as WireSnapshot),
       applyFanout: (rt, rid, snap) => this.#adapter!.applyFanout(rt, rid, snap as unknown as WireSnapshot),
-      applyCommit: (rt, rid, eTag) => this.#adapter!.applyCommit(rt, rid, eTag),
+      applyCommit: (rt, rid, validFrom) => this.#adapter!.applyCommit(rt, rid, validFrom),
       rollbackTo: (rt, rid, value) => this.#adapter!.rollbackTo(rt, rid, value),
       applyResolvedValue: (rt, rid, value) => this.#adapter!.applyResolvedValue(rt, rid, value),
-      applyOptimistic: (rt, rid, value, eTag) => this.#adapter!.applyOptimistic(rt, rid, value, eTag),
+      applyOptimistic: (rt, rid, value, validFrom) => this.#adapter!.applyOptimistic(rt, rid, value, validFrom),
       flash: (rt, rid, cls) => this.#adapter!.flash(rt, rid, cls),
     });
   }
@@ -203,7 +203,7 @@ export class MockClient implements StoreClient {
 
   #submit(subs: QueueSubmission[]): Promise<ServerBatchResponse> {
     for (const s of subs) {
-      this.txns.push({ rt: s.rt, rid: s.rid, eTag: s.eTag, value: s.value, newETag: s.newETag });
+      this.txns.push({ rt: s.rt, rid: s.rid, ifValidFromMatches: s.ifValidFromMatches, value: s.value });
     }
     return Promise.resolve({ resources: subs.map((s) => this.txnResponder(s)) });
   }

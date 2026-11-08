@@ -63,7 +63,7 @@ interface GalaxyMethods {
   setGalaxyConfig(key: string, value: unknown): void;
   /** The one bare `@mesh()` door onto the resource plane; each op behind it checks itself. */
   resources: {
-    transaction(ontologyVersion: string, newETag: string, ops: Record<string, unknown>): unknown;
+    transaction(ontologyVersion: string, ops: Record<string, unknown>): unknown;
     subscribeTree(): void;
     subscribeQuerySubscribers(ontologyVersion: string, query: unknown): void;
     orgTree: { createNode(nodeId: string, parentNodeId: string, slug: string, label: string): string };
@@ -172,11 +172,11 @@ export async function run(stack: DevStack): Promise<void> {
     const rid = crypto.randomUUID();
     const post = { [rid]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'up' } } };
     const admitted = await member.client.lmz.callAsync('GALAXY', galaxy,
-      member.client.ctn<GalaxyMethods>().resources.transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, crypto.randomUUID(), post));
+      member.client.ctn<GalaxyMethods>().resources.transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, post));
     assert.deepEqual(admitted, { ok: false, errors: { [rid]: { type: 'permission', requiredTier: 'write', nodeId: CHAT_NODE_ID } } },
       'the door must ADMIT a Star member and let the plane tell it `permission` as a resolved result');
     const absent = await refusal(member.client.lmz.callAsync('GALAXY', galaxy,
-      (member.client.ctn() as any).transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, crypto.randomUUID(), post)));
+      (member.client.ctn() as any).transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, post)));
     assert.match(absent ?? '(succeeded)', /No member named 'transaction' exists on this node/,
       `the per-op entry must be ABSENT, not refused for passage. Got: ${absent}`);
 

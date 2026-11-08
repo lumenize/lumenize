@@ -37,15 +37,14 @@ import { makeLongformResolver } from '../../../../packages/resources/src/fronten
 type Responder = (subs: QueueSubmission[]) => Promise<ServerBatchResponse>;
 
 function makeHarness(opts: { quietMs?: number } = {}) {
-  const store = new Map<string, { value: unknown; eTag?: string }>();
+  const store = new Map<string, { value: unknown; validFrom?: string }>();
   const flashes: Array<{ key: string; cls: string }> = [];
   const submitted: QueueSubmission[] = [];
-  let etagCounter = 0;
-  let newETagCounter = 0;
+  let versionCounter = 0;
   const keyOf = (rt: string, rid: string) => `${rt}:${rid}`;
 
   let respond: Responder = async (subs) => ({
-    resources: subs.map(() => ({ result: 'committed' as const, eTag: `srv-${++etagCounter}` })),
+    resources: subs.map(() => ({ result: 'committed' as const, validFrom: `srv-${++versionCounter}` })),
   });
 
   const engine = createConflictOutcomeEngine({
@@ -53,11 +52,11 @@ function makeHarness(opts: { quietMs?: number } = {}) {
       submitted.push(...subs.map((s) => ({ ...s })));
       return respond(subs);
     },
-    readResource: (rt, rid) => store.get(keyOf(rt, rid)) ?? { value: undefined, eTag: undefined },
-    applyServer: (rt, rid, snap) => store.set(keyOf(rt, rid), { value: snap.value, eTag: snap.meta.eTag }),
-    applyFanout: (rt, rid, snap) => store.set(keyOf(rt, rid), { value: snap.value, eTag: snap.meta.eTag }),
-    applyCommit: (rt, rid, eTag) => {
-      store.get(keyOf(rt, rid))!.eTag = eTag;
+    readResource: (rt, rid) => store.get(keyOf(rt, rid)) ?? { value: undefined, validFrom: undefined },
+    applyServer: (rt, rid, snap) => store.set(keyOf(rt, rid), { value: snap.value, validFrom: snap.meta.validFrom }),
+    applyFanout: (rt, rid, snap) => store.set(keyOf(rt, rid), { value: snap.value, validFrom: snap.meta.validFrom }),
+    applyCommit: (rt, rid, validFrom) => {
+      store.get(keyOf(rt, rid))!.validFrom = validFrom;
     },
     rollbackTo: (rt, rid, value) => {
       store.get(keyOf(rt, rid))!.value = value;
@@ -65,15 +64,14 @@ function makeHarness(opts: { quietMs?: number } = {}) {
     applyResolvedValue: (rt, rid, value) => {
       store.get(keyOf(rt, rid))!.value = value;
     },
-    applyOptimistic: (rt, rid, value, eTag) => store.set(keyOf(rt, rid), { value, eTag }),
+    applyOptimistic: (rt, rid, value, validFrom) => store.set(keyOf(rt, rid), { value, validFrom }),
     flash: (rt, rid, cls) => flashes.push({ key: keyOf(rt, rid), cls }),
     quietMs: opts.quietMs ?? 0,
     timeoutMs: 10_000,
-    newETag: () => `ne-${++newETagCounter}`,
   });
 
-  function seed(rt: string, rid: string, value: unknown, eTag = 'eTag-v1') {
-    store.set(keyOf(rt, rid), { value, eTag });
+  function seed(rt: string, rid: string, value: unknown, validFrom = 'validFrom-v1') {
+    store.set(keyOf(rt, rid), { value, validFrom });
   }
   /** A keystroke: optimistic store write, then notify the engine. */
   function type(rt: string, rid: string, value: unknown) {
@@ -100,9 +98,9 @@ function makeHarness(opts: { quietMs?: number } = {}) {
   };
 }
 
-const conflict = (value: unknown, eTag: string): { result: 'conflict'; snapshot: Snapshot } => ({
+const conflict = (value: unknown, validFrom: string): { result: 'conflict'; snapshot: Snapshot } => ({
   result: 'conflict',
-  snapshot: { value, meta: { eTag } },
+  snapshot: { value, meta: { validFrom } },
 });
 
 /** Deferred batch responses, resolved/rejected manually per submission order. */
@@ -133,15 +131,15 @@ const flushMicrotasks = async () => {
 // ─── 1. Single resource — every terminal kind ───────────────────────────────
 
 describe('single resource terminal kinds', () => {
-  it("'committed': top-level committed + eTag writeback + commit flash", async () => {
+  it("'committed': top-level committed + validFrom writeback + commit flash", async () => {
     const h = makeHarness();
     h.seed('doc', 'r1', { body: 'a' });
     const outcome = await h.engine.transaction([{ rt: 'doc', rid: 'r1' }]);
     expect(outcome).toEqual({
       kind: 'committed',
-      resources: { r1: { kind: 'committed', eTag: 'srv-1' } },
+      resources: { r1: { kind: 'committed', validFrom: 'srv-1' } },
     });
-    expect(h.store.get('doc:r1')!.eTag).toBe('srv-1');
+    expect(h.store.get('doc:r1')!.validFrom).toBe('srv-1');
     expect(h.flashes).toContainEqual({ key: 'doc:r1', cls: 'lumenize-commit-success' });
   });
 
@@ -157,7 +155,7 @@ describe('single resource terminal kinds', () => {
     expect(h.flashes).toContainEqual({ key: 'doc:r1', cls: 'lumenize-conflict-revert' });
   });
 
-  it("'use-this' (1 retry → commit): re-submits the handler value at the server eTag → top-level committed", async () => {
+  it("'use-this' (1 retry → commit): re-submits the handler value at the server validFrom → top-level committed", async () => {
     const h = makeHarness();
     h.seed('doc', 'r1', { body: 'local' }, 'e1');
     h.engine.onTransactionResourceResolution('doc', (_rid, res) =>
@@ -168,13 +166,12 @@ describe('single resource terminal kinds', () => {
       call++;
       return call === 1
         ? { resources: [conflict({ body: 'server' }, 'e2')] }
-        : { resources: [{ result: 'committed', eTag: 'e3' }] };
+        : { resources: [{ result: 'committed', validFrom: 'e3' }] };
     });
     const outcome = await h.engine.transaction([{ rt: 'doc', rid: 'r1' }]);
-    expect(outcome).toMatchObject({ kind: 'committed', resources: { r1: { kind: 'committed', eTag: 'e3' } } });
+    expect(outcome).toMatchObject({ kind: 'committed', resources: { r1: { kind: 'committed', validFrom: 'e3' } } });
     expect(h.submitted).toHaveLength(2);
-    expect(h.submitted[1]!).toMatchObject({ eTag: 'e2', value: { body: 'merged' } });
-    expect(h.submitted[1]!.newETag).not.toBe(h.submitted[0]!.newETag);
+    expect(h.submitted[1]!).toMatchObject({ ifValidFromMatches: 'e2', value: { body: 'merged' } });
   });
 
   it("'validation-failed': rolled back to pre-write, revert flash, errors surfaced", async () => {
@@ -235,15 +232,15 @@ describe('single resource terminal kinds', () => {
     expect(outcome).toMatchObject({
       kind: 'rejected',
       retryable: false,
-      resources: { r1: { kind: 'human-in-the-loop', snapshot: { meta: { eTag: 'e2' } } } },
+      resources: { r1: { kind: 'human-in-the-loop', snapshot: { meta: { validFrom: 'e2' } } } },
     });
     expect(h.valueOf('doc', 'r1')).toEqual({ body: 'local-paint' }); // paint kept
     expect(h.flashes).toHaveLength(0);
-    // A later edit submits at the server's eTag (baseline advanced).
-    h.setResponder(async () => ({ resources: [{ result: 'committed', eTag: 'e3' }] }));
+    // A later edit submits at the server's validFrom (baseline advanced).
+    h.setResponder(async () => ({ resources: [{ result: 'committed', validFrom: 'e3' }] }));
     h.type('doc', 'r1', { body: 'follow-up' });
     await flushMicrotasks();
-    expect(h.submitted.at(-1)!).toMatchObject({ eTag: 'e2', value: { body: 'follow-up' } });
+    expect(h.submitted.at(-1)!).toMatchObject({ ifValidFromMatches: 'e2', value: { body: 'follow-up' } });
   });
 });
 
@@ -275,7 +272,7 @@ describe('handler fall-through (M9)', () => {
         // First submission per resource conflicts; any re-submission commits.
         return n === 1
           ? conflict({ v: `${s.rid}-server` }, `e${s.rid}2`)
-          : { result: 'committed' as const, eTag: `e${s.rid}3` };
+          : { result: 'committed' as const, validFrom: `e${s.rid}3` };
       }),
     }));
     const outcome = await h.engine.transaction(
@@ -297,8 +294,8 @@ describe('handler fall-through (M9)', () => {
     expect(resources.B).toMatchObject({ kind: 'committed' });
     expect(resources.C).toMatchObject({ kind: 'use-server' }); // framework default
     // A resubmitted with the per-call value; B with the per-type value (not shadowed).
-    expect(h.submitted.find((s) => s.rid === 'A' && s.eTag === 'eA2')!.value).toEqual({ v: 'a-percall' });
-    expect(h.submitted.find((s) => s.rid === 'B' && s.eTag === 'eB2')!.value).toEqual({ v: 'b-union' });
+    expect(h.submitted.find((s) => s.rid === 'A' && s.ifValidFromMatches === 'eA2')!.value).toEqual({ v: 'a-percall' });
+    expect(h.submitted.find((s) => s.rid === 'B' && s.ifValidFromMatches === 'eB2')!.value).toEqual({ v: 'b-union' });
     expect(h.valueOf('rtC', 'C')).toEqual({ v: 'C-server' });
   });
 });
@@ -334,7 +331,7 @@ describe('base threading (B4)', () => {
     h.type('doc', 'r1', { body: 'V1' });
     await flushMicrotasks(); // T1 in flight
     h.type('doc', 'r1', { body: 'V2' }); // buffered behind T1
-    d.pending[0]!.resolve({ resources: [{ result: 'committed', eTag: 'e2' }] });
+    d.pending[0]!.resolve({ resources: [{ result: 'committed', validFrom: 'e2' }] });
     await flushMicrotasks(); // T2 (buffered) submits, chained
     d.pending[1]!.resolve({ resources: [conflict({ body: 'THIRD-PARTY' }, 'e3')] }); // third party moved the server
     await flushMicrotasks();
@@ -355,7 +352,7 @@ describe('base threading (B4)', () => {
       call++;
       if (call === 1) return { resources: [conflict({ body: 'the cat sat quietly' }, 'e2')] };
       if (call === 2) return { resources: [conflict({ body: 'the cat sat quietly today' }, 'e3')] };
-      return { resources: [{ result: 'committed', eTag: 'e4' }] };
+      return { resources: [{ result: 'committed', validFrom: 'e4' }] };
     });
     h.type('doc', 'r1', { body: 'a cat sat' }); // local edits the start
     await flushMicrotasks();
@@ -429,7 +426,7 @@ describe('hold-pending-fanouts', () => {
 
     h.type('doc', 'r1', { body: 'a cat sat' }); // keystrokes painted
     // Concurrent commit fans out mid-edit:
-    h.engine.notifyFanout('doc', 'r1', { value: { body: 'the cat sat quietly' }, meta: { eTag: 'e2' } });
+    h.engine.notifyFanout('doc', 'r1', { value: { body: 'the cat sat quietly' }, meta: { validFrom: 'e2' } });
     expect(h.valueOf('doc', 'r1')).toEqual({ body: 'a cat sat' }); // held — paint NOT clobbered
 
     let call = 0;
@@ -437,18 +434,18 @@ describe('hold-pending-fanouts', () => {
       call++;
       return call === 1
         ? { resources: [conflict({ body: 'the cat sat quietly' }, 'e2')] }
-        : { resources: [{ result: 'committed', eTag: 'e3' }] };
+        : { resources: [{ result: 'committed', validFrom: 'e3' }] };
     });
     await vi.advanceTimersByTimeAsync(500); // quiet elapses → submit → conflict → merge → commit
     await flushMicrotasks();
     expect(h.valueOf('doc', 'r1')).toEqual({ body: 'a cat sat quietly' }); // both edits survive
-    expect(h.store.get('doc:r1')!.eTag).toBe('e3'); // held fanout consumed, not re-applied
+    expect(h.store.get('doc:r1')!.validFrom).toBe('e3'); // held fanout consumed, not re-applied
   });
 
   it('a fanout for an idle resource applies immediately', () => {
     const h = makeHarness();
     h.seed('doc', 'r1', { body: 'v0' }, 'e1');
-    h.engine.notifyFanout('doc', 'r1', { value: { body: 'v1' }, meta: { eTag: 'e2' } });
+    h.engine.notifyFanout('doc', 'r1', { value: { body: 'v1' }, meta: { validFrom: 'e2' } });
     expect(h.valueOf('doc', 'r1')).toEqual({ body: 'v1' });
   });
 });
@@ -462,7 +459,7 @@ describe('held-fanout disposition matrix (Mn7)', () => {
   // snapshot; APPLY-when-idle kinds must apply it once the key frees. A
   // regression that applies on use-server (double-paint) or drops on
   // permission-denied (loses real news the rollback hides) is caught here.
-  const HELD: Snapshot = { value: { body: 'HELD' }, meta: { eTag: 'e-held' } };
+  const HELD: Snapshot = { value: { body: 'HELD' }, meta: { validFrom: 'e-held' } };
 
   async function inFlightWithHeldFanout(h: ReturnType<typeof makeHarness>) {
     h.seed('doc', 'r1', { body: 'v0' }, 'e1');
@@ -487,10 +484,10 @@ describe('held-fanout disposition matrix (Mn7)', () => {
     const d = deferredResponder();
     h.setResponder(d.responder);
     await inFlightWithHeldFanout(h);
-    d.pending[0]!.resolve({ resources: [{ result: 'committed', eTag: 'e2' }] });
+    d.pending[0]!.resolve({ resources: [{ result: 'committed', validFrom: 'e2' }] });
     await flushMicrotasks();
     expect(h.valueOf('doc', 'r1')).toEqual({ body: 'LOCAL' }); // commit kept the local value, held dropped
-    expect(h.store.get('doc:r1')!.eTag).toBe('e2');
+    expect(h.store.get('doc:r1')!.validFrom).toBe('e2');
   });
 
   it("DROP: use-server", async () => {
@@ -667,9 +664,9 @@ describe('connection-gated rollback (invariant 10, Mn8)', () => {
       // fresh mesh call. The ORIGINAL submit's Promise settles this attempt when the RESULT re-resolves
       // on the new socket. Capable-of-failing: revert to re-submit-on-reconnect → this becomes length 2.
       expect(h.submitted).toHaveLength(1);
-      d.pending[0]!.resolve({ resources: [{ result: 'committed', eTag: 'e2' }] });
+      d.pending[0]!.resolve({ resources: [{ result: 'committed', validFrom: 'e2' }] });
       await flushMicrotasks();
-      expect(outcome).toMatchObject({ kind: 'committed', resources: { r1: { kind: 'committed', eTag: 'e2' } } });
+      expect(outcome).toMatchObject({ kind: 'committed', resources: { r1: { kind: 'committed', validFrom: 'e2' } } });
     });
   }
 });
@@ -680,7 +677,7 @@ describe('connection-gated rollback (invariant 10, Mn8)', () => {
 // (put-from-store), each op carries its own value/baseline + an opaque `op`
 // the wire layer turns into the real operation. These exercise: optimistic
 // paint, op carriage to submitBatch, create-without-a-store-baseline, the
-// stashed-eTag conflict path, rollback of an optimistic create, fail-fast on a
+// stashed-validFrom conflict path, rollback of an optimistic create, fail-fast on a
 // missing baseline, and the keyed-by-rid per-call handler (v3 delta). The mock
 // proves the engine's branching; §5.3.8 backs it through a real Star.
 describe('transactionOps — explicit ops (v3-port)', () => {
@@ -693,43 +690,43 @@ describe('transactionOps — explicit ops (v3-port)', () => {
     expect((outcome as { resources: Record<string, TransactionResourceResolution> }).resources.t1!.kind).toBe('committed');
     expect(h.valueOf('todo', 't1')).toEqual({ title: 'buy milk' }); // optimistic paint (gut applyOptimistic → undefined)
     expect(h.submitted[0]!.op).toMatchObject({ op: 'create', typeName: 'Todo', nodeId: '00000000-0000-4000-8000-000000000001' }); // op carriage (gut submitKeys op → undefined)
-    expect(h.store.get('todo:t1')!.eTag).toBe('srv-1'); // committed eTag written through
+    expect(h.store.get('todo:t1')!.validFrom).toBe('srv-1'); // committed validFrom written through
   });
 
-  it('put (auto-derived eTag): submits at the store baseline, carries op:put', async () => {
+  it('put (auto-derived validFrom): submits at the store baseline, carries op:put', async () => {
     const h = makeHarness();
     h.seed('todo', 't1', { title: 'old' }, 'e1');
     const outcome = await h.engine.transactionOps({
       t1: { rt: 'todo', op: 'put', typeName: 'Todo', value: { title: 'new' } },
     });
     expect(outcome.kind).toBe('committed');
-    expect(h.submitted[0]!.eTag).toBe('e1'); // baseline auto-derived from the store
+    expect(h.submitted[0]!.ifValidFromMatches).toBe('e1'); // baseline auto-derived from the store
     expect(h.submitted[0]!.op).toMatchObject({ op: 'put' });
     expect(h.valueOf('todo', 't1')).toEqual({ title: 'new' });
   });
 
-  it('put (stashed eTag) → conflict → default use-server adopts the server value', async () => {
+  it('put (stashed validFrom) → conflict → default use-server adopts the server value', async () => {
     const h = makeHarness();
     h.seed('todo', 't1', { title: 'mine' }, 'e1');
     h.setResponder(async () => ({ resources: [conflict({ title: 'theirs' }, 'srv-9')] }));
     const outcome = await h.engine.transactionOps({
-      t1: { rt: 'todo', op: 'put', typeName: 'Todo', value: { title: 'mine-edit' }, eTag: 'stale' },
+      t1: { rt: 'todo', op: 'put', typeName: 'Todo', value: { title: 'mine-edit' }, ifValidFromMatches: 'stale' },
     });
-    expect(h.submitted[0]!.eTag).toBe('stale'); // submitted at the stashed baseline, not the store's e1
+    expect(h.submitted[0]!.ifValidFromMatches).toBe('stale'); // submitted at the stashed baseline, not the store's e1
     expect(outcome.kind).toBe('committed'); // use-server is below the bucket → committed top-level
     expect((outcome as { resources: Record<string, TransactionResourceResolution> }).resources.t1!.kind).toBe('use-server');
     expect(h.valueOf('todo', 't1')).toEqual({ title: 'theirs' });
   });
 
-  it('delete: carries op:delete (no value) at the stashed eTag, commits', async () => {
+  it('delete: carries op:delete (no value) at the stashed validFrom, commits', async () => {
     const h = makeHarness();
     h.seed('todo', 't1', { title: 'x' }, 'e1');
     const outcome = await h.engine.transactionOps({
-      t1: { rt: 'todo', op: 'delete', typeName: 'Todo', eTag: 'e1' },
+      t1: { rt: 'todo', op: 'delete', typeName: 'Todo', ifValidFromMatches: 'e1' },
     });
     expect(outcome.kind).toBe('committed');
     expect(h.submitted[0]!.op).toMatchObject({ op: 'delete' });
-    expect(h.submitted[0]!.eTag).toBe('e1');
+    expect(h.submitted[0]!.ifValidFromMatches).toBe('e1');
   });
 
   it('create → permission-denied → rolls back the optimistic create (slot empties), rejected non-retryable', async () => {
@@ -743,7 +740,7 @@ describe('transactionOps — explicit ops (v3-port)', () => {
     expect(h.valueOf('todo', 't1')).toBeUndefined(); // rolled back to the pre-create base (undefined)
   });
 
-  it('put with no local baseline + no stashed eTag → infrastructure-error, nothing submitted', async () => {
+  it('put with no local baseline + no stashed validFrom → infrastructure-error, nothing submitted', async () => {
     const h = makeHarness();
     const outcome = await h.engine.transactionOps({
       t1: { rt: 'todo', op: 'put', typeName: 'Todo', value: { title: 'x' } },
@@ -758,7 +755,7 @@ describe('transactionOps — explicit ops (v3-port)', () => {
     h.setResponder(async () => ({ resources: [conflict({ title: 'srv' }, 'srv-1')] }));
     let calledWith: string | null = null;
     const outcome = await h.engine.transactionOps(
-      { t1: { rt: 'todo', op: 'put', typeName: 'Todo', value: { title: 'edit' }, eTag: 'e1' } },
+      { t1: { rt: 'todo', op: 'put', typeName: 'Todo', value: { title: 'edit' }, ifValidFromMatches: 'e1' } },
       {
         onTransactionResourceResolution: {
           t1: (rid, res) => {
@@ -787,14 +784,71 @@ describe('reconnect snapshot held (invariant 8 extension)', () => {
     expect(h.submitted).toHaveLength(0);
 
     // Reconnect: auto-resubscribe pushes the server's snapshot (unchanged here).
-    h.engine.notifyFanout('doc', 'r1', { value: { body: 'v0' }, meta: { eTag: 'e1' } });
+    h.engine.notifyFanout('doc', 'r1', { value: { body: 'v0' }, meta: { validFrom: 'e1' } });
     expect(h.valueOf('doc', 'r1')).toEqual({ body: 'v0 plus my edit' }); // held — NOT clobbered
 
     h.engine.setConnectionState('connected');
     await flushMicrotasks(); // held write flushes and commits (default responder)
     expect(h.submitted).toHaveLength(1);
-    expect(h.submitted[0]!).toMatchObject({ eTag: 'e1', value: { body: 'v0 plus my edit' } });
+    expect(h.submitted[0]!).toMatchObject({ ifValidFromMatches: 'e1', value: { body: 'v0 plus my edit' } });
     expect(h.valueOf('doc', 'r1')).toEqual({ body: 'v0 plus my edit' }); // keystrokes survived
-    expect(h.store.get('doc:r1')!.eTag).toBe('srv-1'); // committed; stale held snapshot dropped
+    expect(h.store.get('doc:r1')!.validFrom).toBe('srv-1'); // committed; stale held snapshot dropped
+  });
+});
+
+// ─── A commit answered with an older moment keeps the later version ─────────
+
+describe('the client never moves a version back', () => {
+  // A repeat is answered with the moment it first committed at, which can be older than a version
+  // a collaborator's later write already brought this client. Real moments here, since the engine
+  // compares them as ISO strings.
+  const t = (s: number) => `2026-01-01T00:00:0${s}.000Z`;
+
+  it('a later fanout held while a submission was in flight outlives the older moment that submission is answered with', async () => {
+    const h = makeHarness();
+    h.seed('doc', 'r1', { body: 'v0' }, t(0));
+    const d = deferredResponder();
+    h.setResponder(d.responder);
+    h.type('doc', 'r1', { body: 'mine' });
+    await flushMicrotasks(); // in flight, naming t(0)
+    expect(d.pending).toHaveLength(1);
+
+    // A collaborator's write at t(2) arrives while ours is in flight, so it is held.
+    h.engine.notifyFanout('doc', 'r1', { value: { body: 'theirs' }, meta: { validFrom: t(2) } });
+    // Ours is answered with t(1), the moment it first committed at.
+    d.pending[0]!.resolve({ resources: [{ result: 'committed', validFrom: t(1) }] });
+    await flushMicrotasks();
+
+    // The store keeps t(2) and its value, and the next write names t(2). Mutation: adopt every
+    // committed moment, dropping the held fanout → the store sits at t(1) with 'mine'.
+    expect(h.store.get('doc:r1')).toEqual({ value: { body: 'theirs' }, validFrom: t(2) });
+    h.setResponder(async (subs) => ({ resources: subs.map(() => ({ result: 'committed' as const, validFrom: t(3) })) }));
+    h.type('doc', 'r1', { body: 'next' });
+    await flushMicrotasks();
+    expect(h.submitted.at(-1)!.ifValidFromMatches).toBe(t(2));
+  });
+
+  it('an explicit resend naming an older version keeps the later fanout the store already applied', async () => {
+    const h = makeHarness();
+    h.seed('doc', 'r1', { body: 'mine' }, t(1));
+    // A collaborator's write at t(2) arrives while the key is idle, so the store applies it.
+    h.engine.notifyFanout('doc', 'r1', { value: { body: 'theirs' }, meta: { validFrom: t(2) } });
+    expect(h.store.get('doc:r1')).toEqual({ value: { body: 'theirs' }, validFrom: t(2) });
+    // The resend names t(0) and is told t(1), the moment it first committed at.
+    h.setResponder(async (subs) => ({ resources: subs.map(() => ({ result: 'committed' as const, validFrom: t(1) })) }));
+    const outcome = await h.engine.transactionOps({ r1: { rt: 'doc', op: 'put', typeName: 'doc', ifValidFromMatches: t(0), value: { body: 'mine' } } as never });
+    expect(outcome).toEqual({ kind: 'committed', resources: { r1: { kind: 'committed', validFrom: t(1) } } });
+    expect(h.store.get('doc:r1')).toEqual({ value: { body: 'theirs' }, validFrom: t(2) });
+  });
+
+  it('a newer committed moment than any fanout is adopted as usual', async () => {
+    const h = makeHarness();
+    h.seed('doc', 'r1', { body: 'v0' }, t(0));
+    h.engine.notifyFanout('doc', 'r1', { value: { body: 'v1' }, meta: { validFrom: t(1) } });
+    h.setResponder(async (subs) => ({ resources: subs.map(() => ({ result: 'committed' as const, validFrom: t(2) })) }));
+    h.type('doc', 'r1', { body: 'mine' });
+    await flushMicrotasks();
+    // Positive control for the case above: no fanout is newer, so the commit's moment and value stay.
+    expect(h.store.get('doc:r1')).toEqual({ value: { body: 'mine' }, validFrom: t(2) });
   });
 });

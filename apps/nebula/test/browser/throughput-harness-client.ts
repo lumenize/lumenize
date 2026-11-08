@@ -65,9 +65,8 @@ export class ThroughputHarnessClient extends NebulaClient {
     // Each transaction is its OWN awaitable `callAsync` (correlated by callId, bounded by `timeoutMs`).
     // Concurrent calls fan out as independent Promises — no manual resourceId correlation (D7).
     this.#inFlight++;
-    const newETag = crypto.randomUUID();
     return (this.lmz.callAsync('STAR', starName,
-      (this.ctn() as any).resources.transaction(ontologyVersion, newETag, {
+      (this.ctn() as any).resources.transaction(ontologyVersion, {
         [resourceId]: {
           op: 'create',
           typeName: 'TestResource',

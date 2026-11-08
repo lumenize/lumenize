@@ -47,7 +47,7 @@ async function install(c: NebulaClientTest, star: string, config: OntologyVersio
   await c.lmz.callAsync('STAR', star, c.ctn<StarTest>().applyOntologyForTest(config, holdParseMs), { timeoutMs: COMPILE_TIMEOUT_MS });
 }
 const tx = (c: NebulaClientTest, star: string, ops: Record<string, unknown>, version = 'v1') =>
-  c.lmz.callAsync('STAR', star, door(c).transaction(version, uuid(), ops), { timeoutMs: 30_000 }) as Promise<TransactionResult>;
+  c.lmz.callAsync('STAR', star, door(c).transaction(version, ops), { timeoutMs: 30_000 }) as Promise<TransactionResult>;
 const createTest = (rid: string) => ({ [rid]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: rid } } });
 const stub = (star: string) => (env as any).STAR.getByName(star);
 /** Each resource's current `validFrom`, read from storage. */
@@ -80,7 +80,7 @@ describe('one moment per transaction that writes', () => {
     expect((await tx(a, dev, createTest(r2))).ok).toBe(true);
     // A conflict: a put naming a version r1 never had. Then a refusal: a member with no grant
     // creating at the root. Neither may move the latest moment.
-    const conflict = await tx(a, dev, { [r1]: { op: 'put', eTag: 'never-a-version', value: { title: 'x' } } });
+    const conflict = await tx(a, dev, { [r1]: { op: 'put', ifValidFromMatches: 'never-a-version', value: { title: 'x' } } });
     expect(conflict.ok === false && Object.values(conflict.errors)[0].type).toBe('conflict');
     const refused = await tx(m, dev, createTest(uuid()));
     expect(refused.ok === false && Object.values(refused.errors)[0].type).toBe('permission');
@@ -115,7 +115,7 @@ describe('one moment per transaction that writes', () => {
       if (waited > 20_000) throw new Error('the held op never reached its validator');
       await new Promise((r) => setTimeout(r, 20));
     }
-    const deleted = await tx(a, dev, { [d]: { op: 'delete', eTag: created.eTags[d] } }, held);
+    const deleted = await tx(a, dev, { [d]: { op: 'delete', ifValidFromMatches: created.validFrom } }, held);
     expect(deleted.ok).toBe(true);
     expect((await waiting).ok).toBe(true);
 
@@ -136,11 +136,11 @@ describe('a read that history does not slow', () => {
       [child]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent, label: 'v0' } },
     });
     if (!made.ok) throw new Error('setup create failed');
-    let version = made.eTags[child];
+    let version = made.validFrom;
     for (let i = 1; i < 100; i++) {
-      const put = await tx(a, dev, { [child]: { op: 'put', eTag: version, value: { parent, label: `v${i}` } } });
+      const put = await tx(a, dev, { [child]: { op: 'put', ifValidFromMatches: version, value: { parent, label: `v${i}` } } });
       if (!put.ok) throw new Error(`put ${i} failed`);
-      version = put.eTags[child];
+      version = put.validFrom;
     }
     const rows = await (runInDurableObject as any)(stub(dev), (_i: unknown, c: DurableObjectState) => ({
       history: c.storage.sql.exec('SELECT COUNT(*) AS n FROM Snapshots WHERE resourceId = ?', child).toArray()[0].n as number,
