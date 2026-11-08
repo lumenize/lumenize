@@ -1,6 +1,6 @@
 # `validFrom` is a resource's only version
 
-**Status:** Pass 2 written after the second Stage 1; Stage 2 next. Nothing gates it, and the pre-alpha roadmap waits behind it (Larry, 2026-11-06). It changes the `Snapshots` schema, so in [nebula-pre-alpha.md](nebula-pre-alpha.md)'s vocabulary it is `data`-gated and lands before the wipe.
+**Status:** Built 2026-11-08, all five phases, and passed locally and deployed. Waiting on Larry's read of ADR-005 and the retro before the archive move. It changes the `Snapshots` schema, so in [nebula-pre-alpha.md](nebula-pre-alpha.md)'s vocabulary it is `data`-gated and lands before the wipe.
 
 ## Conventions
 
@@ -343,6 +343,32 @@ The panel passed Phases 1 and 3 and failed Phases 2 and 4 on one defect. Each ve
 - **Fixed: Phase 1's scenario limbs** assert each op's own `committed` verdict, as § *Phases* asks.
 - **Gate after the fixes:** `npm run type-check` passes. `packages/resources` runs 2 files and 19 tests. `apps/nebula` runs 126 files passed and 1 skipped, with 1116 tests passed and 2 skipped, three more than Phase 3's. The `chromium` project, `gen-platform --check`, `npm run test:doc` and the scenario's local run pass.
 - **Accepted:** a held fanout newer than a commit is still dropped while an edit is buffered or in flight, since that edit submits at the older version and conflicts; `newestKnown` keeps one entry per resource for the page's life; `currentTypeName`'s primary-key read has no `rowsRead` witness; and `subscribeProfile`'s paragraph teaches a Profile's `eTag` (D8).
+
+### Phase 5 (2026-11-08)
+
+- **For the human:** nothing needs a decision.
+- **Local:** `drive.ts all` passed 68 of 68 twice, before the panel's fixes and again on the fixed tree with `--rerun`, which reran everything because the code had changed. `redeploy-strands-no-client` is parked as always, and no scenario flaked.
+- **Before the deploy:** no branch on `HARNESS_TARGET_URL` reads a transaction's version. `scope-teardown` and `claim-lifecycle` read only the outcome's kind, `first-app-built` already reads `validFrom`, and `drive.ts` and `harness/lib` read no eTag.
+- **Deployed:** `deploy-test.sh` deployed 9b1fa1d to `test-nebula`, which `/_version` confirmed. Then the seven scenarios the build wrote or edited passed there, sharing one run's app: `each-transaction-gets-one-moment`, `gateway-stamps-the-chain`, `passage-not-dominion`, `reaper-victim-is-the-address`, `star-serves-current-ontology`, `certificate-wake` and `grant-reveals-denied`.
+- **Issues since the pass began:** two, both recurring. `scope-deleted` is every teardown's ordered abort. "teardown failed: Durable Object reset because its code was updated" has recurred since 2026-10-14, and fired once in this pass, a teardown meeting the new version as it rolled out. Neither is new.
+- **Studio's guidance:** `studio-guidance-loop`, `four-party-chat` and `first-app-built` passed in both local sweeps, so no findings line is owed to `nebula-pre-alpha.md`.
+
+## Phase Retro
+
+1. **What did we learn?**
+   - **The factory store kept the snapshot objects it was handed.** It wrote a commit's `validFrom` into a fanout's `meta`, and an edit into its `value`, in place. That changed the snapshot a subscriber's `.snapshot` resolved with and the copy the engine kept to restore. A live limb found the `meta` half; a verifier's ordering, run in node outside the tree, found the `value` half. Every unit test passed through both, because the unit harness's `Map` store builds a fresh object on each write.
+   - **A warm validator runs two calls into one Durable Object one after the other.** The first commits within its own turn, so a concurrency test needs a held validator to make the calls overlap.
+   - **SQLite can use a partial index with a bound parameter**, because it re-prepares a statement with the values bound, and an unbound `EXPLAIN` reports otherwise. Measured inside workerd, it is what D16 rests on.
+2. **What did we struggle with?** The Phase 2 rename across about seventy files. A regex doubled `ifValidFromMatches:` on some lines. An untyped `fire(binding, path, args)` carried the old three arguments past the type-checker until a test timed out. And a word-for-word swap of `newETag` for `moment` left four comments saying the client mints a moment, which only the verifier panel read.
+3. **Did any tests fail unexpectedly?**
+   - The `dev-studio` timeout: the untyped stale argument above.
+   - The concurrent `ensureResource` test came back with one "creating" line: the warm validator above.
+   - Scenario limb 8: the store aliasing above.
+4. **Impact on follow-on work?** Resource Events and the query-subscription catch-up, which this task gates, can now ask for everything changed after a moment. The backlog's client high-water-mark row is what remains of the monotonicity row. Fast-follow Item 4 now carries a write's `ifValidFromMatches` across a reload. The *Give a Profile's version a moment* row is the next step toward one version everywhere. ADR-005 is `Proposed` again, for Larry's own read.
+5. **Process changes?** Two proposed edits, both to `.claude/rules/workflow.md` § *Symbol renames — grep the BARE identifier to verify*:
+   - Add: *"When the replace touches comments, read every changed comment line. A word-for-word swap keeps the old sentence's claim and pins it on the new name: on 2026-11-08, `newETag` → `moment` left four comments saying the client mints a moment."*
+   - Add: *"When a method's signature changes, also grep its name as a string, `'transaction'`. An untyped path such as `fire(binding, ['resources', 'transaction'], args)` carries the old arguments past the type-checker."*
+   - And one to `testing.md` § *Tests must be capable of failing*: *"A store fake that builds a fresh object on every write cannot see aliasing. A test of what a store keeps by reference runs against the real store."*
 
 ## Non-goals
 
