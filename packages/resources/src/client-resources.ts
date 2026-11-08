@@ -642,8 +642,8 @@ export class ClientResources {
    * The engine's `submitBatch` hook: submit a batch as one atomic mesh transaction via `callAsync`
    * and resolve with the raw server facts. The submit-gate is RETIRED — `callAsync` correlates
    * each transaction by its own `callId`, so concurrent independent-resource batches run in parallel
-   * (the engine's per-resource queue still serializes same-resource writes; ADR-005 + `snapshots.ts`
-   * Step 4.5a/6.5 own no-double-commit). Ontology-stale arrives as a RETURNED `OntologyStaleError`,
+   * (the engine's per-resource queue still serializes same-resource writes, and each op's named
+   * version keeps a write from committing twice — ADR-005). Ontology-stale arrives as a RETURNED `OntologyStaleError`,
    * which `callAsync` rejects with as it does any Error outcome; it is caught here and becomes
    * `{ontologyStale}`, and any other Error stays the engine's infrastructure-error. Resilient across reconnect: a dropped RESULT re-resolves to the
    * new socket. A RESULT that never arrives ends in a timeout, and the engine rolls the write back

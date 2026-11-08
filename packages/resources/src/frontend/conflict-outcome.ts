@@ -162,9 +162,15 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
   const chainAttempts = new Map<string, number>();
   /** Hold-pending-fanouts (invariant 8): latest held snapshot per key while the resource has pending optimistic state. */
   const heldFanouts = new Map<string, Snapshot>();
-  /** The newest fanout snapshot per key, applied or held: what a commit answered with an older
-   *  moment — a repeat recognized at the moment it first committed — must not move the store back past. */
-  const newestFanouts = new Map<string, Snapshot>();
+  /** The newest version this client knows per key — heard in a fanout, taken from a conflict, or
+   *  committed itself — and how to put it back. A commit answered with an older moment, a repeat
+   *  recognized at the moment it first committed, must not move the store back past it. */
+  const newestKnown = new Map<string, { validFrom: string; restore: () => void }>();
+  const noteKnown = (key: string, validFrom: string, restore: () => void): void => {
+    const known = newestKnown.get(key);
+    if (!known || validFrom > known.validFrom) newestKnown.set(key, { validFrom, restore });
+  };
+  const cloneValue = config.clone ?? ((v: unknown) => (v === undefined ? undefined : structuredClone(v)));
 
   const keyOf = (rt: string, rid: string) => `${rt}:${rid}`;
 
@@ -185,6 +191,10 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
         : null,
     onCommitted: (s, validFrom, context) => {
       config.applyCommit(s.rt, s.rid, validFrom);
+      noteKnown(keyOf(s.rt, s.rid), validFrom, () => {
+        config.applyResolvedValue(s.rt, s.rid, cloneValue(s.value));
+        config.applyCommit(s.rt, s.rid, validFrom);
+      });
       config.flash(s.rt, s.rid, FLASH_COMMIT);
       const resolution: TransactionResourceResolution = { kind: 'committed', validFrom };
       void deliverTerminal(context as TxContext | undefined, s, resolution).then(() => {
@@ -299,6 +309,7 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
 
     if (verdict.kind === 'use-server') {
       config.applyServer(s.rt, s.rid, snapshot);
+      noteKnown(key, snapshot.meta.validFrom, () => config.applyServer(s.rt, s.rid, snapshot));
       config.flash(s.rt, s.rid, FLASH_REVERT);
       const resolution: TransactionResourceResolution = { kind: 'use-server', snapshot };
       await deliverTerminal(ctx, s, resolution);
@@ -414,11 +425,11 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
     // A commit answered with an older moment than a version this client already holds keeps the
     // later version and its value, so the next write names it. Only on an idle key: a buffered
     // edit was made over the older value, so it submits at the older version and conflicts.
-    const newest = newestFanouts.get(key);
-    if (resolution?.kind === 'committed' && newest && newest.meta.validFrom > resolution.validFrom
+    const known = newestKnown.get(key);
+    if (resolution?.kind === 'committed' && known && known.validFrom > resolution.validFrom
         && queue.isIdle(s.rt, s.rid)) {
       heldFanouts.delete(key);
-      config.applyFanout(s.rt, s.rid, newest);
+      known.restore();
       queue.noteRemoteSnapshot(s.rt, s.rid);
     }
     const heldSnapshot = heldFanouts.get(key);
@@ -561,8 +572,7 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
   /** Fanout entry implementing hold-pending-fanouts (invariant 8). */
   function notifyFanout(rt: string, rid: string, snapshot: Snapshot): void {
     const key = keyOf(rt, rid);
-    const newest = newestFanouts.get(key);
-    if (!newest || snapshot.meta.validFrom > newest.meta.validFrom) newestFanouts.set(key, snapshot);
+    noteKnown(key, snapshot.meta.validFrom, () => config.applyFanout(rt, rid, snapshot));
     if (queue.isIdle(rt, rid)) {
       config.applyFanout(rt, rid, snapshot);
       queue.noteRemoteSnapshot(rt, rid);

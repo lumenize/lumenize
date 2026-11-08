@@ -13,11 +13,9 @@
  *
  * **Instrumentation**: `HarnessNebulaClient.handleResourceUpdate` records
  * `performance.now()` per arriving Snapshot keyed by `meta.validFrom`. The
- * originator pre-generates `moment` via `crypto.randomUUID()` and passes
- * it to `client.resources.transaction(ops, { moment })`, so the version is
- * known before any subscriber receives the push. Initial-subscribe
- * snapshots use server-generated versions and don't collide with the
- * originator-controlled mutation versions.
+ * server mints each commit's moment, and the originator reads it off the
+ * outcome; a push that arrived first is still found, since arrivals are kept
+ * by version.
  *
  * **Output**:
  *   - `RESULTS-fanout-{label}.md` (overwritten per run; gitignored)

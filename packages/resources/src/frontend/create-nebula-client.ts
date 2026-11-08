@@ -599,19 +599,22 @@ export function createNebulaStore(
         validFrom: entry?.meta?.validFrom as string | undefined,
       };
     },
-    // `meta` is copied in: `applyCommit` and `applyOptimistic` write `validFrom` into the store's
-    // `meta` in place, and the snapshot handed here is also the one a subscriber's `.snapshot`
-    // resolved with and the one the engine keeps as the newest version it heard.
+    // The snapshot is copied in: `applyCommit` and `applyOptimistic` write `validFrom` into the
+    // store's `meta` in place, and an edit writes into its `value` in place. The snapshot handed here
+    // is also the one a subscriber's `.snapshot` resolved with and the one the engine keeps to put
+    // back, so neither may change under them.
     applyServer(rt, rid, snapshot: Snapshot) {
+      const copy = structuredClone(snapshot);
       withContext({ source: 'remote' }, () => {
-        internalDeepWrite(['resources', rt, rid, 'value'], snapshot.value);
-        internalDeepWrite(['resources', rt, rid, 'meta'], { ...snapshot.meta });
+        internalDeepWrite(['resources', rt, rid, 'value'], copy.value);
+        internalDeepWrite(['resources', rt, rid, 'meta'], copy.meta);
       });
     },
     applyFanout(rt, rid, snapshot: Snapshot) {
+      const copy = structuredClone(snapshot);
       withContext({ source: 'remote' }, () => {
-        internalDeepWrite(['resources', rt, rid, 'value'], snapshot.value);
-        internalDeepWrite(['resources', rt, rid, 'meta'], { ...snapshot.meta });
+        internalDeepWrite(['resources', rt, rid, 'value'], copy.value);
+        internalDeepWrite(['resources', rt, rid, 'meta'], copy.meta);
       });
     },
     applyCommit(rt, rid, validFrom) {

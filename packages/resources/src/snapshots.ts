@@ -614,9 +614,10 @@ export class Snapshots {
 
       // Step 6.5: A repeat of a transaction that committed is answered with the moment it committed
       // at, from the snapshots it wrote, and writes nothing. Before op validation, the permission
-      // check and the conflict check, so a write that landed is never refused after the fact — a
-      // repeated create would otherwise fail "already exists", and a repeated put conflict with its
-      // own write.
+      // check and the conflict check, so none of them refuses a write that landed — a repeated
+      // create would otherwise fail "already exists", and a repeated put conflict with its own
+      // write. Only the door's version rule comes first: a repeat pinned to an older ontology is
+      // answered stale.
       const repeatOf = this.#recognize(entries, writer);
       if (repeatOf !== null) {
         result = { ok: true, validFrom: repeatOf };

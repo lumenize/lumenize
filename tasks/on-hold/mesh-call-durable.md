@@ -29,7 +29,7 @@ A draft for a Client's durable outbox, `mesh-client-calls-survive-a-reload.md`, 
 ## Why best-effort already covers pre-alpha (the deferral rationale)
 
 - **Client flows** — a lost response re-resolves to the current socket by callId on reconnect (parent Flow C), or the client reconciles against a durable server Resource via its subscription (Child-3 pattern). The client never hangs.
-- **Idempotent re-issue** — ADR-005 forward-only eTags make a re-issued write safe, so "fire again on reconnect" is the client's recovery, not a server guarantee.
+- **Idempotent re-issue** — ADR-005's recognition of a repeat makes a re-issued write safe, so "fire again on reconnect" is the client's recovery, not a server guarantee.
 - **Every current awaited-`callRaw` site is best-effort-reconcilable** (DAG mutators, DevStudio sequences; chat already shipped on durable `Message` + subscription).
 
 `callDurable` earns its cost only when *neither* holds: the caller needs the handler to run **even if the callee never responds** (callee vanished), or an **external side effect** must be delivered at-least-once. Pre-alpha has no such flow; the outside-world work does.

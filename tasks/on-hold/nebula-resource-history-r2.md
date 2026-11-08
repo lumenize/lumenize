@@ -74,8 +74,8 @@ current row and opens a new one. The change is surgical:
      now needs the blob; see Open decision D2 on whether conflict returns the value or just
      metadata).
    - Match → proceed.
-3. Star updates its **metadata** first (the SQL `INSERT`/in-place update on `Snapshots`,
-   minus `value`).
+3. Star updates its **metadata** first (the SQL `UPDATE` closing the current row and `INSERT`
+   opening the new one on `Snapshots`, minus `value`).
 4. Star writes the blob to R2 at `<resourceId>/<validFrom>` (the outbox op):
    a new key for every write, never an overwrite.
 5. **The DO output gate holds the client response until the R2 PUT confirms**, so the client

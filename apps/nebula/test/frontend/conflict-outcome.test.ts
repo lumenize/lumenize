@@ -798,7 +798,7 @@ describe('reconnect snapshot held (invariant 8 extension)', () => {
 
 // ─── A commit answered with an older moment keeps the later version ─────────
 
-describe('the client never moves a version back', () => {
+describe('the client keeps the newest version it knows', () => {
   // A repeat is answered with the moment it first committed at, which can be older than a version
   // a collaborator's later write already brought this client. Real moments here, since the engine
   // compares them as ISO strings.
@@ -839,6 +839,41 @@ describe('the client never moves a version back', () => {
     const outcome = await h.engine.transactionOps({ r1: { rt: 'doc', op: 'put', typeName: 'doc', ifValidFromMatches: t(0), value: { body: 'mine' } } as never });
     expect(outcome).toEqual({ kind: 'committed', resources: { r1: { kind: 'committed', validFrom: t(1) } } });
     expect(h.store.get('doc:r1')).toEqual({ value: { body: 'theirs' }, validFrom: t(2) });
+  });
+
+  it("the client's own later commit outlives a resend answered with an older moment", async () => {
+    const h = makeHarness();
+    h.seed('doc', 'r1', { body: 'v0' }, t(0));
+    h.engine.notifyFanout('doc', 'r1', { value: { body: 'theirs' }, meta: { validFrom: t(2) } });
+    h.setResponder(async (subs) => ({ resources: subs.map(() => ({ result: 'committed' as const, validFrom: t(3) })) }));
+    h.type('doc', 'r1', { body: 'mine' });
+    await flushMicrotasks();
+    expect(h.store.get('doc:r1')).toEqual({ value: { body: 'mine' }, validFrom: t(3) });
+    // A resend naming t0, told t1. The client heard t2 but committed t3 itself, and keeps t3.
+    // Mutation: note only fanouts as known → the store falls back to t2 holding 'theirs'.
+    h.setResponder(async (subs) => ({ resources: subs.map(() => ({ result: 'committed' as const, validFrom: t(1) })) }));
+    await h.engine.transactionOps({ r1: { rt: 'doc', op: 'put', typeName: 'doc', ifValidFromMatches: t(0), value: { body: 'old' } } as never });
+    expect(h.store.get('doc:r1')).toEqual({ value: { body: 'mine' }, validFrom: t(3) });
+    h.setResponder(async (subs) => ({ resources: subs.map(() => ({ result: 'committed' as const, validFrom: t(4) })) }));
+    h.type('doc', 'r1', { body: 'next' });
+    await flushMicrotasks();
+    expect(h.submitted.at(-1)!.ifValidFromMatches).toBe(t(3));
+  });
+
+  it('a server snapshot taken from a conflict outlives a resend answered with an older moment', async () => {
+    const h = makeHarness();
+    h.seed('doc', 'r1', { body: 'v0' }, t(0));
+    h.engine.notifyFanout('doc', 'r1', { value: { body: 'theirs' }, meta: { validFrom: t(2) } });
+    // Our write conflicts with t(5), and the default verdict takes the server's snapshot.
+    h.setResponder(async (subs) => ({ resources: subs.map(() => ({ result: 'conflict' as const, snapshot: { value: { body: 'server' }, meta: { validFrom: t(5) } } })) }));
+    h.type('doc', 'r1', { body: 'mine' });
+    await flushMicrotasks();
+    expect(h.store.get('doc:r1')).toEqual({ value: { body: 'server' }, validFrom: t(5) });
+    // Mutation: leave the conflict's snapshot out of what the client knows → the store falls back
+    // to t(2) holding 'theirs'.
+    h.setResponder(async (subs) => ({ resources: subs.map(() => ({ result: 'committed' as const, validFrom: t(1) })) }));
+    await h.engine.transactionOps({ r1: { rt: 'doc', op: 'put', typeName: 'doc', ifValidFromMatches: t(0), value: { body: 'old' } } as never });
+    expect(h.store.get('doc:r1')).toEqual({ value: { body: 'server' }, validFrom: t(5) });
   });
 
   it('a newer committed moment than any fanout is adopted as usual', async () => {

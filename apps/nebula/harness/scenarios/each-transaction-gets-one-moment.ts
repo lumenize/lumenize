@@ -34,9 +34,11 @@ export async function run(stack: DevStack): Promise<void> {
     assert.ok(snap, `Chat ${id} should read back`);
     return snap;
   };
+  /** Every op told `committed`, not only the top level: a `use-server` verdict rolls up to a
+   *  top-level `committed` while writing nothing. */
   const commit = async (ops: Parameters<typeof client.resources.transaction>[0], what: string) => {
     const out = await client.resources.transaction(ops);
-    assert.equal(out.kind, 'committed', `${what} should commit, got kind=${out.kind}`);
+    for (const id of Object.keys(ops)) committedAt(out, id, what);
     return out;
   };
   /** What one resource was told: `committed` at a moment, or `use-server`, which rolls up to a
@@ -210,6 +212,25 @@ export async function run(stack: DevStack): Promise<void> {
         `the store must keep the later version (h1=${h1}, h2=${h2}, store at ${kept?.meta?.validFrom} holding ${kept?.value?.title})`);
       assert.equal(kept?.value?.title, 'h2', 'the store must keep the later value');
       committedAt(await putTitle(pageClient, h.id, undefined, 'h3'), h.id, 'the next put, naming no version');
+    });
+
+    // Limb 8b. The page's own later commit outlives a resend answered with an older moment.
+    // Mutation: note only fanouts as known → the store falls back to i1, and the next put names it
+    // and conflicts.
+    await limb('the client keeps its own later version', async () => {
+      const i = await create('i0');
+      using held = pageClient.resources.subscribe('Chat', i.id);
+      await held.snapshot;
+      const i1 = committedAt(await putTitle(pageClient, i.id, i.v0, 'i1'), i.id, 'put i1');
+      const i2 = committedAt(await putTitle(pageClient, i.id, undefined, 'i2'), i.id, 'put i2');
+      const entry = () => (pageStore.resources as Record<string, Record<string, { value?: { title?: string }; meta?: { validFrom?: string } }>>).Chat?.[i.id];
+      assert.equal(committedAt(await putTitle(pageClient, i.id, i.v0, 'i1'), i.id, 'the resent put'), i1,
+        'the resend must be told its own moment');
+      const kept = entry();
+      assert.equal(kept?.meta?.validFrom, i2,
+        `the store must keep the page's own later version (i1=${i1}, i2=${i2}, store at ${kept?.meta?.validFrom} holding ${kept?.value?.title})`);
+      assert.equal(kept?.value?.title, 'i2', 'the store must keep its own later value');
+      committedAt(await putTitle(pageClient, i.id, undefined, 'i3'), i.id, 'the next put, naming no version');
     });
 
     // Limb 9. Mutation: run recognition after the permission check → the resend is refused.

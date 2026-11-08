@@ -154,7 +154,7 @@ describe('debounce coalescing', () => {
 
 describe('the default windows', () => {
   // A queue built with no windows, so these ride the framework defaults. Mutation: restore 500 and
-  // 2000 → the lone write submits at 500 ms and the stream at 2000 and 4000.
+  // 2000 → the lone write submits at 500 ms and the stream at 2000, 4000 and 6000.
   it('a lone write submits 1 s after it', async () => {
     const h = makeHarness();
     h.seed('todo', 't1', { title: '' });
@@ -536,7 +536,7 @@ describe('per-type configuration', () => {
 });
 
 describe('conflict re-submission (use-this chain plumbing for the conflict-outcome engine)', () => {
-  it('api.resubmit sends a fresh moment at the server validFrom with the re-anchored base, and buffered writes chain after it', async () => {
+  it('api.resubmit names the server validFrom with the re-anchored base, and buffered writes chain after it', async () => {
     const h = makeHarness();
     const d = deferredResponder();
     h.setResponder(d.responder);

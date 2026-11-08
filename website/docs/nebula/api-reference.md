@@ -809,7 +809,7 @@ Effect on the optimistic store, per branch:
 | `'infrastructure-error'` | Roll back all optimistic writes. **Connection-gated.** `error` carries the underlying `Error` (network drop, mesh crash). | `retryable: true` — resubmit (idempotent) or surface to user. |
 | `'ontology-stale'` | Optimistic state untouched. When the host named a version other than this page's, the `onShouldRefreshUI` hook has fired (typically a reload). | Usually nothing; the reload handles it. When the host named none, the op simply did not run. |
 
-The `'timeout'` and `'infrastructure-error'` outcomes fire only for failures that occur **while the client is connected**. A plain disconnect does *not* produce them: the write path suspends while `store.lmz.connection.connected` is `false` — writes are held and re-submitted on reconnect (a repeat of one that landed is recognized) — so a transient blip never rolls anything back. That is what makes the "your changes are queued" disconnected banner honest. (Held writes live in memory only; a full page reload while offline drops anything unsent.)
+The `'timeout'` and `'infrastructure-error'` outcomes fire only for failures that occur **while the client is connected**. A plain disconnect does *not* produce them: the write path suspends while `store.lmz.connection.connected` is `false` — writes are held and sent on reconnect, and one already in flight is never sent again, since its answer reaches the new socket — so a transient blip never rolls anything back. That is what makes the "your changes are queued" disconnected banner honest. (Held writes live in memory only; a full page reload while offline drops anything unsent.)
 
 ## `TransactionResourceResolution` {#transactionresourceresolution}
 

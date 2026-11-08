@@ -49,4 +49,4 @@ This is transaction-time history — intervals record when the platform committe
 ### Negative
 - Write amplification: writes insert rather than update, so SQLite write-cost discipline is load-bearing (see `durable-objects.md` § SQL naming).
 - Hot storage grows without bound until the R2 offload ships. Every write opens a snapshot, so it grows with each debounced write, and at scale the offload is required, not optional.
-- Every "current" query must honor the sentinel discipline; forgetting the `validTo` filter silently reads history.
+- Every "current" read must find the current row on purpose. A query across resources filters on the `validTo` sentinel, and a read of one resource takes its latest `validFrom`. Forgetting either silently reads history.

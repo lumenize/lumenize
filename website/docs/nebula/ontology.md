@@ -112,7 +112,7 @@ interface Todo {
   title: string;                  // short string → inherits type default
 
   /** @longform */
-  description: string;            // long-form → slower debounce + text-merge + <textarea>
+  description: string;            // long-form → longer maximum wait + text-merge + <textarea>
 
   done: boolean;                  // boolean → @debounce(0) implied
 

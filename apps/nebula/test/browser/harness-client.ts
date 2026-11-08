@@ -45,7 +45,7 @@ export class HarnessNebulaClient extends NebulaClient {
    * Map<version, t_arrived ms> — populated by every `handleResourceUpdate` carrying
    * a non-error Snapshot. Used by the fanout bench (`tasks/fanout-scaling-benchmark.md`)
    * to capture per-subscriber push delivery time, correlated by the version the
-   * originator pre-generates via `client.resources.transaction({ moment })`.
+   * server minted for the commit, which the originator reads off its outcome.
    */
   #fanoutArrivalsByVersion = new Map<string, number>();
   /** Resolvers registered by `waitForFanoutArrival` for versions not yet seen. */
@@ -104,9 +104,8 @@ export class HarnessNebulaClient extends NebulaClient {
    * `handleResourceUpdate` fired for `version`. If already received, resolves
    * immediately; otherwise waits until the matching delivery arrives.
    *
-   * Test code typically pre-generates `version` via `crypto.randomUUID()` and
-   * passes it to `client.resources.transaction(ops, { moment: version })` so the
-   * version is known before any subscriber receives the push.
+   * The version is the moment the commit's outcome carries; a push that arrived
+   * before the outcome resolves at once from the kept arrivals.
    */
   waitForFanoutArrival(version: string, timeoutMs = 30_000): Promise<number> {
     const cached = this.#fanoutArrivalsByVersion.get(version);

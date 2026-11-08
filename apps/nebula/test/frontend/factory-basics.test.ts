@@ -455,6 +455,23 @@ describe('the store keeps its own copy of a snapshot', () => {
     expect(store.resources.todo['task-1'].value.title).toBe('theirs');
   });
 
+  it('an edit rolled back over a fanout leaves that fanout to be put back as it arrived', async () => {
+    const { store, client } = setup({});
+    const heard = { value: { title: 'theirs' }, meta: { validFrom: 't2' } };
+    client.simulateFanout('todo', 'task-1', heard);
+    client.txnResponder = () => ({ result: 'validation-failed', errors: { bad: true } });
+    store.resources.todo['task-1'].value.title = 'invalid edit';
+    await vi.waitFor(() => expect(store.resources.todo['task-1'].value.title).toBe('theirs'));
+    // A resend naming t0, told t1, puts back the newest version the client knows, t2. Mutation:
+    // write the fanout's own `value` into the store → the edit wrote into `heard`, and the store
+    // is put back holding 'invalid edit'.
+    client.txnResponder = () => ({ result: 'committed', validFrom: 't1' });
+    await client.transactionOps({ 'task-1': { rt: 'todo', op: 'put', typeName: 'todo', ifValidFromMatches: 't0', value: { title: 'mine' } } as any });
+    expect(heard.value.title).toBe('theirs');
+    expect(store.resources.todo['task-1'].value.title).toBe('theirs');
+    expect(store.resources.todo['task-1'].meta.validFrom).toBe('t2');
+  });
+
   it('a use-server snapshot keeps its validFrom when the next write commits', async () => {
     const { store, client } = setup({
       resources: { todo: { 'task-1': { value: { title: 'orig' }, meta: { validFrom: 'v1' } } } },

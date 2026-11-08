@@ -11,12 +11,9 @@
  *
  * Drives a REAL Star (the no-mock backing for the engine's unit suite).
  *
- * NOTE: the explicit-`moment` idempotency-replay probes from the 5.3.3b shape
- * are removed — `moment` is engine-internal in v3 (the queue generates it; a
- * reconnect re-sends the SAME one). That replay path is unit-tested by the
- * engine's connection-gated-rollback test (Mn8, "reconnect replays the SAME
- * moment → committed") and the server short-circuit by star-resources Step
- * 4.5a; the full real-Star idempotency matrix is rebuilt in §5.3.8 (P10).
+ * NOTE: no test here sends a repeat by hand. A reconnect never sends a write again (its
+ * `callAsync` re-resolves on the new socket), and the server's recognition of a repeat is covered
+ * by `recognition.test.ts` and the `each-transaction-gets-one-moment` scenario.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
@@ -260,7 +257,7 @@ describe('nebula-client.resources.transaction (v3)', () => {
     committedMoment(createOutcome, resourceId);
 
     // Unauthorized user probes with a deliberately WRONG version. A conflict
-    // decided before the permission gate (Step 4.5b early-return) would hand
+    // decided before the permission gate (Step 4.5 early-return) would hand
     // back the full currentSnapshot — a permission-free read. Correct behavior:
     // permission wins (Step 8 precedes Step 9) and the outcome carries no value.
     const { client: user } = await setupUserClient(star, accessToken);
@@ -292,7 +289,7 @@ describe('nebula-client.resources.transaction (v3)', () => {
     if (update.kind !== 'committed') throw new Error('Expected committed');
 
     // A stale version AND an invalid value. Someone else wrote what followed v1, so this cannot be
-    // a repeat: the Step-4.5b hint keeps it out of the validator, the conflict surfaces at Step 9,
+    // a repeat: the Step-4.5 hint keeps it out of the validator, the conflict surfaces at Step 9,
     // and the default resolver (use-server) decides. Mutation: validate every suspect → this reads
     // validation-failed.
     const outcome = await client.resources.transaction({
@@ -321,7 +318,7 @@ describe('nebula-client.resources.transaction (v3)', () => {
 
     // The same writer wrote what followed v1, so this might be a repeat of that write, whose value
     // recognition compares after the validator fills it: it reaches the validator, and the invalid
-    // value answers first. Mutation: let Step 4.5b skip every suspect → this resolves use-server.
+    // value answers first. Mutation: let Step 4.5 skip every suspect → this resolves use-server.
     const outcome = await client.resources.transaction({
       [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: v1, value: { title: 42 as unknown as string } },
     });
