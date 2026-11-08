@@ -316,6 +316,14 @@ Every phase that changes code ends on the same gate: `npm run type-check` passes
   - The frontend lane: aliasing `meta` in `applyFanout` or `applyServer` reds its factory test, and deleting the keep-later restore reds both engine tests.
 - **Close-out:** the backlog row on `ensureResource`'s untested guard is deleted, since `recognition.test.ts` covers it. The payoff file's same-identity test runs again. Phase 4 still owes the standing guidance.
 
+### Phase 3 (2026-11-08)
+
+- **For the human:** nothing needs a decision. `ontology.md`'s `@longform` row now says it brings "a longer maximum wait than the framework default". Its windows stay 1000 and 5000, and no code applies them yet, since the per-field emission is post-demo, as that page's status line says.
+- **Retro:** moving `debounce.test.ts`'s timers to the new windows cannot red when the defaults go back, because a 500 ms window closes inside a 1000 ms wait. Only the two new tests pin the windows themselves. A steady stream submits at 3000 and 6000 ms, since the write after a submission starts the next run.
+- **Mutation checks, each restored:** a quiet default of 500 reds only the lone-write test, and a maximum wait of 2000 reds only the stream test.
+- **Close-out:** nothing closes. The reload loss D13 accepts still waits on fast-follow's Item 4.
+- **Gate:** `npm run type-check` passes. `packages/resources` runs 2 files and 19 tests. `apps/nebula` runs 126 files passed and 1 skipped, with 1113 tests passed and 2 skipped, the two new ones included. The `chromium` project, `gen-platform --check` and `npm run test:doc` pass.
+
 ## Non-goals
 
 - **The catch-up read, the oldest moment it answers from, and a Resource Events implementation**: § *Beyond this task*, with no task file yet.

@@ -116,7 +116,7 @@ describe('debounce coalescing', () => {
       h.type('todo', 't1', { title: text });
       await vi.advanceTimersByTimeAsync(50);
     }
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(h.submitted).toHaveLength(1);
     expect(h.submitted[0]!.value).toEqual({ title: 'hello' });
     expect(h.submitted[0]!.ifValidFromMatches).toBe('validFrom-v1');
@@ -130,8 +130,8 @@ describe('debounce coalescing', () => {
       h.type('todo', 't1', { title: 'x'.repeat(t / 100 + 1) });
       await vi.advanceTimersByTimeAsync(100);
     }
-    await vi.advanceTimersByTimeAsync(2500); // drain trailing quiet window
-    const cap = Math.ceil(T / 2000) + 1;
+    await vi.advanceTimersByTimeAsync(3500); // drain trailing quiet window
+    const cap = Math.ceil(T / 3000) + 1;
     expect(h.submitted.length).toBeGreaterThanOrEqual(2); // maxWait actually fired mid-burst
     expect(h.submitted.length).toBeLessThanOrEqual(cap);
     // No keystroke lost: the last submission carries the final value.
@@ -152,13 +152,41 @@ describe('debounce coalescing', () => {
   });
 });
 
+describe('the default windows', () => {
+  // A queue built with no windows, so these ride the framework defaults. Mutation: restore 500 and
+  // 2000 → the lone write submits at 500 ms and the stream at 2000 and 4000.
+  it('a lone write submits 1 s after it', async () => {
+    const h = makeHarness();
+    h.seed('todo', 't1', { title: '' });
+    h.type('todo', 't1', { title: 'a' });
+    await vi.advanceTimersByTimeAsync(999);
+    expect(h.submitted).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.submitted).toHaveLength(1);
+  });
+
+  it('a steady stream of writes submits every 3 s', async () => {
+    const h = makeHarness();
+    h.seed('todo', 't1', { n: 0 });
+    // A write every 100 ms never lets the quiet window close, so only the maximum wait submits.
+    const submittedAt: number[] = [];
+    for (let t = 0; t < 6500; t += 100) {
+      const before = h.submitted.length;
+      h.type('todo', 't1', { n: t });
+      await vi.advanceTimersByTimeAsync(100);
+      if (h.submitted.length > before) submittedAt.push(t + 100);
+    }
+    expect(submittedAt).toEqual([3000, 6000]);
+  });
+});
+
 describe('validFrom chain + idempotency tokens', () => {
   it("each submission's validFrom equals the previous successful submission's resulting validFrom — no stale or duplicate validFroms", async () => {
     const h = makeHarness();
     h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
     for (let burst = 0; burst < 3; burst++) {
       h.type('todo', 't1', { n: burst + 1 });
-      await vi.advanceTimersByTimeAsync(600);
+      await vi.advanceTimersByTimeAsync(1100);
     }
     expect(h.submitted.map((s) => s.ifValidFromMatches)).toEqual(['validFrom-v1', 'srv-1', 'srv-2']);
     expect(new Set(h.submitted.map((s) => s.ifValidFromMatches)).size).toBe(3);
@@ -170,13 +198,13 @@ describe('validFrom chain + idempotency tokens', () => {
     h.setResponder(d.responder);
     h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // S1 in flight
+    await vi.advanceTimersByTimeAsync(1000); // S1 in flight
     expect(h.submitted).toHaveLength(1);
     h.type('todo', 't1', { n: 2 }); // buffered
     h.type('todo', 't1', { n: 3 }); // coalesces
     d.pending[0]!.resolve([{ resolution: 'committed', validFrom: 'srv-after-s1' }]);
     await flushMicrotasks();
-    await vi.advanceTimersByTimeAsync(2500); // buffered burst re-enters debounce, then submits
+    await vi.advanceTimersByTimeAsync(3500); // buffered burst re-enters debounce, then submits
     expect(h.submitted).toHaveLength(2);
     expect(h.submitted[1]!.ifValidFromMatches).toBe('srv-after-s1');
     expect(h.submitted[1]!.value).toEqual({ n: 3 }); // latest-value coalescing
@@ -191,12 +219,12 @@ describe('B4 — merge base re-anchors at the commit boundary', () => {
     h.seed('doc', 'd1', { body: 'V0' }, 'validFrom-v1');
 
     h.type('doc', 'd1', { body: 'V1' });
-    await vi.advanceTimersByTimeAsync(500); // T1 in flight with value V1, base V0
+    await vi.advanceTimersByTimeAsync(1000); // T1 in flight with value V1, base V0
     expect(h.submitted[0]!.base).toEqual({ body: 'V0' });
     h.type('doc', 'd1', { body: 'V2' }); // buffered behind T1
     d.pending[0]!.resolve([{ resolution: 'committed', validFrom: 'srv-t1' }]); // T1 commits
     await flushMicrotasks();
-    await vi.advanceTimersByTimeAsync(2500); // T2 (the buffered write) submits
+    await vi.advanceTimersByTimeAsync(3500); // T2 (the buffered write) submits
 
     expect(h.submitted).toHaveLength(2);
     // A third party moved the server: T2 conflicts.
@@ -221,7 +249,7 @@ describe('serial per resource + conflict invocation count', () => {
     h.setResponder(d.responder);
     h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // S1 in flight
+    await vi.advanceTimersByTimeAsync(1000); // S1 in flight
     for (let i = 2; i <= 6; i++) h.type('todo', 't1', { n: i }); // 5 buffered writes
     d.pending[0]!.resolve([
       {
@@ -240,9 +268,9 @@ describe('serial per resource + conflict invocation count', () => {
     h.seed('todo', 't1', { n: 0 });
     h.seed('todo', 't2', { n: 0 });
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // t1 in flight (deferred — stays occupied)
+    await vi.advanceTimersByTimeAsync(1000); // t1 in flight (deferred — stays occupied)
     h.type('todo', 't2', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // t2 proceeds despite t1 occupied
+    await vi.advanceTimersByTimeAsync(1000); // t2 proceeds despite t1 occupied
     expect(h.submitted.map((s) => s.rid)).toEqual(['t1', 't2']);
   });
 });
@@ -292,7 +320,7 @@ describe('flush triggers', () => {
     h.setResponder(d.responder);
     h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // S1 in flight (deferred)
+    await vi.advanceTimersByTimeAsync(1000); // S1 in flight (deferred)
     expect(h.submitted).toHaveLength(1);
     h.type('todo', 't1', { n: 2 }); // buffered behind the in-flight tx
 
@@ -337,7 +365,7 @@ describe('explicit multi-resource batch (m9)', () => {
     h.seed('todo', 't2', { n: 0 }, 'validFrom-t2');
 
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // t1 single in flight (deferred)
+    await vi.advanceTimersByTimeAsync(1000); // t1 single in flight (deferred)
     h.queue.explicitBatch([
       { rt: 'todo', rid: 't1' },
       { rt: 'todo', rid: 't2' },
@@ -358,7 +386,7 @@ describe('explicit multi-resource batch (m9)', () => {
       { resolution: 'committed', validFrom: 'srv-t2-a' },
     ]);
     await flushMicrotasks();
-    await vi.advanceTimersByTimeAsync(2500);
+    await vi.advanceTimersByTimeAsync(3500);
     // …chains off the batch's resulting validFrom for that resource.
     expect(h.submitted.at(-1)!).toMatchObject({ rid: 't1', ifValidFromMatches: 'srv-t1-b' });
   });
@@ -390,7 +418,7 @@ describe('connection gate (decided 2026-06-11)', () => {
     h.setResponder(d.responder);
     h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // S1 in flight (deferred — server never answers)
+    await vi.advanceTimersByTimeAsync(1000); // S1 in flight (deferred — server never answers)
     expect(h.submitted).toHaveLength(1);
 
     h.queue.setConnectionState('reconnecting');
@@ -408,7 +436,7 @@ describe('connection gate (decided 2026-06-11)', () => {
     d.pending[0]!.resolve([{ resolution: 'committed', validFrom: 'srv-1' }]);
     await flushMicrotasks();
     h.type('todo', 't1', { n: 2 });
-    await vi.advanceTimersByTimeAsync(600);
+    await vi.advanceTimersByTimeAsync(1100);
     expect(h.submitted.at(-1)!.ifValidFromMatches).toBe('srv-1');
   });
 
@@ -418,7 +446,7 @@ describe('connection gate (decided 2026-06-11)', () => {
     h.setResponder(d.responder);
     h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(h.submitted).toHaveLength(1);
 
     h.queue.setConnectionState('reconnecting');
@@ -447,7 +475,7 @@ describe('connection gate — every non-connected literal (Mn8)', () => {
       h.setResponder(d.responder);
       h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
       h.type('todo', 't1', { n: 1 });
-      await vi.advanceTimersByTimeAsync(500); // in flight (deferred)
+      await vi.advanceTimersByTimeAsync(1000); // in flight (deferred)
       expect(h.submitted).toHaveLength(1);
 
       h.queue.setConnectionState(downState);
@@ -485,7 +513,7 @@ describe('in-flight infra timeout (while connected)', () => {
     h.setResponder(d.responder);
     h.seed('todo', 't1', { n: 0 });
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // in flight
+    await vi.advanceTimersByTimeAsync(1000); // in flight
     await vi.advanceTimersByTimeAsync(10_000); // timeoutMs elapses
     expect(h.nonCommits).toHaveLength(1);
     expect(h.nonCommits[0]!.outcome).toEqual({ queueSignal: 'timeout' });
@@ -502,7 +530,7 @@ describe('per-type configuration', () => {
     h.type('todo', 't1', { n: 1 });
     await vi.advanceTimersByTimeAsync(60);
     expect(h.submitted.map((s) => s.rt)).toEqual(['chat']); // chat flushed at 50ms; todo still quiet
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(h.submitted.map((s) => s.rt)).toEqual(['chat', 'todo']);
   });
 });
@@ -527,7 +555,7 @@ describe('conflict re-submission (use-this chain plumbing for the conflict-outco
     });
     h.seed('doc', 'd1', { body: 'L' }, 'validFrom-v1');
     h.type('doc', 'd1', { body: 'L1' });
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(1000);
     d.pending[0]!.resolve([
       { resolution: 'use-server', snapshot: { value: { body: 'S1' }, meta: { validFrom: 'srv-s1' } } },
     ]);
@@ -538,7 +566,7 @@ describe('conflict re-submission (use-this chain plumbing for the conflict-outco
     d.pending[1]!.resolve([{ resolution: 'committed', validFrom: 'srv-final' }]);
     await flushMicrotasks();
     h.type('doc', 'd1', { body: 'L2' });
-    await vi.advanceTimersByTimeAsync(600);
+    await vi.advanceTimersByTimeAsync(1100);
     expect(h.submitted.at(-1)!.ifValidFromMatches).toBe('srv-final');
   });
 });

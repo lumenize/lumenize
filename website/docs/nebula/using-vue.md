@@ -47,7 +47,7 @@ This single-file shape uses **in-DOM templates** — the `v-model` markup lives 
 
 ## Debounce knobs
 
-`v-model` updates paint optimistically on every keystroke, but the network transaction is **debounced** per `(resourceType, resourceId)` — default **500 ms** quiet window, **2000 ms** max wait. A buffered write also flushes immediately on input blur and on `client.dispose()`. See [Coding your UI § Write timing](./coding-your-ui.md#write-timing) for the behavior and [Coding your UI § IME and composition input](./coding-your-ui.md#ime-and-composition-input) for how composition input interacts with it.
+`v-model` updates paint optimistically on every keystroke, but the network transaction is **debounced** per `(resourceType, resourceId)` — default **1000 ms** quiet window, **3000 ms** max wait. A buffered write also flushes immediately on input blur and on `client.dispose()`. See [Coding your UI § Write timing](./coding-your-ui.md#write-timing) for the behavior and [Coding your UI § IME and composition input](./coding-your-ui.md#ime-and-composition-input) for how composition input interacts with it.
 
 You rarely set timing in code — it's **type-derived** from the ontology (`@debounce`, `@longform`; booleans/enums commit eagerly). That table is canonical in [Ontology § Annotations](./ontology.md#annotations). For the occasional runtime override (A/B testing, dynamic config), there's a per-type setter:
 

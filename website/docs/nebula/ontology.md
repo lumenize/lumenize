@@ -86,7 +86,7 @@ The asymmetry is intentional. Config-named annotations are unambiguous about sco
 | `@description` | metadata | Human/LLM explanation; Studio consults when reasoning about the type. |
 | `@inverse` | reference | Back-reference declaration for relationships. |
 | `@debounce(q?, m?)` | config | Debounce timing for writes to this field. `@debounce(0)` makes the field commit immediately (no debounce) — used for booleans, enums, anything click-to-commit. |
-| `@longform` | semantic | This field is long-form text. Effects: slower debounce (default `quietMs: 1000`, `maxWaitMs: 5000`), auto-register a text-merge conflict resolver, Studio renders as `<textarea>` in generated UI. |
+| `@longform` | semantic | This field is long-form text. Effects: a longer maximum wait than the framework default (default `quietMs: 1000`, `maxWaitMs: 5000`), auto-register a text-merge conflict resolver, Studio renders as `<textarea>` in generated UI. |
 | typia validation tags (`@minimum`, `@maximum`, `@pattern`, `@format`, etc.) | validation | Standard typia constraints; see [@lumenize/ts-runtime-parser-validator](../ts-runtime-parser-validator/index.md). |
 
 ### Type-derived defaults (no annotation needed)
@@ -97,7 +97,7 @@ Most fields get sensible debounce config from their type. Studio's LLM relies on
 |---|---|
 | `boolean` | `{ quietMs: 0 }` (eager — click-to-commit) |
 | enum / literal union (e.g., `'open' \| 'done'`) | `{ quietMs: 0 }` (eager) |
-| `string` (short) | inherits type default (`500` / `2000`) |
+| `string` (short) | inherits type default (`1000` / `3000`) |
 | `string` with `@longform` | inherits the `@longform` config |
 | `number` | inherits type default |
 | arrays / objects / embedded | inherits type default |
@@ -129,7 +129,7 @@ Studio's LLM, when generating the ontology, picks annotations from a small rule 
 
 The compiler (typia or our extension) reads the .d.ts when a build compiles it and emits a config map alongside the validator bundle. The factory loads the bundle at startup and applies the per-field debounce config to its synced-state middleware automatically. For runtime overrides (rare — A/B testing, dynamic config), [`client.resources.transactionDebounce(rt, opts)`](./api-reference.md#resourcestransactiondebounce) is the override surface.
 
-*(Status: the per-field debounce-config emission is post-demo. The initial release ships the global framework defaults — 500 ms quiet / 2000 ms maxWait — for every field, with `transactionDebounce` as the per-type override; per-field annotations take effect once the emission lands, the global defaults remaining the fallback for unannotated fields. `@longform` registers no conflict resolver yet either, so a type with a long-form field registers its own text-merge handler — see [Resources § Text fields specifically](./resources.md#text-fields-specifically--dont-leave-the-default). Its `<textarea>` effect is Studio's to apply, and applies now.)*
+*(Status: the per-field debounce-config emission is post-demo. The initial release ships the global framework defaults — 1000 ms quiet / 3000 ms maxWait — for every field, with `transactionDebounce` as the per-type override; per-field annotations take effect once the emission lands, the global defaults remaining the fallback for unannotated fields. `@longform` registers no conflict resolver yet either, so a type with a long-form field registers its own text-merge handler — see [Resources § Text fields specifically](./resources.md#text-fields-specifically--dont-leave-the-default). Its `<textarea>` effect is Studio's to apply, and applies now.)*
 
 Precedence: runtime override > ontology annotation > type-based default > framework default.
 

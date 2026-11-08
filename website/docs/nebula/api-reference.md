@@ -447,7 +447,7 @@ transactionDebounce(
 
 **The primary surface for debounce config is the ontology**, not this call. Field-type-derived defaults (e.g., `boolean` → `quietMs: 0`) and explicit `@debounce(q, m)` / `@longform` annotations on the .d.ts compile into the bundle the factory loads at startup. See [Ontology § Annotations](./ontology.md#annotations).
 
-`transactionDebounce` exists as a **runtime override** for edge cases the annotation model doesn't cover — A/B testing different debounce values, slower-network modes, role-based tuning. Precedence: runtime override > ontology annotation > type-based default > framework default (`500` / `2000`).
+`transactionDebounce` exists as a **runtime override** for edge cases the annotation model doesn't cover — A/B testing different debounce values, slower-network modes, role-based tuning. Precedence: runtime override > ontology annotation > type-based default > framework default (`1000` / `3000`).
 
 **Resource-level merge rule** when multiple fields have pending writes with different timings: **shortest active timer wins** for both `quietMs` and `maxWaitMs`. Clicking a `@debounce(0)` checkbox flushes the entire pending resource transaction immediately, including any pending text-field edits — which matches the intuition that the click was a deliberate commit.
 

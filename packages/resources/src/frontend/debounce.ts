@@ -19,8 +19,8 @@
  * `{ resolution: 'committed', validFrom }` shape used by the queue's own tests.
  *
  * Pinned semantics implemented here (see the task file for the full list):
- * - quiet window (default 500 ms, restarted per write) + max wait (default
- *   2000 ms, anchored at the burst's first write) + per-type config + a
+ * - quiet window (default 1000 ms, restarted per write) + max wait (default
+ *   3000 ms, anchored at the burst's first write) + per-type config + a
  *   per-write `quietMs: 0` eager override (`@debounce(0)`) that flushes the
  *   whole resource;
  * - serial per resource: at most one in-flight transaction per key; writes
@@ -143,8 +143,8 @@ interface Batch {
   openOutcomes: number;
 }
 
-const DEFAULT_QUIET_MS = 500;
-const DEFAULT_MAX_WAIT_MS = 2000;
+const DEFAULT_QUIET_MS = 1000;
+const DEFAULT_MAX_WAIT_MS = 3000;
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 export function createDebounceQueue(config: DebounceQueueConfig) {

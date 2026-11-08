@@ -82,14 +82,14 @@ Optional chaining (`?.`) isn't allowed in a `v-model` expression. Guard the inpu
 
 By default `v-model` listens on `input` (fires every keystroke). The optimistic local update is immediate; the network transaction is **debounced** by the synced-state middleware so per-keystroke `v-model` doesn't pile up server traffic. The middleware coalesces transaction submissions per `(resourceType, resourceId)`:
 
-- **Quiet window**: wait this long after the last write to a resource before submitting (default 500 ms).
-- **Max wait**: submit at least every N ms regardless of continued typing (default 2000 ms).
+- **Quiet window**: wait this long after the last write to a resource before submitting (default 1000 ms).
+- **Max wait**: submit at least every N ms regardless of continued typing (default 3000 ms).
 - **Flush on lifecycle**: a pending write flushes immediately on input blur (a `focusout` on the bound input) and on `client.dispose()`. Component unmount does *not* itself force a flush — but the quiet/max-wait timers above run at the client level (per `(resourceType, resourceId)`, not per component), so a buffered write still submits on schedule after the component is gone; nothing is lost.
 - **Serial per resource**: at most one transaction in flight per resource; subsequent writes buffer and submit using the in-flight transaction's resulting version.
 
 A typical 10-character edit produces ~1 transaction, not 10.
 
-**Write timing and conflict handling have type-derived defaults** — booleans and enums commit immediately, long-form text gets slower debounce plus an auto-registered text-merge resolver, short text uses the 500/2000 ms windows above. The full table and how to override it (`@debounce`, `@longform`) is the canonical reference in [Ontology § Annotations](./ontology.md#annotations). For runtime overrides (rare — A/B testing, dynamic config), `client.resources.transactionDebounce(rt, opts)` is available; see [API reference § resources.transactionDebounce](./api-reference.md#resourcestransactiondebounce).
+**Write timing and conflict handling have type-derived defaults** — booleans and enums commit immediately, long-form text gets a longer maximum wait plus an auto-registered text-merge resolver, short text uses the 1000/3000 ms windows above. The full table and how to override it (`@debounce`, `@longform`) is the canonical reference in [Ontology § Annotations](./ontology.md#annotations). For runtime overrides (rare — A/B testing, dynamic config), `client.resources.transactionDebounce(rt, opts)` is available; see [API reference § resources.transactionDebounce](./api-reference.md#resourcestransactiondebounce).
 
 ### `v-model.lazy` — commit on blur
 
