@@ -178,6 +178,8 @@ Austen's post doesn't interrupt Jennifer's turn, and nobody has to repeat it. Wh
 
 **Austen:** (c) works for me.
 
+**Studio's agent:** Thanks, Austen. I'll build it once Jennifer agrees.
+
 **Jennifer:** Agreed.
 
 **Studio's agent:** Responding to what Jennifer said, I'm going to proceed under Jennifer's authority because she last responded. *(codegen...)* Each list now has a switch between department and when added, and remembers each shopper's choice.

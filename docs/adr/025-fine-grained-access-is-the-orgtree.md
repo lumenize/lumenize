@@ -41,15 +41,15 @@ These things follow:
 
 These things follow:
 
-- **Its grant is ordinary data in the tree.** It is seeded when the tree is created, visible to the tree's members like every grant ([ADR-008](008-full-org-tree-visibility.md)), and revoked by an admin like any other.
+- **Its grant is ordinary data in the tree.** It is seeded when the tree is created, and visible to the tree's members like every grant ([ADR-008](008-full-org-tree-visibility.md)). Studio's agent's grant on `chat` alone cannot be revoked: the agent is the product's way to change a grant, so with its own revoked it could never hear the request to restore it.
 - **Coarse-grained checks grant it nothing.** `hasDominionOver` reads its claims on every orgTree check and finds no admin bit, and the claims never leave its node: a call made under them starts a fresh chain, so the callee sees the node speaking for itself ([ADR-015](015-passage-and-dominion.md)).
 - **It has no session to steal and no subject to impersonate.** A session rests on a membership, and the impersonation mint requires an accepted one; a local principal holds neither.
 - **Its `sub` names what it is**, as `agent:lumenize` does, and is never a UUID. Built claims therefore cannot carry a person's random id or a persona's name-based one.
-- **Its records name it.** Its own writes carry it as the subject. A write the agent makes in a person's turn carries the person as the subject and the agent as the actor ([ADR-016](016-record-the-acting-principal.md)).
+- **Its records name it.** Its own writes carry it as the subject. A write the agent makes for a person runs under the person's claims with the agent prepended as `act`, so its record names the person as the subject and the agent as the actor ([ADR-016](016-record-the-acting-principal.md)).
 
 **A persona is not a local principal.** Its tab gets a token on its own host, with its Star as `aud`, and the account's admin persona holds dominion there ([ADR-022](022-every-session-lives-on-the-platform-host.md)). Mesh builds a persona's claims the same way to seed its data, which is the mechanism the two share.
 
-> **Today's code differs.** The agent's reply names the poster as subject and the agent as actor, the reply and each landing's `ServedBuild` skip the check through `pinnedAtDoor`, the Galaxy's chat node is its root, and nothing builds a local principal's claims or a persona's. Nor does anything start a fresh chain for built claims: `buildOutgoingCallContext` passes `originAuth` on unless `newChain` is set. `tasks/nebula-agent-posts-as-itself.md` makes the agent the first local principal.
+> **Today's code differs.** The agent's reply names the poster as subject and the agent as actor, the reply and each landing's `ServedBuild` skip the check through `pinnedAtDoor`, the Galaxy's chat node is its root, and nothing builds a local principal's claims or a persona's. Nor does anything start a fresh chain for built claims, or a chain under a person's claims with the agent prepended: `buildOutgoingCallContext` passes `originAuth` on unless `newChain` is set, and then passes none. `tasks/nebula-agent-posts-as-itself.md` makes the agent the first local principal.
 
 ## Alternatives considered
 
@@ -60,5 +60,5 @@ These things follow:
 
 ## Consequences
 
-- **Positive.** One check for every identity and every gated operation, so a rule added to it binds them all. A local principal's access is visible and revocable where the tree's members already look. The next case follows the pattern instead of inventing an exception: an app's own assistant posting in a tenant's Star (`tasks/nebula-pre-alpha-fast-follow.md` § *Item 2: App-branded AI persona*).
+- **Positive.** One check for every identity and every gated operation, so a rule added to it binds them all. A local principal's access is visible where the tree's members already look, and revocable there unless revoking it would remove the only way back, as revoking Studio's agent's grant would. The next case follows the pattern instead of inventing an exception: an app's own assistant posting in a tenant's Star (`tasks/nebula-pre-alpha-fast-follow.md` § *Item 2: App-branded AI persona*).
 - **Negative / accepted.** A local principal's grants pass every operation its node gates by the tree, so the agent meets the gate on source. What bounds that is which server code runs under its claims, and a source write made there is traceable and reversible, which [`_ai-security.md`](../vision/_ai-security.md) § *Reversibility, not agency, is the risk variable* says needs no gate. A grant placed too high covers too much, since grants trickle down; the remedy is a node for the audience, as the Galaxy's `chat` node is.

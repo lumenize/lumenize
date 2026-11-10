@@ -57,7 +57,7 @@ Captured from an interview on the 2026 OWASP Top 10 for LLM Applications (§ *Ap
 This section is the argument; § *What backs the position* is the honest accounting of how much of it we have
 actually built.
 
-### Feedback beats control
+### Feedback over guardrails
 
 The best advice on that list is to build systems where nothing important breaks when the model gets fooled.
 The industry will hear it backwards, because security people hear "contain the damage" and reach for another
@@ -234,7 +234,7 @@ sit, it sits at the workstation and the agent's action loop now, not at the pull
 follow is that a verdict per action is the thing to put there — and one detail of the new location is what
 decides it. **There is no human in the middle any more.** At hundreds of unread actions per task, whatever
 sits at that boundary is talking to the agent, never to a person, so the loop is agent-to-agent whether or
-not anyone designed it that way. That is § *Feedback beats control* arriving through somebody else's
+not anyone designed it that way. That is § *Feedback over guardrails* arriving through somebody else's
 premise, which makes it the version of our argument least easy to dismiss as self-serving.
 
 *(Framing from Chris Hughes, Resilient Cyber, 2026-09-10 — the same author as the human-in-the-loop
@@ -364,7 +364,7 @@ at knowing within seconds when something has gone sideways and exactly who did i
 | Every resource change names who made it | `Snapshots.actingToken` | **Built** — the full ADR-016 record |
 | A record names the agent that acted for a human | server-composed actor, [ADR-016](../adr/016-record-the-acting-principal.md) | **Designed, not built** |
 | Destructive and authority-changing acts record the full acting token | one shared projection, ADR-016 | **Partially built**; durable sink absent |
-| A shared answer is the permission-holder's disclosure decision | the consent loop (§ *A worked scenario*); ADR-019 withdrawn 2026-08-26 | **Model settled; brokered ask not built** |
+| A shared answer is the permission-holder's disclosure decision | the consent loop (§ *A worked scenario*); ADR-019 withdrawn 2026-08-26 | **Model settled; brokered ask planned** (`tasks/nebula-agent-posts-as-itself.md`) |
 | The inference layer is recorded, not just the message | the agent `Message`'s `codegen` value object | **Designed, not built** |
 | Every outbound call is recorded and cannot be bypassed | the egress broker as `globalOutbound` | **Designed**; the record itself unspecified |
 | The system changes itself from outcome signal | [`self-improving-platform.md`](self-improving-platform.md) | **Direction committed, timing gated** |
@@ -476,7 +476,9 @@ between this document and the system.**
 every later reader — and was **withdrawn 2026-08-26**: the level-3 sharing case it guarded (an answer produced
 under one participant's authority, persisted as a Message, re-rendered to another) is now the
 permission-holder's **disclosure decision**, made in the consent loop (§ *A worked scenario*). Every read rides
-the asking human's token, and a posted answer is a disclosure decision — nothing is left to capture.
+the token of someone who asked or said yes, and a read of a tenant's data the token of the post being
+answered ([`auth.md`](auth.md) § *When the agent acts*), so a posted answer is still a disclosure
+decision — nothing is left to capture.
 
 **What the model actually did.** The three above concern the application layer. The inference layer is a
 fourth part, and Studio's chat is where it gets recorded: the agent `Message` carries a `codegen` value object
@@ -516,8 +518,9 @@ What the platform owes a domain expert who is not an agentic-development expert:
 - **A system prompt that pushes toward the loop,** so improving the guidance is the default motion at the end
   of a piece of work rather than a practice they would have to invent.
 - **Guidance as files in the app's own git repo,** beside the source it describes, with the agent Message as
-  the record: a guidance edit is a commit, and the turn that made it stores who asked (`actingToken`) and
-  which paths it wrote — so "who loosened this rule and when" is a join through the Message, and reverting
+  the record: a guidance edit is a commit whose git author is the person whose authority it used, and the
+  turn that made it stores, on each tool call, the claims it ran under, beside the chat that shows who asked
+  and which paths it wrote — so "who loosened this rule and when" is in `git log`, and in full a join through the Message, and reverting
   is a git revert. Guidance as Resources was the earlier draft, rejected 2026-09-02: it would split the
   guidance from the tree it describes and buy nothing git and the Message do not already record.
 - **Chat history as Resources,** so the record of how an app came to be is durable, attributable, subscribable,
