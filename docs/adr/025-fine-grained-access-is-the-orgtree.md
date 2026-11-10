@@ -27,7 +27,7 @@ The rest of this ADR commits the orgTree as a node's one fine-grained access con
 
 ### The orgTree is a node's one fine-grained access control
 
-**A node gates its resources and its own operations against the same orgTree, with the same check.** An operation gated by audience names a node and a tier in that tree: `readSource`, `writeSource` and `buildNow` require `write` on the Galaxy's `chat` node, the grant a post needs. A node keeps no second permission store beside it.
+**A node that composes a Resources plane gates its resources and its own operations against the same orgTree, with the same check.** An operation gated by audience names a node and a tier in that tree: `readSource`, `writeSource` and `buildNow` require `write` on the Galaxy's `chat` node, the grant a post needs. A node keeps no second permission store beside it.
 
 These things follow:
 
@@ -42,19 +42,19 @@ These things follow:
 These things follow:
 
 - **Its grant is ordinary data in the tree.** It is seeded when the tree is created, visible to the tree's members like every grant ([ADR-008](008-full-org-tree-visibility.md)), and revoked by an admin like any other.
-- **Coarse-grained checks never see it.** Its claims carry no admin bit and never leave its node: a call made under them starts a fresh chain, so the callee sees the node speaking for itself ([ADR-015](015-passage-and-dominion.md)).
+- **Coarse-grained checks grant it nothing.** `hasDominionOver` reads its claims on every orgTree check and finds no admin bit, and the claims never leave its node: a call made under them starts a fresh chain, so the callee sees the node speaking for itself ([ADR-015](015-passage-and-dominion.md)).
 - **It has no session to steal and no subject to impersonate.** A session rests on a membership, and the impersonation mint requires an accepted one; a local principal holds neither.
 - **Its `sub` names what it is**, as `agent:lumenize` does, and is never a UUID. Built claims therefore cannot carry a person's random id or a persona's name-based one.
 - **Its records name it.** Its own writes carry it as the subject. A write the agent makes in a person's turn carries the person as the subject and the agent as the actor ([ADR-016](016-record-the-acting-principal.md)).
 
 **A persona is not a local principal.** Its tab gets a token on its own host, with its Star as `aud`, and the account's admin persona holds dominion there ([ADR-022](022-every-session-lives-on-the-platform-host.md)). Mesh builds a persona's claims the same way to seed its data, which is the mechanism the two share.
 
-> **Today's code differs.** The agent's reply names the poster as subject and the agent as actor, the reply and each landing's `ServedBuild` skip the check through `pinnedAtDoor`, the Galaxy's chat node is its root, and nothing builds a local principal's claims or a persona's. `tasks/nebula-agent-posts-as-itself.md` makes the agent the first local principal.
+> **Today's code differs.** The agent's reply names the poster as subject and the agent as actor, the reply and each landing's `ServedBuild` skip the check through `pinnedAtDoor`, the Galaxy's chat node is its root, and nothing builds a local principal's claims or a persona's. Nor does anything start a fresh chain for built claims: `buildOutgoingCallContext` passes `originAuth` on unless `newChain` is set. `tasks/nebula-agent-posts-as-itself.md` makes the agent the first local principal.
 
 ## Alternatives considered
 
 - **A second permission store for operations, kept equal to the orgTree.** It separates resources from operations cleanly. But every invite, revoke and promotion then writes two stores that must stay in step ([ADR-010](010-random-opaque-keys.md)'s replication rule), and the first drift lets someone post who cannot change source, or the reverse.
-- **The platform's own reads and writes skipping the check on its own say-so.** `pinnedAtDoor` did this for writes, and the first draft of the agent's own turn would have read the chat this way. Each is a second path that every rule added to the check later skips, and the read would have been the first made on nobody's behalf whose result is then posted to people.
+- **The platform's own reads and writes skipping the check on its own say-so, for work whose result reaches a person.** `pinnedAtDoor` did this for writes, and the first draft of the agent's own turn would have read the chat this way. Each is a second path that every rule added to the check later skips, and the read would have been the first made on nobody's behalf whose result is then posted to people. Bookkeeping that serves no one person stays outside the check by design: creating the tree, and the plane's own reads such as `liveValues`.
 - **A Registry membership for the agent.** It would be a login: a token, passage and dominion to confine, and a subject an admin could impersonate. [`auth.md`](../vision/auth.md) § *When the agent acts* rejects it.
 - **The agent only ever an actor on a person's write**, the model until 2026-10-10. It left the agent nothing to post as when no person's call was there: an outcome arriving in a result handler, or a turn the agent starts itself.
 
