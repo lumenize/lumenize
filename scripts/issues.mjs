@@ -15,6 +15,13 @@
 // Reads CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_NOTIFICATIONS_AND_OBSERVABILITY_TOKEN from the root
 // .dev.vars and never prints the token. Exits 0 whatever it finds: whether an issue is a finding
 // is the reader's judgment, and the rule says how to make it.
+//
+// Three issues are standing, and none of them is a finding on its own (2026-10-14):
+//   - `scope-deleted` is every teardown's ordered abort.
+//   - The vulnerability-scan issues are bots probing public hosts.
+//   - `Network connection lost.` is those bots hanging up mid-request. Every occurrence so far
+//     probed a path like `/.env.save` on a test app's host. One on a path a real page loads IS a
+//     finding.
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

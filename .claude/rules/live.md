@@ -42,20 +42,14 @@ trusting the rule: it fingerprints the watched tree and re-checks it around ever
 tainted sweep exits non-zero instead of reading as a real one.
 
 **After a sweep fails or stops, the next run SHOULD be `drive.ts all --rerun`, never another full
-sweep.** Every sweep records each scenario's verdict against three things: the code the stack
-runs, the harness's own code, and the scenario's file (`harness/lib/sweep-record.ts`). A rerun on
-the same tree runs only the scenarios with no pass from the file they have now. So a fix confined
-to one scenario's file turns a 55-minute Docker sweep into that scenario's few minutes, and a sweep
-that a signal or a crash ended resumes where it stopped. An edit to the code or the harness changes
-the tree, and the rerun then runs everything on its own, so it is never the wrong command after a
-red. Every pass it keeps was recorded on the tree in front of it, so a rerun counts at a closing
-gate exactly as a full sweep does.
+sweep.** It runs only the scenarios with no pass on the tree in front of it, so it resumes a
+stopped sweep and reruns everything after an edit to the code or the harness. A rerun therefore
+counts at a closing gate exactly as a full sweep does. `harness/lib/sweep-record.ts` says what
+the tree is, and `drive.ts` says what it is deployed.
 
 - **A scenario that fails, then passes on a rerun with nothing changed, is a flake, and the rerun
   names it.** It MUST be reported as a flake where the sweep's result is reported, and MUST NOT be
   read as a pass that cancels the failure: retrying a red away is how a quiet failure survives.
-- **Deployed, the tree is the commit the target was deployed from**, which `/_version` confirms. A
-  redeploy of the same commit keeps the passes, and a deploy carrying uncommitted changes keeps none.
 
 ## `/live` is the DEFAULT tier for behavioural coverage (2026-07-30)
 
@@ -164,27 +158,18 @@ against 142 one at a time (2026-10-04). A local sweep refuses it. On a night wit
 `pre-alpha` head, from a checkout of its own, and leaves `$TMPDIR/lumenize-deployed-sweep-latest.log`
 for the morning's triage.
 
-**A build whose change can only show deployed MUST end its close-out with a deployed pass of its own scenarios** (Larry, 2026-10-07). That covers a change to what a Client hears back, to teardown or `ctx.abort()`, to Workers KV or auth, to certificates or placement, or to a container. Deploy with `deploy-test.sh` and run the scenarios the build wrote or touched; each captures the Worker's logs as it runs (`live-scenarios.md` § *Reading the Worker's logs*). The full sweep stays at the wipe gate and milestones. The evidence is `nebula-clients-connect-to-their-scope`: its deployed pass found both of that build's real defects, a 4410 close ordered wrong twice, first ahead of a Galaxy's wipe and then behind its abort, and an older stale-KV refusal. No local tier could produce any of them, because no local Galaxy orders a certificate, a local abort delivers every frame, and local KV reads back its own writes.
+**A build whose change can only show deployed MUST end its close-out with a deployed pass of its own scenarios** (Larry, 2026-10-07). That covers a change to what a Client hears back, to teardown or `ctx.abort()`, to Workers KV or auth, to certificates or placement, or to a container. Deploy with `deploy-test.sh` and run the scenarios the build wrote or touched; each captures the Worker's logs as it runs (`live-scenarios.md` § *Reading the Worker's logs*). The full sweep stays at the wipe gate and milestones. No local tier can stand in, because no local Galaxy orders a certificate, a local abort delivers every frame, and local KV reads back its own writes. `tasks/archive/nebula-clients-connect-to-their-scope.md` § *Build notes* has what that build's deployed pass found.
 
 **A local sweep never runs the deployed-only paths, so a change to what a Client hears back MUST
 be checked against them before the deploy.** They are `drive.ts`'s account sweep and the shared
 app's cleanup, and every branch on `HARNESS_TARGET_URL`
-(`grep -rln 'HARNESS_TARGET_URL' apps/nebula/harness`). On 2026-10-06 a deletion's answer became a 4410 close, and three of those
-paths still waited for the answer; the first deployed run's account sweep reported ten failed
-deletes that had all landed. Since 2026-10-14 every deployed scenario captures the Worker's
-lines through a `wrangler tail` filled in by Workers Logs, which `test-nebula` keeps, and a
-failure writes the whole capture to a file whose path it prints.
+(`grep -rln 'HARNESS_TARGET_URL' apps/nebula/harness`).
 
 **A deployed pass SHOULD end by reading its target's Workers Issues since the pass began, and a new
-issue is a finding even when every scenario passed.** `apps/nebula/wrangler.jsonc` turns Issues on for
-every deploy of either target (production from its first deploy after 2026-10-13), and it keeps every
-error-level line and uncaught exception. Read them with `node scripts/issues.mjs --worker <worker>
---since <the pass's start>`, which shows the `log` and `exception` issues and hides `unknown`, the
-scanner traffic. Three are standing: `scope-deleted`
-is every teardown's ordered abort, the vulnerability-scan issues are bots probing public hosts, and
-`Network connection lost.` is those bots hanging up mid-request, every occurrence a probe of a path
-like `/.env.save` on a test app's host (2026-10-14). One whose path a real page loads is a finding.
-This adds nothing to when a pass runs, which stays the call above.
+issue is a finding even when every scenario passed.** Every deploy of either target has Issues on.
+Read them with `node scripts/issues.mjs --worker <worker> --since <the pass's start>`, whose header
+lists the standing issues that are not findings on their own. This adds nothing to when a pass
+runs, which stays the call above.
 
 ⚠️ **Exploration, distinct from automated testing.** `.claude/rules/testing.md` owns the vitest suites
 (the capable-of-failing, committed regression net); this is the *running-system* check. Both MUST be
