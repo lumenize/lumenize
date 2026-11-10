@@ -216,9 +216,12 @@ capability instead of visibility.
 **What to do instead:** ask which lateral move it stops. Dominion and passage are coarse-grained, and
 their job is to stop lateral movement while allowing vertical movement: dominion runs downward from
 a membership, passage upward from it. Least privilege belongs to the fine-grained layers below them,
-the DAG grants and the data-plane guards. A narrowing that stops only vertical movement breaks the
-design rather than hardening it. `docs/vision/auth.md` § *Why downward is generous for admins* argues
-it; read it there.
+the DAG grants and the data-plane guards, and even there it yields to attribution when the call is
+a judgment one. What a narrower grant costs there is a person hindered in doing their job, short of
+the information they need or kept from acting on it; what attribution offers instead is that every
+grant and every change names who made it (`docs/vision/manifesto.md` § *Attribution over least
+privilege*). A narrowing that stops only vertical movement breaks the design rather than hardening
+it. `docs/vision/auth.md` § *Why downward is generous for admins* argues it; read it there.
 
 **Where it bit (2026-09-14 to 2026-09-18):** ADR-022 narrowed every access token's `authScope` to
 the host of the page that asked for it, and a later edit picked the *nearest* scopeAdmin membership

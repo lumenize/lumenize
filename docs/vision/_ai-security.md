@@ -136,7 +136,7 @@ per-tenant allow-list, and **codegen gate failures** as the secure-default regre
 complete measure of "was this safe." Together they are a great deal better than the nothing most systems have,
 and each is a byproduct of a mechanism we need anyway rather than a bespoke security telemetry project.
 
-#### Tripwires, not a human in the loop
+#### Tripwires over human in the loop
 
 **A tripwire is what turns those signals into a change to the process.** It stays silent while things go normally and fires on one specific anomaly. Firing it commits us, decided in advance, to an incident review. The review's output is a change to the process that let the incident happen, never just a verdict on the one action.
 
@@ -188,7 +188,7 @@ experienced users' use of full auto-approve climbs past **40%** by their 750th s
 prompts decay into a checkbox nobody reads within about three years. Hughes has the measurement showing it
 already happened, in roughly eighteen months. **Cite it; do not argue with it.**
 
-What we put in place of the human in the loop is § *Tripwires, not a human in the loop*.
+What we value over a human in the loop is § *Tripwires over human in the loop*.
 
 **So here is the real opposing view, at full strength.** Having rejected human approval, the serious position
 pushes the control down into the architecture — and its standards expression is the Cloud Security Alliance's
@@ -359,7 +359,7 @@ at knowing within seconds when something has gone sideways and exactly who did i
 | No Resource write destroys anything | [ADR-004](../adr/004-snodgrass-temporal-resources.md) snapshot sequences; soft delete is a snapshot transition | **Built** |
 | Deleting a Star or Galaxy can be undone during a grace window | a tombstone, then a reaper's automatic permanent delete | **Not built** — teardown deletes at once (§ *Two gaps to close at the center, and two we accept*) |
 | A bad turn's writes can be undone without losing later ones | an agent that restores prior values from history | **Not built**; nothing reads a past snapshot yet (same section) |
-| A signal fires a tripwire, and the tripwire opens a review | none for Nebula; `check-worker-graph.mjs` and `/nightly-pass` run it for this repo | **Not built** (§ *Tripwires, not a human in the loop*) |
+| A signal fires a tripwire, and the tripwire opens a review | none for Nebula; `check-worker-graph.mjs` and `/nightly-pass` run it for this repo | **Not built** (§ *Tripwires over human in the loop*) |
 | An injection's read blast radius is capped at the asking user | ReBAC/DAG substrate ([`auth.md`](auth.md) § *The data plane*) | **Built** |
 | Every resource change names who made it | `Snapshots.actingToken` | **Built** — the full ADR-016 record |
 | A record names the agent that acted for a human | server-composed actor, [ADR-016](../adr/016-record-the-acting-principal.md) | **Designed, not built** |
