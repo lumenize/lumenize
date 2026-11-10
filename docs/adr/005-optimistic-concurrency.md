@@ -29,14 +29,15 @@ Every snapshot already carries a version: its `validFrom`, the moment its transa
 
 ### A retry of a write that landed is told it succeeded
 
-- **The version check alone gives that retry the wrong answer, and the client acts on it.** Told its own put conflicted, the client runs its conflict handler. The default puts the server's value in place of the client's, which here is the same value, and shows it as reverted. A merge handler resubmits, which writes the second snapshot after all. A human-in-the-loop handler shows a person a conflict with themselves. Told "already exists", the client rolls back its own create and reports a retryable failure that every retry repeats.
-- **So the server recognizes a repeat.** It looks for the snapshot each op would have written: the one that followed the version a put, move or delete names, or a create's first snapshot. When every op's is there, all at one moment, by the same writer, holding the same stored value, it answers `committed` at that moment, which is what the first attempt was answered. It writes and broadcasts nothing.
+The version check alone would answer that retry with a conflict or "already exists". A client acting on that wrong answer might do the wrong thing. So:
+
+- **The server recognizes a repeat.** It looks for the snapshot each op would have written: the one that followed the version a put, move or delete names, or a create's first snapshot. When every op's is there, all at one moment, by the same writer, holding the same stored value, it answers `committed` at that moment, which is what the first attempt was answered. It writes and broadcasts nothing.
 - **Recognizing a repeat comes before the permission and conflict checks**, so neither refuses a write that landed. A resend after a revoked grant is told it committed, because it did. Only a newer ontology version comes first: a resend pinned to the old one is told it is stale.
 - **Each comparison keeps a different write from being told it committed:**
   1. **The same stored value.** Two tabs of one person both hold one version. One sets the title to "Q3 plan" and commits, then the other sets it to "Q4 plan", naming the same version. Without comparing values, the second tab would be told it committed, and "Q4 plan" would be lost without a word.
   2. **The same writer.** Alice and Bob both hold one version and set the same title. Bob is not told that Alice's write was his, which matters because recognition skipped the permission check, and Bob may have no right to write at all. The writer is compared by identity alone: the subject's `sub` and the `act` chain's `sub`s (ADR-016). A re-minted token may change the rest of the claims, and a write made under impersonation is not the member's own.
   3. **One moment.** A transaction commits at one moment, so ops whose snapshots carry two moments were never this transaction.
-- **A stale op skips its validator only when the snapshot that followed the version it names was another writer's, or does not exist.** A stale op from the same writer may be a repeat, and recognition compares its value in stored form, after the validator fills its `@default`s.
+- **A fast-fail check never gets in recognition's way.** The monotonic pre-check skips validating an op it knows will conflict, to save the work. But recognition compares an op's value as it would be stored, with the `@default`s the validator fills in. So the pre-check skips only an op that cannot be a repeat: one whose named version was followed by another writer's snapshot, or by none.
 
 ### What the client does with each answer
 
@@ -52,6 +53,7 @@ Every snapshot already carries a version: its `validFrom`, the moment its transa
 | A client-minted `newETag` naming the version a write creates | A retry reusing it was recognized as committed, but the client chose every version. So no server moment could be the version, a regenerated `newETag` turned an honest retry into a conflict, and two tabs of one person creating one resource could not both be told it committed. Looking for the snapshots a transaction would have written asks the client to keep nothing stable. |
 | Server version numbers plus idempotency keys (a dedupe ledger) | Two concepts where one suffices, and a guaranteed extra write per transaction to dedupe rare replays. |
 | CRDTs (as the concurrency model) | Convergence without authority doesn't fit schema-validated resources behind permission checks; the Star's single-threaded ordering already provides authority. Not a ban: field-level CRDTs, such as large collaborative text, may layer in later, and a CRDT-merged field would still commit through a versioned snapshot write. |
+| A separate server-minted version: a ULID, or a zero-padded counter | A second value doing what `validFrom` already does. Every snapshot carries its `validFrom` anyway (ADR-004), and one moment per transaction makes it unique and ordered. A ULID's random half buys uniqueness without coordination, which a single-threaded Durable Object minting every version never needs. And milliseconds are fine enough: a Durable Object handles a little over 1,000 requests a second at best, and about 410 when every request writes (ADR-018). Even past that, the one-millisecond step keeps moments unique, running briefly ahead of the clock. |
 
 ## Consequences
 
@@ -62,7 +64,7 @@ Every snapshot already carries a version: its `validFrom`, the moment its transa
 - User-developers see outcomes and handlers; versions stay under the hood of the frontend factory.
 
 ### Negative
-- Every write path must run recognition, and skipping it fails quietly: the path still meets the first two needs, so only a retry's answer shows the gap.
+- Every write path must run recognition.
 - Recognition tells one person's tabs apart from two people. Two people creating the same resource at once are two writers, so the second is told "already exists", for the client to disambiguate.
-- A repeat is recognized only while its snapshots are in hot storage. If history is compacted past them, a resend that old answers as a conflict: safe, but noisier.
-- Recognition reads only for a write that could be a repeat: a create of a resource that already has a snapshot, or a write naming a version that has moved on. Such a write reads up to one snapshot per op, and a stale op from the same writer pays a validator call that a conflict would otherwise skip.
+- Recognition reads the snapshots it compares from hot storage, so moving history to R2 must leave a snapshot there for longer than any resend of its write could take to arrive.
+- An ordinary write pays nothing for recognition. Only an op that would otherwise fail, as a conflict or "already exists", pays a read of one stored snapshot. A stale op whose next snapshot came from the same writer also pays the validator call the pre-check would otherwise skip.

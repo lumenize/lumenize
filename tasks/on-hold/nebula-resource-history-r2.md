@@ -6,6 +6,7 @@
 **Master task file**: `tasks/archive/nebula.md` (archived)
 **Relevant engine**: `packages/resources/src/snapshots.ts` (`Snapshots` table, Snodgrass-style temporal storage in Star)
 **Version**: written when each snapshot carried an `eTag`. It now carries only `validFrom` ([ADR-005](../../docs/adr/005-optimistic-concurrency.md)), which is what each eTag check below compares.
+**Recognition**: ADR-005 recognizes a resend by comparing it with the snapshot its first attempt wrote, read from SQLite. So the offload must keep a snapshot's value in SQLite, not only its metadata, for longer than any resend of its write could take to arrive.
 
 ## Goal
 
