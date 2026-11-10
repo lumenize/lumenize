@@ -377,10 +377,18 @@ export class Snapshots {
    * all of them share one moment, were written by `writer`, and hold what the op writes, compared
    * in stored form after the validator filled any `@default`. Returns only a moment, and judges the
    * writer by identity alone, never by the stored `access` or `aud`.
+   *
+   * `current` is each resource's latest snapshot, deleted or not, as the transaction read it. It
+   * rules out most writes with no read of its own: a create of a resource that has no snapshot,
+   * and a put, move or delete naming the version still current, wrote nothing a repeat could match.
    */
-  #recognize(entries: Array<[string, OperationDescriptor]>, writer: string): string | null {
+  #recognize(entries: Array<[string, OperationDescriptor]>, writer: string,
+    current: Map<string, Snapshot | null>): string | null {
     let moment: string | undefined;
     for (const [resourceId, op] of entries) {
+      const latest = current.get(resourceId) ?? null;
+      if (op.op === 'create' ? latest === null
+        : latest === null || latest.meta.validFrom === op.ifValidFromMatches) return null;
       let written: StoredRow | null;
       let same: boolean;
       if (op.op === 'create') {
@@ -617,8 +625,8 @@ export class Snapshots {
       // check and the conflict check, so none of them refuses a write that landed — a repeated
       // create would otherwise fail "already exists", and a repeated put conflict with its own
       // write. Only the door's version rule comes first: a repeat pinned to an older ontology is
-      // answered stale.
-      const repeatOf = this.#recognize(entries, writer);
+      // answered stale. A write whose Step-6 read already rules a repeat out costs no read here.
+      const repeatOf = this.#recognize(entries, writer, authoritative);
       if (repeatOf !== null) {
         result = { ok: true, validFrom: repeatOf };
         return;

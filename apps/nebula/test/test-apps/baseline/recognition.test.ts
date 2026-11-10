@@ -60,6 +60,58 @@ describe('recognition compares what was stored, after the validator filled it', 
   }, 90_000);
 });
 
+describe('recognition reads nothing when the transaction already rules a repeat out', () => {
+  // In-lane because a read count is visible only inside the object: the statements below are the
+  // two recognition issues, `#successorOf`'s join and `#firstSnapshotOf`'s oldest-first scan.
+  const RECOGNITION_SQL = /JOIN Snapshots a ON|ORDER BY validFrom ASC LIMIT 1/;
+  const countRecognitionReads = (star: string) => (runInDurableObject as any)((env as any).STAR.getByName(star),
+    (_i: unknown, c: DurableObjectState) => {
+      const sql = c.storage.sql as SqlStorage & { recognitionReads?: number };
+      if (sql.recognitionReads === undefined) {
+        const exec = sql.exec.bind(sql);
+        sql.recognitionReads = 0;
+        sql.exec = ((query: string, ...bindings: unknown[]) => {
+          if (RECOGNITION_SQL.test(query)) sql.recognitionReads! += 1;
+          return exec(query, ...bindings);
+        }) as typeof sql.exec;
+      }
+      const n = sql.recognitionReads;
+      sql.recognitionReads = 0;
+      return n;
+    }) as Promise<number>;
+
+  it('a fresh create and a put naming the current version read nothing, and a repeat does', async () => {
+    const galaxy = `rc-${uuid().slice(0, 8)}.app`;
+    const dev = `${galaxy}.dev`;
+    const a = (await universeAdminClient(NebulaClientTest, new Browser(), galaxy, dev, 'admin@example.com', 'v1')).client;
+    await a.lmz.callAsync('STAR', dev, a.ctn<StarTest>().applyOntologyForTest({ version: 'v1', types: TYPES } as OntologyVersionConfig), { timeoutMs: 60_000 });
+    await countRecognitionReads(dev);
+    const rid = uuid();
+
+    // Mutation: drop the create half of `#recognize`'s first check → this reads the oldest snapshot.
+    const created = await tx(a, dev, { [rid]: { op: 'create', typeName: 'Task', nodeId: ROOT_NODE_ID, value: { title: 'one' } } });
+    if (!created.ok) throw new Error('create failed');
+    expect(await countRecognitionReads(dev)).toBe(0);
+
+    // Mutation: drop the current-version half → this reads the successor of the version it names.
+    const put = { [rid]: { op: 'put', ifValidFromMatches: created.validFrom, value: { title: 'two' } } };
+    const putOnce = await tx(a, dev, put);
+    if (!putOnce.ok) throw new Error('put failed');
+    expect(await countRecognitionReads(dev)).toBe(0);
+
+    // Mutation: drop the no-snapshot half of the same check → this reads before it fails not-found.
+    await expect(tx(a, dev, { [uuid()]: { op: 'put', ifValidFromMatches: putOnce.validFrom, value: { title: 'x' } } }))
+      .rejects.toThrow(/not found/);
+    expect(await countRecognitionReads(dev)).toBe(0);
+
+    // The counter can see a read: the repeat names a version that has moved on, so the Step-4.5
+    // pre-check reads its successor once, and recognition reads it again.
+    expect(await tx(a, dev, structuredClone(put))).toEqual({ ok: true, validFrom: putOnce.validFrom });
+    expect(await countRecognitionReads(dev)).toBe(2);
+    a[Symbol.dispose]();
+  }, 90_000);
+});
+
 describe('the agent-message commit, run twice with one id', () => {
   const devClient = (scope: string) => universeAdminClient(
     StudioClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
