@@ -74,6 +74,7 @@ import {
   renderHistoryBundle,
   renderHeldBlock,
   renderDecisionRequest,
+  renderClosingRequest,
   agentMessageValue,
   heldCallFor,
   TOOL_CONTRACT,
@@ -2221,7 +2222,60 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       validateToolArgs: (n, a) => this.#validateToolArgs(n, a),
       onProgress,
     };
-    return runCodegenLoop(initial, deps, config);
+    const result = await runCodegenLoop(initial, deps, config);
+    return this.#closingStep(result, thread, opts.tookUp, labelFor);
+  }
+
+  /**
+   * End a finished turn with a closing step when posts arrived while it ran. A turn builds its
+   * history once, at its start, so without this it never sees such a post. The step appends
+   * them last, after everything the turn already sent, and asks for the turn's final message
+   * with no tool that acts offered: that message may answer them too, and one it does not
+   * answer waits for a decision. Offering no loop tool is what keeps a post read here from
+   * steering a tool call made under the claims of the post the turn took up. It costs one more
+   * model call, only when a post arrived mid-turn, and only after the model finished on its
+   * own: a turn a bound stopped mid-round has a transcript no further request can follow.
+   */
+  async #closingStep(
+    result: LoopResult, atStart: Array<{ id: string }>, tookUp: string | undefined, labelFor: (sub: string) => string,
+  ): Promise<LoopResult> {
+    if (result.stop !== 'complete' && result.stop !== 'no-tool-calls') return result;
+    const seen = new Set(atStart.map(({ id }) => id));
+    const now = this.#thread();
+    const waiting = new Set(this.#waiting(now));
+    const arrived = now.filter(({ id }) => !seen.has(id) && id !== tookUp && waiting.has(id));
+    if (arrived.length === 0) return result;
+    const posts = arrived.map(({ id }) => id);
+    debug('nebula.Galaxy.turn').info('closing step', {
+      instanceName: this.lmz.instanceName, step: 'closing', postId: tookUp ?? null, posts,
+    });
+    const request = renderClosingRequest(arrived.map(({ id, snap }) => ({
+      postId: id, speaker: labelFor(snap.meta.recordedClaims.sub), content: (snap.value as { content?: string }).content ?? '',
+    })));
+    let raw: unknown;
+    try {
+      raw = await this.callModel(
+        [...result.messages, { role: 'user', content: request }], DEFAULT_LOOP_CONFIG.fixParams, undefined,
+        { tools: MESSAGE_ONLY_TOOLS, step: 'closing', ...(tookUp !== undefined ? { postId: tookUp } : {}) },
+      );
+    } catch (e) {
+      // The turn's own reply stands, and the posts wait for a decision.
+      debug('nebula.Galaxy.turn').warn('closing step: the model call failed', { instanceName: this.lmz.instanceName, error: e });
+      return result;
+    }
+    const parsed = parseModelTurn(raw);
+    const named = (parsed.toolCalls.find((tc) => tc.name === 'mark_complete')?.args as { answers?: unknown } | undefined)?.answers;
+    const answers = [
+      ...(result.answers ?? []),
+      ...(Array.isArray(named) ? named.filter((id): id is string => typeof id === 'string' && posts.includes(id)) : []),
+    ];
+    return {
+      ...result,
+      rounds: result.rounds + 1,
+      // The closing message replaces the turn's reply; a step that wrote nothing leaves it.
+      ...(parsed.text.trim().length > 0 ? { output: parsed.text } : {}),
+      ...(answers.length > 0 ? { answers } : {}),
+    };
   }
 
   /**

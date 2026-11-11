@@ -542,6 +542,22 @@ export function renderDecisionRequest(waiting: Array<{ postId: string; speaker: 
 }
 
 /**
+ * A closing step's request, appended last to a finished turn's transcript: the posts that
+ * arrived while the turn ran, and a request for the message that ends it. It comes after
+ * everything the turn already sent, so the provider's cache still holds the whole prefix.
+ */
+export function renderClosingRequest(arrived: Array<{ postId: string; speaker: string; content: string }>): string {
+  return [
+    'While you worked, these posts arrived, oldest first:',
+    ...arrived.map((a) => `- post ${a.postId} (${a.speaker}): ${a.content}`),
+    'Write the message that ends this turn now. It replaces your reply above, so it must still ' +
+    'answer the post this turn took up, and it may also answer any of these: name each one it ' +
+    'answers in mark_complete\'s answers. A post you do not answer waits, and you can take it up ' +
+    'next. No tool that acts is offered in this step.',
+  ].join('\n');
+}
+
+/**
  * The value of an agent message, built in one place so `replyTo` and `answers` stay consistent:
  * `answers` is every post the message answers, the post its turn took up (`replyTo`) always
  * among them, each once. `answers` is absent when the message answers nothing, as a result

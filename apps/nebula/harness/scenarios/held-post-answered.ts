@@ -28,16 +28,14 @@
  *     acts.** Mutation: send it the loop's tools, and its request lists `write_file`.
  */
 import assert from 'node:assert/strict';
-import { waitForEmail } from '@lumenize/email-test/client';
 import { NEBULA_SUB } from '@lumenize/mesh/client';
-import type { Snapshot, NodeInviteAck } from '@lumenize/resources';
-import { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, StudioClient } from '@lumenize/nebula/client';
-import type { Galaxy } from '@lumenize/nebula';
-import type { DevStack, Driver } from '../lib/harness';
-import { connectDriver, readDevVar } from '../lib/harness';
+import type { Snapshot } from '@lumenize/resources';
+import { DEFAULT_CHAT_ID } from '@lumenize/nebula/client';
+import type { DevStack } from '../lib/harness';
+import { readDevVar } from '../lib/harness';
+import { chatCast } from '../lib/chat-cast';
 import { waitForDebugLines, type DebugLine } from '../lib/stdio';
 import { testSlug } from '../lib/test-scopes';
-import { refreshAccessToken, refreshTokenForScope, setCookieHeaders, consumeLink } from '../../test/lib/email-login';
 
 /** Chat and auth only: the requests ask for words, never for code. */
 export const needsContainer = false;
@@ -46,41 +44,14 @@ const SCOPE = `${testSlug('held')}.app`;
 /** A real generation fits well inside this; silence past it is the failure. */
 const TURN_TIMEOUT_MS = 240_000;
 const chatQuery = { queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
-const uniqueTestEmail = () => `test-${crypto.randomUUID().slice(0, 8)}@lumenize-test.dev`;
 
 type Value = { content?: string; replyTo?: string; answers?: string[] };
 
 export async function run(stack: DevStack): Promise<void> {
-  const testToken = readDevVar('TEST_TOKEN');
-  const origin = stack.baseUrl.replace(/\/$/, '');
-  const drivers: Driver[] = [];
+  const cast = await chatCast(stack, SCOPE, readDevVar('TEST_TOKEN'));
+  const { jennifer, austen } = cast;
+  const austenSession = { sub: cast.austenSub };
   try {
-    // ── Jennifer: a real email login, which founds the app ──
-    const jennifer = await connectDriver(stack, { scope: SCOPE, Client: StudioClient });
-    drivers.push(jennifer);
-
-    // ── Austen: the real node invite, `write` at the chat node and no admin bit ──
-    const austenEmail = uniqueTestEmail();
-    const waiter = waitForEmail({ testToken, instance: SCOPE, to: austenEmail, timeout: 60_000 });
-    let austenRefresh: string;
-    try {
-      const ack = await jennifer.client.lmz.callAsync('GALAXY', SCOPE,
-        jennifer.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, [{ email: austenEmail, tier: 'write' }])) as NodeInviteAck;
-      assert.deepEqual(ack, { accepted: 1, errors: [] }, `invite ack: ${JSON.stringify(ack)}`);
-      const mail = await waiter.emailPromise;
-      const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(mail.html ?? '')?.[1];
-      assert.ok(href, 'the invite email carried no accept link');
-      const clicked = await consumeLink(href.replace(/&amp;/g, '&'), fetch, { nickname: 'Austen' });
-      const found = refreshTokenForScope(setCookieHeaders(clicked), SCOPE);
-      assert.ok(found, `the acceptance set no cookie for the app (${clicked.status})`);
-      austenRefresh = found;
-    } finally {
-      waiter.cleanup();
-    }
-    const austenSession = await refreshAccessToken(origin, { refreshToken: austenRefresh, authScope: SCOPE }, SCOPE, fetch);
-    const austen = await connectDriver(stack, { scope: SCOPE, Client: StudioClient, session: austenSession });
-    drivers.push(austen);
-
     using thread = jennifer.client.resources.subscribeQuery(chatQuery); await thread.ready;
     const messages = async (): Promise<Array<{ id: string; snap: Snapshot }>> => {
       const out: Array<{ id: string; snap: Snapshot }> = [];
@@ -167,6 +138,6 @@ export async function run(stack: DevStack): Promise<void> {
       : 'the decision named no post, so it still waits for the next post\'s turn';
     console.error(`  · recorded — Austen's waiting post: ${how}`);
   } finally {
-    for (const driver of drivers) driver.dispose();
+    cast.dispose();
   }
 }

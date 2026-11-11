@@ -101,8 +101,9 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     const { client } = await devClient(scope);
     // Rounds for TWO turns, so the MUTATED world — latch dropped — can start a second turn
     // on the second post and red the assertions: a slow first generation spanning both
-    // commits. With the latch, the second round goes to the decision that follows the first
-    // turn, which picks nothing, so its text is a message that replies to no post.
+    // commits. With the latch, the second round goes to whichever step reads the waiting
+    // post, the first turn's closing step or the decision after it, and names nothing, so
+    // that post still waits.
     await seedScript(client, scope, [
       { __delayMs: 1500 }, round('reply one'),
       round('reply two'),

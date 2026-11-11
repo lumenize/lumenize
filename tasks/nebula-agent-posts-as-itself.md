@@ -520,6 +520,23 @@ One thing to know rather than decide: a person who edits an agent message makes 
 
 **Close-out:** `CHAT_MESSAGE_ONTOLOGY_VERSION` is `chat-message-v3`, `TOOL_ARGS_BUNDLE_ID` is v5, and `validator-seeds.ts` is regenerated. The prompt gained two parts, the held block and a decision's request, which `studio-guidance.md`'s placement table does not list; Phase 10 adds them with its other edit there.
 
+### Phase 6, the closing step (2026-11-11)
+
+**For the human:** nothing needs a decision. Two things to know:
+
+- **The closing step runs only when the model finished the turn itself,** by `mark_complete` or by answering with no tool call. A turn a bound stopped mid-round keeps its own reply, since its transcript ends on a tool call no request can follow, and the posts wait for a decision.
+- **"Arrived mid-turn" means after the turn read the thread.** A post that lands between the commit that started a turn and that read is in the turn's history instead, with its id and its held call, so the model can already answer it or act for it.
+
+**Retro:**
+
+- **A Phase 5 test was racing, and the closing step exposed it.** Its two mid-turn posts sometimes landed before the turn had read the thread, which changed nothing while both paths led to a decision. It failed three runs in three once the closing step used a scripted round only on one of them. The tests now wait for the turn's first request before posting, and the `/live` scenario does the same from the stack's logs.
+- **The first mutation run looked clean and was not.** Every mutation reddened that racing test, which would have read as six catches. Reading which tests failed, not only that one did, found it.
+- **The real model did what the vision scene says.** In `closing-step` its one message answered both people: it named the conflict between sorting by date and by name and asked which they want. In `held-post-answered` it took Austen's post up this time, where in Phase 5's run it answered her in a message.
+- **Suites:** Nebula 129 files and 1,138 tests, up by 3. Eight mutations, six in the baseline lane and two in `/live`, each reddened what it was meant to.
+- **`studio-guidance-loop`, `four-party-chat` and `first-app-built` pass.** One reported limb moved, (c), and `nebula-pre-alpha.md` § *Data-bound generation* has the line.
+
+**Close-out:** `harness/lib/chat-cast.ts` is the two-person cast both new scenarios use. The closing step's request is a third prompt part for Phase 10's `studio-guidance.md` row.
+
 ## Non-goals
 
 - **The wake check (item 6):** fast-follow Item 15, after Q3 (D19).

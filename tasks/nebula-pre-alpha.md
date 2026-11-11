@@ -271,6 +271,8 @@ One line per observation, appended, never edited: `date · limb · pass|fail · 
 - 2026-11-11 · (a) (b1) · fail then pass · two local sweeps a commit apart, the second on the `TOOL_CONTRACT` that gained the several-people rules, the held-posts block and post ids in the history: the first wrote no `App.vue` and asked nothing (`no-tool-calls`, 6 rounds), the second wrote one reading and writing through `store` / `client.resources`. One run each, so it reads as the variance the 2026-10-15 lines show, not as the wording's doing
 - 2026-11-11 · (g) · fail then pass · on that same second tree `first-app-built`'s build turn ended `no-tool-calls` after 3 rounds with no build and an empty reply, then on a rerun with nothing changed completed in 7 rounds and 2 builds with a clean landing: a flake, and a second sample of the same variance
 - 2026-11-11 · (c) (d) (b2) (e) (f) · pass · unchanged across both sweeps
+- 2026-11-11 · (c) · fail · a third local run that day, after the closing step landed: the convention reached `AGENTS.md` and the reply did not name the file. That turn's prompt is the one the second sweep passed on, since a closing step's request is sent only when a post arrives mid-turn, so this too is variance
+- 2026-11-11 · (a) (b1) (b2) (d) (e) (f) (g) · pass · the same run
 
 
 ## ADR hand-review

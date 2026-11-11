@@ -88,6 +88,14 @@ async function agentMessages(client: StudioClientTest, ids: readonly string[]): 
   return out;
 }
 
+/**
+ * Resolve once the turn now starting at `scope` has read the thread and sent its first request.
+ * A post sent before that is in the turn's history; one sent after it arrived while the turn
+ * ran, which is what a closing step reads, so a test that means the second waits for this.
+ */
+const turnUnderWay = (scope: string, turns = 1) =>
+  vi.waitFor(() => expect(turnLines(scope, 'request').filter((l) => l.step === 'turn').length).toBeGreaterThanOrEqual(turns));
+
 /** The Galaxy's `nebula.Galaxy.turn` lines of one kind at `scope`, in order. */
 const turnLines = (scope: string, message: string): Array<Record<string, unknown>> => entries
   .filter((e) => e.namespace === 'nebula.Galaxy.turn' && e.message === message && e.data?.instanceName === scope)
@@ -106,7 +114,10 @@ describe('a post\'s claims are held with it, and a decision takes waiting posts 
     using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
     const [j1, a1, j2] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
     await c.seed([
-      { __delayMs: 1500 }, say('Done, Jennifer.'),
+      { __delayMs: 1500 }, say('A draft for Jennifer.'),
+      // Two posts arrived while that turn ran, so it ends with a closing step, which here
+      // answers only the post the turn took up.
+      say('Done, Jennifer.'),
       call('take_up', { postId: a1 }),
       call('write_file', { path: 'src/austen.txt', content: 'asked for by Austen' }),
       call('write_file', { path: 'src/jennifer.txt', content: 'asked for by Jennifer', postId: j2 }),
@@ -117,6 +128,7 @@ describe('a post\'s claims are held with it, and a decision takes waiting posts 
     ]);
 
     await post(c.j, j1, 'Add a shared lists page.');
+    await turnUnderWay(scope);
     await post(c.a, a1, 'Can I get a file of my own?');
     await post(c.j, j2, 'And one for me.');
     await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(3), { timeout: 20_000 });
@@ -164,6 +176,9 @@ describe('a post\'s claims are held with it, and a decision takes waiting posts 
     // A decision would follow the turn's final message, so the absence is read past an idle window.
     await new Promise((r) => setTimeout(r, 1200));
     expect(turnLines(scope, 'decision')).toEqual([]);
+    // Nor a closing step: no post arrived while the turn ran. Mutation: close every turn → a
+    // closing request follows the turn's own.
+    expect(turnLines(scope, 'closing step')).toEqual([]);
     expect(turnLines(scope, 'request').map((l) => l.step)).toEqual(['turn']);
     expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(1);
     c.dispose();
@@ -208,11 +223,12 @@ describe('a post\'s claims are held with it, and a decision takes waiting posts 
     using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
     const [j1, a1] = [crypto.randomUUID(), crypto.randomUUID()];
     await c.seed([
-      { __delayMs: 1500 }, say('Done, Jennifer.'),
+      { __delayMs: 1500 }, say('A draft for Jennifer.'), say('Done, Jennifer.'),
       call('take_up', { postId: a1 }), say('Done with the edited request.'),
       say('a round only a turn on an answered post would use'),
     ]);
     await post(c.j, j1, 'First request.');
+    await turnUnderWay(scope);
     await post(c.a, a1, 'Austen\'s request.');
     // Jennifer rewrites Austen's waiting post: a `put` needs only `write` at the chat node.
     const waitingPost = await c.j.resources.read('Message', a1) as Snapshot;
@@ -233,6 +249,67 @@ describe('a post\'s claims are held with it, and a decision takes waiting posts 
     await new Promise((r) => setTimeout(r, 1200));
     expect(turnLines(scope, 'took up')).toHaveLength(2);
     expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(2);
+    c.dispose();
+  });
+});
+
+describe('a turn that ends after posts arrived mid-turn closes by reading them', () => {
+  // Mutations: skip the closing step → no line, and the turn's draft is its message; send the
+  // step the loop's tools → its request lists `write_file`; drop the posts the closing message
+  // names → Austen's post still waits, and a decision uses the spare round.
+  it('a closing message that names both posts answers both, and no decision follows', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
+    const [j1, a1] = [crypto.randomUUID(), crypto.randomUUID()];
+    await c.seed([
+      { __delayMs: 1500 }, say('A draft for Jennifer.'),
+      call('mark_complete', { answers: [a1] }, 'Done, Jennifer. Austen, yours conflicts with it, so I held it.'),
+      say('a round only a needless decision would use'),
+    ]);
+    await post(c.j, j1, 'Sort by when items were added.');
+    await turnUnderWay(scope);
+    await post(c.a, a1, 'Sort by name instead.');
+    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(1), { timeout: 20_000 });
+    await new Promise((r) => setTimeout(r, 1200));
+
+    // The step names the post that arrived, and is offered a message and nothing that acts.
+    expect(turnLines(scope, 'closing step').map((l) => [l.postId, l.posts])).toEqual([[j1, [a1]]]);
+    expect(turnLines(scope, 'request').map((l) => [l.step, l.tools])).toEqual([
+      ['turn', ['read_file', 'write_file', 'edit_file', 'build', 'mark_complete']],
+      ['closing', ['mark_complete']],
+    ]);
+    // Its message replaced the draft, and answers the post the turn took up and the one it named.
+    const messages = await agentMessages(c.j, sub.resourceIds);
+    expect([...messages.keys()]).toEqual(['Done, Jennifer. Austen, yours conflicts with it, so I held it.']);
+    expect(messages.values().next().value!.value).toMatchObject({ replyTo: j1, answers: [j1, a1] });
+    expect(await c.waiting()).toEqual([]);
+    expect(turnLines(scope, 'decision')).toEqual([]);
+    c.dispose();
+  });
+
+  // Mutation: count every post the closing step read as answered → nothing waits, no decision
+  // runs, and Austen's post is never taken up.
+  it('a closing message that names only the turn\'s own post leaves the other waiting, and a decision takes it up', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
+    const [j1, a1] = [crypto.randomUUID(), crypto.randomUUID()];
+    await c.seed([
+      { __delayMs: 1500 }, say('A draft for Jennifer.'), say('Done, Jennifer.'),
+      call('take_up', { postId: a1 }), say('Done, Austen.'),
+    ]);
+    await post(c.j, j1, 'Sort by when items were added.');
+    await turnUnderWay(scope);
+    await post(c.a, a1, 'Add a search box.');
+    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(2), { timeout: 20_000 });
+
+    expect(turnLines(scope, 'closing step').map((l) => l.posts)).toEqual([[a1]]);
+    expect(turnLines(scope, 'decision').map((l) => l.postId)).toEqual([a1]);
+    expect(turnLines(scope, 'took up').map((l) => l.postId)).toEqual([j1, a1]);
+    const messages = await agentMessages(c.j, sub.resourceIds);
+    expect((messages.get('Done, Jennifer.')!.value as { answers?: string[] }).answers).toEqual([j1]);
+    expect((messages.get('Done, Austen.')!.value as { answers?: string[] }).answers).toEqual([a1]);
     c.dispose();
   });
 });

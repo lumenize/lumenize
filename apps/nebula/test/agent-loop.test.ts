@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { NEBULA_SUB } from '@lumenize/mesh/client';
 import { waitingPosts } from '../src/participants';
 import {
-  agentMessageValue, heldCallFor, renderDecisionRequest, renderHeldBlock, HELD_HEADER,
+  agentMessageValue, heldCallFor, renderClosingRequest, renderDecisionRequest, renderHeldBlock, HELD_HEADER,
 } from '../src/codegen-loop';
 
 describe('waitingPosts', () => {
@@ -85,5 +85,11 @@ describe('what the prompt says about held and waiting posts', () => {
       { postId: 'a1', speaker: 'human 2', held: true, content: 'hello?' },
     ]);
     expect(request).toContain('- post j1 (human 1, not held): build a wishlist\n- post a1 (human 2, held): hello?');
+  });
+
+  it('a closing step\'s request lists the posts that arrived, and says the step offers no tool that acts', () => {
+    const request = renderClosingRequest([{ postId: 'a1', speaker: 'human 2', content: 'sort by name instead' }]);
+    expect(request).toContain('While you worked, these posts arrived, oldest first:\n- post a1 (human 2): sort by name instead\n');
+    expect(request).toContain('No tool that acts is offered in this step.');
   });
 });
