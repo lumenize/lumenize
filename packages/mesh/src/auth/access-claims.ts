@@ -92,17 +92,19 @@ export function buildAccessEntry(
 /**
  * RFC 8693 §4.1 chain nesting, written ONCE: prepend `actor` as the NEW OUTERMOST `act` entry,
  * preserving any pre-existing verified chain beneath it. Flattening/overwriting DROPS the
- * delegation chain — the wrong shape this helper exists to make unwritable. Callers: the
- * server-composed actor on a `recordedClaims` record (the Resources plane's `#buildRecordedClaims`,
- * `packages/resources/src/snapshots.ts`) and any later cross-node mint path, so the two cannot
- * drift on the RFC semantics.
+ * delegation chain — the wrong shape this helper exists to make unwritable. Callers: `lmz.actFor`
+ * (`lmz-api.ts`), which prepends a node's local principal to the claims of a call the node holds,
+ * and the server-composed actor on a `recordedClaims` record (the Resources plane's
+ * `#buildRecordedClaims`, `packages/resources/src/snapshots.ts`), so the two cannot drift on the
+ * RFC semantics.
  *
- * ⚠️ **Applies to recorded claims only — never to an access token.** A live refusal keys on an actor
- * chain being PRESENT and would fire on a session token that grew one: `worker-token.ts`'s
- * root-identity gate refuses to re-narrow. Prepend an actor into somebody's own session token and
- * they lose their ability to impersonate, for a reason nobody intended. If a token ever seems to
- * need this, the fix is to keep it off that path — never to start comparing the chain's identity to
- * the subject's, which `security.md` rule (1) forbids outright.
+ * ⚠️ **Never into a person's access token.** A live refusal keys on an actor chain being PRESENT
+ * and would fire on a session token that grew one: `worker-token.ts`'s root-identity gate refuses
+ * to re-narrow. Prepend an actor into somebody's own session token and they lose their ability to
+ * impersonate, for a reason nobody intended. The claims of a chain `lmz.actFor` starts are not a
+ * token: nothing mints them, they last one chain, and the gate refusing a caller inside that chain
+ * is intended, since a local principal never impersonates. Never start comparing the chain's
+ * identity to the subject's, which `security.md` rule (1) forbids outright.
  *
  * The actor arrives as the PAIR — a bare `actorSub` would drop the `profileId` the chain is
  * supposed to carry for display — and the emitted entry matches `buildAuthClaims`'s `act`

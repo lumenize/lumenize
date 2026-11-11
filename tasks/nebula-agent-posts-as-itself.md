@@ -322,7 +322,7 @@ Numbered in build order. Every phase lands before personas (D13); the wake check
      - The rename block's wider greps, read by eye, show only dated history and real access tokens.
      - `drive.ts all --fast` passes, `four-party-chat` included, which reads the field.
 
-2. **Mesh runs a block under claims, in two forms (item 3).** Lane: `packages/mesh/test`, with real Durable Objects, since no product path exists until Phase 5.
+2. **Mesh runs a block under claims, in two forms (item 3).** Built 2026-11-11 as `lmz.holdCall()`, `lmz.actFor(held, principal, fn)` and `lmz.asLocalPrincipal(principal, fn)`. Lane: `packages/mesh/test`, with real Durable Objects, since no product path exists until Phase 5.
    - **Form one, a local principal's own claims.** Its entry takes only the principal's name. Mesh derives `aud` and `authScope` from the node's own name, never sets `scopeAdmin`, and refuses a name shaped like a UUID. A call made under them starts a fresh chain. The builder personas' `asPersona` will share is separate, since a persona's claims carry on; the principal's kind, recorded on the built context, is what `buildOutgoingCallContext` reads.
    - **Form two, a held call re-chained.** Mesh captures the running call's context and returns an opaque handle with no exported constructor, usable only through Mesh's own run-under entry, which prepends the node's local principal with `prependActor` and carries the held call's `originRequest` over. Capturing is refused inside form one and inside a chain already re-chained, by a Mesh-private marker on the context, never by comparing `act.sub`.
    - **Success criteria, each with its mutation:**
@@ -330,7 +330,7 @@ Numbered in build order. Every phase lands before personas (D13); the wake check
      - An object a node builds itself is refused as a handle, by the type and at runtime. Mutation: accept anything carrying `originAuth`, and it runs.
      - Capturing inside a form-one block throws. Mutation: allow it, and the second node records `agent:lumenize` as its subject.
      - Capturing outside any call, in an alarm handler, throws. Mutation: return a handle with no claims, and the call proceeds.
-     - Form one with a UUID-shaped name throws, and a write under form one at a node where the principal holds no grant is refused. Mutation: build its claims with `scopeAdmin`, and the write lands.
+     - Form one with a UUID-shaped name throws, and its built claims fail the dominion verdict at the node's own name. Mutation: build them with `scopeAdmin`, and the verdict is true. Mesh has no orgTree, so the write itself being refused is Phase 3's, in the Resources lane.
      - A call made under form one reaches its callee with no `originAuth`. Mutation: inherit the built claims, and the callee reads `agent:lumenize`.
      - The impersonation mint refuses a caller inside a form-two chain, with the fixture a dominion holder calling from the subject's own host and the refusal matched by its root-identity message. Mutation: drop the mint's `act` gate, and it mints.
    - **Standing guidance that changes here,** because form two contradicts it from this phase on: `security.md`'s rule on chains a node starts, and `prependActor`'s JSDoc.
@@ -341,7 +341,7 @@ Numbered in build order. Every phase lands before personas (D13); the wake check
      - A Galaxy admin's revoke of the agent's grant is refused with the protected-grant message. Mutation: drop the check in `revokePermission`, and it lands.
      - A `setPermission` to `read`, below the `write` the host declared, is refused with that message. Mutation: drop the check in `setPermission`, and the grant reads `read`.
      - Positive controls: setting the agent's grant to `write` again passes, and revoking a collaborator's unprotected grant on `chat` lands. Mutation: refuse every change that names the agent, and the first control reds.
-   - **Success criteria (the Resources lane, because rows written at construction cannot be read from a running stack):** constructing the plane a second time over the same storage writes no rows. Mutation: upsert the seed, and it writes.
+   - **Success criteria (the Resources lane, because rows written at construction cannot be read from a running stack):** constructing the plane a second time over the same storage writes no rows. Mutation: upsert the seed, and it writes. A write under `lmz.asLocalPrincipal` at a node where the principal holds no grant is refused, and lands at one where it does. Mutation: skip the grant, and the second write is refused.
    - **Check:** `grep -rl ROOT_NODE_ID apps/nebula/harness apps/nebula/test packages/resources/test --include='*.ts' | xargs grep -l "'Message'" | xargs grep -li galaxy` lists the files that may post a Galaxy's chat at the root, 18 of the 80 that name `ROOT_NODE_ID` on 2026-11-11. Each is read, and its chat posts move to `CHAT_NODE_ID`; a Star's sites stay.
    - `deleteNode`'s JSDoc states, as prose, that whatever first reads `deleted` exempts a node holding a protected grant.
 
@@ -437,6 +437,24 @@ Numbered in build order. Every phase lands before personas (D13); the wake check
 - **The `/live` sweep (`drive.ts all --fast`): 55 of 57 passed, then 2 of 2 on `--rerun`, with one parked.** `each-transaction-gets-one-moment` and `identity-convergence` each failed once waiting 60 s for a login email that Resend reported delivered, and passed on the rerun with nothing changed. Both are flakes in mail delivery, not passes that cancel a failure.
 
 **Close-out:** ADR-016's naming bullet now argues for the new name and lists the three old ones. The backlog's *Queryable ADR-016 trail* row and `on-hold/nebula-collaborator-tiers.md` say "the caller's full verified claims". Personas' superseded row keeps "stored acting token", as history.
+
+### Phase 2, Mesh's two forms (2026-11-11)
+
+**For the human:** nothing needs a decision. Three choices were mine to make, each inside what Pass 1 decided:
+
+- **The names:** `lmz.holdCall()`, `lmz.actFor(held, principal, fn)` and `lmz.asLocalPrincipal(principal, fn)`.
+- **`holdCall` also refuses a call that carries no claims,** such as a chain another node started, since there is no caller to act for. Pass 1 named only the alarm case.
+- **One criterion moved lanes.** Mesh has no orgTree, so "a write under form one is refused without a grant" is tested here as the dominion verdict on the built claims, and the write itself moves to Phase 3's Resources lane.
+
+**Retro:**
+
+- **All ten tests passed on first write, and all were real.** Twelve mutations in `lmz-api.ts`, one in the mint and one in the handle's type each reddened exactly the test meant for it.
+- **One assertion was checked twice.** The `scopeAdmin` mutation first failed on the claims' shape, which hid whether the dominion verdict could fail. Asserting the verdict first showed it does: it reads `true` under the mutation.
+- **The marker is a symbol key on the context, and that is what keeps it in the isolate.** `buildOutgoingCallContext`'s spread copies it, so a self-call still refuses, and no wire carries it. A test holds this: keyed with a string instead, the next node refuses a call it should be able to hold.
+- **"Outside any call" is tested by direct RPC,** which sets no call context, standing in for an alarm handler.
+- **Suites:** Mesh 83 files and 1,026 tests, up by the 13 added; Resources and Nebula unchanged.
+
+**Close-out:** `security.md`'s rule on chains a node starts now names the two forms as the only code that may write `originAuth`. `prependActor`'s JSDoc names `lmz.actFor` as a caller and warns against a person's access token. A stale handle beside `__executeOperation` in `lmz-api.ts` is gone.
 
 ## Non-goals
 

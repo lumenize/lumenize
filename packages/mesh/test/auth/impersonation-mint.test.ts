@@ -24,6 +24,7 @@ import {
 } from './test-helpers';
 import { createTestToken } from '../../src/auth/create-test-token';
 import { mintImpersonationToken, type ImpersonationMint } from '../../src/auth/worker-token';
+import { prependActor } from '../../src/auth/access-claims';
 
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 
@@ -333,6 +334,22 @@ describe('the impersonation mint', () => {
       })();
 
       expect(refusalOf(await mint(actBearing.access_token, user.parsed.sub))).toMatch(/root identity/);
+    });
+
+    // A chain a node starts with `lmz.actFor` carries the held caller's claims with the node's local
+    // principal prepended, the shape `claims-forms.test.ts` pins. The caller here holds dominion and
+    // calls from the SUBJECT's own host, so eligibility passes and only the root-identity gate can
+    // refuse. Mutation: delete the gate → it mints → this reds.
+    it('rejects a caller inside a chain a local principal acts in', async () => {
+      const u = uni();
+      const admin = await foundUniverse(SELF, u, `admin-${u}@example.com`);
+      const user = await inviteAndLogin(SELF, u, admin.access_token, 'user@example.com');
+      const held = await verifiedClaims(admin.access_token);
+      // Fixture guard: without `act`, this exact caller DOES mint for this subject.
+      expect((await mintImpersonationToken(env as Env, held, user.parsed.sub)).ok).toBe(true);
+
+      const acted = { ...held, act: prependActor(held.act, { sub: 'agent:lumenize', profileId: 'agent:lumenize' }) };
+      expect(refusalOf(await mintImpersonationToken(env as Env, acted, user.parsed.sub))).toMatch(/root identity/);
     });
 
     // The REAL artifact: re-present a token THIS mint produced. Mutation: delete the root-identity

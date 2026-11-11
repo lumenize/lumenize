@@ -10,6 +10,7 @@ import { isClientInstanceName, hostInstanceOf } from './client-address.js';
 import type { ClientGateway } from './client-gateway.js';
 import { PASSAGE_STEP, UNSCOPED_NODE } from './node-kinds.js';
 import { parseId, isPlatformScope } from './auth/parse-id.js';
+import { prependActor } from './auth/access-claims.js';
 
 /**
  * Whether a name is a scope's (`acme`, `acme.crm`, `acme.crm.tenant1`), the reserved `_platform` included. Not a string reads as a scope, so a
@@ -139,7 +140,9 @@ export function buildOutgoingCallContext(
 ): CallContext {
   const currentContext = getCurrentCallContext();
 
-  if (options?.newChain || !currentContext) {
+  // A local principal's built claims never leave its node: a call made under them is the node
+  // speaking for itself, so it starts a fresh chain whatever `newChain` says.
+  if (options?.newChain || !currentContext || kindOf(currentContext) === 'local-principal') {
     // Start a fresh chain - caller becomes the origin
     // callChain = [caller] (caller is both origin and immediate caller)
     return {
@@ -166,6 +169,106 @@ export function buildOutgoingCallContext(
     callChain: newCallChain,
     callee: undefined,
   };
+}
+
+// ============================================
+// Running a block under claims
+// ============================================
+
+/**
+ * Marks a context Mesh built for a local principal, or re-chained from a held call. The key is a
+ * symbol, so `buildOutgoingCallContext`'s spread carries it within the isolate and no wire carries it:
+ * an envelope from another node can neither bring one nor forge one.
+ */
+const CONTEXT_KIND = Symbol('lmz.contextKind');
+type ContextKind = 'local-principal' | 'rechained';
+
+function kindOf(context: CallContext | undefined): ContextKind | undefined {
+  return (context as (CallContext & { [CONTEXT_KIND]?: ContextKind }) | undefined)?.[CONTEXT_KIND];
+}
+
+declare const HELD_CALL: unique symbol;
+
+/**
+ * A call a node is holding so it can act for the caller later, made only by `lmz.holdCall()`.
+ * It is opaque on purpose: a node holds a person's claims through one of these and can never build
+ * one, so it cannot compose claims of its own.
+ */
+export interface HeldCall { readonly [HELD_CALL]: true }
+
+/** Every genuine handle and the context it holds. Membership here IS what makes a handle genuine. */
+const heldCalls = new WeakMap<object, CallContext>();
+
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A local principal's name says what it is (ADR-025), so it can never be a person's random id. */
+function requireLocalPrincipalName(principal: string): void {
+  if (typeof principal !== 'string' || principal.length === 0) {
+    throw new Error('A local principal needs a name, such as "agent:lumenize"');
+  }
+  if (UUID_SHAPE.test(principal)) {
+    throw new Error(`A local principal's name says what it is, and "${principal}" is shaped like a person's id`);
+  }
+}
+
+function holdCallShared(): HeldCall {
+  const context = getCurrentCallContext();
+  if (!context) {
+    throw new Error('Cannot hold a call outside of a mesh call: there is no caller to act for');
+  }
+  if (!context.originAuth) {
+    throw new Error('Cannot hold a call that carries no claims: there is no caller to act for');
+  }
+  const kind = kindOf(context);
+  if (kind === 'local-principal') {
+    throw new Error("Cannot hold a local principal's own claims: they never leave its node");
+  }
+  if (kind === 'rechained') {
+    throw new Error('Cannot hold a call already acted for: hold the call that brought the claims');
+  }
+  const held = Object.freeze({}) as HeldCall;
+  heldCalls.set(held, context);
+  return held;
+}
+
+function actForShared<T>(held: HeldCall, principal: string, fn: () => T): T {
+  const context = typeof held === 'object' && held !== null ? heldCalls.get(held) : undefined;
+  if (!context?.originAuth) {
+    throw new TypeError('Not a held call: only `lmz.holdCall()` makes one');
+  }
+  requireLocalPrincipalName(principal);
+  const claims = (context.originAuth.claims ?? {}) as Record<string, unknown>;
+  const rechained = {
+    callChain: [],
+    originAuth: {
+      sub: context.originAuth.sub,
+      claims: {
+        ...claims,
+        act: prependActor(claims.act as Parameters<typeof prependActor>[0], { sub: principal, profileId: principal }),
+      },
+    },
+    // The caller's request facts ride on, so a link built from them names the host they are on.
+    ...(context.originRequest ? { originRequest: context.originRequest } : {}),
+    [CONTEXT_KIND]: 'rechained' as const,
+  } as CallContext;
+  return runWithCallContext(rechained, fn);
+}
+
+function asLocalPrincipalShared<T>(nodeName: string | undefined, principal: string, fn: () => T): T {
+  requireLocalPrincipalName(principal);
+  if (!nodeName) {
+    throw new Error('A local principal acts in a named node, and this one has no name yet');
+  }
+  const built = {
+    callChain: [],
+    originAuth: {
+      sub: principal,
+      // No `scopeAdmin`, ever: a local principal holds grants in its node's orgTree and nothing else.
+      claims: { sub: principal, profileId: principal, aud: nodeName, access: { authScope: nodeName } },
+    },
+    [CONTEXT_KIND]: 'local-principal' as const,
+  } as CallContext;
+  return runWithCallContext(built, fn);
 }
 
 /**
@@ -249,7 +352,7 @@ function isForThisNode(
  * the framework runs the handler **locally** with the Error (the caller is still hot — it
  * just awaited the short ack). A real
  * Workers-RPC transport reject (e.g. a non-`@mesh` `WorkerEntrypoint` with no
- * `__executeOperation`, B8) is folded into the same admission-reject path. Never rejects.
+ * `__executeOperation`) is folded into the same admission-reject path. Never rejects.
  *
  * @internal
  */
@@ -631,6 +734,34 @@ export interface LmzApi {
   ): void;
 
   /**
+   * Hold the call this node is running in, so it can act for the caller later with `actFor`.
+   *
+   * @throws Error outside a mesh call, on a call carrying no claims, inside `asLocalPrincipal`, and
+   *   inside `actFor`: the handle always holds a caller's own verified claims.
+   */
+  holdCall(): HeldCall;
+
+  /**
+   * Run `fn` in a fresh chain under a held call's claims, with `principal` prepended as the
+   * outermost `act` (RFC 8693). Every `lmz.call` and every read of `callContext` inside inherits
+   * them unchanged, so a record written on any node the chain reaches names both. Authorization is
+   * unchanged, since every check reads the subject and never `act`.
+   *
+   * @throws TypeError if `held` did not come from `holdCall()`; Error if `principal` is empty or
+   *   shaped like a UUID.
+   */
+  actFor<T>(held: HeldCall, principal: string, fn: () => T): T;
+
+  /**
+   * Run `fn` under claims Mesh builds for a local principal of this node: `principal` as subject,
+   * this node's name as `aud` and `authScope`, and no `scopeAdmin`. The claims never leave the
+   * node: a call made inside starts a fresh chain with no claims.
+   *
+   * @throws Error if `principal` is empty or shaped like a UUID, or the node has no name yet.
+   */
+  asLocalPrincipal<T>(principal: string, fn: () => T): T;
+
+  /**
    * Send one continuation to many targets — one `call` per target, from this node, at any N.
    *
    * `options.onResult` hears only failures. Each call starts a fresh chain unless `newChain: false`.
@@ -829,6 +960,18 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
     ): void {
       broadcastShared(this, targets, remoteContinuation, options);
     },
+
+    holdCall(): HeldCall {
+      return holdCallShared();
+    },
+
+    actFor<T>(held: HeldCall, principal: string, fn: () => T): T {
+      return actForShared(held, principal, fn);
+    },
+
+    asLocalPrincipal<T>(principal: string, fn: () => T): T {
+      return asLocalPrincipalShared(this.instanceName, principal, fn);
+    },
   };
 }
 
@@ -899,6 +1042,18 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       options: BroadcastOptions
     ): void {
       broadcastShared(this, targets, remoteContinuation, options);
+    },
+
+    holdCall(): HeldCall {
+      return holdCallShared();
+    },
+
+    actFor<T>(held: HeldCall, principal: string, fn: () => T): T {
+      return actForShared(held, principal, fn);
+    },
+
+    asLocalPrincipal<T>(principal: string, fn: () => T): T {
+      return asLocalPrincipalShared(this.instanceName, principal, fn);
     },
   };
 }

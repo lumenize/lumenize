@@ -14,6 +14,7 @@ import type { GatewayConnectionInfo } from '../src/gateway-messages';
 import type { CallContext } from '../src/types';
 import { authFacadeFor, meshTestFetch } from './support/test-auth';
 import { defineRoutes } from '../src/routes';
+import { hasDominionOver } from '../src/auth/parse-id';
 
 // Mesh's own auth, which every Client here logs in through (test/support/login.ts).
 export { AuthRegistry, Profile } from './support/test-auth';
@@ -450,6 +451,77 @@ export class TestDO extends UnscopedMeshDO<Env> {
 
   async getObservedIdentity(): Promise<any> {
     return this.ctx.storage.kv.get('observed_identity');
+  }
+
+  // ── Running a block under claims: `holdCall` / `actFor` / `asLocalPrincipal` (claims-forms.test.ts) ──
+
+  /** Hold the incoming call, then act for its caller: record what in-node code reads inside the
+   *  re-chained block, and call `captureContext` on another node from inside it. */
+  @mesh()
+  holdThenActFor(principal: string, binding: string, instance: string, method = 'captureContext', args: unknown[] = []): void {
+    const held = this.lmz.holdCall();
+    this.lmz.actFor(held, principal, () => {
+      this.ctx.storage.kv.put('acted_context', this.lmz.callContext);
+      this.lmz.call(binding, instance, (this.ctn() as any)[method](...args),
+        this.ctn<TestDO>().recordCallFailure(), { onErrorOnly: true });
+    });
+  }
+
+  /** Run one refusal case inside a call that carries claims, and keep what it threw (or 'ran'). */
+  @mesh()
+  tryClaimsForm(which: 'forged' | 'hold' | 'hold-in-local-principal' | 'hold-in-acted' | 'uuid-principal' | 'uuid-actor'): void {
+    let outcome = 'ran';
+    try {
+      if (which === 'forged') {
+        // A node cannot build a handle: this object has the claims and is still refused.
+        this.lmz.actFor({ originAuth: this.lmz.callContext.originAuth } as any, 'agent:test', () => undefined);
+      } else if (which === 'hold') {
+        this.lmz.holdCall();
+      } else if (which === 'hold-in-local-principal') {
+        this.lmz.asLocalPrincipal('agent:test', () => this.lmz.holdCall());
+      } else if (which === 'hold-in-acted') {
+        const held = this.lmz.holdCall();
+        this.lmz.actFor(held, 'agent:test', () => this.lmz.holdCall());
+      } else if (which === 'uuid-principal') {
+        this.lmz.asLocalPrincipal(crypto.randomUUID(), () => undefined);
+      } else {
+        const held = this.lmz.holdCall();
+        this.lmz.actFor(held, crypto.randomUUID(), () => undefined);
+      }
+    } catch (e) {
+      outcome = (e as Error).message;
+    }
+    this.ctx.storage.kv.put(`claims_form_${which}`, outcome);
+  }
+
+  /** `holdCall` with no call running, as an alarm handler would find it: reached by direct RPC,
+   *  which sets no call context. */
+  tryHoldOutsideCall(): string {
+    try { this.lmz.holdCall(); return 'ran'; } catch (e) { return (e as Error).message; }
+  }
+
+  /** Run as a local principal: keep the claims in-node code reads and whether they would pass the
+   *  dominion bypass here, then call `captureContext` on another node from inside the block. */
+  runAsLocalPrincipal(principal: string, binding: string, instance: string): void {
+    this.lmz.asLocalPrincipal(principal, () => {
+      const context = this.lmz.callContext;
+      this.ctx.storage.kv.put('local_principal_context', context);
+      this.ctx.storage.kv.put('local_principal_dominion',
+        hasDominionOver(context.originAuth?.claims as any, this.lmz.instanceName!));
+      this.lmz.call(binding, instance, this.ctn<TestDO>().captureContext(),
+        this.ctn<TestDO>().recordCallFailure(), { onErrorOnly: true });
+    });
+  }
+
+  /** The type-level half of the 'forged' case: a node-built object is not a `HeldCall`. Never
+   *  called; `tsc` fails on an unused `@ts-expect-error` if the type ever accepts it. */
+  protected typeCheckForgedHandle(): void {
+    // @ts-expect-error a HeldCall comes only from `lmz.holdCall()`
+    this.lmz.actFor({ originAuth: { sub: 'x' } }, 'agent:test', () => undefined);
+  }
+
+  async readKv(key: string): Promise<any> {
+    return this.ctx.storage.kv.get(key);
   }
 
   // Multi-hop: capture MY context, then fire an onward call so the next hop captures too.
