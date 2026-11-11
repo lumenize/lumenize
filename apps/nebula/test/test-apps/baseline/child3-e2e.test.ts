@@ -74,11 +74,12 @@ describe('child3 Phase 6 — history-restore + multi-participant e2e', () => {
       'add a counter', 'Added the counter.', 'make it blue', 'Styled it blue.',
     ]);
     // The agent messages carry the REQUIRED replyTo ref (the corpus prompt→reply link)
-    // and the always-emitted Nebula actor pair (`sub` AND `profileId` — no Registry
-    // lookup ever needed to display a Nebula reply).
+    // and record the agent as their subject, with its `profileId` beside its `sub`, so no
+    // Registry lookup is ever needed to display an agent reply.
     expect((snaps[1].value as { replyTo?: string }).replyTo).toBe(u1);
     expect((snaps[3].value as { replyTo?: string }).replyTo).toBe(u2);
-    expect(snaps[1].meta.recordedClaims.act).toMatchObject({ sub: NEBULA_SUB, profileId: NEBULA_SUB });
+    expect(snaps[1].meta.recordedClaims).toMatchObject({ sub: NEBULA_SUB, profileId: NEBULA_SUB });
+    expect(snaps[1].meta.recordedClaims.act).toBeUndefined();
     // The coach received the conversation with ZERO ephemeral chunks (pure durable recovery).
     expect(coach.streamChunkCount).toBe(0);
 

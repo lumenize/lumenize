@@ -55,4 +55,17 @@ describe('a write as the host\'s local principal', () => {
     // The principal is the write's subject, with nobody acting for it.
     expect(await host.recordedSubject(landedId)).toBe(SEEDED_PRINCIPAL);
   });
+
+  // Mutation: let `ensureResource` drop the transaction's answer, as it once did → a refused write
+  // resolves, and the first assertion reads 'created'.
+  it('through ensureResource, throws when the write is refused: nothing waits on that call\'s answer', async () => {
+    const host = await seededHost();
+    const refusedId = crypto.randomUUID();
+    const landedId = crypto.randomUUID();
+    expect(await host.ensureAsPrincipal(refusedId, BARE_NODE_ID))
+      .toBe(`ensureResource refused: write permission required on node ${BARE_NODE_ID}`);
+    expect(await host.recordedSubject(refusedId)).toBeUndefined();
+    expect(await host.ensureAsPrincipal(landedId, GRANTED_NODE_ID)).toBe('created');
+    expect(await host.recordedSubject(landedId)).toBe(SEEDED_PRINCIPAL);
+  });
 });

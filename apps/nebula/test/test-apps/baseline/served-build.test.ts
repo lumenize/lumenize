@@ -4,10 +4,10 @@
  *
  *  - The version bump: a Galaxy installed at the old chat seed installs the new one when a client
  *    pinned to it subscribes, and that client hears the next landing.
- *  - The verdict: a landing whose caller's chat-node grant is revoked while the build runs still
- *    records its build, under the verdict of the door that admitted it.
- *  - The record: a turn's landing names the poster with the platform as actor; a direct
- *    `buildNow` names its caller with no actor, whatever option it sends and whoever's turn runs.
+ *  - The grant: a landing whose caller's chat-node grant is revoked while the build runs still
+ *    records its build, because the record is the agent's write, on the agent's own grant.
+ *  - The record: every landing names the agent as its subject, a turn's and a direct `buildNow`'s
+ *    alike, and `buildNow`'s log line names who asked.
  *  - Forgery: a row a participant creates or deletes never keeps the next landing from being the
  *    newest.
  *
@@ -15,8 +15,9 @@
  * fake build that lands in a second are all a test seam's (`fake-build.ts`, `GalaxyTest`), and
  * `dev-star-follows-the-build` reads the same rows from a running stack.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
+import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_MESSAGE_TYPES, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
@@ -70,6 +71,16 @@ async function newestNaming(c: NebulaClientTest, sub: { resourceIds: string[] },
   return snap!;
 }
 
+type SinkEntry = { namespace: string; message: string; data?: Record<string, unknown> };
+let entries: SinkEntry[] = [];
+beforeEach(() => { entries = []; setDebugSink((e) => entries.push(e as unknown as SinkEntry)); });
+afterEach(() => clearDebugSink());
+
+/** The subjects `buildNow` logged as having asked for a build at `scope`, in order. */
+const askers = (scope: string): unknown[] => entries
+  .filter((e) => e.namespace === 'nebula.Galaxy.buildNow' && e.message === 'build asked for' && e.data?.instanceName === scope)
+  .map((e) => (e.data?.recordedClaims as { sub?: string } | undefined)?.sub);
+
 describe('a landing records its build as .dev\'s newest ServedBuild', () => {
   it('the version bump: a Galaxy on the old chat seed installs the new one, and its client hears the landing', async () => {
     // Mutation: keep the label `chat-message-v1` with `ServedBuild` added → the Galaxy keeps the
@@ -97,9 +108,10 @@ describe('a landing records its build as .dev\'s newest ServedBuild', () => {
     old[Symbol.dispose](); client[Symbol.dispose]();
   });
 
-  it('the verdict: a grant revoked while the build runs does not refuse the record', async () => {
-    // Mutation: drop `pinnedAtDoor` from the landing's write → the live grant is checked at commit,
-    // the record is refused after `.dev` moved, and the subscriber never sees the build.
+  it('the grant: a grant revoked while the build runs does not refuse the record, which is the agent\'s', async () => {
+    // Mutation: write the record under the build's caller instead of as the agent → the caller's
+    // live grant is checked at commit, the record is refused after `.dev` moved, and the
+    // subscriber never sees the build.
     const scope = uniqueScope();
     const { client: o, accessToken } = await owner(scope);
     const p = await collaborator(scope, accessToken, o);
@@ -113,16 +125,16 @@ describe('a landing records its build as .dev\'s newest ServedBuild', () => {
     const report = await building;
     expect(report.preview.refreshed).toBe(true);
     const snap = await newestNaming(o, sub, report.bundle.indexSha256!);
-    expect(snap.meta.recordedClaims.sub).toBe(p.sub);
+    expect(snap.meta.recordedClaims.sub).toBe(NEBULA_SUB);
     // The positive control for the revoke: the collaborator's next build is refused at the door.
     await expect(g(p.client, scope).build()).rejects.toThrow(/^write permission required on node /);
     o[Symbol.dispose](); p.client[Symbol.dispose]();
   });
 
-  it('the record: a turn\'s landing names the poster with the platform as actor; a direct buildNow names its caller alone', async () => {
-    // Mutations: stamp no actor inside a turn → the turn's row has no `act`; let an option on
-    // `buildNow` set one → the second direct row has an `act`; decide by `#turnInFlight` → P's
-    // build during O's turn has an `act`.
+  it('the record: every landing names the agent alone, and buildNow logs who asked', async () => {
+    // Mutations: write the record under the build's caller → each row names a person; drop
+    // `buildNow`'s log line → no asker is logged; log without the caller's claims → the askers
+    // read undefined.
     const scope = uniqueScope();
     const { client: o, accessToken, payload: oP } = await owner(scope);
     const p = await collaborator(scope, accessToken, o);
@@ -146,19 +158,20 @@ describe('a landing records its build as .dev\'s newest ServedBuild', () => {
     o.callGalaxySeedChatScript(scope, turn(1));
     await vi.waitFor(() => expect(o.callCompleted).toBe(true));
     await o.postUserMessage('build it');
-    await vi.waitFor(async () => {
-      const snap = await newest(o, sub);
-      expect(snap?.meta.recordedClaims.act?.sub).toBe(NEBULA_SUB);
-    }, { timeout: 15_000 });
+    await vi.waitFor(async () => expect(await newest(o, sub)).not.toBeNull(), { timeout: 15_000 });
     const turnRow = (await newest(o, sub))!;
-    expect(turnRow.meta.recordedClaims.sub).toBe(oP.sub);
+    expect(turnRow.meta.recordedClaims).toMatchObject({ sub: NEBULA_SUB, profileId: NEBULA_SUB });
+    expect(turnRow.meta.recordedClaims.act).toBeUndefined();
+    // The turn's `build` tool ran inside the poster's call, so the poster is who asked.
+    expect(askers(scope)).toEqual([oP.sub]);
 
-    // A direct build, with an option the wire might carry.
+    // A direct build.
     await ops.write('src/App.vue', '<template><p>direct</p></template>');
-    const direct = await ops.build({ preview: true, actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB }, inTurn: true });
+    const direct = await ops.build({ preview: true });
     const directRow = await newestNaming(o, sub, direct.bundle.indexSha256!);
-    expect(directRow.meta.recordedClaims.sub).toBe(oP.sub);
+    expect(directRow.meta.recordedClaims.sub).toBe(NEBULA_SUB);
     expect(directRow.meta.recordedClaims.act).toBeUndefined();
+    expect(askers(scope)).toEqual([oP.sub, oP.sub]);
 
     // P builds directly while O's turn is still thinking.
     o.callGalaxySeedChatScript(scope, [{ __delayMs: 2_500 }, { choices: [{ message: { content: 'thought about it', reasoning_content: '', tool_calls: [] } }] }]);
@@ -168,8 +181,9 @@ describe('a landing records its build as .dev\'s newest ServedBuild', () => {
     await g(p.client, scope).write('src/App.vue', '<template><p>during</p></template>');
     const during = await g(p.client, scope).build();
     const duringRow = await newestNaming(o, sub, during.bundle.indexSha256!);
-    expect(duringRow.meta.recordedClaims.sub).toBe(p.sub);
+    expect(duringRow.meta.recordedClaims.sub).toBe(NEBULA_SUB);
     expect(duringRow.meta.recordedClaims.act).toBeUndefined();
+    expect(askers(scope)).toEqual([oP.sub, oP.sub, p.sub]);
     o[Symbol.dispose](); p.client[Symbol.dispose]();
   });
 

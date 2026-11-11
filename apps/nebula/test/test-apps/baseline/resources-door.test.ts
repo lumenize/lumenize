@@ -10,7 +10,6 @@
  *   - a trailing address a caller appends is ignored: it drops no one else's row and writes no
  *     row under another client's address or a binding the caller chose;
  *   - a chain no client originated is refused and writes nothing;
- *   - a transaction cannot carry an `actor`, so a client cannot forge Nebula's authorship;
  *   - on the Galaxy, a Star-tier caller with no grant is told `permission` as a resolved result,
  *     and a grant opens the same method;
  *   - the response leg: each host's `resourcesResults` is an undecorated getter, no reaper or forward
@@ -37,8 +36,7 @@ import {
   DEFAULT_CHAT_ID,
 } from '@lumenize/nebula';
 import { Resources, ROOT_NODE_ID, canonicalQueryHash } from '@lumenize/resources';
-import { NEBULA_SUB } from '@lumenize/mesh/auth';
-import type { QueryDescriptor, Snapshot, TransactionResult } from '@lumenize/resources';
+import type { QueryDescriptor, TransactionResult } from '@lumenize/resources';
 import { adminClientAt, universeAdminClient, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';
 
@@ -368,23 +366,6 @@ describe('the door derives the caller\'s own address — a trailing one is ignor
     } finally {
       clearDebugSink();
     }
-  });
-
-  it('a transaction carrying an `actor` commits under the caller\'s own claims — no forged `act`', async () => {
-    // The door's `transaction` takes three arguments and the plane's op takes no options, so a
-    // fourth argument naming Nebula as the actor reaches nothing. Driven on the Galaxy, where a
-    // Message whose token carries `act: NEBULA_SUB` would be labelled the agent's own turn.
-    const host = await galaxyHost();
-    const client = await host.client();
-    const mid = uuid();
-    const out = await client.lmz.callAsync(host.binding, host.scope,
-      (client.ctn() as any).resources.transaction(host.version, { [mid]: host.createOp() },
-        { actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB }, pinnedAtDoor: true })) as TransactionResult;
-    expect(out.ok).toBe(true);
-    const snap = await client.resources.read('Message', mid) as Snapshot;
-    expect(snap.meta.recordedClaims.sub).toBe(client.claims.sub);
-    expect(snap.meta.recordedClaims.act).toBeUndefined();
-    client[Symbol.dispose]();
   });
 });
 

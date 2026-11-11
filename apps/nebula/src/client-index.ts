@@ -26,7 +26,7 @@ export type {
 export { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from './chat-constants';
 
 // Participant derivation — display identity from the stamped `meta.recordedClaims`
-// (author from `sub`, kind from the outermost act?.sub === NEBULA_SUB). Pure.
+// (author from `sub`, kind from whether that subject is the agent). Pure.
 export { deriveKind, deriveParticipants } from './participants';
 export {
   startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay, TURN_IDLE_MS, TURN_HEARTBEAT_MS,

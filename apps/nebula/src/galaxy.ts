@@ -25,7 +25,6 @@
  * DAG-granted, and the per-op check lives inside the plane.
  */
 
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { addressOf, mesh, rawRpc } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { Workspace } from '@cloudflare/computer';
@@ -141,14 +140,6 @@ type BuildJobOpts = { ontology?: { version: string } };
 /** The seam's placeholder `preview` — {@link Galaxy.#buildAndLand} overwrites it with the
  *  landing's outcome, so a faked `build()` never decides one either. */
 const PREVIEW_UNDECIDED = { refreshed: false, why: 'not decided at the build layer' };
-
-/**
- * Entered around a triggered turn's loop and nowhere else, so a landing tells a turn's build from
- * a direct `buildNow` by where it runs, never by anything a caller sends ({@link Galaxy}'s
- * `#recordServedBuild`). A direct `buildNow` arrives on a request of its own, outside it, even
- * while a turn runs.
- */
-const turnContext = new AsyncLocalStorage<true>();
 
 /** The `.dev` Star's served copy: the build a landing copied out of `/workspace/dist/`. It sits
  *  outside `/workspace`, so the model's paths (`assertModelPath`) never reach it and git never
@@ -475,8 +466,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    *
    *  A hung-call backstop and nothing else. It is NOT an authorization bound: a
    *  triggered turn runs detached under the POSTER's claims as verified at the post, and
-   *  finishes under them whatever happens to the token or the grant meanwhile — the
-   *  reply commits with the door's verdict pinned (`TransactionOpts.pinnedAtDoor`). It
+   *  its source writes and builds finish under them whatever happens to the token or the
+   *  grant meanwhile. Its reply is the agent's own write, on the agent's own grant. It
    *  went from 300 s to 840 s on 2026-09-06 when the round cap went to 32, and the same
    *  day Larry retired the older "must stay under the access TTL" coupling, which had
    *  tied a liveness knob to the token window for no property the design wants. */
@@ -934,18 +925,17 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   /**
    * Record a landed build as `.dev`'s newest `ServedBuild`, which every Studio on the app hears
    * through its query on the chat. A fresh id each time, so a row a participant forged or deleted
-   * never keeps the next landing from being the newest. It is written as the build's caller:
-   * inside a turn ({@link turnContext}) the poster, with the platform as actor, the record every
-   * agent write carries; outside, the direct `buildNow` caller, with no actor. Either way under
-   * the verdict of the door that admitted the build (`pinnedAtDoor`), the post or `buildNow`'s
-   * `requireChatWrite`, since `.dev` has already moved and nothing may refuse the record now. A
-   * failure is logged and the landing stands: `.dev` serves the build either way.
+   * never keeps the next landing from being the newest. The agent writes it, as itself and on its
+   * own `write` at the chat node, whoever asked for the build: `.dev` has already moved, so no
+   * change to a person's grant may refuse the record, and the agent's grant cannot be revoked
+   * (ADR-025). Who asked is {@link buildNow}'s log line. A failure is logged and the landing
+   * stands: `.dev` serves the build either way.
    */
   async #recordServedBuild(buildVersion: string): Promise<void> {
     try {
-      await this.#resources.ensureResource(crypto.randomUUID(), 'ServedBuild', CHAT_NODE_ID,
-        { chat: DEFAULT_CHAT_ID, star: 'dev', buildVersion },
-        { ...(turnContext.getStore() ? { actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB } } : {}), pinnedAtDoor: true });
+      await this.lmz.asLocalPrincipal(NEBULA_SUB, () =>
+        this.#resources.ensureResource(crypto.randomUUID(), 'ServedBuild', CHAT_NODE_ID,
+          { chat: DEFAULT_CHAT_ID, star: 'dev', buildVersion }));
     } catch (e) {
       debug('nebula.Galaxy.landing').error('served build not recorded', { instanceName: this.lmz.instanceName, buildVersion, error: e });
     }
@@ -1386,10 +1376,17 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    *
    * Every in-process caller has already passed the chat floor: the loop's `build` tool runs inside
    * a turn whose post passed the Message create's DAG `write` at the chat node, the same check
-   * `requireChatWrite` makes here, and the landing records under that verdict.
+   * `requireChatWrite` makes here. A call with a client origin logs that caller's claims, the
+   * ADR-016 record of who asked for a build: the `ServedBuild` a landing writes is the agent's.
    */
   @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
   buildNow(opts: { preview?: boolean } = {}): Promise<BuildReport> {
+    const origin = this.#clientOrigin();
+    debug('nebula.Galaxy.buildNow').debug('build asked for', {
+      instanceName: this.lmz.instanceName,
+      preview: opts.preview,
+      ...(origin ? { clientAddress: origin.clientAddress, recordedClaims: toRecordedClaims(origin.claims) } : {}),
+    });
     return this.#queueBuild({ preview: opts.preview });
   }
 
@@ -1404,16 +1401,16 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * permissions above it vary** — anyone whose write lands may trigger, and a caller
    * whose write is refused at the DAG can never reach the model.
    *
-   * The predicate is on KIND (the stamped recordedClaims — never `sub`, never the value):
+   * The predicate is on KIND, read from the stamped `recordedClaims` and never from the value:
    * an agent reply is itself a committed `Message`, so without the human-only gate
-   * Nebula answers itself forever. SINGLE-FLIGHT: a human Message committed while a
+   * the agent answers itself forever. SINGLE-FLIGHT: a human Message committed while a
    * generation is in flight fires nothing — the skipped message sits in the thread and
    * a participant re-prompts after completion (the pre-alpha floor; the two-stage
    * arrival pipeline is the fast-follow's refinement seam).
    *
    * The detached turn runs under the POSTER's own callContext (AsyncLocalStorage rides
-   * the floating promise), so the agent reply commits with the triggering human's
-   * authority and Nebula stamped as the actor — the participant model, structurally.
+   * the floating promise), so its source writes and builds use the poster's claims. Its
+   * reply is the agent's own write ({@link commitAgentMessage}).
    */
   #onChatCommitted(mutations: Map<string, Snapshot>): void {
     for (const [resourceId, snap] of mutations) {
@@ -1466,7 +1463,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
-        turnContext.run(true, () => this.#chatTurn(userMessageId, content)),
+        this.#chatTurn(userMessageId, content),
         new Promise<void>((resolve) => {
           deadlineTimer = setTimeout(() => {
             debug('nebula.Galaxy.trigger').error('turn failed: generation exceeded the deadline', {
@@ -1702,12 +1699,12 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * ephemeral stream by id). Create-if-absent via the capability (a fresh Galaxy-minted
    * id → a create); server-internal, no client delivery.
    *
-   * Attribution: the reply runs under the TRIGGERING HUMAN's `callContext`, so the
-   * subject `sub` stamps automatically — and Nebula is appended as the ACTOR via the
-   * server-supplied write-option (`{ sub: NEBULA_SUB, profileId: NEBULA_SUB }` — the
-   * actor-`profileId` stamp is ALWAYS emitted, so a Nebula message never triggers a
-   * `sub`→`profileId` Registry lookup). No `role`/`author` is written — display derives
-   * only from the stamped `meta.recordedClaims`.
+   * Attribution: the agent posts as itself. The write runs as the Galaxy's local principal
+   * `agent:lumenize`, so the snapshot records it as the subject with no `act`, and the DAG check
+   * passes on the agent's own `write` at the chat node, whatever has happened to the poster's
+   * grant since (ADR-025). Its `profileId` is its own name, so an agent message never needs a
+   * `sub`→`profileId` Registry lookup. No `role`/`author` is written: display derives only from
+   * the stamped `meta.recordedClaims`.
    *
    * `replyTo` is REQUIRED here (the corpus needs prompt→reply linkage — the folded-shape
    * pin) though optional in the ontology TYPE (a human message has none); `codegen` is
@@ -1722,19 +1719,16 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     if (opts.thought !== undefined) value.thought = opts.thought;
     if (opts.codegen !== undefined) value.codegen = opts.codegen;
     debug('nebula.Galaxy.stream').debug('commit', { messageId, len: content.length });
-    // The turn finishes under the authority it STARTED with: the door admitted the post,
-    // and that verdict covers the reply — a grant revoked mid-turn does not refuse it.
-    await this.#resources.ensureResource(messageId, 'Message', nodeId, value, {
-      actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB }, pinnedAtDoor: true,
-    });
+    await this.lmz.asLocalPrincipal(NEBULA_SUB, () =>
+      this.#resources.ensureResource(messageId, 'Message', nodeId, value));
   }
 
   /**
    * The one `@mesh()` door onto the resource plane — its request surface, whose members derive
    * the caller's own address and check each op themselves. Chat participants are non-admin, so
-   * there is no guard on the door: each op's DAG check at the chat node is the gate, and a
-   * transaction's has no `actor` argument, so a client cannot forge `act: { sub: NEBULA_SUB }` —
-   * only host code calling `ensureResource` supplies one: the agent's reply and a turn's landing.
+   * there is no guard on the door: each op's DAG check at the chat node is the gate. A write
+   * records the claims its call carries and nothing a caller sends, so no client can write as
+   * the agent: only host code runs as the Galaxy's local principal.
    */
   @mesh() // open to a descendant Star's member: each member behind the door checks itself
   get resources(): ResourcesRequests {

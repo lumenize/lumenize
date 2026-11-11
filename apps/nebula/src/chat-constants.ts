@@ -57,8 +57,8 @@ export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v2';
  * (write shape: by-id `string`s). `status` ∈ {`thinking`,`streaming`,`complete`,
  * `failed`} (kept as `string` — the enum lives in the writing code, not a second
  * schema language). ⚠️ NO `role` and NO `author` — display derives ONLY from the
- * server-stamped `meta.recordedClaims` (author from `sub`, `kind` from the outermost
- * `act?.sub === NEBULA_SUB`), which is what makes author spoofing impossible; a
+ * server-stamped `meta.recordedClaims` (author from `sub`, and `kind` from whether that
+ * subject is the agent), which is what makes author spoofing impossible; a
  * client-written identity field would be a second, forgeable source of truth.
  *
  * `replyTo` is REQUIRED on an agent message (the corpus needs prompt→reply linkage —

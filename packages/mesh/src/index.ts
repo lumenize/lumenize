@@ -110,7 +110,7 @@ export {
 export type { VerdictClaims } from './auth/parse-id';
 export { parseHost, platformOrigin, deploymentOrigin, hostOrigin, checkedReturnTo } from './auth/hosts';
 export type { HostTarget } from './auth/hosts';
-export { toRecordedClaims, prependActor } from './auth/access-claims';
+export { toRecordedClaims } from './auth/access-claims';
 export type { RecordedClaims } from './auth/access-claims';
 export {
   PLATFORM_SCOPE,

@@ -1,9 +1,9 @@
 /**
  * Participant derivation — how a chat message's displayed identity is computed, in one
- * pure, client-safe module (Phase 4's render and the tests both consume it).
+ * pure, client-safe module, which Studio's render and the tests both consume.
  *
- * **Display derives ONLY from the server-stamped `meta.recordedClaims`** (verified claims:
- * author from `sub`, `kind` from the outermost `act?.sub === NEBULA_SUB`) — never from
+ * **Display derives ONLY from the server-stamped `meta.recordedClaims`** (the claims the write
+ * ran under: author from `sub`, and `kind` from whether that subject is the agent) — never from
  * anything in the message VALUE. That is what makes author spoofing impossible: typia is
  * non-strict, so a hostile client can persist `author`/`role`/any excess key at rest, but
  * no derivation here reads the value at all — the forged keys are indistinguishable from
@@ -17,7 +17,7 @@
 import { NEBULA_SUB } from '@lumenize/mesh/client';
 import type { WireRecordedClaims } from '@lumenize/resources/client';
 
-/** A message participant's kind — `agent` for a Nebula-actor-stamped message, else `human`. */
+/** A message participant's kind: `agent` when the agent wrote the message, else `human`. */
 export type ParticipantKind = 'agent' | 'human';
 
 /** One rendered party: the id display resolves through (`store.lmz.profiles[profileId]`). */
@@ -30,38 +30,31 @@ export interface ParticipantRef {
 }
 
 /**
- * `kind` from the stamp: a message is the AGENT's iff the OUTERMOST `act` entry is the
- * reserved Nebula actor. A constant compare — shape-agnostic, no UUID assumptions.
+ * `kind` from the stamp: a message is the agent's when its recorded SUBJECT is the agent, which
+ * posts as itself and with no `act`. A person's write the agent made for them records the person
+ * as subject and the agent as `act`, and is that person's. No client can write the agent as a
+ * subject: only the Galaxy's own code runs under the agent's claims.
  */
-export function deriveKind(recordedClaims: Pick<WireRecordedClaims, 'act'>): ParticipantKind {
-  return recordedClaims.act?.sub === NEBULA_SUB ? 'agent' : 'human';
+export function deriveKind(recordedClaims: Pick<WireRecordedClaims, 'sub'>): ParticipantKind {
+  return recordedClaims.sub === NEBULA_SUB ? 'agent' : 'human';
 }
 
 /**
- * Every party to a message, BYLINE ORDER — the whole chain top-down (`{actor} for
- * {principal}`), every party deliberately shown: outermost actor first (Nebula on an
- * agent message), any deeper actors next (a coach who was impersonating), the SUBJECT
- * last. A subject-only message yields one entry. The byline renders each entry's name
- * (resolved via its `profileId`) joined with " for " — *Nebula for {coach} for {user}*
- * on the depth-2 record, no parentheses.
+ * Every party to a record, BYLINE ORDER — the whole chain top-down (`{actor} for
+ * {principal}`), every party deliberately shown: the outermost actor first, any deeper actors
+ * next (a coach who was impersonating), the SUBJECT last. A subject-only record yields one
+ * entry, as an agent message does, and a person's own post. The byline renders each entry's
+ * name (resolved via its `profileId`) joined with " for " — *{coach} for {user}* on an
+ * impersonated post, no parentheses.
  */
 export function deriveParticipants(recordedClaims: WireRecordedClaims): ParticipantRef[] {
-  const kind = deriveKind(recordedClaims);
-  const parties: ParticipantRef[] = [];
-  for (let a = recordedClaims.act; a; a = a.act) {
-    parties.push({
-      sub: a.sub,
-      // Only the OUTERMOST reserved actor is the agent; a deeper chain entry is a human
-      // actor (the coach) whatever surrounds it.
-      kind: a.sub === NEBULA_SUB ? 'agent' : 'human',
-      ...(a.profileId ? { profileId: a.profileId } : {}),
-    });
-  }
-  parties.push({
-    sub: recordedClaims.sub,
-    // The subject of an agent-actor message is still the human it ran for.
-    kind: parties.length === 0 ? kind : 'human',
-    ...(recordedClaims.profileId ? { profileId: recordedClaims.profileId } : {}),
+  const party = (p: { sub: string; profileId?: string }): ParticipantRef => ({
+    sub: p.sub,
+    kind: p.sub === NEBULA_SUB ? 'agent' : 'human',
+    ...(p.profileId ? { profileId: p.profileId } : {}),
   });
+  const parties: ParticipantRef[] = [];
+  for (let a = recordedClaims.act; a; a = a.act) parties.push(party(a));
+  parties.push(party(recordedClaims));
   return parties;
 }

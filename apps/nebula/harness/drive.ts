@@ -25,7 +25,8 @@
  */
 import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { bootDevStack, HAS_DOCKER, readDevVar, type DevStack } from './lib/harness';
 import { stopOrphanedContainers } from './lib/containers';
 import { HARNESS_PATHS, LOCAL_STACK_EXTRA_PATHS, hashPaths, isFlake, namesToRerun, readRecord, scenarioPath, writeRecord } from './lib/sweep-record';
@@ -114,6 +115,9 @@ import * as deletedOnCloudflare from './scenarios/deleted-on-cloudflare';
 import * as eachTransactionGetsOneMoment from './scenarios/each-transaction-gets-one-moment';
 // @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with deploy-test.sh.
 import { TEST_ORIGIN } from '../scripts/test-deploy-config.mjs';
+
+/** This checkout's root, which the path of every workerd it started begins with. */
+const CHECKOUT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * A runnable scenario. `needsContainer` defaults to TRUE — the historical behaviour, and the safe
@@ -398,10 +402,11 @@ async function sweep(fast: boolean, concurrency: number, rerun: boolean): Promis
     checkTree(name);
     // A stray workerd from a previous scenario starves the next one's boot and its alarms, which
     // reads as a flaky scenario rather than as contention (`testing.md`). Only a local sweep boots
-    // one: a deployed sweep has none to clear, and killing every workerd on the machine there only
-    // takes down whatever else is running, a vitest suite's included.
+    // one: a deployed sweep has none to clear. Only this checkout's are killed, matched by the
+    // path of the binary they run, so another repo's test run on the same machine is left alone;
+    // a vitest suite or an `npm run dev` in this checkout still goes down with them.
     if (!process.env.HARNESS_TARGET_URL) {
-      spawnSync('pkill', ['-9', '-f', 'workerd'], { stdio: 'ignore' });
+      spawnSync('pkill', ['-9', '-f', `${CHECKOUT_ROOT}/.*workerd`], { stdio: 'ignore' });
       stopOrphanedContainers();
     }
     // Re-exec the DOCUMENTED command rather than `node <this file>`: this is a `.ts` entry point,

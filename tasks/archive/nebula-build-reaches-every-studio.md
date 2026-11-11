@@ -1,5 +1,7 @@
 # A previewed build reaches every Studio on its app
 
+> **Superseded in part, 2026-11-11.** A landing's `ServedBuild` is now the agent's own write, under its grant on the chat node, and `pinnedAtDoor` is gone: [nebula-agent-posts-as-itself.md](../nebula-agent-posts-as-itself.md) decides it, and [ADR-025](../../docs/adr/025-fine-grained-access-is-the-orgtree.md) says why. What this file decided about who writes that record, and under which verdict, no longer holds. The rest stands.
+
 **Status:** Built 2026-10-14/15 and archived 2026-10-15: all five phases, a verifier panel, a deployed pass, and at the hand-off a type check on the real types, reload guards keyed on the pair, and `drive.ts all --rerun` (§ *Build notes*). Drafted 2026-10-12; two Stage 1 passes and a Stage 2 pass ran on 2026-10-13, and Larry settled the decisions they raised (§ *Decisions*). It builds the part of [ADR-024](../../docs/adr/024-two-versions-keep-an-app-in-step.md)'s build version that Studio needs, absorbs fast-follow Item 8, and builds before personas, whose tab pacing runs on it.
 
 ## Objective

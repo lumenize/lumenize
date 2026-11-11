@@ -148,6 +148,14 @@ export class SeededHostDO extends ResourcesHostDO {
       this.plane.doTransaction({ [resourceId]: { op: 'create', typeName: 'Board', nodeId, value: { title: 'by the principal' } } }, ''));
   }
 
+  /** Create a `Board` at `nodeId` as the local principal through `ensureResource`, the write host
+   *  code makes with nobody waiting on its answer. Resolves `'created'`, or the refusal's message. */
+  ensureAsPrincipal(resourceId: string, nodeId: string): Promise<string> {
+    return this.lmz.asLocalPrincipal(SEEDED_PRINCIPAL, () =>
+      this.plane.ensureResource(resourceId, 'Board', nodeId, { title: 'ensured' })
+        .then(() => 'created', (error: Error) => error.message));
+  }
+
   /** Who the stored snapshot of `resourceId` records as having written it. */
   recordedSubject(resourceId: string): string | undefined {
     const row = this.ctx.storage.sql.exec('SELECT recordedClaims FROM Snapshots WHERE resourceId = ?', resourceId).toArray()[0];

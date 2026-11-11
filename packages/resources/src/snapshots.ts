@@ -12,7 +12,7 @@ import type { AuthClaims } from '@lumenize/mesh';
 // client value graph (`client-index.ts` re-exports `END_OF_TIME`), and Mesh's root exports
 // `ScopedMeshDO`, which pulls `cloudflare:workers`. `/client` is pure, and `toRecordedClaims` is
 // ADR-016's ONE shared projection; no site assembles its own record.
-import { toRecordedClaims, prependActor } from '@lumenize/mesh/client';
+import { toRecordedClaims } from '@lumenize/mesh/client';
 import type { RecordedClaims } from '@lumenize/mesh/client';
 import { debug } from '@lumenize/debug';
 import { PermissionDeniedError, WipedMidTransactionError } from './errors';
@@ -95,35 +95,18 @@ export type TransactionResult =
   | { ok: false; errors: Record<string, TransactionError> };
 
 /**
- * Options for {@link Snapshots.transaction}.
- *
- * `actor` is the SERVER-COMPOSED delegation entry appended (RFC 8693 prepend — the new
- * outermost `act`) onto the record projected from `callContext.originAuth` — how a Nebula
- * reply runs under the TRIGGERING HUMAN's authority while recording Nebula as the actor.
- * Chat-agnostic: the option IS the actor pair, nothing here names an agent. ⚠️ Both fields
- * MUST be server-supplied (a reserved constant, or a verified claim) — nothing a wire caller
- * reaches may accept or forward a client-supplied `actor` (the trust fence: a client could
- * otherwise forge `act: { sub: NEBULA_SUB }` and dress its message as Nebula's). Neither the
- * door's `transaction` nor the plane's `doTransaction` takes options, so only the host-only
- * `ensureResource` can supply one. ADR-016 blesses a server-composed actor inside a claims-shaped record.
+ * Options for {@link Snapshots.transaction}. None of them says who is writing or skips a check:
+ * a write records the claims its call carries, and every op passes the tree's permission check
+ * under them (ADR-025). Host code that writes as someone other than its caller runs the write
+ * under those claims, with `lmz.asLocalPrincipal` or `lmz.actFor`.
  */
 export interface TransactionOpts {
   /** Post-commit hook, invoked with the written snapshots (fanout + query reruns). */
   onMutations?: (mutations: Map<string, Snapshot>) => void;
-  /** Server-composed actor appended as the outermost `act` chain entry. */
-  actor?: { sub: string; profileId: string };
   /** False once the plane that started this transaction has been wiped. Checked after
    *  validation's `await`, the one place a commit can pause, so a commit that paused across a
    *  wipe writes nothing into the rebuilt tables and throws {@link WipedMidTransactionError}. */
   stillCurrent?: () => boolean;
-  /** The DOOR's verdict covers this commit: the caller was admitted at whichever door let the
-   *  work in, and it finishes under the authority it started with — a grant revoked or a token
-   *  expired since does not refuse it. For a turn the door is the post that triggered it, and
-   *  its reply commits under that verdict (Larry, 2026-09-06); for a build it is `buildNow`'s
-   *  chat-floor check, and the `ServedBuild` its landing creates commits under that verdict.
-   *  Step 8's per-op DAG check is skipped. SERVER-COMPOSED ONLY, the same trust fence as
-   *  `actor`: only the host-only `ensureResource` supplies it. */
-  pinnedAtDoor?: true;
 }
 
 /** Allow-list pick for the wire — see {@link WireRecordedClaims}. */
@@ -269,17 +252,12 @@ export class Snapshots {
     return next > now ? next : now;
   }
 
-  /** Project the caller's verified claims into the ADR-016 record; when a server-composed
-   *  `actor` is supplied, prepend it as the new OUTERMOST `act` entry via the ONE shared
-   *  `prependActor` helper (`@lumenize/mesh/client`) — preserving any pre-existing verified chain
-   *  beneath (an impersonated session's committed message triggering Nebula yields the
-   *  two-level chain; a flatten would drop the delegation). */
-  #buildRecordedClaims(actor?: { sub: string; profileId: string }): RecordedClaims {
+  /** Project the claims the write's call carries into the ADR-016 record, whole: its subject and
+   *  the complete `act` chain beneath. Nothing is added here. */
+  #buildRecordedClaims(): RecordedClaims {
     const cc = this.#getCallContext();
     const payload = cc.originAuth?.claims as unknown as AuthClaims;
-    const record = toRecordedClaims(payload);
-    if (actor) return { ...record, act: prependActor(record.act, actor) };
-    return record;
+    return toRecordedClaims(payload);
   }
 
   #writeSnapshot(
@@ -502,7 +480,7 @@ export class Snapshots {
     facet: ParserValidator,
     opts: TransactionOpts = {},
   ): Promise<TransactionResult> {
-    const { onMutations, actor, pinnedAtDoor, stillCurrent } = opts;
+    const { onMutations, stillCurrent } = opts;
     const entries = Object.entries(ops);
     // An empty transaction writes nothing and answers the latest moment.
     if (entries.length === 0) {
@@ -520,8 +498,8 @@ export class Snapshots {
       currentSnapshots.set(resourceId, this.#getCurrentSnapshot(resourceId));
     }
 
-    // Step 4: Build the recorded claims from callContext (+ any server-composed actor)
-    const recordedClaims = this.#buildRecordedClaims(actor);
+    // Step 4: Build the recorded claims from callContext
+    const recordedClaims = this.#buildRecordedClaims();
     const writer = identityKey(recordedClaims);
 
     // Step 4.5: Monotonic pre-check (before the validator). It may ONLY act on a conclusion a
@@ -661,7 +639,6 @@ export class Snapshots {
       const permErrors: Record<string, TransactionError> = {};
       for (const [resourceId, op] of entries) {
         const current = authoritative.get(resourceId) ?? null;
-        if (pinnedAtDoor) continue; // the door that admitted the work decided — see TransactionOpts
         try {
           switch (op.op) {
             case 'create':

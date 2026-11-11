@@ -4,7 +4,7 @@
  *
  *  - T1 the trigger e2e: a real `postUserMessage` commit → the Galaxy's commit hook runs
  *    a (scripted) generation → the agent reply lands durably, `replyTo`-linked,
- *    Nebula-attributed, observed on the SUBSCRIPTION (the product's own shape).
+ *    written by the agent as itself, observed on the SUBSCRIPTION (the product's own shape).
  *  - T2 single-flight: two human Messages committed during ONE generation → exactly one
  *    reply; the second sits in the thread untriggered.
  *  - T3 the human-only predicate, BOUNDED: one human message yields exactly one agent
@@ -74,7 +74,7 @@ beforeEach(() => { entries = []; setDebugSink((e) => entries.push(e as unknown a
 afterEach(() => clearDebugSink());
 
 describe('the commit IS the codegen trigger (Phase 4)', () => {
-  it('T1: a real postUserMessage commit triggers a generation; the reply lands durably, replyTo-linked, Nebula-attributed', async () => {
+  it('T1: a real postUserMessage commit triggers a generation; the reply lands durably, replyTo-linked, written by the agent as itself', async () => {
     const scope = uniqueChatScope();
     const { client } = await devClient(scope);
     await seedScript(client, scope, [round('Here is your change.')]);
@@ -88,10 +88,10 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     }, { timeout: 15000 });
     const reply = (await agentReplies(client, sub.resourceIds)).get(posted)!;
     expect((reply.value as { content?: string }).content).toBe('Here is your change.');
-    expect(reply.meta.recordedClaims.act).toMatchObject({ sub: NEBULA_SUB, profileId: NEBULA_SUB });
-    // The turn ran under the POSTER's own authority (the participant model): the
-    // reply's subject IS the poster.
-    expect(reply.meta.recordedClaims.sub).toBe(client.claims.sub);
+    // The agent posts as itself: it is the reply's subject, and nobody acts for it. Mutation:
+    // commit the reply under the turn's own context → the subject is the poster.
+    expect(reply.meta.recordedClaims).toMatchObject({ sub: NEBULA_SUB, profileId: NEBULA_SUB });
+    expect(reply.meta.recordedClaims.act).toBeUndefined();
 
     client[Symbol.dispose]();
   });

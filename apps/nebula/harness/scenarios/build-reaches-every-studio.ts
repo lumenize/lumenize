@@ -20,7 +20,9 @@
  *      first build, when `.dev` serves nothing. *Reds when the fallback waits 10 s.*
  *  1. **A landing reloads every preview at its URL.** Both frames sit at `/deals/42`; O's
  *     `buildNow` lands; both frames lose their mark, stay at `/deals/42`, and run the new build.
- *     *Reds when Studio skips the subscription, and when it sets the address instead of asking.*
+ *     The landing's `ServedBuild` records the agent as its subject, though O asked for the build.
+ *     *Reds when Studio skips the subscription, when it sets the address instead of asking, and
+ *     when the record is written under the build's caller.*
  *  3. **A frame already current stays put.** P opens Studio fresh after a landing; the frame
  *     records a request naming the build it runs, and its mark survives 15 s. *Reds when the frame
  *     skips its comparison, and when Studio posts nothing on a first value.*
@@ -50,7 +52,8 @@ import { uniqueTestEmail, waitForEmail, extractMagicLink } from '@lumenize/email
 import { NebulaClient } from '@lumenize/resources/client';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, StudioClient } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
-import type { NodeInviteAck } from '@lumenize/resources';
+import type { NodeInviteAck, Snapshot } from '@lumenize/resources';
+import { NEBULA_SUB } from '@lumenize/mesh/client';
 import type { Frame, Page } from 'playwright';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
@@ -265,8 +268,19 @@ export async function run(stack: DevStack): Promise<void> {
       return s?.app === true && s.build === b2 && !s.marked && s.path === ROUTE;
     })) ? 'reloaded at the route' : JSON.stringify(await frameState(page));
     const [o1, p1] = [await at(o.page), await at(p.page)];
-    record('limb 1 — a landing reloads every preview at its URL',
-      o1 === 'reloaded at the route' && p1 === 'reloaded at the route', `O's frame ${o1}; P's frame ${p1}`);
+    // The record both Studios heard is the agent's own write, whoever asked for the build.
+    let writer = 'no ServedBuild names the build';
+    {
+      using served = driver.client.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'ServedBuild', field: 'chat', value: DEFAULT_CHAT_ID });
+      await served.ready;
+      for (const id of served.resourceIds) {
+        const row = await driver.client.resources.read('ServedBuild', id) as Snapshot | null;
+        if ((row?.value as { buildVersion?: string } | undefined)?.buildVersion === b2) writer = JSON.stringify({ sub: row!.meta.recordedClaims.sub, act: row!.meta.recordedClaims.act });
+      }
+    }
+    record('limb 1 — a landing reloads every preview at its URL, and its record is the agent\'s',
+      o1 === 'reloaded at the route' && p1 === 'reloaded at the route' && writer === JSON.stringify({ sub: NEBULA_SUB }),
+      `O's frame ${o1}; P's frame ${p1}; the record's writer ${writer}`);
 
     // ── LIMB 3: a frame already current stays put ────────────────────────────────────────────
     const fresh = await p.page.context().newPage();

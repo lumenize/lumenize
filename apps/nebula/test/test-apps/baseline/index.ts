@@ -657,8 +657,8 @@ export class GalaxyTest extends Galaxy {
     this.ctx.storage.sql.exec(`DELETE FROM Subscriptions WHERE kind = 'query'`);
   }
 
-  /** Commit the durable agent Message (the completion step) — Nebula-attributed via the
-   *  actor stamp, `replyTo`-linked (required on an agent message). */
+  /** Commit the durable agent Message (the completion step), written by the agent as itself
+   *  whoever calls this, and `replyTo`-linked (required on an agent message). */
   @mesh(requireDominionHere)
   async commitAgentForTest(chatId: string, messageId: string, content: string, nodeId: string, replyTo: string, codegen?: Record<string, unknown>): Promise<void> {
     await this.commitAgentMessage(chatId, messageId, content, nodeId, replyTo, { thought: 'synthetic thought', codegen });

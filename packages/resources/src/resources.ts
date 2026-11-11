@@ -1052,25 +1052,22 @@ export class Resources {
    * takes no originator. Its callers are a Galaxy's agent reply and the `ServedBuild` a landing
    * records.
    *
-   * It runs under the caller's `callContext`, which stamps the subject. ✅ **Confined, via the
-   * ordinary path — no special-casing here.** Without `pinnedAtDoor` it goes through
-   * `Snapshots.transaction` → `OrgTree.requirePermission`, which is confinement point 1, so a
-   * write under an admin's call has passage **iff that admin's page's host, `aud`, covers THIS
-   * host** — the same rule as every other caller (tasks/archive/nebula-confine-admin-bypass.md).
-   * With `pinnedAtDoor` that check is skipped, because the door that admitted the work decided.
-   * `actor` and `pinnedAtDoor` are server-composed only (`TransactionOpts`).
+   * It runs under the `callContext` it is called in, which stamps the subject, and takes the
+   * ordinary path, with no special-casing: `Snapshots.transaction` →
+   * `OrgTree.requirePermission`. So the Galaxy calls it as its local principal, whose grant on
+   * the chat node admits the write. A write the transaction refuses throws, for want of the
+   * permission or for a value its type rejects: nothing waits on this call's answer, so a
+   * refusal returned as a value would be dropped unseen.
    */
   async ensureResource(
     resourceId: string, typeName: string, nodeId: string, value: Record<string, unknown>,
-    opts: { actor?: { sub: string; profileId: string }; pinnedAtDoor?: true } = {},
   ): Promise<void> {
-    // Existence alone, with no permission check: a second ensure does nothing even under a grant
-    // revoked since the door admitted the work (`TransactionOpts.pinnedAtDoor`).
+    // Existence alone, with no permission check: a second ensure of the same id does nothing.
     if (this.#snapshots.currentTypeName(resourceId) !== undefined) return;
     debug('nebula.Resources.ensureResource').debug('creating', { resourceId, typeName });
     const { version, facet } = this.installedOntology();
     const generation = this.#generation;
-    await this.#snapshots.transaction(
+    const result = await this.#snapshots.transaction(
       { [resourceId]: { op: 'create', typeName, nodeId, value } },
       version, facet,
       {
@@ -1079,12 +1076,14 @@ export class Resources {
           this.#rerunQueriesForCommit(mutations);
           this.#onCommitted?.(mutations);
         },
-        // Server-composed only — see snapshots.ts TransactionOpts (the trust fence).
-        actor: opts.actor,
-        ...(opts.pinnedAtDoor ? { pinnedAtDoor: true as const } : {}),
         stillCurrent: () => this.#generation === generation,
       },
     );
+    if (result.ok) return;
+    const refusal = result.errors[resourceId];
+    throw new Error(refusal?.type === 'permission'
+      ? `ensureResource refused: ${refusal.requiredTier} permission required on node ${refusal.nodeId}`
+      : `ensureResource refused: ${refusal?.type ?? 'unknown'} error creating a ${typeName}`);
   }
 
   // ─── Handler 2 (the actual op + delivery) ──────────────────────────
@@ -1106,8 +1105,7 @@ export class Resources {
 
   /** Execute a transaction at the host's current ontology version + deliver the
    *  result. Committed mutations go out as updates to their subscribers (originator excluded).
-   *  Takes no `actor`: a server-composed actor rides only {@link ensureResource}, which is on no
-   *  wire, so no caller can dress its write as someone else's (the trust fence). Throws
+   *  Takes no option naming a writer: a write records the claims its call carries. Throws
    *  `WipedMidTransactionError`, having written nothing, when a wipe lands while it validates. */
   async doTransaction(
     ops: Record<string, OperationDescriptor>,

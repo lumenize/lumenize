@@ -178,7 +178,8 @@ const thread = computed<ThreadMsg[]>(() => {
       id,
       kind: parties[0]!.kind,
       mine: at.sub === mySub && parties.length === 1,
-      // The WHOLE-chain byline, top-down: "Lumenize for {coach} for {user}" — every party
+      // The WHOLE-chain byline, top-down: "{coach} for {user}" on an impersonated post, and one
+      // name on a person's own post or the agent's — every party
       // resolved via its own Profile (the read IS the subscription).
       byline: parties.map(participantName).join(" for "),
       // The full names behind the byline, in the same order — shown on hover.

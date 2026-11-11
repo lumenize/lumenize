@@ -28,9 +28,11 @@ happens to run it, which for an untouched one is never. Measured 2026-09-01: a b
 five scenarios green while breaking **nine of the seventeen** that came before it — a shared login
 helper, an acceptance semantic, and a login form deleted from a screen three scenarios drove. No
 vitest suite could see any of it, and the sweep that found it takes about four minutes.
-⚠️ The sweep `pkill -9 -f workerd`s between scenarios (a stray one starves the next boot), which
-takes down a co-running `npm run dev`'s workerd too, and `wrangler dev` does not reliably respawn
-it (bit twice 2026-09-02). It then stops every `workerd-nebula-…` container, a co-running stack's
+⚠️ The sweep `pkill -9`s this checkout's workerd between scenarios (a stray one starves the next
+boot), which takes down a co-running `npm run dev`'s workerd too, and `wrangler dev` does not
+reliably respawn it (bit twice 2026-09-02). It matches by the path of the binary, so another
+repo's test run on the same machine is left alone; until 2026-11-11 it killed every workerd on
+the machine. It then stops every `workerd-nebula-…` container, a co-running stack's
 included, since a `wrangler dev` killed that way leaves its containers up and they hang the next
 `apps/nebula` vitest run. If a hand-driven stack is up, expect to reboot it after a sweep.
 ⚠️ **A source edit during a sweep invalidates every scenario after it** — each scenario boots its

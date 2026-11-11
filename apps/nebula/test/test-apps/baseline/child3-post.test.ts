@@ -140,9 +140,9 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     const snap = await mallory.resources.read('Message', forgedId) as Snapshot;
     // The forged keys persisted (non-strict — assert the RENDER, never absence-from-storage)…
     expect((snap.value as { author?: string }).author).toBe('the-ceo');
-    // …and change NOTHING: attribution derives from the verified stamp alone. A client
-    // cannot supply an `actor` either — the door's `transaction` takes no such argument and
-    // the plane's op takes no options (the trust fence), so `act` is absent and the kind is human.
+    // …and change NOTHING: attribution derives from the verified stamp alone. A write records
+    // the claims its call carries and nothing a caller sends, so the subject is the sender,
+    // `act` is absent and the kind is human.
     expect(snap.meta.recordedClaims.sub).toBe(payload.sub);
     expect(snap.meta.recordedClaims.act).toBeUndefined();
     expect(deriveKind(snap.meta.recordedClaims)).toBe('human');
@@ -150,7 +150,7 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     mallory[Symbol.dispose]();
   });
 
-  it('ACT-BEARING trigger: the coach entry is PRESERVED beneath the Nebula actor (depth-2 chain — a flatten reds)', async () => {
+  it('ACT-BEARING trigger: the impersonated post keeps its chain, and the agent\'s reply records the agent alone', async () => {
     const scope = uniqueChatScope();
     // Seed the chat host (the Chat row) with an ordinary admin first.
     const { client: admin } = await devClient(scope);
@@ -191,23 +191,37 @@ describe('child3 Phase 4 — client posts the user Message', () => {
       act: { sub: coachSub, profileId: coachProfile },
     });
 
-    // The agent reply commits under that same act-bearing context: Nebula prepends as the
-    // NEW OUTERMOST entry and the coach SURVIVES beneath (RFC 8693 — a flatten drops it).
+    // The agent's reply is committed from inside that act-bearing call and carries none of it:
+    // the agent posts as itself, so neither the user nor the coach appears on its record.
+    // Mutation: commit it under the call's own context → its subject is the user.
     const a1 = crypto.randomUUID();
     impersonated.callGalaxyCommitAgent(scope, DEFAULT_CHAT_ID, a1, 'Done.', CHAT_NODE_ID, u1);
     await vi.waitFor(() => expect(impersonated.callCompleted).toBe(true));
     expect(impersonated.lastError).toBeUndefined();
     const agent = await impersonated.resources.read('Message', a1) as Snapshot;
-    expect(agent.meta.recordedClaims).toMatchObject({
-      sub: userSub,
-      act: { sub: NEBULA_SUB, profileId: NEBULA_SUB, act: { sub: coachSub, profileId: coachProfile } },
-    });
-    // The byline walk, top-down: Nebula for {coach} for {user}.
-    expect(deriveParticipants(agent.meta.recordedClaims).map((p) => [p.sub, p.kind])).toEqual([
-      [NEBULA_SUB, 'agent'], [coachSub, 'human'], [userSub, 'human'],
+    expect(agent.meta.recordedClaims).toMatchObject({ sub: NEBULA_SUB, profileId: NEBULA_SUB });
+    expect(agent.meta.recordedClaims.act).toBeUndefined();
+    expect(deriveParticipants(agent.meta.recordedClaims).map((p) => [p.sub, p.kind])).toEqual([[NEBULA_SUB, 'agent']]);
+    // The post's own byline walk, top-down: {coach} for {user}.
+    expect(deriveParticipants(human.meta.recordedClaims).map((p) => [p.sub, p.kind])).toEqual([
+      [coachSub, 'human'], [userSub, 'human'],
     ]);
 
     admin[Symbol.dispose]();
     impersonated[Symbol.dispose]();
+  });
+
+  // Pure, so it needs no running system: no write records a person with the agent acting for
+  // them until a turn's tools run under a held post, and the walk is a function of the record.
+  // Mutations: read `kind` from the outermost `act` → the agent's own record reads human and the
+  // person's reads agent; drop the chain walk → the middle entry is missing.
+  it('kind and the byline walk read the record: the agent as subject is the agent, and a person the agent acted for is a person', () => {
+    const agentOwn = { sub: NEBULA_SUB, profileId: NEBULA_SUB };
+    const forPerson = { sub: 'user-1', profileId: 'p-user', act: { sub: NEBULA_SUB, profileId: NEBULA_SUB, act: { sub: 'coach-1', profileId: 'p-coach' } } };
+    expect(deriveKind(agentOwn)).toBe('agent');
+    expect(deriveKind(forPerson)).toBe('human');
+    expect(deriveParticipants(forPerson).map((p) => [p.sub, p.kind])).toEqual([
+      [NEBULA_SUB, 'agent'], ['coach-1', 'human'], ['user-1', 'human'],
+    ]);
   });
 });

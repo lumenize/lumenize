@@ -155,10 +155,11 @@ export async function run(stack: DevStack): Promise<void> {
       'What does this app do so far? Answer briefly - do not change any code.',
     );
 
-    // Nebula replies — triggered by the NON-ADMIN collaborator's write-granted commit.
+    // The agent replies — triggered by the NON-ADMIN collaborator's write-granted commit — and
+    // posts as itself: the reply's subject is the agent, whoever's post it answers.
     const reply = await waitForReply(owner, ownerSub, austenMsg);
-    assert.equal(reply.meta.recordedClaims.sub, austenSession.sub,
-      'the reply runs under the TRIGGERING person\'s own authority (the participant model)');
+    assert.equal(reply.meta.recordedClaims.sub, NEBULA_SUB,
+      'the agent posts as itself: the reply\'s subject is the agent, never the person it answers');
     // EXPLORATORY limb (e) of the guidance file tree — REPORTED, never gated: in a four-party
     // thread, "what does this app do so far?" gets a reply naming what the app has. This
     // Galaxy holds the seed only, so the truthful answer names the placeholder, the starter
@@ -168,9 +169,9 @@ export async function run(stack: DevStack): Promise<void> {
     console.error(`  ${namesWhatItHas ? '✓' : '✗'} limb (e) [reported] — the four-party "what does it do" reply ` +
       `${namesWhatItHas ? 'names what the app has' : 'does NOT name what the app has'}: ${JSON.stringify(replyText.slice(0, 160))}`);
     console.error(`- ${new Date().toISOString().slice(0, 10)} · (e) · ${namesWhatItHas ? 'pass' : 'fail'} · four-party "what does this app do so far?" → ${JSON.stringify(replyText.slice(0, 100))}`);
-    assert.equal(reply.meta.recordedClaims.act?.sub, NEBULA_SUB, 'Nebula is the stamped actor');
+    assert.equal(reply.meta.recordedClaims.act, undefined, 'nobody acts for the agent on its own post');
     const parties = deriveParticipants(reply.meta.recordedClaims);
-    assert.deepEqual(parties.map((p) => p.kind), ['agent', 'human'], 'byline: Nebula for {Austen}');
+    assert.deepEqual(parties.map((p) => [p.sub, p.kind]), [[NEBULA_SUB, 'agent']], 'the reply\'s one party is the agent');
 
     // ── ALL FOUR parties visible to ALL THREE humans, attribution derived per message ──
     for (const [who, sub, client] of [
@@ -192,7 +193,7 @@ export async function run(stack: DevStack): Promise<void> {
     // ── The agent RENDERS via its seeded Profile ("Lumenize" + avatar) ──
     using nebulaProfile = owner.client.subscribeProfile(NEBULA_SUB);
     const prof = await nebulaProfile.snapshot as { value?: { name?: string; picture?: string } } | null;
-    assert.equal(prof?.value?.name, 'Lumenize', 'the actor resolves through the seeded agent Profile');
+    assert.equal(prof?.value?.name, 'Lumenize', 'the agent resolves through its seeded Profile');
     assert.ok((prof?.value?.picture ?? '').length > 0, 'the seeded Profile carries the avatar');
 
     // ── The second half CONSUMED: Austen READS `.dev` Star data on her own dev session ──

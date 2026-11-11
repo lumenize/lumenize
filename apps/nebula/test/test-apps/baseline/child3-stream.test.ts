@@ -77,7 +77,7 @@ describe('child3 — transient progress stream + durable Message', () => {
     sub.setRenderWindow([agentMessageId]);
     await vi.waitFor(() => expect(client.streamingProgress(agentMessageId)).toBeUndefined());
     const durable = await client.resources.read('Message', agentMessageId) as Snapshot;
-    // Agent-ness is DERIVED from the actor stamp, never a stored role.
+    // Agent-ness is DERIVED from the record's subject, never a stored role.
     expect(deriveKind(durable.meta.recordedClaims)).toBe('agent');
 
     client[Symbol.dispose]();

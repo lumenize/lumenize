@@ -474,6 +474,26 @@ Numbered in build order. Every phase lands before personas (D13); the wake check
 
 **Close-out:** `CHAT_NODE_ID`'s JSDoc no longer says the chat is the root. `deleteNode`'s JSDoc carries the premise about the first reader of `deleted`. Local `npm run dev` storage made before this phase holds its chat at the root and needs wiping; the harness wipes its own on every boot.
 
+### Phase 4, the agent posts as itself (2026-11-11)
+
+**For the human:** nothing needs a decision. Four things go beyond what the phase said:
+
+- **`ensureResource` throws when its write is refused.** It used to drop the transaction's answer, which was safe only while `pinnedAtDoor` meant no permission check could refuse it. Nothing waits on that call, so a refused reply would have vanished with every suite green, leaving the poster on *thinking…*. The turn's own catch now logs it.
+- **The `actor` write option and `turnContext` went here, not in Phase 5.** Once the reply and the `ServedBuild` were the agent's own writes, nothing passed an actor and nothing read `turnContext`. Phase 5's check for them already holds.
+- **`prependActor` is no longer exported from Mesh.** Its only caller left is `lmz.actFor`, inside Mesh.
+- **The `/live` sweep now kills only this checkout's workerd.** It killed every workerd on the machine, and another repo's test loop was running through Phase 1's sweep and again before this one. It matches by the binary's path, and `live.md` says so.
+
+**Retro:**
+
+- **Five tests reddened, all of them encoding the old attribution,** as `calibration.md` §3(b) expects. Four were inverted. The fifth, a transaction carrying an `actor`, tested an option that no longer exists and was removed; `child3-post.test.ts` already asserts that a client's post records its sender.
+- **`first-app-built` expects one face on an agent reply until Phase 8.** The record names the agent alone, so Studio's avatar stack shows only the agent until the byline reads `answers`.
+- **Two mutations redden most of `chat-trigger.test.ts`,** because every test there finds the agent's reply by its kind. Each named test was read for its own failure: T3 fails on a thread of two where it expects one.
+- **Under its mutation, `four-party-chat` fails at its first wait for a reply,** not at the inverted assertion: a reply written as the poster reads as a person's post. It took four minutes and several model calls to say so.
+- **Suites:** Mesh 83 files and 1,026 tests, unchanged. Resources 3 and 22, up by the one test added. Nebula 127 files and 1,119 tests, one removed and one added.
+- **The `/live` sweep (`drive.ts all`): 69 of 69 passed, with one parked,** in 35.6 minutes. The other repo's workerd was still running after the sweep's first kill.
+
+**Close-out:** `tasks/archive/nebula-build-reaches-every-studio.md` carries its dated banner. `security.md`'s door-verdict bullet and ADR-025's line on `pinnedAtDoor` are now false as written and wait for Phase 10, as planned. The header of `resources-door.test.ts` lost its line on `actor`.
+
 ## Non-goals
 
 - **The wake check (item 6):** fast-follow Item 15, after Q3 (D19).
