@@ -8,7 +8,8 @@ import ConfirmDelete from "./ConfirmDelete.vue";
 import HostWait from "./HostWait.vue";
 import { needsFreshLogin } from "./auth/home-logic";
 import { createNebulaClient } from "@lumenize/resources/frontend";
-import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, toolCallMarks, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay, decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS } from "@lumenize/nebula/client";
+import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, toolCallMarks, postAnswered, messageByline, startTurn, signalTurn, signalOtherTurn, settleTurn, evaluateTurn, deriveTurnDisplay, decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS } from "@lumenize/nebula/client";
+import type { StoredMessage } from "@lumenize/nebula/client";
 import type { FactoryResult } from "@lumenize/resources/frontend";
 import type { TurnLiveness, PreviewFrameState, PreviewFrameEvent, PreviewFrameAction } from "@lumenize/nebula/client";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
@@ -177,17 +178,26 @@ const thread = computed<ThreadMsg[]>(() => {
     if (!snap?.value || !snap?.meta) continue; // content sub still loading
     const at = (snap.meta as { recordedClaims: Parameters<typeof deriveParticipants>[0] }).recordedClaims;
     const parties = deriveParticipants(at);
+    // The recorded claims of each post this message says it answers, for the byline. Only an
+    // agent message's `answers` is read (`messageByline`); a post not loaded yet is left out.
+    const messagesById = store.resources as Record<string, Record<string, { meta?: { recordedClaims?: Parameters<typeof deriveParticipants>[0] } }>>;
+    const answered = parties[0]!.kind === "agent" && parties.length === 1
+      ? ((snap.value.answers as string[] | undefined) ?? []).map((postId) => messagesById.Message?.[postId]?.meta?.recordedClaims).filter((c) => c !== undefined)
+      : [];
+    // The face behind the first: the person a chain ran for, or the author of the first post an
+    // agent message answers.
+    const behind = parties.length > 1 ? parties[parties.length - 1]! : answered[0] && deriveParticipants(answered[0]).at(-1);
     out.push({
       id,
       kind: parties[0]!.kind,
       mine: at.sub === mySub && parties.length === 1,
-      // The WHOLE-chain byline, top-down: "{coach} for {user}" on an impersonated post, and one
-      // name on a person's own post or the agent's — every party
+      // "{coach} for {user}" on an impersonated post, one name on a person's own post, and
+      // "Lumenize, re: {author}" on the agent's, for each post it answers — every party
       // resolved via its own Profile (the read IS the subscription).
-      byline: parties.map(participantName).join(" for "),
+      byline: messageByline(at, answered, participantName),
       // The full names behind the byline, in the same order — shown on hover.
       title: parties.map(participantTitle).filter(Boolean).join(" for ") || undefined,
-      stack: (parties.length > 1 ? [parties[0]!, parties[parties.length - 1]!] : [parties[0]!]).map((p) => ({
+      stack: (behind ? [parties[0]!, behind] : [parties[0]!]).map((p) => ({
         name: participantName(p), title: participantTitle(p), picture: participantPicture(p), kind: p.kind,
       })),
       content: String(snap.value.content ?? ""),
@@ -207,19 +217,17 @@ const thread = computed<ThreadMsg[]>(() => {
 // before they got here — and, when two dialogs were open at once, it made Save unclickable.
 // A person who somehow arrives without a nickname degrades to `participantName`'s "Someone".
 
-// The durable agent reply linking back to my last posted message — TRUTH (the
-// transient stream is only a hint). Settles the liveness reducer, clearing any
-// spurious `failed`, however late it lands (reconciliation).
+// A durable agent message that answers my last posted message — TRUTH (the transient stream is
+// only a hint). It answers mine when it names mine in `answers`, whichever post it replies to,
+// so one message can answer several people (`postAnswered`). Settles the liveness reducer,
+// clearing any spurious `failed`, however late it lands (reconciliation).
 const replyLanded = computed(() => {
   const posted = lastPostedId.value;
   if (!posted) return false;
   const store = nebula.value?.store;
   if (!store) return false;
-  for (const id of messageIds.value) {
-    const v = (store.resources as Record<string, Record<string, { value?: { replyTo?: string } }>>).Message?.[id]?.value;
-    if (v?.replyTo === posted) return true;
-  }
-  return false;
+  const messages = (store.resources as Record<string, Record<string, StoredMessage>>).Message;
+  return postAnswered(posted, messageIds.value, (id) => messages?.[id]);
 });
 watch(replyLanded, (landed) => {
   if (landed && turn.value) turn.value = settleTurn(turn.value);
@@ -485,17 +493,17 @@ async function connect() {
   await n.ready; // rejects with no session, after the client has sent this page to log in
   n.client.setOnStreamChunk((messageId, text, replyTo) => {
       // Render EVERY chunk — the thread is shared, so watching another participant's
-      // reply appear is the product working. But only MY turn's chunks are liveness for
-      // MY idle window: a message the single-flight latch skipped is never answered, and
-      // re-arming it from someone else's running generation is a hang with no banner.
+      // reply appear is the product working. Only MY turn's chunks say my turn is running;
+      // another turn's say the agent is busy and my post is waiting its turn, which is a
+      // state of its own (`signalOtherTurn`), never a reason to show mine as thinking.
       // ⚠️ A KEEPALIVE carries no text — the server beats through the WHOLE turn, whose model
       // calls and builds are all silent (`turn-heartbeat.ts`). It re-arms the window below like a real
       // chunk, but must not paint: with nothing accumulated yet it would turn "thinking…" into an
       // empty bubble. Decided on the accumulated length, so a keepalive AFTER real chunks simply
       // re-paints the same text.
       if (text.length > 0) streaming.value = { id: messageId, text };
-      if (turn.value && replyTo === lastPostedId.value) {
-        turn.value = signalTurn(turn.value, Date.now());
+      if (turn.value) {
+        turn.value = replyTo === lastPostedId.value ? signalTurn(turn.value, Date.now()) : signalOtherTurn(turn.value, Date.now());
       }
     });
   nebula.value = n;
@@ -851,6 +859,11 @@ const confirmingAccount = ref(false);
         <div v-else-if="turnDisplay === 'failed'" class="chat chat-start">
           <div class="chat-bubble chat-bubble-error text-sm">
             No reply arrived — this turn may have been lost. Re-send your message to try again.
+          </div>
+        </div>
+        <div v-else-if="turnDisplay === 'waiting'" class="chat chat-start">
+          <div class="chat-bubble text-sm" data-testid="turn-waiting">
+            Your message is waiting. Lumenize is finishing another request first.
           </div>
         </div>
         <div v-else-if="turnDisplay === 'thinking'" class="chat chat-start">

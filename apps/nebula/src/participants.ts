@@ -9,7 +9,7 @@
  * and nothing here reads it.
  *
  * A message's value is read in the places that say so, and only on a message whose recorded
- * subject is the agent: {@link toolCallMarks} and {@link waitingPosts}. No client can write
+ * subject is the agent: {@link toolCallMarks}, {@link waitingPosts} and {@link messageByline}. No client can write
  * such a message, since only the Galaxy's own code runs under the agent's claims, so what its
  * value says is the Galaxy's word and never a person's.
  *
@@ -119,4 +119,50 @@ export function toolCallMarks(
     if (call.post && call.claims?.sub) marks.push({ index, name: call.name ?? '', post: call.post, parties: deriveParticipants(call.claims) });
   });
   return marks;
+}
+
+/** A Message as the client's store holds it, as far as the answered check reads it. */
+export type StoredMessage = { value?: { answers?: readonly string[] }; meta?: { recordedClaims?: { sub?: string } } } | undefined;
+
+/**
+ * Whether the post `postId` is answered, read from the chat's messages as the store holds them:
+ * `ids` in thread order, each looked up with `message`. It is {@link waitingPosts} over what has
+ * loaded so far, so a post is answered when an agent message names it in `answers`, whichever
+ * post that message replies to. A post whose own snapshot has not loaded yet is not answered.
+ */
+export function postAnswered(postId: string, ids: readonly string[], message: (id: string) => StoredMessage): boolean {
+  const thread: ThreadMessage[] = [];
+  for (const id of ids) {
+    const stored = message(id);
+    const sub = stored?.meta?.recordedClaims?.sub;
+    if (sub) thread.push({ id, sub, answers: stored!.value?.answers });
+  }
+  return thread.some((m) => m.id === postId) && !waitingPosts(thread).includes(postId);
+}
+
+/**
+ * A message's byline. A person's post reads as its own chain, top-down: *Austen*, or *{coach}
+ * for {user}* on an impersonated post. The agent's message reads *Lumenize, re: Austen*, naming
+ * the author of each post it answers by that post's own recorded chain, so an answer to an
+ * impersonated post reads *Lumenize, re: {coach} for {user}*, and two answered posts read
+ * *Lumenize, re: Jennifer and Austen*. An agent message that answers nothing, as a handler's
+ * outcome post does, reads *Lumenize*.
+ *
+ * It says *re:* and not *for*: the message is the agent's own, and only its tool calls ran
+ * under a person's claims, which {@link toolCallMarks} shows. `answered` is the recorded
+ * claims of each post the message's value names in `answers`, which the caller looks up; it
+ * is read only when the message's recorded subject is the agent.
+ */
+export function messageByline(
+  recordedClaims: WireRecordedClaims,
+  answered: readonly WireRecordedClaims[],
+  nameOf: (party: ParticipantRef) => string,
+): string {
+  const chain = (claims: WireRecordedClaims): string => deriveParticipants(claims).map(nameOf).join(' for ');
+  const own = chain(recordedClaims);
+  if (recordedClaims.sub !== NEBULA_SUB) return own;
+  const authors = [...new Set(answered.map(chain))];
+  if (authors.length === 0) return own;
+  const list = authors.length === 1 ? authors[0]! : `${authors.slice(0, -1).join(', ')} and ${authors[authors.length - 1]}`;
+  return `${own}, re: ${list}`;
 }

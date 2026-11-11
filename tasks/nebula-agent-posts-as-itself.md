@@ -553,6 +553,25 @@ One thing to know rather than decide: a person who edits an agent message makes 
 
 **Close-out:** two `codegen-loop.test.ts` expectations gained the oid. `participants.ts`'s header now says where a message's value is read, `toolCallMarks` and `waitingPosts`, and why that is safe only on the agent's own messages; Phase 8's byline joins that list.
 
+### Phase 8, Studio's waiting state and the byline (2026-11-11)
+
+**For the human:** nothing needs a decision. Four things were mine to choose or differ from the phase:
+
+- **No component is mounted in the frontend lane.** `App.vue` is one large component with no mount test, so the decision moved into a named function, `postAnswered`, which that lane tests over snapshots seeded in the store's shape, and `App.vue`'s `replyLanded` is one call to it. The wiring itself is gated in `/live`, in a real Studio page.
+- **The waiting bubble reads:** *Your message is waiting. Lumenize is finishing another request first.*
+- **A post waits only while the other turn keeps signalling.** With no chunk of any turn for a whole idle window it shows the failure banner, as before.
+- **The avatar stack shows two faces at most:** the agent's in front, and behind it the author of the first post the message answers. The byline names them all.
+
+**Retro:**
+
+- **Phase 6 had left `held-post-answered` able to hang, and this phase's mutation run found it.** The scenario waited for the decision after Jennifer's turn. Once a closing step could answer Austen first, no decision ran on some runs, and it waited four minutes for a line that never came. It now waits for a decision or an answer to her post, and limb 5 says when no decision ran.
+- **Limb 7's mutation reddens only on one of the model's two paths.** Deciding by `replyTo` still settles a post the agent took up. It reds when the agent answers Austen in a message that replies to Jennifer's, which the model did on the second of two mutated runs.
+- **Austen's browser login needed a wait for the emailed link's consume.** Opening Studio straight after pressing Continue sent her back to log in.
+- **`first-app-built` is back to two faces on an agent reply,** the agent's in front, with the byline *Lumenize, re:* its poster.
+- **Suites:** Nebula 130 files and 1,151 tests, up by one file and 10 tests. Seven mutations in the pure and frontend lanes each reddened one test. `audit:classes` passes.
+
+**Close-out:** `App.vue`'s comment that a post skipped by the latch is never answered is gone with the behaviour. `chat-cast.ts` returns both people's addresses, so a scenario can sign either in again in a browser.
+
 ## Non-goals
 
 - **The wake check (item 6):** fast-follow Item 15, after Q3 (D19).

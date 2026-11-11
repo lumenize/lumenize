@@ -332,15 +332,15 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(await page.getByText('No reply arrived').count(), 0,
       'a completed turn must leave no failure banner behind — a `failed` that outlives its turn is ' +
       'the frozen-partial-reply hang');
-    // The agent's reply wears ONE face, the agent's: it posts as itself, so its record names
-    // nobody else. A second face here would mean the reply was written under the poster's claims.
-    const agentChat = page.locator('div.chat', { has: page.locator('[data-testid="byline"]', { hasText: /^Lumenize/ }) }).first();
+    // The agent's reply wears TWO faces: the agent's in front, since the message is its own, and
+    // behind it the author of the post it answers. Its byline says so: "Lumenize, re: {name}".
+    const agentChat = page.locator('div.chat', { has: page.locator('[data-testid="byline"]', { hasText: /^Lumenize, re: \S/ }) }).first();
     await agentChat.waitFor({ state: 'visible', timeout: 20_000 });
-    assert.equal(await agentChat.locator('[data-testid="party-avatar"]').count(), 1,
-      'the agent\'s own post must show one face, the agent\'s');
-    assert.equal(await agentChat.locator('[data-testid="party-avatar"]').getAttribute('data-name'), 'Lumenize',
-      'that face must be the agent\'s');
-    console.error('  ✓ limb 4 — no failure banner survived the turn; the agent\'s reply shows the agent alone');
+    assert.equal(await agentChat.locator('[data-testid="party-avatar"]').count(), 2,
+      'the agent\'s reply must stack two faces: its own, and the author of the post it answers');
+    assert.equal(await agentChat.locator('[data-testid="party-avatar"].z-10').getAttribute('data-name'), 'Lumenize',
+      'the agent\'s face must be the one in front');
+    console.error('  ✓ limb 4 — no failure banner survived the turn; the agent\'s reply is bylined "Lumenize, re:" its poster, the agent\'s face in front');
 
     // ── LIMB 5: the preview serves the BUILT app ──────────────────────────────────────────────
     /** The preview frame's document, evaluated across origins; `undefined` between documents. */

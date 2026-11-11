@@ -10,9 +10,14 @@
  * after `failed` already showed) settles the turn and clears the banner. Recovery from
  * `failed` is always a MANUAL re-prompt — a fresh user message, a new turn — never an
  * automatic retry, so a spurious `failed` can never double-generate on its own.
+ *
+ * One turn runs at a time, so a post sent while another person's turn runs is `waiting`: the
+ * agent gets to it when that turn ends. The other turn's chunks keep it out of `failed`, since
+ * they show the agent is alive and busy, and a post still waiting with no signal for a whole
+ * idle window fails like any other.
  */
 
-export type TurnPhase = 'awaiting' | 'failed' | 'settled';
+export type TurnPhase = 'awaiting' | 'waiting' | 'failed' | 'settled';
 
 export interface TurnLiveness {
   phase: TurnPhase;
@@ -47,18 +52,24 @@ export function signalTurn(t: TurnLiveness, now: number): TurnLiveness {
   return t.phase === 'settled' ? t : { phase: 'awaiting', lastSignalAt: now };
 }
 
+/** A chunk of ANOTHER post's turn arrived: the agent is alive and working on someone else's
+ *  post, so mine is waiting its turn. Never unsettles. */
+export function signalOtherTurn(t: TurnLiveness, now: number): TurnLiveness {
+  return t.phase === 'settled' ? t : { phase: 'waiting', lastSignalAt: now };
+}
+
 /** The durable reply landed on the subscription — truth. Clears `failed` (reconciliation). */
 export function settleTurn(t: TurnLiveness): TurnLiveness {
   return { ...t, phase: 'settled' };
 }
 
-/** Periodic check: an awaiting turn with no signal inside `idleMs` is `failed`. */
+/** Periodic check: a turn awaited or waited for, with no signal inside `idleMs`, is `failed`. */
 export function evaluateTurn(t: TurnLiveness, now: number, idleMs: number = TURN_IDLE_MS): TurnLiveness {
-  return t.phase === 'awaiting' && now - t.lastSignalAt > idleMs ? { ...t, phase: 'failed' } : t;
+  return (t.phase === 'awaiting' || t.phase === 'waiting') && now - t.lastSignalAt > idleMs ? { ...t, phase: 'failed' } : t;
 }
 
 /** Which single status bubble the thread shows beneath the durable messages. */
-export type TurnDisplay = 'streaming' | 'failed' | 'thinking' | 'none';
+export type TurnDisplay = 'streaming' | 'failed' | 'waiting' | 'thinking' | 'none';
 
 /**
  * The rendered status, derived — so PRECEDENCE lives here rather than in a template's
@@ -82,5 +93,7 @@ export function deriveTurnDisplay(o: {
 }): TurnDisplay {
   if (o.phase === 'failed') return 'failed';
   if (o.streaming) return 'streaming';
+  // Between another turn's chunks nothing streams, and my post is waiting, not being thought about.
+  if (o.phase === 'waiting' && o.awaitingReply) return 'waiting';
   return o.awaitingReply ? 'thinking' : 'none';
 }

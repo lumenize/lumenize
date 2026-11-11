@@ -6,7 +6,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { NEBULA_SUB } from '@lumenize/mesh/client';
-import { toolCallMarks, waitingPosts } from '../src/participants';
+import { messageByline, toolCallMarks, waitingPosts } from '../src/participants';
+import type { ParticipantRef } from '../src/participants';
 import {
   agentMessageValue, heldCallFor, renderClosingRequest, renderDecisionRequest, renderHeldBlock, HELD_HEADER,
 } from '../src/codegen-loop';
@@ -113,5 +114,34 @@ describe('toolCallMarks', () => {
   // Mutation: read the value whoever wrote the message → a person's forged record is marked.
   it('marks nothing on a message a person wrote, whatever its value carries', () => {
     expect(toolCallMarks({ sub: 'austen' }, value)).toEqual([]);
+  });
+});
+
+describe('messageByline', () => {
+  const AGENT = { sub: NEBULA_SUB, profileId: NEBULA_SUB };
+  const names: Record<string, string> = { [NEBULA_SUB]: 'Lumenize', jennifer: 'Jennifer', austen: 'Austen', coach: 'Coach', user: 'Dana' };
+  const nameOf = (p: ParticipantRef): string => names[p.sub]!;
+  const jennifer = { sub: 'jennifer', profileId: 'p-j' };
+  const austen = { sub: 'austen', profileId: 'p-a' };
+  const impersonated = { sub: 'user', profileId: 'p-u', act: { sub: 'coach', profileId: 'p-c' } };
+
+  // Mutation: build the byline from the agent message's own record alone → every line reads
+  // `Lumenize`.
+  it('names the author of each post an agent message answers', () => {
+    expect(messageByline(AGENT, [austen], nameOf)).toBe('Lumenize, re: Austen');
+    expect(messageByline(AGENT, [jennifer, austen], nameOf)).toBe('Lumenize, re: Jennifer and Austen');
+    expect(messageByline(AGENT, [impersonated], nameOf)).toBe('Lumenize, re: Coach for Dana');
+    // Two posts by one person name them once.
+    expect(messageByline(AGENT, [jennifer, jennifer], nameOf)).toBe('Lumenize, re: Jennifer');
+  });
+
+  it('reads Lumenize alone on a message that answers nothing', () => {
+    expect(messageByline(AGENT, [], nameOf)).toBe('Lumenize');
+  });
+
+  // Mutation: read `answered` whoever wrote the message → Austen's post is bylined as a reply.
+  it('reads a person\'s post as its own chain, whatever its value names', () => {
+    expect(messageByline(austen, [jennifer], nameOf)).toBe('Austen');
+    expect(messageByline(impersonated, [], nameOf)).toBe('Coach for Dana');
   });
 });

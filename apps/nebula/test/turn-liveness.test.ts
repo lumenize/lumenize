@@ -12,7 +12,7 @@
  * already-shown `failed` (reconciliation), with recovery otherwise manual-only.
  */
 import { describe, it, expect } from 'vitest';
-import { startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay, TURN_IDLE_MS } from '../src/turn-liveness';
+import { startTurn, signalTurn, signalOtherTurn, settleTurn, evaluateTurn, deriveTurnDisplay, TURN_IDLE_MS } from '../src/turn-liveness';
 
 describe('turn liveness', () => {
   it('a genuinely silent turn fails within one idle window — not a hang', () => {
@@ -89,5 +89,38 @@ describe('deriveTurnDisplay', () => {
     expect(deriveTurnDisplay({ streaming: false, phase: 'awaiting', awaitingReply: true }))
       .toBe('thinking');
     expect(deriveTurnDisplay({ streaming: false, awaitingReply: false })).toBe('none');
+  });
+});
+
+describe('a post waiting behind another post\'s turn', () => {
+  // Mutation: let another turn's chunk leave my turn as it was → nothing re-arms the window, and
+  // my post reads `failed` while the agent is plainly alive.
+  it('stays out of failed, however long the other turn streams, and shows as waiting', () => {
+    let t = startTurn(0);
+    const gap = TURN_IDLE_MS / 2;
+    for (let now = gap; now <= TURN_IDLE_MS * 4; now += gap) {
+      t = evaluateTurn(t, now);
+      t = signalOtherTurn(t, now);
+    }
+    expect(t.phase).toBe('waiting');
+    // Between that turn's chunks nothing streams: the bubble says waiting, not thinking.
+    expect(deriveTurnDisplay({ streaming: false, phase: t.phase, awaitingReply: true })).toBe('waiting');
+    // While it streams, the shared stream shows, as it does for everyone.
+    expect(deriveTurnDisplay({ streaming: true, phase: t.phase, awaitingReply: true })).toBe('streaming');
+  });
+
+  // Mutation: exempt a waiting post from the idle check → it waits for ever in silence.
+  it('fails like any other once a whole idle window passes with no signal at all', () => {
+    let t = signalOtherTurn(startTurn(0), 1000);
+    t = evaluateTurn(t, 1000 + TURN_IDLE_MS + 1);
+    expect(t.phase).toBe('failed');
+  });
+
+  it('becomes my own turn when its chunks arrive, and settles when the answer lands', () => {
+    let t = signalOtherTurn(startTurn(0), 1000);
+    t = signalTurn(t, 2000);
+    expect(t.phase).toBe('awaiting');
+    t = settleTurn(t);
+    expect(signalOtherTurn(t, 3000).phase).toBe('settled');
   });
 });
