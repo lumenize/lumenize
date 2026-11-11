@@ -379,4 +379,11 @@ The experiment turned up two more things any design has to handle. `@swc/core` 1
 
 **Until then:** an evicted turn's post shows as waiting in Studio, and the agent answers it through the decision after the next post's turn.
 
+**What it has to decide first: how the loop recovers when a turn fails.** Deferred until the multi-player happy path is settled (Larry, 2026-10-16). `galaxy.ts` points here from its interim at the generation deadline, `#stillRunning`:
+
+- **Who writes the post that ends the turn** when the model call hangs. The model cannot, so our own code must, with a fixed message or one more short model call. A turn that uses all 32 tool-call rounds (`maxToolDepth`) already posts the model's text or a fixed fallback (`#codegenTurn`).
+- **Which event frees the latch.** Today the 14-minute deadline frees it while the turn keeps running, and the abandoned turn may still write and land. Until this is decided, a turn the deadline cut off starts no decision, and no decision takes its post up again while it still runs.
+- **What bounds a wake check that dies before it posts.** Each wake would try again.
+- **What reconciles on wake:** Item 6's *Consider reconciling on wake* bullet, which destroys a build box no build owns.
+
 **Trigger:** evictions that leave posts waiting long enough for someone to notice during pre-alpha. Larry, 2026-11-11: if it proves a problem, it moves to the top of this list.

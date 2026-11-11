@@ -9,7 +9,7 @@ paths:
 
 # Studio Guidance — one home per kind of guidance, and every other place points
 
-Every Studio turn assembles a tree of guidance for the model: the tool contract, the platform layer we ship in code, the app's own `AGENTS.md` in its Workspace, the chat history, then the ontology, the source and the request. The design is `tasks/archive/nebula-guidance-file-tree.md` § *Design intent*; this file is the convention that survives it — where each kind of guidance lives, so the next fact lands in its home instead of beside it. The tool contract was once stated three times, and two copies disagreed on what to do after a timeout; the table is what stops the next drift.
+Every Studio turn assembles a tree of guidance for the model: the tool contract, the platform layer we ship in code, the app's own `AGENTS.md` in its Workspace, the chat history, the posts the Galaxy holds a call for, then the ontology, the source and the request. The design is `tasks/archive/nebula-guidance-file-tree.md` § *Design intent*; this file is the convention that survives it — where each kind of guidance lives, so the next fact lands in its home instead of beside it. The tool contract was once stated three times, and two copies disagreed on what to do after a timeout; the table is what stops the next drift.
 
 ## The placement table
 
@@ -20,7 +20,8 @@ Every Studio turn assembles a tree of guidance for the model: the tool contract,
 | Identity | "You are Studio, an assistant that builds one user-developer's web app…" | `TOOL_CONTRACT`'s first line, `apps/nebula/src/codegen-loop.ts` |
 | Tool mechanics — what a tool does and when to pick it over its sibling | `edit_file` for a change, `write_file` for a new file or a rewrite; `read_file` names `.platform/` | that tool's `description` in `CODEGEN_TOOLS`, sent as `tools` every round |
 | State-dependent result reading | "likely the build timeout; retrying the same code will time out again" | the build report itself, on the step that failed (`galaxy.ts`, `#buildOnce`) |
-| Cross-turn harness policy | findings are advisory and the model judges; tools, not prose; every file, then one build | `TOOL_CONTRACT`, beside `CODEGEN_TOOLS` — the first system bundle |
+| Cross-turn harness policy | findings are advisory and the model judges; tools, not prose; every file, then one build; whose claims a tool runs under, and what a turn's message must answer | `TOOL_CONTRACT`, beside `CODEGEN_TOOLS` — the first system bundle |
+| What the Galaxy holds right now | which waiting posts it holds a call for; the posts waiting for a decision; the posts that arrived while a turn ran | `renderHeldBlock`, `renderDecisionRequest` and `renderClosingRequest` in `codegen-loop.ts`: the held block is the system layer's last bundle, and the other two are a step's request |
 | Reporting | a doc misled the model, or an API misbehaved | `TOOL_CONTRACT` — the line lands with the capture tool the master plan's ③ builds |
 | Platform conventions and the tree | resources are the only data home; styling; the layer order; the declared files; the skills catalog | `apps/nebula/platform/AGENTS.md` |
 | Procedures | interview the user-developer about the ontology; wire a view to a resource | `apps/nebula/platform/skills/<name>/SKILL.md` |
@@ -36,7 +37,7 @@ The self-correction message after a failed build says "Fix and call build again.
 - **The platform layer is generated, never hand-edited in `src/`.** `apps/nebula/scripts/gen-platform.mjs` embeds `apps/nebula/platform/` and `website/docs/nebula/*.md` into `src/platform-embed.ts` and renders the skills catalog from each `SKILL.md`'s frontmatter into the one marker line in `platform/AGENTS.md`. After editing either source you MUST run it and commit the embed; `--check` in the package `test` script reds on drift, and `test/platform-embed-drift.test.ts` reds on a hand-edited catalog or a dangling `.platform/` path. A skill's catalog line MUST NOT be hand-written — its `description` is the line.
 - **The Galaxy seed rides the scaffold.** A file added under `apps/nebula/container/app/` reaches every new Workspace through `scripts/gen-scaffold.mjs`; the same regenerate-and-commit rule applies, and `test/scaffold-seed-drift.test.ts` pins the file set.
 - **The docs ship as-is.** `website/docs/nebula/*.md` is already the model's reference; an "LLM edition" MUST NOT be forked from it. A doc edit is a platform-layer change: regenerate the embed.
-- **The Workspace files are the user-developer's.** `AGENTS.md` and `docs/*` are written by the model on their turn under the poster's own claims, at the chat floor (`security.md`), through `edit_file`. Platform prose MUST NOT be copied into the seed — the seed carries headings and a "write this when" line, and the platform layer is read first on every turn.
+- **The Workspace files are the user-developer's.** `AGENTS.md` and `docs/*` are written by the model through `edit_file`, under the claims of the person whose post the call acts for, with the agent as actor, at the chat floor (`security.md`). Platform prose MUST NOT be copied into the seed — the seed carries headings and a "write this when" line, and the platform layer is read first on every turn.
 
 ## Naming the model sees
 

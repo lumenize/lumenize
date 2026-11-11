@@ -261,11 +261,7 @@ The post at the limit is the agent's own, and "keep going" is a new yes that bri
 
 ## Open questions
 
-- **Q3. How does the loop recover when a turn fails?** Deferred until the multi-player happy path is settled (Larry, 2026-10-16), and the wake check builds after it (D13). What it has to answer:
-  - **Who writes the post that ends the turn** when the model call hangs. The model cannot, so our own code must, with a fixed message or one more short model call. A turn that uses all 32 tool-call rounds (`maxToolDepth`) already posts the model's text or a fixed fallback (`#codegenTurn` in `galaxy.ts`).
-  - **Which event frees the latch.** Today the 14-minute deadline frees it while the turn keeps running, and the abandoned turn may still write and land. Item 5's interim stands in until then.
-  - **What bounds a wake check that dies before it posts.** Each wake would try again.
-  - **What reconciles on wake:** fast-follow Item 6's *Consider reconciling on wake* bullet, which destroys a build box no build owns.
+- **Q3. How does the loop recover when a turn fails?** Deferred until the multi-player happy path is settled (Larry, 2026-10-16), and the wake check builds after it (D13). Its open bullets live with the wake check now, in [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check*, where the interim in source points.
 
 ## Decisions
 
@@ -571,6 +567,27 @@ One thing to know rather than decide: a person who edits an agent message makes 
 - **Suites:** Nebula 130 files and 1,151 tests, up by one file and 10 tests. Seven mutations in the pure and frontend lanes each reddened one test. `audit:classes` passes.
 
 **Close-out:** `App.vue`'s comment that a post skipped by the latch is never answered is gone with the behaviour. `chat-cast.ts` returns both people's addresses, so a scenario can sign either in again in a browser.
+
+### Phase 9, the agent invites (2026-11-11)
+
+**For the human:** one thing may want your attention, and four choices were mine.
+
+- **To look at: an address holding about two dozen memberships could not accept another.** In the baseline lane, with one collaborator address shared by every test in a file, her Accept answered 401 from the thirteenth test on. An address per test passes. I did not establish why, and it may be the test browser rather than the product, but a person in a dozen apps would hold as many. It is not from this phase's change: the same helper, with nine tests fewer, was already close to it.
+- **Austen's refusal comes from the Galaxy's own check, not the chat node's.** The phase expected the chat node's `admin` message. The Galaxy checks dominion before either path, as item 8 says, so a turn working for Austen hears: *Inviting into this app needs one of its admins, and the person this turn is working for is not one.*
+- **A member of an app is told so by name.** The facade's new refusal reads: *Inviting into the app "acme.crm" needs dominion over it, which a member of it does not hold: ask one of its admins.*
+- **A collaborator invite that succeeds posts nothing more.** The turn's own message already says it was sent. An admin invite's result is posted, and any failure.
+- **`agent-invites` leaves out one limb the phase listed:** a peer's invite into a tenant Star landing, and a Star's node invite posting nothing. `invite-facade.test.ts` still passes the first, with a real member of a Star, and a Star passes no hook, so the second holds by construction.
+
+**Retro:**
+
+- **Everything passed on first write again, and sixteen mutations found no vacuous test:** six in the baseline lane, one pure, two in Mesh's, one on the re-derived surface test, and six in `/live`, each at its own limb.
+- **The real model did the right thing unprompted.** Asked by Austen for an invite, it called `invite`, was refused within the turn, and replied that an admin would have to ask.
+- **`handler-as-inviter` and two other `/live` mutations red by a four-minute timeout,** since a post recorded as Jennifer is not one the scenario looks for. Slow, but they red at their own limb.
+- **Two unrelated baseline tests failed once each in full runs at a load average of 15,** another session's work: `resubscribe-on-signal.test.ts`'s org-tree case and `scope-isolation.test.ts`'s alarm case. Both passed alone, twice. Flakes under load.
+- **Suites:** Mesh 83 files and 1,027 tests, up by one. Resources unchanged at 22. Nebula 130 files and 1,157 tests, up by 6.
+- **The `/live` sweep (`drive.ts all`): 72 of 72 passed, with one parked,** in 38.8 minutes. `studio-guidance-loop`'s reported limb (c) failed for the second run in three; `nebula-pre-alpha.md` § *Data-bound generation* has the line, and it may be the contract's new wording.
+
+**Close-out:** `TOOL_ARGS_BUNDLE_ID` is v6 and `validator-seeds.ts` is regenerated. The JSDoc of `AuthFacade.invite`, `issueInvites`, `Resources.invite`, `#onInviteResult` and `MeshClient.invite` state the app rule. `#onInviteResult`'s failure branch, which said nothing reaches it, names its producer.
 
 ## Non-goals
 

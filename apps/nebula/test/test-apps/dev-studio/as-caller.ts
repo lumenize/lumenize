@@ -1,7 +1,8 @@
 /**
  * Run `fn` under the call context a covering admin's call carries, for the `dev-studio` lane's
- * direct in-DO calls. A landing records its `ServedBuild` under the caller's claims, so a build
- * started with no call context records nothing, and its landing differs from production's.
+ * direct in-DO calls. A loop tool runs only inside the held call of a post, and a call can be
+ * held only when it carries claims, so a probe driven with no call context holds nothing and
+ * every tool it scripts is refused. With this, the probe's own call stands in as the post's.
  *
  * In-DO calls still skip the door (the passage step and the method's guard), as
  * `runInDurableObject` always has; what this restores is the claims the code below the door

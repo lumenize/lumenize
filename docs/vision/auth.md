@@ -336,8 +336,6 @@ Permissions trickle down the orgTree. To alter a Resource's value, or create one
 
 **Where a grant sits is what it covers.** A Galaxy's conversation sits on a `chat` node of its own, under the root, so a grant there covers the chat and nothing that a later node beside it holds.
 
-> **Today's code differs.** A Galaxy's chat node is its orgTree's root, so a grant on it covers the whole tree.
-
 The two admins meet here, and the direction is one-way. A data-plane `admin` is a grant on an orgTree node; `scopeAdmin` is a bit on a membership, carried on the token. `scopeAdmin` overrides the data plane's grants, never the reverse. Someone whose dominion covers the node hosting a data plane gets a bypass over that entity's whole orgTree — full read, write and admin, with no data-plane-level grant ever written. Dominion over *that host* is the whole test, never the bare bit, so an admin of a child scope whom passage legitimately lets into the parent holds no bypass once there. That is § *Why downward is generous for admins* arriving where user data lives.
 
 A Star's own admin acts through that bypass too, and holds no grant in its orgTree. The bypass is nowhere in the orgTree, so a client climbing it for someone who can grant what it needs (§ *Inside the node*) cannot see a bypass-only admin, and where such a climb ends is the request-access design's question ([`tasks/on-hold/nebula-request-access.md`](../../tasks/on-hold/nebula-request-access.md)). A Resources-level admin added later likely holds no `scopeAdmin` at all. Independence runs that way too, though not to zero: a data-plane `admin` on **any** node of the orgTree, holding `scopeAdmin` nowhere, grants and revokes freely inside that orgTree — and has a little authority in the Registry as well. They may invite a peer into their own scope (§ *Grants*), including one who will hold data-plane `admin` themselves. What they cannot do is make anyone a `scopeAdmin`, create a sibling scope, or delete this one.
@@ -482,7 +480,7 @@ The id `agent:lumenize` is self-describing and syntactically not a human, so a r
 
 Two inversions are tempting and both are wrong. A membership would give the agent a login, with passage and dominion that then have to be confined, where a grant in the Galaxy's orgTree confines it to the one audience it serves, in plain sight of every member. And the subject and actor are composed server-side: a client able to name either would defeat the record entirely.
 
-> **Today's code differs.** The agent's reply names the poster as subject and the agent as actor, a post that arrives during a turn is skipped rather than held, a source commit's record does not carry the agent as actor, and nothing builds a local principal's claims. The agent reaches a record only through an `actor` option on the Galaxy's own writes, which no call carries to another node.
+> **Today's code differs.** A turn that a restart or a deploy cuts off is answered only once someone posts again: nothing yet checks, when the Galaxy wakes, for a post left waiting. And the one thing the agent does today that changes who can do what is an invite.
 
 ### Attribution
 

@@ -3,7 +3,7 @@
 **Date**: 2026-10-15
 **Status**: Proposed
 **Deciders**: Larry
-**Evidence**: `requireChatWrite` (`apps/nebula/src/galaxy.ts`), which gates the Galaxy's source and builds with `orgTree.requirePermission(CHAT_NODE_ID, 'write')`; `OrgTree.requirePermission` (`packages/resources/src/org-tree.ts`), the one fine-grained check; `TransactionOpts.pinnedAtDoor` (`packages/resources/src/snapshots.ts`), which let the platform's own writes skip that check. Decided in `tasks/nebula-agent-posts-as-itself.md` § *Decisions*, whose first draft proposed reading the chat with no check at all.
+**Evidence**: `requireChatWrite` (`apps/nebula/src/galaxy.ts`), which gates the Galaxy's source and builds with `orgTree.requirePermission(CHAT_NODE_ID, 'write')`; `OrgTree.requirePermission` (`packages/resources/src/org-tree.ts`), the one fine-grained check; `TransactionOpts.pinnedAtDoor`, which let the platform's own writes skip that check until the agent became a local principal and it was removed. Decided in `tasks/nebula-agent-posts-as-itself.md` § *Decisions*, whose first draft proposed reading the chat with no check at all.
 
 ## Context
 
@@ -49,7 +49,7 @@ These things follow:
 
 **A persona is not a local principal.** Its tab gets a token on its own host, with its Star as `aud`, and the account's admin persona holds dominion there ([ADR-022](022-every-session-lives-on-the-platform-host.md)). Mesh builds a persona's claims the same way to seed its data, which is the mechanism the two share.
 
-> **Today's code differs.** The agent's reply names the poster as subject and the agent as actor, the reply and each landing's `ServedBuild` skip the check through `pinnedAtDoor`, the Galaxy's chat node is its root, and nothing builds a local principal's claims or a persona's. Nor does anything start a fresh chain for built claims, or a chain under a person's claims with the agent prepended: `buildOutgoingCallContext` passes `originAuth` on unless `newChain` is set, and then passes none. `tasks/nebula-agent-posts-as-itself.md` makes the agent the first local principal.
+> **Today's code differs.** The agent is the one local principal: nothing builds a persona's claims yet.
 
 ## Alternatives considered
 
