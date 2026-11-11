@@ -3,7 +3,8 @@
  * facade's eligibility rule must never ship.**
  *
  * Every invite enters mesh-side through `NebulaAuthFacade.invite` (there is no HTTP route), whose
- * rule is: exact-scope membership ∨ dominion over the target. A star admin inviting upward has
+ * rule is: dominion over the target, or exact-scope membership anywhere but an app (`agent-invites`
+ * drives the app's rule). A star admin inviting upward has
  * neither — their membership is AT the star and dominion flows strictly downward (ADR-015) — so
  * the forbidden shape is unrepresentable. A regression that widened eligibility (say, passage)
  * would let a Star `scopeAdmin` mint identities at the Universe.

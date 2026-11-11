@@ -273,6 +273,8 @@ One line per observation, appended, never edited: `date · limb · pass|fail · 
 - 2026-11-11 · (c) (d) (b2) (e) (f) · pass · unchanged across both sweeps
 - 2026-11-11 · (c) · fail · a third local run that day, after the closing step landed: the convention reached `AGENTS.md` and the reply did not name the file. That turn's prompt is the one the second sweep passed on, since a closing step's request is sent only when a post arrives mid-turn, so this too is variance
 - 2026-11-11 · (a) (b1) (b2) (d) (e) (f) (g) · pass · the same run
+- 2026-11-11 · (c) · fail · a fourth local run that day, on the tree that added the `invite` tool: again the convention reached `AGENTS.md` and the reply did not name the file. Two fails in the three runs since `TOOL_CONTRACT` began asking the reply to say whose authority it used, which may be crowding the file's name out of a two-sentence reply; worth a look before reading it as variance
+- 2026-11-11 · (a) (b1) (b2) (d) (e) (f) (g) · pass · the same run
 
 
 ## ADR hand-review

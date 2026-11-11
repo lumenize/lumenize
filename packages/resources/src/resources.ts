@@ -82,6 +82,10 @@ export interface NodeInvitee { email: string; tier: PermissionTier }
  *  lands in `_InviteStatus` rows the members panel query-subscribes. */
 export interface NodeInviteAck { accepted: number; errors: InviteeError[] }
 
+/** How one node invite ended, once the facade answered: the addresses whose membership and grant
+ *  now exist, and those the submission failed for, each with why. */
+export interface NodeInviteOutcome { nodeId: string; sent: string[]; failed: InviteeError[] }
+
 /**
  * The request-leg surface — the whole of what a host's `@mesh() get resources` hands the wire.
  * Each member derives what its caller may not state and applies the version rule before the op.
@@ -200,6 +204,7 @@ export class Resources {
   #lmz: () => LmzApi;
   #source: OntologySource;
   #onCommitted?: (mutations: Map<string, Snapshot>) => void;
+  #onInviteOutcome: ((outcome: NodeInviteOutcome) => void | Promise<void>) | undefined;
   #seed: TreeSeed;
   #orgTree!: OrgTree;
   #snapshots!: Snapshots;
@@ -235,20 +240,24 @@ export class Resources {
    *   (client transactions and server-internal ensures alike); the host's own predicate decides
    *   what reacts. The Galaxy's codegen trigger hangs here.
    * @param options - `seed`: the nodes and grants this host declares, created with its tree
-   *   ({@link TreeSeed}), and again after a wipe drops the tree's tables.
+   *   ({@link TreeSeed}), and again after a wipe drops the tree's tables. `onInviteOutcome`: told
+   *   how each node invite ended, once the facade has answered, so a host with somewhere to say
+   *   so can tell the people it concerns. It runs under the inviter's claims, on the response
+   *   leg, and its throw is logged and goes no further.
    */
   constructor(
     ctx: DurableObjectState,
     lmz: () => LmzApi,
     source: OntologySource,
     onCommitted?: (mutations: Map<string, Snapshot>) => void,
-    options: { seed?: TreeSeed } = {},
+    options: { seed?: TreeSeed; onInviteOutcome?: (outcome: NodeInviteOutcome) => void | Promise<void> } = {},
   ) {
     this.#ctx = ctx;
     this.#lmz = lmz;
     this.#source = source;
     this.#onCommitted = onCommitted;
     this.#seed = options.seed ?? {};
+    this.#onInviteOutcome = options.onInviteOutcome;
     this.#build();
     this.requests = this.#buildRequests();
     this.results = this.#buildResults();
@@ -692,8 +701,10 @@ export class Resources {
    * The facade call NEVER requests a `scopeAdmin` bit — the cap rule in its degenerate form: a
    * node inviter's authority is a DAG grant, and the `tier` parameter governs the DAG grant only.
    * On a Galaxy the Registry still co-mints the invitee's `{galaxy}.dev` workspace membership,
-   * with the admin bit exactly when the INVITER holds dominion over the Galaxy — deliberately, so a
-   * collaborator can work in the preview; `four-party-chat` asserts it. Convergence: one `_InviteStatus` row per (email, node) — a re-invite
+   * with the admin bit, so a collaborator can work in the preview; `four-party-chat` asserts it.
+   * That is why only dominion invites into a Galaxy: the facade refuses an inviter without it,
+   * though this method's own DAG gate admitted them, and the refusal arrives in the result
+   * handler. Convergence: one `_InviteStatus` row per (email, node) — a re-invite
    * converges on the existing row (fresh `tier`, back to `pending`) rather than
    * duplicating, so a second admin sees one coherent state (ADR-008 org-visibility).
    *
@@ -797,15 +808,14 @@ export class Resources {
     const log = debug('nebula.Resources.invite');
     try {
       if (result instanceof Error) {
-        // The whole submission failed (facade refusal or infra) — every pending row flips.
-        // ⚠️ DEFENSIVE, with no honest in-lane producer today (testing.md's hard-to-reach
-        // exception): the host pre-validates with the same email gate the Registry re-runs, sends
-        // no bit for the cap to breach on, and its caller passed `requirePermission` — so reaching
-        // here requires an infrastructure failure or a facade eligibility change. What replaces
-        // the test is that the event announces itself below and the flip is visible org-wide.
+        // The whole submission failed, so every pending row flips: the facade refused it, or the
+        // infrastructure failed. On a Galaxy the refusal has a producer: an inviter holding DAG
+        // `admin` at the node and no dominion over the app, whom only the facade's rule stops,
+        // since `requirePermission` at the door admitted them.
         await this.#flipInviteStatuses(nodeId, Object.keys(tiers).map((email) =>
           ({ email, state: 'submission-failed', error: result.message })));
         log.warn('node invite submission failed', { nodeId, error: result });
+        await this.#onInviteOutcome?.({ nodeId, sent: [], failed: Object.keys(tiers).map((email) => ({ email, error: result.message })) });
         return;
       }
       const summary = result as InviteSummary;
@@ -825,6 +835,7 @@ export class Resources {
         ...summary.results.map((r) => ({ email: r.email, state: 'sent' as const })),
         ...summary.errors.map((e) => ({ email: e.email, state: 'submission-failed' as const, error: e.error })),
       ]);
+      await this.#onInviteOutcome?.({ nodeId, sent: summary.results.map((r) => r.email), failed: summary.errors });
     } catch (err) {
       // Never rethrow — a fire-back handler's throw vanishes. Identifiers only.
       log.error('node invite result handling failed', {

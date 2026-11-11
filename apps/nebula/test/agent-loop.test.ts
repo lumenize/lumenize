@@ -8,6 +8,8 @@ import { describe, it, expect } from 'vitest';
 import { NEBULA_SUB } from '@lumenize/mesh/client';
 import { messageByline, toolCallMarks, waitingPosts } from '../src/participants';
 import type { ParticipantRef } from '../src/participants';
+import { CODEGEN_TOOLS, unknownToolArgKeys } from '../src/codegen-loop';
+import type { LoopToolDeps } from '../src/codegen-loop';
 import {
   agentMessageValue, heldCallFor, renderClosingRequest, renderDecisionRequest, renderHeldBlock, HELD_HEADER,
 } from '../src/codegen-loop';
@@ -143,5 +145,25 @@ describe('messageByline', () => {
   it('reads a person\'s post as its own chain, whatever its value names', () => {
     expect(messageByline(austen, [jennifer], nameOf)).toBe('Austen');
     expect(messageByline(impersonated, [], nameOf)).toBe('Coach for Dana');
+  });
+});
+
+describe('the invite tool names no post', () => {
+  // Mutation: give `invite` the `postId` every other loop tool takes → the declared keys gain it,
+  // the stray key is no longer refused, and the type check below stops erroring. An invite
+  // changes who can do what, so whose claims it uses follows from the post its turn took up and
+  // from nothing the model sends.
+  it('declares an email and an optional scopeAdmin, and refuses a postId by name', () => {
+    const invite = CODEGEN_TOOLS.find((tool) => tool.function.name === 'invite')!;
+    expect(Object.keys(invite.function.parameters.properties).sort()).toEqual(['email', 'scopeAdmin']);
+    expect((invite.function.parameters as { required?: readonly string[] }).required).toEqual(['email']);
+    expect(unknownToolArgKeys('invite', { email: 'a@example.com', postId: 'j1' })).toEqual(['postId']);
+  });
+
+  it('the dep the loop calls takes no post either', () => {
+    const invite: LoopToolDeps['invite'] = async (email) => ({ invited: email, as: 'collaborator', note: '' });
+    // @ts-expect-error an invite takes an email and a bit, and no post to run under
+    void invite('a@example.com', false, 'j1');
+    expect(invite.length).toBe(1);
   });
 });

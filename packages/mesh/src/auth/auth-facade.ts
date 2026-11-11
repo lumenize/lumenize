@@ -22,10 +22,12 @@
  * caller-suppliable) and a scope string — no DAG, and no Registry read but the one `impersonate`
  * needs:
  *
- *  - **Eligibility** — exact-scope membership ∨ dominion over the target scope. Every member may
- *    invite non-admin peers into exactly their own scope (an identity test, never a hierarchy
- *    one); dominion holders may invite anywhere below. The forbidden shape — a Star member
- *    inviting into the Universe — is unrepresentable rather than checked.
+ *  - **Eligibility** — dominion over the target scope, or, anywhere but an app, exact-scope
+ *    membership. A member may invite non-admin peers into exactly their own Star or Universe (an
+ *    identity test, never a hierarchy one); dominion holders may invite anywhere below. Only
+ *    dominion invites into an app, a Galaxy, because every invite there also makes its invitee
+ *    the admin of the app's `.dev` workspace. The forbidden shape — a Star member inviting into
+ *    the Universe — is unrepresentable rather than checked.
  *  - **The cap** — the minted bit never exceeds the inviter's dominion verdict: a requested
  *    `scopeAdmin` is honored only under dominion, and a peer inviter's request caps to false.
  *    The request selects; the verdict licenses.
@@ -132,8 +134,9 @@ export abstract class AuthFacade extends MeshWorker {
    * under `ctx.waitUntil` after the summary is produced.
    *
    * @throws Error with a distinguishable message for each expected client refusal: a malformed
-   *   `targetScope`/`invitees` shape, no membership-or-dominion, and dominion-lacking admins — see
-   *   the message constants in the body; callers assert the message, never a boolean.
+   *   `targetScope`/`invitees` shape, no membership-or-dominion, a dominion-lacking admin, and a
+   *   member of an app inviting into it — see the messages in the body; callers assert the
+   *   message, never a boolean.
    */
   @mesh()
   async invite(targetScope: string, invitees: InviteeRequest[], inviterName?: string): Promise<InviteSummary> {
@@ -157,20 +160,29 @@ export abstract class AuthFacade extends MeshWorker {
       throw new Error('Invalid invite request: invitees must be an array');
     }
 
-    // ── Eligibility: the calling host is the target ∨ dominion — one sentence, enforced once, here.
-    // Both read the host's scope, `aud` (the host rule): a plain member's token is for its own
-    // scope's host alone, so `aud` equal to the target is a membership there, and an admin's reaches
-    // down from the host it was minted for, never from its whole membership.
+    // ── Eligibility, enforced once, here: dominion over the target, or, anywhere but an app, a
+    // membership in it. Both read the host's scope, `aud` (the host rule): a plain member's token
+    // is for its own scope's host alone, so `aud` equal to the target is a membership there, and an
+    // admin's reaches down from the host it was minted for, never from its whole membership.
+    //
+    // Only dominion invites into an app, a Galaxy. Every invite there also enrols the invitee in
+    // the app's `.dev` workspace as its admin, since a collaborator who cannot work in the preview
+    // is no collaborator, and a plain member has no admin bit to hand anyone. Peers still invite
+    // each other into a Star, where an invite carries nothing the inviter lacks.
     const access = claims.access;
     const memberHere = claims.aud === targetScope;
     const dominionHere = hasDominionOver(claims, targetScope);
-    if (!memberHere && !dominionHere) {
+    const intoAnApp = parseId(targetScope).tier === 'galaxy';
+    if (!dominionHere && (intoAnApp || !memberHere)) {
       // Post-verdict message pick (the route pipeline's convention): the refusal names WHICH rule
-      // failed for THIS caller — an admin asked beyond their host vs. a member with no standing
-      // here at all. Both name only values the caller already holds (ADR-008).
-      throw new Error(access.scopeAdmin
-        ? `Inviting into "${targetScope}" needs dominion over it, and the calling host's scope is "${claims.aud}"`
-        : `Inviting into "${targetScope}" needs a membership there or dominion over it, and the calling host's scope is "${claims.aud}"`);
+      // failed for THIS caller — a member of the app itself, an admin asked beyond their host, or
+      // a member with no standing here at all. Each names only values the caller already holds
+      // (ADR-008).
+      throw new Error(intoAnApp && memberHere
+        ? `Inviting into the app "${targetScope}" needs dominion over it, which a member of it does not hold: ask one of its admins`
+        : access.scopeAdmin
+          ? `Inviting into "${targetScope}" needs dominion over it, and the calling host's scope is "${claims.aud}"`
+          : `Inviting into "${targetScope}" needs a membership there or dominion over it, and the calling host's scope is "${claims.aud}"`);
     }
 
     // ── The cap: the minted bit never exceeds the dominion verdict. Malformed entries pass

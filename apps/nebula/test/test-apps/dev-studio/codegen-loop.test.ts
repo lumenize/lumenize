@@ -133,6 +133,7 @@ function harness(
         return { oid: `oid${writes.length}`, path };
       }),
       build: build ?? (async () => cleanReport()),
+      invite: async (email, scopeAdmin) => ({ invited: email, as: scopeAdmin ? 'admin' as const : 'collaborator' as const, note: 'sent' }),
     },
     validateToolArgs: async () => ({ ok: true }),
     ...rest,

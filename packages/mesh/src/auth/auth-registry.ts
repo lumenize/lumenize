@@ -1751,12 +1751,13 @@ export class AuthRegistry extends DurableObject {
    *    by its page's `POST`), and return the URL for the entry's sender, alongside the acceptance
    *    fact that picks the template.
    *
-   * **Eligibility refusals are the caller's job** — the entry's claims-only verdicts: exact-scope
-   * membership or dominion over the target (they need no registry data, so a refused caller never
-   * reaches the singleton — ADR-018) — but
-   * never the admin bit: the full cap rule is re-asserted in-method, and a `scopeAdmin: true` entry
-   * arriving without dominion in `callerClaims` THROWS as an invariant breach (the entry should
-   * have capped it), before any entry's writes. Malformed entries join the per-invitee errors; the
+   * **Eligibility refusals are the caller's job** — the entry's claims-only verdicts: dominion over
+   * the target, or exact-scope membership anywhere but an app (they need no registry data, so a
+   * refused caller never reaches the singleton — ADR-018) — but never the admin bit, and never an
+   * app. The full cap rule is re-asserted in-method: a `scopeAdmin: true` entry arriving without
+   * dominion in `callerClaims` THROWS as an invariant breach (the entry should have capped it), and
+   * so does any invite into an app, a Galaxy, from a caller without dominion, since each mints an
+   * admin `.dev` membership. Both throw before any entry's writes. Malformed entries join the per-invitee errors; the
    * batch never fails whole.
    *
    * **Nobody is invited into a scope its founder has not accepted**, which throws before any write.
@@ -1785,6 +1786,18 @@ export class AuthRegistry extends DurableObject {
       }
     }
 
+    // Only dominion invites into an app: every invite there mints its invitee an admin `.dev`
+    // membership below, which a caller without dominion does not hold and cannot hand on. The
+    // entry refuses such a caller first, so one arriving here is an invariant breach too.
+    let galaxyTier = false;
+    try { galaxyTier = parseId(universeGalaxyStarId).tier === 'galaxy'; } catch { /* not a scope id */ }
+    if (galaxyTier && !dominion) {
+      throw new Error(
+        'issueInvites: an invite into an app arrived without dominion in callerClaims — the entry ' +
+        'guard must refuse it (invariant breach, not a client error)',
+      );
+    }
+
     const pending = this.#pendingFounderRefusal(universeGalaxyStarId);
     if (pending) throw new RegistryError(409, 'scope_pending', pending);
 
@@ -1809,25 +1822,23 @@ export class AuthRegistry extends DurableObject {
         const minted = this.#mintIdentity(email, universeGalaxyStarId, requestedBit, invitedBy);
 
         // The workspace SECOND HALF (galaxy-tier invites only): a galaxy collaborator is
-        // ALSO enrolled in the `.dev` workspace Star, so she can work in the preview
-        // while her galaxy membership carries no admin bit at all.
+        // ALSO enrolled in the `.dev` workspace Star, as its admin, so she can work in the
+        // preview while her galaxy membership carries no admin bit at all. The inviter holds
+        // dominion over the app, checked above, and so over its workspace: the bit is theirs to
+        // give (ADR-015: dominion flows downward from what you actually have).
         //
-        // ⚠️ **The workspace bit is DOMINION-PRICED, on the same `dominion` the cap
-        // above uses.** `issueInvites` is reachable by a PEER — the facade admits an
-        // exact-scope member with no admin bit and no dominion — so minting the `.dev`
-        // bit unconditionally let such a member hand a third party admin over the whole
-        // workspace, which the inviter does not hold and cannot delegate (ADR-015:
-        // dominion flows downward from what you actually have, and upward is nil). The
-        // peer case still enrolls the invitee, just without the bit: passage into the
-        // workspace is the collaboration grant; admin over it is the inviter's to give
-        // only if they have it. Idempotent like the primary.
-        let galaxyTier = false;
-        try { galaxyTier = parseId(universeGalaxyStarId).tier === 'galaxy'; } catch { /* not a scope id */ }
         // ⚠️ The sibling carries the SAME stamps, written in the same statement-pair as the primary.
         // It is a membership a third party created for this person exactly as the primary is, so an
         // unstamped one would render the self-flavor consent modal — "only accept if you initiated
         // this signup" — over a row they had nothing to do with.
-        if (galaxyTier) this.#mintIdentity(email, `${universeGalaxyStarId}.dev`, dominion, invitedBy);
+        if (galaxyTier) {
+          const workspace = this.#mintIdentity(email, `${universeGalaxyStarId}.dev`, true, invitedBy);
+          // Someone invited straight into the workspace earlier, by a peer, holds it without the
+          // bit. That is an authority change on an existing row, so it goes through the one
+          // promotion path, which re-puts their refresh records and writes the ADR-016 record:
+          // the mint never rewrites a row.
+          if (!workspace.created && !workspace.scopeAdmin) await this.setIdentityAdmin(workspace.sub, true, callerClaims);
+        }
 
         let outcome: InviteeMintResult['outcome'] = minted.created ? 'invited' : 'already-member';
         if (!minted.created && requestedBit && !minted.scopeAdmin) {

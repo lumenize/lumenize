@@ -77,14 +77,20 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
     );
   });
 
-  it('every entry LOOP_TOOL_ENTRIES names sits at the CHAT FLOOR (requireChatWrite)', () => {
-    // Mutation: restore `requireDominionHere` on `writeSource` → it leaves this set → red.
+  it('every `@mesh()`-decorated entry LOOP_TOOL_ENTRIES names sits at the CHAT FLOOR, and `invite` has no `@mesh()` at all', () => {
+    // Mutations: restore `requireDominionHere` on `writeSource` → it leaves the chat set → red;
+    // decorate `invite` with `@mesh()` → the last assertion reds.
     const chat = meshMethods('chat');
-    const named = [...new Set(Object.values(LOOP_TOOL_ENTRIES).flat())];
+    const callable = new Set(meshEntries(Galaxy).map(({ name }) => name));
+    const named = [...new Set(Object.values(LOOP_TOOL_ENTRIES).flat())] as string[];
     expect(named.length).toBeGreaterThan(0); // the table is not empty (positive control)
-    for (const entry of named) expect(chat).toContain(entry);
-    // The exact chat-floor set: the table's three entries, and nothing else.
+    for (const entry of named.filter((name) => callable.has(name))) expect(chat).toContain(entry);
+    // The exact chat-floor set: the table's three decorated entries, and nothing else.
     expect(chat).toEqual(['buildNow', 'readSource', 'writeSource']);
+    // `invite` is on no wire: a loop tool calls it in-process, inside a held post's call, and a
+    // client already has `resources.invite`, so a decorated entry would only be a second door.
+    expect(named.filter((name) => !callable.has(name))).toEqual(['invite']);
+    expect(typeof (Galaxy.prototype as unknown as Record<string, unknown>).invite).toBe('function'); // it exists, undecorated
   });
 
   it('the DOMINION list is exactly Galaxy configuration', () => {
@@ -138,7 +144,7 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
     // literal list is the assertion — comparing against `Object.keys(LOOP_TOOL_ENTRIES)`
     // would compare the value with its own source.
     const keys = await callGalaxy(uniqueGalaxyScope(), 'loopToolDepKeysForTest') as string[];
-    expect(keys).toEqual(['build', 'edit_file', 'read_file', 'write_file']);
+    expect(keys).toEqual(['build', 'edit_file', 'invite', 'read_file', 'write_file']);
   });
 
   it('onInviteResult is gone from the Galaxy, and `resourcesResults`, where it now lives, has no `@mesh()`', () => {

@@ -62,6 +62,7 @@ export const TOOL_ARG_TYPE: Record<string, string> = {
   build: 'BuildArgs',
   mark_complete: 'MarkCompleteArgs',
   take_up: 'TakeUpArgs',
+  invite: 'InviteArgs',
 };
 
 /** The optional argument every loop tool takes: whose claims the call runs under. */
@@ -179,6 +180,29 @@ export const CODEGEN_TOOLS = [
               'judge harmless, false holds a clean one back. A build you do not preview is served nowhere.',
           },
           postId: POST_ID_PROPERTY,
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'invite',
+      description:
+        'Invite a person into this app by email. It runs under the claims of the person whose ' +
+        'post this turn took up, and takes no postId: only an admin of the app can invite, so ' +
+        'when that person is not one the call is refused, and you should say so and ask an ' +
+        'admin in the chat. By default the invitee becomes a collaborator, who can post here ' +
+        'and work in the preview. Pass { "scopeAdmin": true } only when you were asked to make ' +
+        'them an admin of the app. The email goes out after this call returns: a failure, and ' +
+        'the result of an admin invite, is posted to the chat for everyone.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['email'],
+        properties: {
+          email: { type: 'string', description: 'The address to invite.' },
+          scopeAdmin: { type: 'boolean', description: 'true makes the invitee an admin of the app. Leave it out for a collaborator.' },
         },
       },
     },
@@ -382,6 +406,13 @@ export interface LoopToolDeps {
    * `container` step failed; it never aborts the turn.
    */
   build(opts?: { preview?: boolean }, postId?: string): Promise<BuildReport>;
+  /**
+   * Invite a person into the app, as a collaborator or, with `scopeAdmin`, as an admin of it. It
+   * takes no `postId`: an invite changes who can do what, so it runs under the post the turn
+   * took up and nothing the model sends can pick another. Throws when that post's poster lacks
+   * dominion over the app, which reaches the model as the call's tool error within the turn.
+   */
+  invite(email: string, scopeAdmin?: boolean): Promise<{ invited: string; as: 'collaborator' | 'admin'; note: string }>;
 }
 
 /** The loop tools that reach an entry — the keys of {@link LoopToolDeps}. */
@@ -881,6 +912,21 @@ export async function runCodegenLoop(
           sawError = true;
           // The per-write feedback's successor: findings-plus-touched-files, in the USER layer.
           messages.push({ role: 'user', content: buildReportFeedback(report, appliedPaths) });
+        }
+        continue;
+      }
+
+      if (tc.name === 'invite') {
+        const { email, scopeAdmin } = tc.args as { email: string; scopeAdmin?: boolean };
+        // Always the post the turn took up: the call names none.
+        const acted = deps.actsFor?.(undefined);
+        try {
+          const result = await deps.tools.invite(email, scopeAdmin);
+          deps.onProgress?.(`invited ${email}`);
+          recorded.push({ name: tc.name, args: tc.args, result, ...acted });
+          messages.push(toolResultMessage(tc.id, result));
+        } catch (e) {
+          fail(tc, e instanceof Error ? e.message : String(e), tc.args);
         }
         continue;
       }

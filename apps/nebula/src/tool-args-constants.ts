@@ -16,7 +16,8 @@
  *  names one span: `anchor` must occur exactly once. `postId` on a loop tool names the held
  *  post whose poster's claims the call runs under, the post its turn took up when absent.
  *  `TakeUpArgs` is a decision's pick, and `MarkCompleteArgs.answers` the posts the turn's final
- *  message answers. ⚠️ The facet is `createValidate`,
+ *  message answers. `InviteArgs` names no post, deliberately: an invite changes who can do what,
+ *  so it runs under the post its turn took up and the model cannot choose another. ⚠️ The facet is `createValidate`,
  *  which IGNORES excess keys — `Galaxy.#validateToolArgs` refuses them by name against
  *  the tool's declared properties, so a stale `publish` key cannot be silently dropped. */
 export const TOOL_ARGS_TYPES = `
@@ -26,6 +27,7 @@ interface EditFileArgs { path: string; anchor: string; replacement: string; post
 interface BuildArgs { preview?: boolean; postId?: string; }
 interface MarkCompleteArgs { answers?: string[]; }
 interface TakeUpArgs { postId: string; }
+interface InviteArgs { email: string; scopeAdmin?: boolean; }
 `;
 
 /**
@@ -38,6 +40,6 @@ interface TakeUpArgs { postId: string; }
  * reused id serves the STALE validator — and nothing catches a stale id the way the
  * generator's `--check` catches a stale literal. v4: `read_file` + `edit_file` joined,
  * `BuildArgs.publish` became `preview` (2026-09-05). v5: each loop tool's optional `postId`,
- * `take_up`, and `mark_complete`'s `answers` (2026-11-11).
+ * `take_up`, and `mark_complete`'s `answers` (2026-11-11). v6: `invite` joined (2026-11-11).
  */
-export const TOOL_ARGS_BUNDLE_ID = 'nebula-devstudio-tool-args-v5';
+export const TOOL_ARGS_BUNDLE_ID = 'nebula-devstudio-tool-args-v6';

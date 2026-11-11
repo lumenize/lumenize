@@ -1150,9 +1150,10 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
 
   /**
    * Invite people into `targetScope`: a mesh call to the `AUTH_FACADE` Worker, so the verified
-   * claims ride `callContext.originAuth` and never a Bearer header. Every member may invite plain
-   * members into their own scope; dominion also permits inviting downward, and is the only thing
-   * that grants a requested `scopeAdmin`. A refusal rejects with the facade's message.
+   * claims ride `callContext.originAuth` and never a Bearer header. A member may invite plain
+   * members into their own Star or Universe; dominion also permits inviting downward, is the only
+   * thing that grants a requested `scopeAdmin`, and is the only thing that invites into an app.
+   * A refusal rejects with the facade's message.
    *
    * The summary reports what was minted; the mail finishes after it returns. In test mode `links`
    * carries the raw invite URLs, and a production summary never does.

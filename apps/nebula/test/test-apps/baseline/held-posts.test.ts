@@ -17,7 +17,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { NEBULA_SUB } from '@lumenize/mesh/auth';
+import { NEBULA_SUB, REGISTRY_INSTANCE_NAME } from '@lumenize/mesh/auth';
+import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
@@ -51,9 +52,13 @@ async function cast(scope: string) {
   const jennifer = await universeAdminClient(
     StudioClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, PAIR(scope),
   );
-  await createSubject(new Browser(), scope, jennifer.accessToken, 'member@example.com');
+  // An address of her own per test. With one address shared by every test in this file, her
+  // Accept answered 401 from the thirteenth test on, by which time that address held two dozen
+  // memberships; with an address per test it does not. Why is not established.
+  const austenEmail = `member-${crypto.randomUUID().slice(0, 8)}@example.com`;
+  await createSubject(new Browser(), scope, jennifer.accessToken, austenEmail);
   const austen = await createInvitedClient(
-    StudioClientTest, new Browser(), scope, scope, 'member@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, PAIR(scope),
+    StudioClientTest, new Browser(), scope, scope, austenEmail, CHAT_MESSAGE_ONTOLOGY_VERSION, PAIR(scope),
   );
   expect(austen.payload.access?.scopeAdmin).toBeFalsy();
   await jennifer.client.lmz.callAsync('GALAXY', scope,
@@ -69,6 +74,19 @@ async function cast(scope: string) {
     dispose: () => { j[Symbol.dispose](); a[Symbol.dispose](); },
   };
 }
+
+/** The memberships the Registry holds for `email`: each scope, and whether it carries the admin bit. */
+async function membershipsOf(email: string): Promise<Array<[scope: string, admin: boolean]>> {
+  return (runInDurableObject as any)(env.AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME), (_i: unknown, ctx: DurableObjectState) =>
+    ctx.storage.sql.exec(
+      `SELECT m.universeGalaxyStarId AS scope, m.scopeAdmin AS admin FROM Emails e JOIN Memberships m ON m.emailId = e.emailId
+       WHERE e.email = ? ORDER BY m.universeGalaxyStarId`, email,
+    ).toArray().map((r) => [r.scope as string, Boolean(r.admin)] as [string, boolean]));
+}
+const someone = () => `friend-${crypto.randomUUID().slice(0, 8)}@example.com`;
+/** What the Galaxy's own check tells a turn working for someone who is not an admin of the app. */
+const NOT_AN_ADMIN = 'Inviting into this app needs one of its admins, and the person this turn is working for is not one. Say so, and ask an admin in the chat to ask for the invite.';
+type ToolCalls = { codegen: { toolCalls: Array<{ name: string; args?: Record<string, unknown>; result?: Record<string, unknown>; error?: string; claims?: { sub: string } }> } };
 
 /** Post a Message at an id the test chose, so a script written beforehand can name it. */
 async function post(client: StudioClientTest, id: string, content: string, extra: Record<string, unknown> = {}): Promise<void> {
@@ -276,7 +294,7 @@ describe('a turn that ends after posts arrived mid-turn closes by reading them',
     // The step names the post that arrived, and is offered a message and nothing that acts.
     expect(turnLines(scope, 'closing step').map((l) => [l.postId, l.posts])).toEqual([[j1, [a1]]]);
     expect(turnLines(scope, 'request').map((l) => [l.step, l.tools])).toEqual([
-      ['turn', ['read_file', 'write_file', 'edit_file', 'build', 'mark_complete']],
+      ['turn', ['read_file', 'write_file', 'edit_file', 'build', 'invite', 'mark_complete']],
       ['closing', ['mark_complete']],
     ]);
     // Its message replaced the draft, and answers the post the turn took up and the one it named.
@@ -447,6 +465,123 @@ describe('a turn the generation deadline cuts off', () => {
     await new Promise((r) => setTimeout(r, 600));
     expect(turnLines(scope, 'took up').map((l) => l.postId)).toEqual([j1, a2, a1]);
     expect(turnLines(scope, 'decision').map((l) => l.postId)).toEqual([a1]);
+    c.dispose();
+  });
+});
+
+describe('the agent invites, under the claims of the post its turn took up', () => {
+  // Mutations: send an admin invite through the node invite, which asks for no bit → the invitee
+  // is a plain member; post the handler's message under the call it answers in, the inviter's →
+  // it records Jennifer and starts a turn of its own.
+  it('for an admin of the app, a collaborator invite and an admin invite both land, and only the admin invite\'s result is posted', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
+    const [collaborator, admin] = [someone(), someone()];
+    await c.seed([
+      call('invite', { email: collaborator }),
+      call('invite', { email: admin, scopeAdmin: true }),
+      call('mark_complete', {}, 'Both invites are on their way.'),
+    ]);
+    await c.j.postUserMessage('Invite a collaborator and an admin.');
+    // The turn's message, then the handler's post with the admin invite's result.
+    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(2), { timeout: 20_000 });
+    await new Promise((r) => setTimeout(r, 1200));
+
+    const messages = await agentMessages(c.j, sub.resourceIds);
+    const calls = (messages.get('Both invites are on their way.')!.value as ToolCalls).codegen.toolCalls;
+    expect(calls.map((tc) => [tc.name, tc.result?.as, tc.claims?.sub])).toEqual([
+      ['invite', 'collaborator', c.jSub], ['invite', 'admin', c.jSub], ['mark_complete', undefined, undefined],
+    ]);
+    // A collaborator: a plain member of the app, and the admin of its `.dev` workspace.
+    expect(await membershipsOf(collaborator)).toEqual([[scope, false], [`${scope}.dev`, true]]);
+    // An admin: the app's admin bit.
+    expect(await membershipsOf(admin)).toEqual([[scope, true], [`${scope}.dev`, true]]);
+    // The handler's post is the agent's own, answers nothing and replies to nothing, and no turn
+    // took it up: the only turn is the one on Jennifer's post.
+    const outcome = messages.get(`${admin} is invited as an admin of this app. The email is on its way.`)!;
+    expect(outcome.meta.recordedClaims).toMatchObject({ sub: NEBULA_SUB });
+    expect(outcome.meta.recordedClaims.act).toBeUndefined();
+    expect((outcome.value as { replyTo?: string; answers?: string[] }).replyTo).toBeUndefined();
+    expect((outcome.value as { replyTo?: string; answers?: string[] }).answers).toBeUndefined();
+    expect(turnLines(scope, 'took up')).toHaveLength(1);
+    c.dispose();
+  });
+
+  // Mutation: let an invite run under any held post whose poster is an admin → it runs under
+  // Jennifer's, and Austen's friend is invited on Jennifer's authority.
+  it('an invite in Austen\'s turn runs under Austen\'s claims, though Jennifer\'s post is held too, and is refused', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
+    const [j1, a1, j2] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    const friend = someone();
+    await c.seed([
+      { __delayMs: 1500 }, say('A draft for Jennifer.'), say('Done, Jennifer.'),
+      call('take_up', { postId: a1 }),
+      call('invite', { email: friend }),
+      say('Austen, I cannot invite your friend: that needs an admin of the app.'),
+      call('mark_complete', { answers: [j2] }, 'Jennifer, noted.'),
+    ]);
+    await post(c.j, j1, 'First request.');
+    await turnUnderWay(scope);
+    await post(c.a, a1, 'Please invite my friend.');
+    await post(c.j, j2, 'A second request, so my claims are held while Austen\'s turn runs.');
+    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(3), { timeout: 20_000 });
+
+    const reply = (await agentMessages(c.j, sub.resourceIds)).get('Austen, I cannot invite your friend: that needs an admin of the app.')!;
+    expect((reply.value as ToolCalls).codegen.toolCalls[0]).toMatchObject({ name: 'invite', error: NOT_AN_ADMIN });
+    expect(await membershipsOf(friend)).toEqual([]);
+    c.dispose();
+  });
+
+  // Mutation: drop the Galaxy's own check → the invite passes the chat node's `admin` gate, the
+  // facade refuses it after the turn has ended, and the handler posts that refusal: a second
+  // agent message, after the turn's.
+  it('an inviter with admin at the chat node and no dominion is refused within the turn, by the Galaxy\'s own check', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, c.aSub, 'admin'));
+    using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
+    const friend = someone();
+    await c.seed([call('invite', { email: friend }), say('I cannot invite them: that needs an admin of the app.')]);
+    await c.a.postUserMessage('Please invite my friend.');
+    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(1), { timeout: 15_000 });
+    await new Promise((r) => setTimeout(r, 1500));
+
+    const messages = await agentMessages(c.j, sub.resourceIds);
+    expect([...messages.keys()]).toEqual(['I cannot invite them: that needs an admin of the app.']);
+    expect((messages.values().next().value!.value as ToolCalls).codegen.toolCalls[0]).toMatchObject({ name: 'invite', error: NOT_AN_ADMIN });
+    expect(await membershipsOf(friend)).toEqual([]);
+    c.dispose();
+  });
+
+  // Mutations: let a member of an app invite into it, as a member of a Star may → Austen's direct
+  // call lands and her friend is an admin of the workspace; drop the post a failed node invite
+  // makes → nothing tells the chat that the invite she was acknowledged for never happened.
+  it('a member of the app is refused at the facade, and a node invite the facade refuses is posted to the chat', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, c.aSub, 'admin'));
+    using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
+    const [direct, viaNode] = [someone(), someone()];
+    const refusal = `Inviting into the app "${scope}" needs dominion over it, which a member of it does not hold: ask one of its admins`;
+
+    // Straight to the facade: the app rule, by its own message.
+    await expect(c.a.lmz.callAsync('AUTH_FACADE', undefined, c.a.ctn<AuthFacade>().invite(scope, [{ email: direct }])))
+      .rejects.toThrow(refusal);
+    expect(await membershipsOf(direct)).toEqual([]);
+
+    // Through the node invite, whose own gate is DAG `admin` at the node, which Austen holds: it
+    // acknowledges, the facade refuses afterwards, and the Galaxy posts that as the agent.
+    const ack = await c.a.lmz.callAsync('GALAXY', scope,
+      c.a.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, [{ email: viaNode, tier: 'write' }]));
+    expect(ack).toEqual({ accepted: 1, errors: [] });
+    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(1), { timeout: 15_000 });
+    const [[text, posted]] = [...(await agentMessages(c.j, sub.resourceIds))];
+    expect(text).toBe(`I could not invite ${viaNode}: ${refusal}`);
+    expect(posted!.meta.recordedClaims).toMatchObject({ sub: NEBULA_SUB });
+    expect(await membershipsOf(viaNode)).toEqual([]);
     c.dispose();
   });
 });

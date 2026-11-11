@@ -86,11 +86,12 @@ describe('Galaxy invite — the workspace SECOND HALF', () => {
     expect(dp.sub).not.toBe(gp.sub);
   });
 
-  it('a PEER inviter (no dominion) co-mints the `.dev` membership WITHOUT the admin bit', async () => {
-    // The escalation this prices: `issueInvites` is reachable by an exact-scope MEMBER
-    // (the facade admits `authScope === targetScope` OR dominion), so an unconditional
-    // `.dev` admin co-mint let a peer hand a third party admin over the whole workspace —
-    // authority the inviter does not hold and cannot delegate (ADR-015: upward is nil).
+  it('an invite into an app from an inviter without dominion throws, before any write', async () => {
+    // Every invite into an app mints its invitee an admin membership in the app's `.dev`
+    // workspace, which a plain member of the app does not hold and cannot hand on (ADR-015:
+    // upward is nil). The facade refuses such an inviter first; the Registry keeps its own check,
+    // so a caller that reaches it anyway is refused here. Mutation: drop the Registry's check →
+    // the invite lands, and the third party holds admin over the workspace.
     const u = uni();
     const galaxy = `${u}.app`;
     const admin = await foundUniverse(SELF, u, em('adm'));
@@ -98,26 +99,38 @@ describe('Galaxy invite — the workspace SECOND HALF', () => {
 
     // A real peer: invited by the admin with NO bit, then logged in through the real
     // acceptance. Their token is the caller below — a member of the galaxy, no dominion.
-    const peerEmail = em('peer');
-    const peer = await inviteAndLogin(SELF, galaxy, admin.access_token, peerEmail);
+    const peer = await inviteAndLogin(SELF, galaxy, admin.access_token, em('peer'));
     const peerClaims = parseJwtUnsafe(peer.access_token)!.payload as unknown as AuthClaims;
     // The fixture guard — without these the assertion below cannot fail for its own reason.
     expect(peerClaims.access.scopeAdmin).toBeUndefined();
     expect(peerClaims.access.authScope).toBe(galaxy);
 
     const third = em('third');
-    const mint = await issueInvitesAs(peer.access_token, galaxy, [{ email: third }]);
-    expect(mint.errors).toHaveLength(0);
+    await expect(Promise.resolve(issueInvitesAs(peer.access_token, galaxy, [{ email: third }])))
+      .rejects.toThrow('an invite into an app arrived without dominion in callerClaims');
+    // Nothing was written for the third party: no link, and no membership in either scope.
+    expect(await linkRows(third, 'invite')).toEqual([]);
+    expect(await membershipsOf(getRegistry(), third)).toEqual([]);
+  });
 
-    // Both sessions still seed — collaboration is not the thing being withheld …
-    const resp = await consumeLink(SELF, linkFor(mint, third));
-    expect(resp.status).toBe(200);
-    const cookies = refreshCookiesSet(resp);
-    expect(cookies.size).toBe(2);
-    // … but the workspace session carries NO admin bit, because the inviter had none to give.
-    const { parsed: dp } = await refreshAndParse(SELF, `${galaxy}.dev`, cookies.get(`${galaxy}.dev`)!);
-    expect(dp.access.authScope).toBe(`${galaxy}.dev`);
-    expect(dp.access.scopeAdmin).toBeUndefined();
+  it('an invitee who already holds the workspace without the admin bit is promoted there, through the one promotion path', async () => {
+    // P was invited straight into the app's `.dev` Star, with no bit, and signed in. An invite
+    // into the app now makes P a collaborator, and every collaborator is the workspace's admin.
+    // P's EXISTING `.dev` session gains the bit on its next refresh, because the promotion
+    // re-puts P's refresh records. Mutation: skip the promotion → P's workspace token stays plain.
+    const u = uni();
+    const galaxy = `${u}.app`;
+    const admin = await foundUniverse(SELF, u, em('adm'));
+    await createGalaxy(galaxy, admin.access_token);
+    const pEmail = em('p');
+    const p = await inviteAndLogin(SELF, `${galaxy}.dev`, admin.access_token, pEmail);
+    expect((p.parsed as AuthClaims).access.scopeAdmin).toBeUndefined();
+
+    const mint = await issueInvitesAs(admin.access_token, galaxy, [{ email: pEmail }]);
+    expect(mint.errors).toHaveLength(0);
+    const { parsed } = await refreshAndParse(SELF, `${galaxy}.dev`, p.refreshToken);
+    expect((parsed as AuthClaims).access.authScope).toBe(`${galaxy}.dev`);
+    expect((parsed as AuthClaims).access.scopeAdmin).toBe(true);
   });
 
   it('a UNIVERSE invite stays single-session (the second half is galaxy-tier only)', async () => {

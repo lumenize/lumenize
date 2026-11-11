@@ -38,8 +38,9 @@ import {
   type ParserValidator,
 } from '@lumenize/ts-runtime-parser-validator/runtime';
 import { NEBULA_SUB, toRecordedClaims } from '@lumenize/mesh/auth';
-import type { AuthClaims } from '@lumenize/mesh/auth';
-import { GATEWAY_PREFIX, ScopedMeshDO, requireDominionHere } from '@lumenize/mesh';
+import type { AuthClaims, InviteSummary } from '@lumenize/mesh/auth';
+import type { AuthFacade } from '@lumenize/mesh/auth/facade';
+import { GATEWAY_PREFIX, ScopedMeshDO, hasDominionOver, requireDominionHere } from '@lumenize/mesh';
 // Types only — the COMPILE itself runs in the container build job
 // (tasks/archive/nebula-move-compilers-out-of-the-worker.md: the Worker orchestrates and
 // stores, and does not build). No value import of the compile half may return here;
@@ -51,7 +52,7 @@ import { assembleStream } from './model-stream';
 import { TURN_HEARTBEAT_MS } from './turn-liveness';
 import type { BuildReport, StepResult } from './build-report';
 import { Resources } from '@lumenize/resources';
-import type { OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from '@lumenize/resources';
+import type { NodeInviteOutcome, OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from '@lumenize/resources';
 import type { QueryDescriptor } from '@lumenize/resources';
 import { chatOntologySeedRow } from './chat-ontology';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID, GALAXY_TREE_SEED } from './chat-constants';
@@ -389,13 +390,15 @@ export function assertModelPath(path: string, opts: { write: boolean }): string 
 
 /** A loop tool → the Galaxy entries it reaches. `runCodegenTurn` builds the tool deps from
  *  this table ({@link Galaxy.loopToolDeps}), so a tool cannot reach an entry the table does
- *  not name, and the resource-surface test reads it to assert every named entry sits at the
- *  chat floor. `mark_complete` reaches nothing and is not listed. */
+ *  not name, and the resource-surface test reads it to assert every `@mesh()`-decorated entry
+ *  it names sits at the chat floor, and that `invite` has no `@mesh()` at all. `mark_complete`
+ *  reaches nothing and is not listed. */
 export const LOOP_TOOL_ENTRIES = {
   read_file: ['readSource'],
   write_file: ['writeSource'],
   edit_file: ['readSource', 'writeSource'],
   build: ['buildNow'],
+  invite: ['invite'],
 } as const satisfies { [K in LoopToolName]: readonly LoopEntry[] };
 
 /** The reserved mounts a `read_file` path may name, and what answers each: `.platform/`
@@ -413,7 +416,7 @@ function noSuchFile(path: string, e: unknown): Error {
 }
 
 /** The Galaxy entries a loop tool may reach — the domain of {@link LOOP_TOOL_ENTRIES}. */
-type LoopEntry = 'readSource' | 'writeSource' | 'buildNow';
+type LoopEntry = 'readSource' | 'writeSource' | 'buildNow' | 'invite';
 
 /** {@link isStuckFlagResponse} over a thrown error carrying `(status, body)` — defensive
  *  against a plain Error (no `status`/`body` → not stuck). Pure. */
@@ -509,7 +512,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       () => this.lmz,
       this.#chatOntologySource(),
       (mutations) => this.#onChatCommitted(mutations),
-      { seed: GALAXY_TREE_SEED },
+      { seed: GALAXY_TREE_SEED, onInviteOutcome: (outcome) => this.#onNodeInviteOutcome(outcome) },
     );
   }
 
@@ -1413,6 +1416,81 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     return this.#queueBuild({ preview: opts.preview });
   }
 
+  // ─── The agent invites ──────────────────────────────────────────────
+
+  /**
+   * Invite a person into the app, for the loop's `invite` tool: as a collaborator, with `write`
+   * at the chat node, or with `scopeAdmin` as an admin of the app. It has NO `@mesh()`, on
+   * purpose: a loop tool calls it in-process, inside the held call of the post its turn took
+   * up, and a client already has `resources.invite`, so a decorated entry here would only be a
+   * second door.
+   *
+   * It first checks that the claims it runs under hold dominion over the app. The facade
+   * enforces the same rule and stays the authority, as the impersonation mint stays the
+   * authority behind `assertCanImpersonate`. But the facade's refusal arrives in a result
+   * handler, after the turn has ended, so checking here lets the agent hear it within the turn
+   * and ask someone who can.
+   *
+   * Each kind goes where its collaborator does. A collaborator goes through the Resources
+   * plane's node invite, which writes the pending row, calls the facade, and grants `write` at
+   * the chat node when it answers. An admin goes straight to the facade, with the bit. Either
+   * way the membership, and whether the mail went out, land after the turn, so what the turn
+   * could not know is posted to the chat by the handler: a failure on either path, and an admin
+   * invite's result ({@link onAdminInviteResult}, {@link #onNodeInviteOutcome}).
+   */
+  async invite(email: string, scopeAdmin?: boolean): Promise<{ invited: string; as: 'collaborator' | 'admin'; note: string }> {
+    const scope = this.lmz.instanceName!;
+    const claims = this.#claimsIfAny();
+    if (!claims || !hasDominionOver(claims, scope)) {
+      throw new Error('Inviting into this app needs one of its admins, and the person this turn is working for is not one. Say so, and ask an admin in the chat to ask for the invite.');
+    }
+    if (scopeAdmin === true) {
+      this.lmz.call(
+        'AUTH_FACADE', undefined,
+        this.ctn<AuthFacade>().invite(scope, [{ email, scopeAdmin: true }]),
+        this.ctn<Galaxy>().onAdminInviteResult(email),
+      );
+      return { invited: email, as: 'admin', note: 'The invite is being sent. Its result will be posted to the chat.' };
+    }
+    const ack = await this.#resources.invite(CHAT_NODE_ID, [{ email, tier: 'write' }]);
+    if (ack.errors.length > 0) throw new Error(`could not invite ${email}: ${ack.errors.map((e) => e.error).join('; ')}`);
+    return { invited: email, as: 'collaborator', note: 'The invite is being sent. A failure will be posted to the chat.' };
+  }
+
+  /**
+   * The facade's answer to an admin invite, as the result handler {@link invite} named. It has no
+   * `@mesh()`: it runs at the fire-back door, under the inviter's claims, and posts as the agent
+   * what the turn could not know, the invite's result or why it failed. That post answers no
+   * post and belongs to no turn. The whole body is wrapped, since a throw in a fire-back handler
+   * vanishes.
+   */
+  async onAdminInviteResult(email: string, result?: unknown): Promise<void> {
+    try {
+      const summary = result instanceof Error ? undefined : result as InviteSummary;
+      const failure = result instanceof Error ? result.message : summary?.errors[0]?.error;
+      const outcome = summary?.results[0]?.outcome;
+      const text = failure !== undefined ? `I could not invite ${email} as an admin: ${failure}`
+        : outcome === 'already-member' ? `${email} is already an admin of this app, so I sent a fresh link and changed nothing.`
+        : outcome === 'promoted' ? `${email} was already a member of this app and is now an admin of it.`
+        : `${email} is invited as an admin of this app. The email is on its way.`;
+      await this.commitAgentMessage(DEFAULT_CHAT_ID, crypto.randomUUID(), text, CHAT_NODE_ID, undefined);
+    } catch (e) {
+      debug('nebula.Galaxy.invite').error('admin invite outcome not posted', { instanceName: this.lmz.instanceName, error: e });
+    }
+  }
+
+  /**
+   * How a node invite on this Galaxy ended, from the Resources plane, which cannot name the chat.
+   * A collaborator's invite that went through needs no post: the turn already said it was being
+   * sent. One that failed does, since the turn has ended and nobody is waiting on the answer.
+   * It covers every node invite here, a person's direct `resources.invite` included.
+   */
+  async #onNodeInviteOutcome(outcome: NodeInviteOutcome): Promise<void> {
+    if (outcome.failed.length === 0) return;
+    const text = outcome.failed.map((f) => `I could not invite ${f.email}: ${f.error}`).join('\n');
+    await this.commitAgentMessage(DEFAULT_CHAT_ID, crypto.randomUUID(), text, CHAT_NODE_ID, undefined);
+  }
+
   // ─── The codegen turn ───────────────────────────────────────────────
 
   /**
@@ -2215,6 +2293,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       write_file: (path, content, postId) => under(postId, () => { fire(); return entries.write_file(path, content); }),
       edit_file: (path, anchor, replacement, postId) => under(postId, () => { fire(); return entries.edit_file(path, anchor, replacement); }),
       build: (buildOpts, postId) => under(postId, () => entries.build(buildOpts)),
+      // No post to name: an invite changes who can do what, so it runs under the post the turn
+      // took up, and which claims it uses follows from that and from nothing the model sends.
+      invite: (email, scopeAdmin) => under(undefined, () => entries.invite(email, scopeAdmin)),
     };
     // A turn with nothing held is offered no tool that acts: it reads, answers and asks.
     const offered = {
@@ -2336,6 +2417,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         return via('edit_file', 'writeSource')(path, next);
       },
       build: () => (opts) => via('build', 'buildNow')(opts),
+      invite: () => (email, scopeAdmin) => via('invite', 'invite')(email, scopeAdmin),
     };
     return Object.fromEntries(
       (Object.keys(LOOP_TOOL_ENTRIES) as LoopToolName[]).map((tool) => [tool, factories[tool]()]),

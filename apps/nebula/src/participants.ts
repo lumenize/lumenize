@@ -107,7 +107,7 @@ export interface ToolCallMark {
  * This is the one place display reads a message's VALUE, and only on a message whose recorded
  * subject is the agent. No client can write such a message, since only the Galaxy's own code
  * runs under the agent's claims, so a person's message carrying a forged `codegen.toolCalls`
- * yields no mark.
+ * is given none.
  */
 export function toolCallMarks(
   recordedClaims: Pick<WireRecordedClaims, 'sub'>,
