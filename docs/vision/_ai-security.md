@@ -475,9 +475,9 @@ between this document and the system.**
 **What the agent read.** ADR-019 committed the read-side mirror — record what an artifact read, re-check
 every later reader — and was **withdrawn 2026-08-26**: the level-3 sharing case it guarded (an answer produced
 under one participant's authority, persisted as a Message, re-rendered to another) is now the
-permission-holder's **disclosure decision**, made in the consent loop (§ *A worked scenario*). Every read rides
-the token of someone who asked or said yes, and a read of a tenant's data the token of the post being
-answered ([`auth.md`](auth.md) § *When the agent acts*), so a posted answer is still a disclosure
+permission-holder's **disclosure decision**, made in the consent loop (§ *A worked scenario*). Every read runs under
+the claims of someone who asked or said yes, and a read of a tenant's data under the claims of the post its
+turn took up ([`auth.md`](auth.md) § *When the agent acts*), so a posted answer is still a disclosure
 decision — nothing is left to capture.
 
 **What the model actually did.** The three above concern the application layer. The inference layer is a
@@ -578,7 +578,9 @@ own over tenant data; it acts as the person who prompted it, and the query carri
 ([`auth.md`](auth.md) § *When the agent acts*). There is no phrasing, no jailbreak and no
 system-prompt edit that makes Austen's token reach a tenant Star, because the check never consults
 the model at all. Standing guidance that merely *discourages* the answer would be a lock a
-sufficiently clever prompt picks; this is a lock with no keyhole on the model's side.
+sufficiently clever prompt picks; this is a lock with no keyhole on the model's side. What the model does
+choose is which waiting post to take up, and so whose claims run: a steered choice could act on Austen's
+request in Jennifer's turn, but only by answering Jennifer, on the record as hers.
 
 **The escalation is the same primitive, pointed up the tree.** Studio's agent does not invent an approval
 flow: it fires the ordinary request-access climb to the nearest ancestor holding `admin`
