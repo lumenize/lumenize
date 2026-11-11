@@ -1,6 +1,6 @@
 # High levels of agent agency in the agent loop
 
-**Status:** Pass 1, settled 2026-11-10 (Larry), with Stage 1's gate applied; phases not written. Everything in it but the wake check gates [nebula-testing-with-personas.md](nebula-testing-with-personas.md) (D13); the wake check follows the wipe, in fast-follow, once Q3 is decided (D19). Nothing gates it.
+**Status:** Pass 1, settled 2026-11-10 (Larry), with both Stage 1 gates applied; Pass 2 drafted 2026-11-11; ready for Stage 2. Everything in it but the wake check gates [nebula-testing-with-personas.md](nebula-testing-with-personas.md) (D13); the wake check follows the wipe, in fast-follow, once Q3 is decided (D19). Nothing gates it.
 
 ## Objective
 
@@ -148,6 +148,7 @@ The post at the limit is the agent's own, and "keep going" is a new yes that bri
 - **It builds most of the backlog's *Nebula as permission broker in chat* row:** a refusal as the person, a yes from someone who holds the permission, and acting on that yes under their claims. What stays open there is a tool that reads a tenant Star, and offering to upgrade the person instead.
 - **[ADR-025](../docs/adr/025-fine-grained-access-is-the-orgtree.md) (Proposed) commits what it builds on:** a node's orgTree as its one fine-grained access control, operations included, and the local principal. `docs/vision/auth.md` § *When the agent acts* states the model.
 - **Personas' `asPersona` reuses item 3's claims helper.** It does not build the backlog's *Mesh has no public seam for running in-DO code under a call context* row's test seam, since neither of item 3's forms builds a synthetic admin's claims, and that row's reason, a landing recording its `ServedBuild` under the caller's claims, goes with D5. `apps/nebula/test/test-apps/dev-studio/as-caller.ts` is re-derived at build against what still reads a direct call's claims, `buildNow`'s claims log and D15's git author; if nothing does, it and the row go.
+- **No skipped test in another lane waits on it,** checked 2026-11-11.
 - **It disposes of the backlog's *Undo a bad turn's writes* row's open question of how a turn's writes are found:** by the agent in their recorded claims' `act`, D15's `toolCalls` entries, and the turn's time window.
 - **It replaces a decision of [nebula-build-reaches-every-studio.md](archive/nebula-build-reaches-every-studio.md)**, that a landing records its `ServedBuild` under `pinnedAtDoor` (D5). That archived file gets a dated superseded banner when `pinnedAtDoor` goes.
 - **The wake check's repeat on every wake is Q3's to bound, not the backlog's *Add retry + skip logic for alarm handler failures* row's.** The wake check's job starts its turn detached and returns, so `triggerAlarms` deletes the alarm row before the turn can fail, and a count kept per row restarts on every wake.
@@ -185,10 +186,10 @@ The post at the limit is the agent's own, and "keep going" is a new yes that bri
    - **Only dominion invites into a Galaxy.** Today `AuthFacade.invite` admits a caller whose host is the target, so Austen, a plain member of `acme.crm`, may invite anyone into it. Into a Star, peers still invite.
    - **The `.dev` membership an invite mints beside the Galaxy's always carries the admin bit.** `issueInvites` sets it today only when the inviter has dominion over the Galaxy, so the branch that mints it plain goes, and an invitee already holding a plain `.dev` membership is promoted, since `#mintIdentity` returns an existing row unchanged.
    - **`LOOP_TOOL_ENTRIES` gains `invite`.** `LoopEntry` is a union of Galaxy method names and `AuthFacade.invite` is not one, so Pass 2 names the Galaxy entry the tool reaches, and the resource-surface test still asserts each named entry sits at the chat floor.
-   - **The JSDoc of `AuthFacade.invite`, `Resources.invite`, `#onInviteResult` and `issueInvites` changes with it.** `#onInviteResult`'s failure branch, marked as having "no honest in-lane producer today", gains one: an inviter with DAG `admin` on `chat` but no dominion, if the Galaxy's check above ever misses.
+   - **The JSDoc of `AuthFacade.invite`, `Resources.invite`, `#onInviteResult` and `issueInvites` changes with it.** `#onInviteResult`'s failure branch, whose comment says nothing reaches it today, gains a producer: an inviter with DAG `admin` on `chat` but no dominion, if the Galaxy's check above ever misses.
    - **Personas' three invite criteria move with it,** in § *Criteria — what the phases must satisfy* of that file, for Pass 2 here.
 9. **An agent message names every post it answers (D12, D20).** `Message.replyTo` stays: the post the turn took up, which ③'s capture reads as the prompt behind the reply. `answers` joins it in ⑥'s ontology bump, a set of every post the message answers, `replyTo` included, and `commitAgentMessage`, the one writer of an agent message, builds it that way. `replyTo` is required on a turn's final message, and both are absent on a result handler's outcome post, which belongs to no turn.
-   - **What decides "answered" moves to `answers`,** through one named function (`calibration.md` §12): `App.vue`'s `replyLanded`, Studio's waiting state, the wake check and Q4's byline.
+   - **What decides "answered" moves to `answers`,** through one named function (`calibration.md` §12): `App.vue`'s `replyLanded`, Studio's waiting state, the wake check and the byline (D23).
    - **What pairs a reply with its prompt keeps `replyTo`:** `#historyBundle`'s `replyOf`, the stream chunk, which names the post its turn took up, and the harness scenarios that find a post's reply (`grep -rn replyTo apps/nebula/harness`).
 10. **A closing step (D18).** When the model finishes a turn and posts arrived while it ran, `runCodegenTurn` appends them last in the prompt, after the history bundle it built once at the turn's start, so the provider's cache still holds, and asks for the final message with no loop tools offered. That message may answer those posts too, and a post it does not answer waits for a decision. It costs one more model call, only when a post arrived mid-turn, and often saves the decision turn that post would otherwise need.
 
@@ -200,7 +201,7 @@ The post at the limit is the agent's own, and "keep going" is a new yes that bri
   - **On the agent Message:** each `codegen.toolCalls` entry gains the post it acted for and the recorded claims it ran under, through the shared projection, in ⑥'s ontology bump, since `codegen` is an inline type in the chat ontology. The commit's oid, already in the tool's result, joins a commit to its entry. Studio renders a marker on each tool call from this record. The model still writes the *under Jennifer's authority* sentence (`TOOL_CONTRACT`); the marker, never the model's text, is what attests it.
   - **On the commit:** `writeSource` passes the person whose claims the write ran under as git's `author`, by `profileId` (ADR-013's write-time display stamp). The `committer` is `agent:lumenize` when the agent made the write, and the person again for a direct call. Pass 2 pins the email form. Its debug line reads the current claims rather than `#clientOrigin()`, which requires a chain that starts at a Client and would drop the claims of a chain the agent starts.
 - **`#historyBundle`** reads under the agent's claims in a decision, labels the agent as itself rather than as a numbered human, and shows each post's id inline and the held claims in one block after the history, since what changes goes last.
-- **Studio's byline and avatar stack,** which `App.vue` builds from the subject and the `act` chain (Q4).
+- **Studio's byline and avatar stack (D23).** `deriveParticipants` adds the authors of the posts in `answers`, read from the value of a message whose recorded subject is the agent, each with their post's own recorded chain. `participants.ts`'s header states that one exception to deriving display only from the record, and its reason: no client can write an agent message, since only server code runs under the agent's claims (D3).
 - **Studio's waiting state.** `deriveTurnDisplay` gains *waiting*, held while another post's turn streams, and a post stops waiting when an agent message names it in `answers` (DI6). Today `App.vue` resets a post's 90 s idle window only on chunks replying to that post, so a waiting post shows *thinking…*, then *failed*, under a comment saying a skipped post is never answered.
 - **The tool contract, `TOOL_CONTRACT` in `codegen-loop.ts`,** gains the rules for several people: say whose claims it is using, end every turn with a message naming in `answers` the post it took up and any other it answers, naming a post only when the message answers it, done, refused or asked back, never for work it only promises, and ask before acting on what it was not asked.
 - **`security.md`:** the bullet on the verdict of the door that admitted the work loses the reply and the `ServedBuild`, which become the agent's own writes. What stays is that a turn's source writes and builds run on its post's verdict, while a Resources write inside a turn is checked live. The rule that no synthetic claims go into a chain a node started names the agent's built claims beside the persona's, and gains item 3's second form: a chain a node started may carry the claims of the call it was started in, with the node's local principal prepended, and never claims the node composes.
@@ -240,7 +241,7 @@ The post at the limit is the agent's own, and "keep going" is a new yes that bri
 - **`calibration.md` §14:** the agent's authority is a grant in the tree, never a membership in the Registry.
 - **`strategy.md`'s check 1, "never broader default access":** the agent's own default access is `write` on `chat`, and every claim it holds beyond that came with a post from someone who asked or said yes, just in time and only while that post waits.
 - **`studio-guidance.md`:** the rules for several people are cross-turn policy, so they live in `TOOL_CONTRACT`.
-- **`live.md`:** a `/live` scenario first. What is deterministic gates: claims held with their post, DI5's binding (Jennifer posts twice and Austen once while Jennifer's first turn runs, so Jennifer's claims are still held when a decision takes up Austen's invite request; the invite runs under *Austen + agent* and is refused; mutation: let a DI5 call use any held post, and the invite lands), tools only inside a held call (mutation: give the decision step the tool list, and a source commit or Resource write naming `agent:lumenize` with no person reds the limb), the wake check's scheduling. When the wake check builds, its limb: Jennifer posts, Austen posts mid-turn, the agent posts "Done, Jennifer", the Galaxy is evicted, and the wake check finds Austen's post (mutation: read only after the latest agent message, and it misses it). Which post the agent takes up first is its judgment, and rides a limb that does not gate, as does D2's leftover risk: Jennifer's unrelated post waits beside Austen's invite request, and the limb records whether the agent invites in Jennifer's turn.
+- **`live.md`:** a `/live` scenario first. What is deterministic gates: claims held with their post, DI5's binding (Jennifer posts twice and Austen once while Jennifer's first turn runs, so Jennifer's claims are still held when a decision takes up Austen's invite request; the invite runs under *Austen + agent* and is refused; mutation: let a DI5 call use any held post, and the invite lands), tools only inside a held call (mutation: give the decision step the tool list, and its model request lists them), the wake check's scheduling. When the wake check builds, its limb: Jennifer posts, Austen posts mid-turn, the agent posts "Done, Jennifer", the Galaxy is evicted, and the wake check finds Austen's post (mutation: read only after the latest agent message, and it misses it). Which post the agent takes up first is its judgment, and rides a limb that does not gate, as does D2's leftover risk: Jennifer's unrelated post waits beside Austen's invite request, and the limb records whether the agent invites in Jennifer's turn.
 - **`calibration.md` §12:** whatever decides when Studio stops showing a post as waiting lives in a named function, as `deriveTurnDisplay` does.
 - **`live.md` § *Two venues, one registry*: a deployed pass closes the build,** since it changes `AuthFacade.invite`, `issueInvites`, what a Client hears back and who posts as the subject. First check the deployed-only branches (`grep -rln HARNESS_TARGET_URL apps/nebula/harness`) against the new invite refusals; then run this build's scenarios with `HARNESS_TARGET_URL`, and read the Workers Issues raised since the pass began.
 - **Milestone:** pre-alpha, before personas (D13), except the wake check (D19).
@@ -262,7 +263,6 @@ The post at the limit is the agent's own, and "keep going" is a new yes that bri
   - **Which event frees the latch.** Today the 14-minute deadline frees it while the turn keeps running, and the abandoned turn may still write and land. Item 5's interim stands in until then.
   - **What bounds a wake check that dies before it posts.** Each wake would try again.
   - **What reconciles on wake:** fast-follow Item 6's *Consider reconciling on wake* bullet, which destroys a build box no build owns.
-- **Q4. What does the byline say once the agent is the subject?** Today it reads *Lumenize for Jennifer*, built from the subject and the `act` chain. Recommendation: *Lumenize, re: Jennifer*, naming the authors of the posts in `answers`; *Lumenize* alone drops whom it answered. Two inputs: `participants.ts` says display derives only from `meta.actingToken`, while `answers` lives in the value, safe only because no client can write an agent message; and in `child3-post.test.ts`'s depth-2 case, "re:" must still show the coach.
 
 ## Decisions
 
@@ -290,6 +290,97 @@ The post at the limit is the agent's own, and "keep going" is a new yes that bri
 | D20 | `Message.replyTo` stays, the post a turn took up, and `answers` joins it, every post the message answers with `replyTo` included; `commitAgentMessage`, the one writer, keeps the two consistent (Larry, 2026-11-11). They are two facts: which post prompted the work, which ③'s capture needs and cannot recover later, and which posts the message answers, which under D18 can be several. | **`answers` alone, replacing `replyTo`**: nothing durable then says which post a turn took up, since a stream chunk is gone when the turn ends and a turn with no tool calls leaves no `toolCalls` entry. **`replyTo` plus a set of only the other posts answered**: every reader of "answered" combines two fields, and the set needs a new name. **One ordered `answers` whose first entry is the post the turn took up**: the meaning sits in an order nothing names (`calibration.md` §12). |
 | D21 | The Galaxy declares its seed, the `chat` node and the agent's protected `write` on it, when it builds its Resources, and `OrgTree` creates the root and the declared rows with `INSERT OR IGNORE` (Larry, 2026-11-11). These are the only two rows this task needs that nobody's request creates: the owner reaches the tree through dominion, and a collaborator gets a grant by invite. | **In `#ensureRoot`**: every Star's tree runs it, so the chat would land in every tenant Star. **`createNode` and `setPermission` from the Galaxy's `onStart`**: both demand claims, and `onStart` has none. **Once at creation, through a creation hook under the creator's claims**: the claims would cross the `@rawRpc()` bridge, which carries none today, and the existing hooks only log a failure, so a missed seed would leave that Galaxy without its chat. **A repair on every wake by upsert instead of a refusal**: a revoke would appear to succeed and then revert, and every wake would write a row. |
 | D22 | An invite's handler posts, as the agent, what the turn could not know: a failure on either path, and the admin kind's success. The Galaxy's `invite` entry checks the held claims' dominion over the Galaxy before calling either path, mirroring the facade's rule (Larry, 2026-11-11). Only the DAG check answers within the turn; the mint, the grants and the email land in a handler after it, and without a post a failed invite reaches nobody in the chat. | **Leaving an Austen-kind failure to its `_InviteStatus` row**: every member can see it in the tree, and nobody sees it where they look, in the chat. **One path for both kinds, through the facade and a handler**: it reopens personas' decided two-path design for no gain the post does not already bring. **No early dominion check**: an invite refused for want of dominion arrives after its post is answered, too late to ask someone who has it. |
+| D23 | An agent message's byline reads *Lumenize, re: {author}* for each post in `answers`, each author shown with that post's own recorded chain, so an answer to an impersonated post reads *Lumenize, re: {coach} for {user}*; the avatar stack puts the agent's face in front of theirs, and a handler's outcome post, which answers nothing, reads *Lumenize* (Larry, 2026-11-11). (was Q4) A reply UI like Discord's, quoting the post answered, is the better form, and this byline stands until one exists. | **_Lumenize_ alone, with a separate reply link**: the same fact shown twice, and the coach of a depth-2 post has nowhere to appear. **_Lumenize for Jennifer_, as today**: "for" claims the message ran on Jennifer's authority, when under D3 it is the agent's own and only its tool calls ran under her claims, which D15's marker shows. |
+
+## Phases
+
+Numbered in build order. Every phase lands before personas (D13); the wake check is not among them (§ *Non-goals*). Phases 1, 3, 5 and 7 change stored data, so they ride ⑥'s wipe, which row ② of the master plan carries. A `/live` scenario comes first in each phase that has one (`live.md`); a criterion in another lane says why. After any phase that changes a harness helper or a scenario another file wrote, `drive.ts all --fast` runs, and its result is reported with any flake named.
+
+1. **The stored record is `recordedClaims` (D10).** The rename block in § *What changes* lands as one sweep, code and standing guidance together, so no later phase names both.
+   - **Success criteria:**
+     - The symbol grep and the prose grep in the rename block find only dated history and real access tokens.
+     - `npm run type-check` passes, and the suites of `packages/mesh`, `packages/resources` and `apps/nebula` pass with the same `Test Files` count as before.
+     - `drive.ts all --fast` passes, `four-party-chat` included, which reads the field.
+   - **Mutation note:** leave one `actingToken` in `snapshots.ts`, and the symbol grep reds.
+
+2. **Mesh runs a block under claims, in two forms (item 3).** Mesh's call-context API gains them, built on `runWithCallContext`.
+   - **Form one:** claims Mesh builds for a local principal; a call made under them starts a fresh chain.
+   - **Form two:** the claims of the call the node is running in, held as a handle the node cannot build, re-chained with the node's local principal prepended by `prependActor`.
+   - **Lane:** `packages/mesh/test`, with real Durable Objects. No product path exists until Phase 5, which drives form two on the running system.
+   - **Success criteria, each with its mutation:**
+     - A record written on a second node inside a form-two chain carries `sub` from the held call and `act.sub` from the local principal, and an impersonated caller's own `act` stays beneath it. Mutation: start the chain with the held claims unchanged, and `act` is missing.
+     - Form two outside any call, in an alarm handler, throws. Mutation: let it start a chain with no claims, and the call proceeds.
+     - A call made under form one reaches its callee with no `originAuth`. Mutation: inherit the built claims, and the callee reads `agent:lumenize`.
+     - The impersonation mint refuses a caller inside a form-two chain. Mutation: drop the mint's `act` gate, and it mints.
+   - `prependActor`'s JSDoc changes as § *What changes* says.
+
+3. **The Galaxy seeds its chat node and the agent's protected grant (items 1 and 2, D16, D17, D21).** `#ensureRoot` becomes `#ensureSeed`, the Galaxy declares its seed, `CHAT_NODE_ID` gets an id of its own, and the harness sites that post at `ROOT_NODE_ID` move.
+   - **Success criteria (`/live`, a new container-free scenario, `galaxy-seeds-its-chat`):**
+     - After a real app creation, the Galaxy's tree, read through a real client, has a `chat` node under the root, and `agent:lumenize` holds `write` on it. The `.dev` Star's tree and a tenant Star's tree hold only the root. Mutation: seed every plane, and `.dev` shows a chat node.
+     - A Galaxy admin's revoke of the agent's grant, and a `setPermission` lowering it to `read`, are both refused, and the grant still reads `write`. Mutation: drop the protected check, and the revoke lands.
+   - **Success criteria (the Resources lane, because rows written at construction cannot be read from a running stack):** constructing the plane a second time over the same storage writes no rows. Mutation: upsert the seed, and the second construction writes.
+   - `deleteNode`'s JSDoc states D17's premise.
+
+4. **The agent posts as itself (DI3, D3, D5, item 7).** `commitAgentMessage` and `#recordServedBuild` write under the agent's built claims, `deriveKind` reads the subject, `pinnedAtDoor` goes, and `buildNow` logs its caller's claims.
+   - **Success criteria (`/live`):**
+     - In `four-party-chat`, inverted, the agent's reply records `{ sub: 'agent:lumenize' }` with no `act`, and `deriveKind` calls it the agent's. Mutation: write it under the poster's claims, and its subject is Austen.
+     - The agent's own message never starts a turn, the criterion moved from personas. Mutation: leave `deriveKind` reading only `act`, and the agent's reply starts a turn that answers itself.
+     - In `build-reaches-every-studio`, a landing's `ServedBuild` records the agent as subject, and a second Studio hears it. Mutation: restore the poster's claims with `pinnedAtDoor`, and the record names the poster.
+   - **Checks:** `git grep -n pinnedAtDoor -- ':!tasks/archive'` finds only dated history, and the archived `nebula-build-reaches-every-studio.md` gains its dated superseded banner.
+
+5. **A post's claims are held, and a decision takes waiting posts up (items 4, 5 and 9; DI2, DI6, DI7; D6, D12, D14, D20; D19's interim).** Each post's held call is a Phase 2 handle. A turn's tools run inside a form-two chain under the post they act for, which retires `turnContext` and the `actor` option. The `answers` field joins `replyTo`, and `#historyBundle` and `TOOL_CONTRACT` change as § *What changes* says. When a turn takes a post up, a log line names the post and the recorded claims it runs under, which is what the criteria below read.
+   - **Success criteria (`/live`, a new scenario, `held-post-answered`, running § *Two people, one goal*):**
+     - Austen's post, sent during Jennifer's turn, is taken up after it, and its turn's line names `{ sub: Austen, act: agent:lumenize }`. Mutation: attach the continuation when the decision picks the post rather than in Austen's call, and the line names Jennifer.
+     - That turn's final message has Austen's post as `replyTo` and in `answers`, and "Done, Jennifer" names only Jennifer's. Mutation: build `answers` without `replyTo`, and the first check reds.
+     - A lone post's turn ends with no decision line. Mutation: run a decision after every turn, and a decision line appears.
+     - The decision step's model request lists no loop tools. Mutation: give it the tool list, and the request names `write_file`.
+   - **Success criteria (the `dev-studio` lane, at its 800 ms deadline, because a hung model call cannot be produced on demand):** after the deadline, a second post's turn ends with no decision taking up the hung post, and no second turn runs on it. Mutation: let the deadline start a decision, and a second turn starts on the hung post.
+   - **Success criteria (the codegen-loop lane, pure dispatch):** a tool call naming a post that is not held returns a tool error naming it. Mutation: skip the held check, and the call runs.
+   - **Check:** `turnContext`, `TransactionOpts.actor` and `ensureResource`'s `actor` option are gone, by grep.
+
+6. **A closing step answers posts that arrived mid-turn (item 10, D18).**
+   - **Success criteria (`/live`, a new scenario, `closing-step`, running § *Two people, different goals* to its first agent message):**
+     - When Austen posts during Jennifer's turn, the turn's log shows a closing step that appended her post, and its model request lists no loop tools. Mutation: skip the closing step, and no such line appears; offer the tools, and the request lists them.
+     - With no post arriving mid-turn, no closing step runs. Mutation: run it on every turn, and the line appears.
+     - A limb that does not gate records whether the final message names both posts in `answers`, since that is the model's judgment.
+
+7. **Each source commit names whose authority it used (D15).** `codegen.toolCalls` entries gain the post and the recorded claims, and `writeSource` passes git's `author` and `committer`, reading the current claims rather than `#clientOrigin()`.
+   - **Success criteria (`/live`, extending `held-post-answered`):** the agent message's `toolCalls` entry for each `write_file` carries Austen's post id and claims naming Austen with the agent as actor. Mutation: drop the entry's claims, and the field is missing.
+   - **Success criteria (the `dev-studio` lane, which reads the Workspace's git log in-process):** a turn's commit has the poster's `profileId` as author and `agent:lumenize` as committer, and a direct `writeSource` call's commit names the caller as both. Mutation: pass no `author`, and the commit carries the client's default identity.
+   - **Check:** Studio renders a marker on each tool call from the record, seen in `held-post-answered`'s screenshot of the thought panel.
+
+8. **Studio shows a waiting post as waiting, and bylines the agent by what it answers (D23).** `deriveTurnDisplay` gains *waiting*, the one named function decides whether a post is answered, and `App.vue`'s `replyLanded` calls it.
+   - **Success criteria (the function's own lane, since it is pure):** Austen's post reads as waiting after "Done, Jennifer" and answered after a message naming it in `answers`. Mutation: answer a post when any agent message follows it, and it reads as answered too soon.
+   - **Success criteria (`/live`, `held-post-answered` driven through Playwright):** Austen's tab shows her post as waiting while Jennifer's turn streams, never as *failed*, then as answered. Mutation: leave `App.vue` pairing by position, and her post shows as answered too soon.
+   - **Success criteria for the byline (D23):** in `held-post-answered`, the agent's answer to Austen reads *Lumenize, re: Austen*, and in `child3-post.test.ts`'s depth-2 case an answer to the impersonated post reads *Lumenize, re: {coach} for {user}*. Mutation: build the byline from the agent message's own record, and it reads *Lumenize* alone.
+
+9. **The agent invites (item 8, D11, D22).** The invite rule, the `.dev` co-mint cleanup, the `invite` row in `LOOP_TOOL_ENTRIES`, the Galaxy's early dominion check, and both handlers' posts.
+   - **Success criteria (`/live`, a new scenario, `agent-invites`, with real email):**
+     - Jennifer asks for an Austen-kind invite and then an admin-kind one, and each invitee's memberships show its kind: a plain Galaxy membership with an admin `.dev` one, and a Galaxy membership with `scopeAdmin`. Mutation: send the admin kind through `Resources.invite`, and the invitee holds no `scopeAdmin`.
+     - DI5's binding: Jennifer posts twice and Austen once while Jennifer's first turn runs, and the decision that takes up Austen's invite request runs it under *Austen + agent*, refused. Mutation: let a DI5 call use any held post, and the invite lands.
+     - An inviter with DAG `admin` on `chat` but no dominion is refused within the turn, before the turn's final message. Mutation: drop the early check, and the refusal arrives after it.
+     - A failed invite produces an agent message from its handler. Mutation: drop the handler's post, and no message arrives.
+     - A plain Galaxy member's invite into the Galaxy is refused at `AuthFacade.invite`, while a peer's invite into a tenant Star lands. Mutation: restore `memberHere` at the Galaxy tier, and the member's invite lands.
+     - A plain `.dev` membership the invitee already holds is promoted. Mutation: leave `#mintIdentity`'s existing row unchanged, and the invitee stays plain.
+     - A limb that does not gate records D2's leftover risk: Jennifer's unrelated post waits beside Austen's invite request.
+
+10. **Standing guidance, then the full sweep and the deployed pass.** Each edit lands here because Phases 4 to 9 all change what it describes.
+    - `security.md`: the door-verdict bullet, the rule on chains a node starts, and its *Delegation* reader buckets, stated structurally.
+    - The *Today's code differs* callouts in `auth.md` § *When the agent acts* and ADR-025.
+    - `as-caller.ts` re-derived against what still reads a direct call's claims, closing the backlog row when nothing does.
+    - **Success criteria:**
+      - `drive.ts all` passes, Docker scenarios included.
+      - `deploy-test.sh` deploys, and this build's scenarios pass with `HARNESS_TARGET_URL`, after their deployed-only branches are checked against the new invite refusals.
+      - Workers Issues since the pass began show nothing new.
+
+## Non-goals
+
+- **The wake check (item 6):** fast-follow Item 15, after Q3 (D19).
+- **Q3's other answers,** the post that ends a hung turn, which event frees the latch, and what bounds a wake check: Q3, after the multi-player happy path.
+- **DI1's general `lmz.call()` tool and a tool that reads a tenant Star:** § *Future state*, with the structured yes for the first call that discloses.
+- **The discriminator and steering a turn while it generates:** fast-follow Item 6.
+- **A reply UI like Discord's,** which D23's byline stands in for: the backlog's row of that name.
+- **Renaming § *Future state*:** a nit the second Stage 1 pass raised.
 
 ## Review progress
 
