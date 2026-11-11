@@ -18,7 +18,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, deriveKind } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
-import { HISTORY_HEADER } from '../../../src/codegen-loop';
+import { HISTORY_HEADER, HELD_HEADER } from '../../../src/codegen-loop';
 import { universeAdminClient } from '../../test-helpers';
 import { StudioClientTest } from './index';
 
@@ -76,10 +76,11 @@ async function lastTurnPrompt(client: StudioClientTest, scope: string): Promise<
   const first = calls[0]!;
   return { system: first[0]!.content, request: first[1]!.content };
 }
-/** The history bundle alone, out of a system layer — from its header to the end. */
+/** The history bundle alone, out of a system layer — from its header to the held block, which
+ *  always follows it. */
 const historyOf = (system: string): string | undefined => {
   const at = system.indexOf(HISTORY_HEADER);
-  return at < 0 ? undefined : system.slice(at);
+  return at < 0 ? undefined : system.slice(at, system.indexOf(HELD_HEADER)).trimEnd();
 };
 
 describe('the chat history in the prompt', () => {
@@ -89,7 +90,7 @@ describe('the chat history in the prompt', () => {
     using sub = client.resources.subscribeQuery(chatQuery); await sub.ready;
 
     await seed(client, scope, writeThenComplete(FOUR_HUNDRED_LINES));
-    await postAndWait(client, scope, sub, 'Build me a wishlist app.');
+    const m1 = await postAndWait(client, scope, sub, 'Build me a wishlist app.');
     const t1 = await lastTurnPrompt(client, scope);
     // (h) turn one: no history bundle at all — omitted, not rendered empty.
     expect(historyOf(t1.system)).toBeUndefined();
@@ -100,9 +101,19 @@ describe('the chat history in the prompt', () => {
     const t2 = await lastTurnPrompt(client, scope);
     const history = historyOf(t2.system);
     expect(history).toBeDefined();
-    // (f) turn one's request text, its speaker label, the agent's content and its appliedPaths.
-    expect(history).toContain('- human 1: Build me a wishlist app.');
-    expect(history).toMatch(/- agent: Saved the changes; nothing was built, so the preview is unchanged\. \[stop=complete rounds=2 applied=src\/App\.vue sourceCommit=[0-9a-f]{7}\]/);
+    // (f) turn one's request text, its speaker label and its post's id, then the agent's
+    // content, the post it answers and its appliedPaths. The agent is labelled as itself.
+    // Mutations: drop the post id from a person's entry → the first line reds; label every
+    // speaker by its sub → the agent reads `human 2` and the second line reds.
+    expect(history).toContain(`- human 1 (post ${m1}): Build me a wishlist app.`);
+    expect(history).toContain(`- agent (answers ${m1}): Saved the changes; nothing was built, so the preview is unchanged. [stop=complete rounds=2 applied=src/App.vue sourceCommit=`);
+    expect(history).toMatch(/sourceCommit=[0-9a-f]{7}\]$/);
+    // The held block is the system layer's LAST bundle, after the history, since it changes
+    // more often: it lists the post this turn took up, whose poster's claims are held, and not
+    // turn one's, which is answered. Mutation: put the block ahead of the history → the layer
+    // no longer ends with it.
+    expect(t2.system.endsWith(`${HELD_HEADER}\n- post ${m2}: human 1, an admin`)).toBe(true);
+    expect(t1.system.endsWith(`${HELD_HEADER}\n- post ${m1}: human 1, an admin`)).toBe(true);
     // Never the tool calls' args (400 lines of App.vue) and never the thought panel.
     expect(t2.system).not.toContain('line 7 of a long App.vue');
     expect(t2.system).not.toContain('thinking hard');
@@ -111,7 +122,6 @@ describe('the chat history in the prompt', () => {
     expect(history).not.toContain('Now add a remove button.');
     expect(t2.request.split('Now add a remove button.').length - 1).toBe(1);
     expect(t2.request).toContain('User request (human 1): Now add a remove button.');
-    void m2;
 
     client[Symbol.dispose]();
   });
@@ -135,22 +145,23 @@ describe('the chat history in the prompt', () => {
     }
     const [withWrite, withoutWrite] = bundles;
     expect(withWrite).not.toBe(withoutWrite);
-    // Strip the manifest bracket from both: what remains is identical — the speakers, the
-    // texts, the order — so the 400 lines never entered the bundle.
-    const stripManifest = (s: string) => s.replace(/ \[stop=[^\]]*\]/g, '');
+    // Strip the manifest bracket and each post's id from both: what remains is identical —
+    // the speakers, the texts, the order — so the 400 lines never entered the bundle.
+    const stripManifest = (s: string) => s.replace(/ \[stop=[^\]]*\]/g, '').replace(/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}/g, 'ID');
     expect(stripManifest(withWrite)).toBe(stripManifest(withoutWrite));
     expect(withWrite).toMatch(/applied=src\/App\.vue/);
     expect(withoutWrite).not.toMatch(/applied=/);
-    expect(withWrite.length).toBeLessThan(600); // a few hundred bytes a turn, not four hundred lines
+    expect(withWrite.length).toBeLessThan(800); // a few hundred bytes a turn, not four hundred lines
   });
 
-  it('H-i: two messages posted during one generation, then a third turn — the skipped message rides the history with no reply after it', async () => {
+  it('H-i: two messages posted during one generation, then a third turn — the waiting message rides the history with no reply after it', async () => {
     const scope = uniqueScope();
     const { client } = await devClient(scope);
     using sub = client.resources.subscribeQuery(chatQuery); await sub.ready;
 
-    // A slow first generation spanning both commits: m2 lands while m1's turn runs and is
-    // skipped by single-flight (never answered).
+    // A slow first generation spanning both commits: m2 lands while m1's turn runs, and waits.
+    // The decision that follows each turn finds the script spent, so its model call fails and
+    // it posts nothing: m2 stays unanswered throughout.
     await seed(client, scope, [{ __delayMs: 1500 }, round('reply to the first')]);
     const m1 = await client.postUserMessage('first');
     const m2 = await client.postUserMessage('second, during the generation');
@@ -161,8 +172,6 @@ describe('the chat history in the prompt', () => {
       }
       throw new Error('no reply yet');
     }, { timeout: 15000 });
-    void m2;
-
     // The third turn's history: m1, its reply, then m2 — and NOTHING after m2 (the third
     // message is the trigger and is excluded). Mutation: project only replied-to pairs →
     // m2 vanishes → red.
@@ -172,9 +181,9 @@ describe('the chat history in the prompt', () => {
     const history = historyOf(system)!;
     const lines = history.split('\n').slice(1); // drop the header
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toBe('- human 1: first');
-    expect(lines[1]).toMatch(/^- agent: reply to the first \[stop=no-tool-calls rounds=1 sourceCommit=[0-9a-f]{7}\]$/);
-    expect(lines[2]).toBe('- human 1: second, during the generation');
+    expect(lines[0]).toBe(`- human 1 (post ${m1}): first`);
+    expect(lines[1]).toMatch(/^- agent \(answers [0-9a-f-]{36}\): reply to the first \[stop=no-tool-calls rounds=1 sourceCommit=[0-9a-f]{7}\]$/);
+    expect(lines[2]).toBe(`- human 1 (post ${m2}): second, during the generation`);
 
     client[Symbol.dispose]();
   });

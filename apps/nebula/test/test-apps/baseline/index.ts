@@ -591,8 +591,12 @@ export class GalaxyTest extends Galaxy {
    *  loop → commit → build-completion reload trigger).
    *  Drives `runTriggeredTurn` — the same runner the commit hook invokes. */
   @mesh(requireDominionHere)
-  async chatScriptedForTest(userMessageId: string, message: string, script: unknown[]): Promise<void> {
+  async chatScriptedForTest(userMessageId: string, message: string, script: unknown[], opts: { held?: boolean } = {}): Promise<void> {
     this.#chatScript = script;
+    // No commit brought this post, so this call stands in as the one that did: the turn's
+    // tools then run under this caller's claims, as they would under a real poster's. With
+    // `held: false` nothing is held, as after an eviction.
+    if (opts.held !== false) this.holdPost(userMessageId);
     await this.runTriggeredTurn(userMessageId, message);
   }
 
@@ -602,6 +606,18 @@ export class GalaxyTest extends Galaxy {
   @mesh(requireDominionHere)
   seedChatScriptForTest(script: unknown[]): void {
     this.#chatScript = [...script];
+  }
+
+  /** The people's posts the Galaxy reads as still waiting for an answer. */
+  @mesh(requireDominionHere)
+  waitingPostsForTest(): string[] {
+    return this.waitingPostIds();
+  }
+
+  /** Shorten the generation deadline, so a scripted hang is cut off within a test. */
+  @mesh(requireDominionHere)
+  setGenerationDeadlineForTest(ms: number): void {
+    this.generationDeadlineMs = ms;
   }
 
   /** The prompts the model saw since the last read (one `messages` array per model call),

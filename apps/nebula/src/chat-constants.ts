@@ -49,7 +49,7 @@ export const GALAXY_TREE_SEED: TreeSeed = {
  * in its Workspace repo. The chat loader's bundle id derives from it, so a changed seed
  * row MUST come with a new label (`scripts/gen-validator-seeds.ts`).
  */
-export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v2';
+export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v3';
 
 /**
  * The Chat/Message ontology, in source (ADR-001 — TS types ARE the schema).
@@ -61,9 +61,12 @@ export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v2';
  * subject is the agent), which is what makes author spoofing impossible; a
  * client-written identity field would be a second, forgeable source of truth.
  *
- * `replyTo` is REQUIRED on an agent message (the corpus needs prompt→reply linkage —
- * the folded-shape pin) but optional in the TYPE because a human message has none;
- * `commitAgentMessage`'s signature is what enforces the agent half.
+ * `replyTo` is the post an agent message's turn took up (the corpus needs prompt→reply
+ * linkage — the folded-shape pin), and `answers` is every post the message answers, `replyTo`
+ * among them: a post is answered when an agent message names it there, so one message can
+ * answer several people. Both are optional in the TYPE, since a person's post has neither and
+ * an agent's outcome post, which belongs to no turn, has neither; `agentMessageValue` is the
+ * one builder, and keeps the two consistent.
  *
  * `codegen` is the folded codegen corpus (replaces the deleted `Turns` side table),
  * ABSENT on a human message. ⚠️ It is an INLINE type literal, deliberately: the
@@ -72,6 +75,10 @@ export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v2';
  * `CodegenRecord` interface would flatten to a ref with nothing to reference — an
  * inline literal is the compiler's one value-object vehicle. (Named non-resource
  * value objects are a parser-validator feature gap — tracked as package feedback.)
+ *
+ * Each `toolCalls` entry can name the post it acted for and the wire form of the claims it ran
+ * under: `sub`, `act` and `profileId`, never `access` or `aud`, which stay off anything a
+ * client is sent (ADR-016).
  *
  * `codegen.build` replaced the per-write `gate` when the compilers left the Worker
  * (tasks/archive/nebula-move-compilers-out-of-the-worker.md): a write does no work at all now,
@@ -107,7 +114,12 @@ export const CHAT_MESSAGE_TYPES = [
       stop: string;
       appliedPaths: string[];
       build?: { checked: string[]; findings: string[] };
-      toolCalls: Array<{ name: string; args?: unknown; result?: unknown; error?: string }>;
+      toolCalls: Array<{
+        name: string; args?: unknown; result?: unknown; error?: string;
+        post?: string;
+        claims?: { sub: string; profileId?: string; act?: unknown };
+      }>;
     };
+    answers?: Message[];
   }`,
 ].join('\n');

@@ -114,10 +114,9 @@ describe('child3 — transient progress stream + durable Message', () => {
   it('every chunk carries the id of the USER message whose turn is streaming — a peer can tell whose it is', async () => {
     // The stream goes to the whole chat (a shared thread — watching someone else's reply appear
     // is the product working), so the recipient needs the attribution to know whether it is
-    // liveness for its OWN turn. Without it, a client whose message the single-flight latch
-    // SKIPPED — and which will therefore never be answered — has its idle window re-armed by the
-    // running turn's chunks and never surfaces `failed`: the hang the liveness reducer exists to
-    // convert into a banner.
+    // liveness for its OWN turn. Without it, a client whose post is waiting behind another
+    // person's turn has its idle window re-armed by that turn's chunks, and could not tell a
+    // post still waiting from one whose own turn hung.
     const scope = uniqueChatScope();
     const { client } = await devClient(scope);
     const triggeringUserMessage = crypto.randomUUID();

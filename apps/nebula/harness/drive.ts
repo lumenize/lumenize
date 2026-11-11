@@ -62,6 +62,7 @@ import * as galaxySeedsItsChat from './scenarios/galaxy-seeds-its-chat';
 import * as devStarFollowsTheBuild from './scenarios/dev-star-follows-the-build';
 import * as buildBox from './scenarios/build-box';
 import * as fourPartyChat from './scenarios/four-party-chat';
+import * as heldPostAnswered from './scenarios/held-post-answered';
 import * as loginTwoMemberships from './scenarios/login-two-memberships';
 import * as signupOneEmail from './scenarios/signup-one-email';
 import * as inviteConsent from './scenarios/invite-consent';
@@ -181,6 +182,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'dev-star-follows-the-build': devStarFollowsTheBuild, // the `.dev` Star runs the last landed build's row; a tenant installs nothing; Wipe reports a refusal
   'build-box': buildBox,                   // ephemeral build drive: per-step BuildReport, sequential + overlap + failed-bundle + serve readback (Docker)
   'four-party-chat': fourPartyChat,        // HEADLINE — owner + coach + invited collaborator + Nebula, one thread, attributed (no Docker)
+  'held-post-answered': heldPostAnswered,   // two people post during one turn; each post is worked under its own poster's claims (no Docker)
   // ── prove-then-choose: the login re-order, driven end to end on real mail (no Docker) ──────────
   'login-two-memberships': loginTwoMemberships, // one email → a session per membership; the multi-membership dead end is gone
   'signup-one-email': signupOneEmail,           // both newbie arms cost exactly ONE email — asserted by counting real mail

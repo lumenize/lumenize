@@ -494,6 +494,32 @@ Numbered in build order. Every phase lands before personas (D13); the wake check
 
 **Close-out:** `tasks/archive/nebula-build-reaches-every-studio.md` carries its dated banner. `security.md`'s door-verdict bullet and ADR-025's line on `pinnedAtDoor` are now false as written and wait for Phase 10, as planned. The header of `resources-door.test.ts` lost its line on `actor`.
 
+### Phase 5, held posts and decisions (2026-11-11)
+
+**For the human:** nothing blocks. Six choices were mine, each inside what Pass 1 decided, and any is yours to veto:
+
+- **The model names the posts a message answers in `mark_complete({ answers })`.** Pass 1 says an agent message names them and not how the model says so. The post a turn took up is always counted, so a solo turn needs nothing new.
+- **A decision is one model call, offered `take_up` and `mark_complete`.** After a valid pick the post's turn runs as any turn does, with its own prompt; the decision's call is not carried into it.
+- **A decision's message that picks nothing has no `replyTo`,** since no post was taken up. Its `answers` are the waiting posts it named.
+- **A turn runs as the agent, and each tool call steps into a held call.** Its reads of the thread and its posts are then the agent's whatever call the turn started in. So the mutation the phase names, holding at the pick, finds nothing to hold: the test reds because Austen's post is never taken up, not because a line names Jennifer.
+- **Only a Message in the app's one chat starts a turn.** Before, any Message on the chat node did, one in another `Chat` included, and its reply went to the default chat. Several scenarios post such Messages and no longer start a turn.
+- **`held-post-answered` gates "answered" only for a post a turn took up.** A decision that names no post leaves it waiting, by D24, so the scenario records what the model did with Austen's post and does not gate on it. On the first run it answered her in a message that named her post.
+
+One thing to know rather than decide: a person who edits an agent message makes it, by its record, their own post. It then waits like any post, and it no longer answers what it named. It already started a turn before this phase.
+
+**Retro:**
+
+- **Six of the seven held-post tests passed on first write, and all were real.** Twenty-three mutations in the baseline and pure lanes, and five more in `/live`, each reddened the test or limb meant for it. Two redden neighbours as well, since holding nothing or deciding after every turn changes every scripted thread.
+- **The eviction test needed no new seam.** `runInDurableObject` aborts the Galaxy, both clients reconnect, and the debug sink survives because the test and the Galaxy share an isolate.
+- **The one test that failed on first write was my expectation, not the code:** I had not counted the edited agent message as a waiting post.
+- **`scope-isolation.test.ts`'s alarm test failed once in a full run,** with no job stored and no alarm armed at the miss. It passed alone and in the next full run, and nothing in it touches a Galaxy: a flake.
+- **`four-party-chat`'s header still said the reply records Austen with the agent as actor.** Phase 4 inverted its assertions and missed the header.
+- **Suites:** Nebula 129 files and 1,135 tests, up by two files and 16 tests. Mesh and Resources are untouched by this phase.
+- **The `/live` sweep (`drive.ts all`): 68 of 70 passed, then 2 of 2 on `--rerun`, with one parked.** Both are flakes, passing with nothing changed. `first-app-built`'s build turn ended after 3 rounds with no build and an empty reply; `resubscribe-when-lost`'s limb 4 waited 20 s for a tab that never came back.
+- **What the model is told changed, and one limb moved.** `studio-guidance-loop`'s limbs (a) and (b1) failed in Phase 4's sweep and passed in this one. `nebula-pre-alpha.md` § *Data-bound generation* has the dated lines, which read it as run-to-run variance.
+
+**Close-out:** `CHAT_MESSAGE_ONTOLOGY_VERSION` is `chat-message-v3`, `TOOL_ARGS_BUNDLE_ID` is v5, and `validator-seeds.ts` is regenerated. The prompt gained two parts, the held block and a decision's request, which `studio-guidance.md`'s placement table does not list; Phase 10 adds them with its other edit there.
+
 ## Non-goals
 
 - **The wake check (item 6):** fast-follow Item 15, after Q3 (D19).

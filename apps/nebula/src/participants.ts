@@ -58,3 +58,29 @@ export function deriveParticipants(recordedClaims: WireRecordedClaims): Particip
   parties.push(party(recordedClaims));
   return parties;
 }
+
+/** What the answered check reads of one message in a thread: its id, who its current snapshot
+ *  records as its writer, and the posts its value says it answers. */
+export interface ThreadMessage {
+  id: string;
+  /** The recorded SUBJECT of the message's current snapshot. */
+  sub: string;
+  answers?: readonly string[];
+}
+
+/**
+ * The people's posts in `thread` that no agent message has answered, in thread order. This is
+ * the one place that decides whether a post is answered, for the Galaxy's decision and for
+ * Studio: a post is answered when a message whose recorded subject is the agent names it in
+ * `answers`. A person's message naming a post answers nothing, and neither does an agent
+ * message a person has since edited, whose current snapshot records that person, so nobody can
+ * silence someone else's post. A later agent message that does not name a post leaves it
+ * waiting: *Done, Jennifer* follows Austen's post and does not answer it.
+ */
+export function waitingPosts(thread: readonly ThreadMessage[]): string[] {
+  const answered = new Set<string>();
+  for (const m of thread) {
+    if (m.sub === NEBULA_SUB) for (const id of m.answers ?? []) answered.add(id);
+  }
+  return thread.filter((m) => m.sub !== NEBULA_SUB && !answered.has(m.id)).map((m) => m.id);
+}

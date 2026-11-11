@@ -268,6 +268,9 @@ One line per observation, appended, never edited: `date · limb · pass|fail · 
 - 2026-10-15 · (a) · pass · two further local runs on the shorter `TOOL_CONTRACT` and `mark_complete` wording each wrote an `App.vue` reading and writing through `store` / `client.resources`; with the third sweep's fail, 2 of 3 on that wording, the variance shape of 09-05 and 10-11
 - 2026-10-15 · (b1) (b2) (c) (d) (f) · pass · the same two runs passed every other limb
 - 2026-10-15 · (g) · pass · deployed on the final tree: the build turn completed in 8 rounds and 2 builds, its last landing clean with no findings, and its reply was the fallback `Updated the preview.`
+- 2026-11-11 · (a) (b1) · fail then pass · two local sweeps a commit apart, the second on the `TOOL_CONTRACT` that gained the several-people rules, the held-posts block and post ids in the history: the first wrote no `App.vue` and asked nothing (`no-tool-calls`, 6 rounds), the second wrote one reading and writing through `store` / `client.resources`. One run each, so it reads as the variance the 2026-10-15 lines show, not as the wording's doing
+- 2026-11-11 · (g) · fail then pass · on that same second tree `first-app-built`'s build turn ended `no-tool-calls` after 3 rounds with no build and an empty reply, then on a rerun with nothing changed completed in 7 rounds and 2 builds with a clean landing: a flake, and a second sample of the same variance
+- 2026-11-11 · (c) (d) (b2) (e) (f) · pass · unchanged across both sweeps
 
 
 ## ADR hand-review

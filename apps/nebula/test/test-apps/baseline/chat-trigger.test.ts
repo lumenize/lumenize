@@ -5,8 +5,8 @@
  *  - T1 the trigger e2e: a real `postUserMessage` commit → the Galaxy's commit hook runs
  *    a (scripted) generation → the agent reply lands durably, `replyTo`-linked,
  *    written by the agent as itself, observed on the SUBSCRIPTION (the product's own shape).
- *  - T2 single-flight: two human Messages committed during ONE generation → exactly one
- *    reply; the second sits in the thread untriggered.
+ *  - T2 one turn at a time: two human Messages committed during ONE generation → one turn;
+ *    the second waits, and no turn starts beside the first.
  *  - T3 the human-only predicate, BOUNDED: one human message yields exactly one agent
  *    message past an idle window (never asserted by watching for non-termination —
  *    dropping the predicate makes Nebula answer itself).
@@ -96,11 +96,13 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     client[Symbol.dispose]();
   });
 
-  it('T2: SINGLE-FLIGHT — two human Messages during one generation yield exactly ONE reply', async () => {
+  it('T2: ONE TURN AT A TIME — a post sent during a generation waits, and no turn starts beside the first', async () => {
     const scope = uniqueChatScope();
     const { client } = await devClient(scope);
-    // Rounds for TWO turns (so the MUTATED world — latch dropped — can generate twice
-    // and red the exactly-one assertion): a slow first generation spanning both commits.
+    // Rounds for TWO turns, so the MUTATED world — latch dropped — can start a second turn
+    // on the second post and red the assertions: a slow first generation spanning both
+    // commits. With the latch, the second round goes to the decision that follows the first
+    // turn, which picks nothing, so its text is a message that replies to no post.
     await seedScript(client, scope, [
       { __delayMs: 1500 }, round('reply one'),
       round('reply two'),
@@ -115,12 +117,14 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
       const replies = await agentReplies(client, sub.resourceIds);
       expect(replies.get(m1)).toBeTruthy();
     }, { timeout: 15000 });
-    // …then, past an idle window, there is STILL exactly one reply: m2 fired nothing
-    // (the skipped message sits in the thread; a participant re-prompts).
+    // …then, past an idle window, no turn has taken m2 up: it waited while the first ran
+    // (`held-posts.test.ts` drives the decision that takes a waiting post up).
     await new Promise((r) => setTimeout(r, 1200));
     const replies = await agentReplies(client, sub.resourceIds);
-    expect(replies.size).toBe(1);
     expect(replies.get(m2)).toBeUndefined();
+    const here = (e: SinkEntry) => e.data?.instanceName === scope;
+    expect(entries.filter((e) => e.namespace === 'nebula.Galaxy.turn' && e.message === 'took up' && here(e)).map((e) => e.data!.postId)).toEqual([m1]);
+    expect(entries.some((e) => e.namespace === 'nebula.Galaxy.trigger' && e.message === 'waiting: a turn is in flight' && e.data?.resourceId === m2)).toBe(true);
 
     client[Symbol.dispose]();
   });

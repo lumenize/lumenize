@@ -53,7 +53,17 @@ export const TOOL_ARG_TYPE: Record<string, string> = {
   edit_file: 'EditFileArgs',
   build: 'BuildArgs',
   mark_complete: 'MarkCompleteArgs',
+  take_up: 'TakeUpArgs',
 };
+
+/** The optional argument every loop tool takes: whose claims the call runs under. */
+const POST_ID_PROPERTY = {
+  type: 'string',
+  description:
+    'The id of a held post whose poster\'s claims this call runs under. Leave it out to act ' +
+    'for the post this turn took up. Name another only when that person asked for this work ' +
+    'or said yes to it; a post that is not held is refused.',
+} as const;
 
 /**
  * The tool definitions handed to the model (an OpenAI-shaped `tools` array, converted to JSON for
@@ -83,6 +93,7 @@ export const CODEGEN_TOOLS = [
         required: ['path'],
         properties: {
           path: { type: 'string', description: 'Relative path, e.g. "src/App.vue" or ".platform/docs/resources.md".' },
+          postId: POST_ID_PROPERTY,
         },
       },
     },
@@ -105,6 +116,7 @@ export const CODEGEN_TOOLS = [
         properties: {
           path: { type: 'string', description: 'Relative path, e.g. "src/App.vue".' },
           content: { type: 'string', description: 'The full new file contents.' },
+          postId: POST_ID_PROPERTY,
         },
       },
     },
@@ -127,6 +139,7 @@ export const CODEGEN_TOOLS = [
           path: { type: 'string', description: 'Relative path of an existing file, e.g. "AGENTS.md".' },
           anchor: { type: 'string', description: 'An exact substring of the file, occurring once.' },
           replacement: { type: 'string', description: 'What replaces the anchor (may be several lines, or empty to delete it).' },
+          postId: POST_ID_PROPERTY,
         },
       },
     },
@@ -157,6 +170,7 @@ export const CODEGEN_TOOLS = [
               'Your call on the .dev preview: true lands this build even with type findings you ' +
               'judge harmless, false holds a clean one back. A build you do not preview is served nowhere.',
           },
+          postId: POST_ID_PROPERTY,
         },
       },
     },
@@ -168,11 +182,58 @@ export const CODEGEN_TOOLS = [
       description:
         'Call when the app is finished and the last build report is acceptable — ' +
         'bundle ok, and any remaining type findings are ones you have judged harmless. A build ' +
-        'you did not preview is served nowhere.',
-      parameters: { type: 'object', additionalProperties: false, properties: {} },
+        'you did not preview is served nowhere. Your text beside this call is the message ' +
+        'everyone reads. Pass answers: the ids of the OTHER posts that message answers, each ' +
+        'done, refused or asked back; the post this turn took up is always counted.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          answers: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Ids of the posts your message answers. Never a post you only promise to get to.',
+          },
+        },
+      },
     },
   },
 ] as const;
+
+/** `mark_complete`'s definition, the one tool every step is offered. */
+const MARK_COMPLETE_TOOL = CODEGEN_TOOLS[CODEGEN_TOOLS.length - 1]!;
+
+/**
+ * A decision's pick. It reaches no Galaxy entry, as `mark_complete` reaches none, so it is no
+ * loop tool: the Galaxy checks the post and then runs the rest of the turn inside that post's
+ * held call.
+ */
+export const TAKE_UP_TOOL = {
+  type: 'function',
+  function: {
+    name: 'take_up',
+    description:
+      'Take up one waiting post: the rest of this turn works on it, under its poster\'s claims, ' +
+      'and must end with a message that answers it. Only a post listed as held can be taken up.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['postId'],
+      properties: {
+        postId: { type: 'string', description: 'The id of the waiting post to take up.' },
+      },
+    },
+  },
+} as const;
+
+/** What a decision is offered: a pick, or a message. No loop tool, since nothing is taken up yet. */
+export const DECISION_TOOLS = [TAKE_UP_TOOL, MARK_COMPLETE_TOOL] as const;
+
+/** What a step with no held post is offered: a message, and nothing that acts. */
+export const MESSAGE_ONLY_TOOLS = [MARK_COMPLETE_TOOL] as const;
+
+/** Every tool definition the model can be sent, for a lookup by name. */
+const ALL_TOOLS = [...CODEGEN_TOOLS, TAKE_UP_TOOL] as const;
 
 /**
  * The TOOL CONTRACT — the first system bundle of every turn, beside the tool definitions
@@ -189,7 +250,12 @@ How you work:
 - Act with the tools; never put code in your reply. Read a file before you change it. Write every file the change needs, then check them all with ONE build; read its per-step report and fix what it names.
 - typeCheck findings are ADVISORY and you are the judge: a finding may be a real bug a user would hit, or something the checker cannot see is safe. Fixing is not always the right call — finishing with a reasoned findings list is a legitimate outcome. A build you do not preview is served nowhere; the build tool says how to preview one.
 - When the app is done and the last build report is acceptable, call mark_complete. When the request needs no change — a question, a conversation — answer it in prose and call no tool.
-- Your reply is what the person reads. Say what you did in a sentence or two; the files themselves are not shown to them.`;
+- Your reply is what the people in the chat read. Say what you did in a sentence or two; the files themselves are not shown to them.
+Several people may post in one chat:
+- You post as yourself. Everything else you do, you do under the claims of a person whose post you hold, and the held posts are listed after the history. A tool runs under the post this turn took up unless you name another held post in postId.
+- Use a person's claims only for work that person asked for or said yes to, and say in your reply whose authority you used. Ask before acting on what nobody asked for.
+- End every turn with a message that answers the post it took up. If that message also answers other posts, name them in mark_complete's answers; name a post only when the message answers it, done, refused or asked back, never for work you only promise.
+- When you are asked to decide what to take up next, call take_up with one held post's id, or answer in a message.`;
 
 /**
  * The keys of `args` that `toolName` does not declare in its `parameters.properties`,
@@ -201,7 +267,7 @@ How you work:
  */
 export function unknownToolArgKeys(toolName: string, args: unknown): string[] {
   if (args === null || typeof args !== 'object' || Array.isArray(args)) return [];
-  const tool = CODEGEN_TOOLS.find((t) => t.function.name === toolName);
+  const tool = ALL_TOOLS.find((t) => t.function.name === toolName);
   const declared = new Set(Object.keys(tool?.function.parameters.properties ?? {}));
   return Object.keys(args as Record<string, unknown>).filter((k) => !declared.has(k)).sort();
 }
@@ -273,11 +339,15 @@ export interface LoopResult {
   reasoning: string;
   /** Human-readable stop detail. */
   detail?: string;
+  /** The posts `mark_complete` named as answered by the final message, as the model wrote them. */
+  answers?: string[];
 }
 
 /**
  * The entry-reaching tool deps, keyed by TOOL NAME — one per loop tool that reaches a
- * Galaxy entry (`mark_complete` reaches nothing and is not here). The Galaxy builds this
+ * Galaxy entry (`mark_complete` reaches nothing and is not here). Each takes the `postId` the
+ * model named, last: the Galaxy runs the call under that held post's claims, or under the post
+ * the turn took up when none is named. The Galaxy builds this
  * from its `LOOP_TOOL_ENTRIES` table, which is what makes "a tool cannot reach an entry the
  * table does not name" a property of the table rather than of the loop. Every dep may
  * throw; the loop captures the throw as that call's tool error and the turn continues.
@@ -286,15 +356,15 @@ export interface LoopToolDeps {
   /** Read one file whole — a Workspace path through `readSource`, a `.platform/` path
    *  from the embed; throws naming the path when absent (and the reserved error for
    *  `.universe/`). */
-  read_file(path: string): Promise<string>;
+  read_file(path: string, postId?: string): Promise<string>;
   /** Persist one file (Galaxy.writeSource → Workspace + git commit). PURE — no
    *  compile, no check; the container `build` is where checking happens. A throw
    *  (the entry's path rule, say) is captured as the call's tool error. */
-  write_file(path: string, content: string): Promise<{ oid: string; path: string }>;
+  write_file(path: string, content: string, postId?: string): Promise<{ oid: string; path: string }>;
   /** Replace the one occurrence of `anchor` in the file at `path` — reads, counts,
    *  refuses zero or two-plus matches with nothing written, then writes through
    *  `writeSource`. */
-  edit_file(path: string, anchor: string, replacement: string): Promise<{ oid: string; path: string }>;
+  edit_file(path: string, anchor: string, replacement: string, postId?: string): Promise<{ oid: string; path: string }>;
   /**
    * One ephemeral container build cycle — the job runs each step (ontology compile,
    * SFC type check, `vite build`, which a failed compile skips) against the FUSE-mounted
@@ -303,7 +373,7 @@ export interface LoopToolDeps {
    * model's override (BuildArgs). A throw is captured by the loop into a report whose
    * `container` step failed; it never aborts the turn.
    */
-  build(opts?: { preview?: boolean }): Promise<BuildReport>;
+  build(opts?: { preview?: boolean }, postId?: string): Promise<BuildReport>;
 }
 
 /** The loop tools that reach an entry — the keys of {@link LoopToolDeps}. */
@@ -389,7 +459,7 @@ export function assembleCodegenPrompt(opts: {
 
 /** The history bundle's first line — a stable header, so a turn with history and one
  *  without are told apart by a string a test can look for. */
-export const HISTORY_HEADER = 'Chat history — each request in this thread with the reply it got, oldest first; a message with no reply stands alone. The current request follows separately.';
+export const HISTORY_HEADER = 'Chat history — each post in this thread with the reply it got, oldest first; a post with no reply stands alone. A person\'s post carries its id, and a reply names the posts it answers. The current request follows separately.';
 
 /** One message of the chat as the history bundle carries it: who said it, what they
  *  said, and — for an agent turn — the manifest of what that turn changed. Never the
@@ -398,6 +468,10 @@ export interface HistoryEntry {
   /** `agent`, or a stable per-person label in first-appearance order (`human 1`). */
   speaker: string;
   content: string;
+  /** A person's post: its id, which `take_up`, a tool's `postId` and `answers` name it by. */
+  postId?: string;
+  /** An agent message: the posts it answers. */
+  answers?: string[];
   /** Present on an agent message that carries a codegen record. */
   manifest?: {
     stop: string;
@@ -421,9 +495,86 @@ export function renderHistoryBundle(entries: HistoryEntry[]): string {
           m.findings && m.findings.length > 0 ? `findings=${m.findings.join(' | ')}` : '',
         ].filter(Boolean).join(' ')}]`
       : '';
-    return `- ${e.speaker}: ${e.content}${tail}`;
+    const who = e.postId ? `${e.speaker} (post ${e.postId})`
+      : e.answers && e.answers.length > 0 ? `${e.speaker} (answers ${e.answers.join(', ')})`
+      : e.speaker;
+    return `- ${who}: ${e.content}${tail}`;
   });
   return `${HISTORY_HEADER}\n${lines.join('\n')}`;
+}
+
+/** The held block's first line, stable so a test can find the block. */
+export const HELD_HEADER = 'Held posts — the posts whose poster\'s claims you hold and may act under, each still waiting for an answer:';
+
+/** One held post as the prompt lists it: which post, and whose claims they are. */
+export interface HeldEntry {
+  postId: string;
+  /** The poster's label in the history (`human 2`). */
+  speaker: string;
+  /** Whether those claims carry the admin bit for the scope they were issued at. */
+  admin: boolean;
+}
+
+/**
+ * The held posts as one block, sent after the history: it changes more often than the history
+ * does, and what changes goes last so the provider's cache keeps the prefix. With nothing held
+ * it says so, since a step that holds nothing can read, answer and ask but not act.
+ */
+export function renderHeldBlock(held: HeldEntry[]): string {
+  if (held.length === 0) return `${HELD_HEADER}\n- none. You can read, answer and ask, and no tool that acts is offered.`;
+  return `${HELD_HEADER}\n${held.map((h) => `- post ${h.postId}: ${h.speaker}${h.admin ? ', an admin' : ''}`).join('\n')}`;
+}
+
+/**
+ * A decision's request, the dynamic tail of its prompt: the posts still waiting, oldest first,
+ * and the two things the agent can do about them. A post that is not held can be answered or
+ * asked about, never taken up, since there are no claims to act under.
+ */
+export function renderDecisionRequest(waiting: Array<{ postId: string; speaker: string; held: boolean; content: string }>): string {
+  const posts = waiting.map((w) => `- post ${w.postId} (${w.speaker}, ${w.held ? 'held' : 'not held'}): ${w.content}`);
+  return [
+    'No turn is running, and these posts are still waiting for an answer, oldest first:',
+    ...posts,
+    'Decide what to do next. Call take_up with the id of one held post to work on it now. ' +
+    'Or write a message that answers one or more of them, and name each post it answers in ' +
+    'mark_complete\'s answers. A post that is not held can be answered or asked about, never taken up.',
+  ].join('\n');
+}
+
+/**
+ * The value of an agent message, built in one place so `replyTo` and `answers` stay consistent:
+ * `answers` is every post the message answers, the post its turn took up (`replyTo`) always
+ * among them, each once. `answers` is absent when the message answers nothing, as a result
+ * handler's outcome post does.
+ */
+export function agentMessageValue(input: {
+  chat: string; content: string; replyTo?: string; answers?: readonly string[];
+  thought?: string; codegen?: Record<string, unknown>;
+}): Record<string, unknown> {
+  const answers = [...new Set([...(input.replyTo ? [input.replyTo] : []), ...(input.answers ?? [])])];
+  return {
+    chat: input.chat, content: input.content, status: 'complete',
+    ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+    ...(answers.length > 0 ? { answers } : {}),
+    ...(input.thought !== undefined ? { thought: input.thought } : {}),
+    ...(input.codegen !== undefined ? { codegen: input.codegen } : {}),
+  };
+}
+
+/**
+ * The held call a tool call runs under: the post the model named, or the post the turn took up
+ * when it named none. Throws, naming the post, when that post is not held, which reaches the
+ * model as the call's tool error.
+ */
+export function heldCallFor<H>(held: ReadonlyMap<string, H>, tookUp: string | undefined, named?: string): H {
+  const postId = named ?? tookUp;
+  const call = postId === undefined ? undefined : held.get(postId);
+  if (call === undefined) {
+    throw new Error(postId === undefined
+      ? 'no post is taken up, so no tool that acts can run: answer in a message'
+      : `post ${postId} is not held, so nothing can run under its poster's claims: name a post the held list shows, or ask that person`);
+  }
+  return call;
 }
 
 /** The user-layer self-correction message after a build with failures or findings
@@ -635,9 +786,16 @@ export async function runCodegenLoop(
       }
 
       if (tc.name === 'mark_complete') {
-        recorded.push({ name: tc.name, args: {} });
+        const { answers } = tc.args as { answers?: string[] };
+        recorded.push({ name: tc.name, args: answers ? { answers } : {} });
         messages.push(toolResultMessage(tc.id, { ok: true }));
-        return done('complete', 'mark_complete');
+        return { ...done('complete', 'mark_complete'), ...(answers ? { answers } : {}) };
+      }
+      if (tc.name === 'take_up') {
+        // A pick belongs to a decision, which is not this loop: inside a turn a post is already
+        // taken up, and another person's work is named per call with `postId`.
+        fail(tc, 'take_up picks a post when you are asked to decide; this turn has already taken one up. Name another held post in a tool\'s postId instead.');
+        continue;
       }
       // Loop-detection #2 — identical tool call repeat (same name + args). A write_file
       // with NEW content is not "identical" (different hash), so legitimate fixes are
@@ -653,11 +811,11 @@ export async function runCodegenLoop(
         // ephemeral container cycle running EVERY step. The per-step report goes back
         // as the tool result; a failed step or a type finding makes this a fix round,
         // never an abort.
-        const args = tc.args as { preview?: boolean };
+        const args = tc.args as { preview?: boolean; postId?: string };
         deps.onProgress?.('building…');
         let report: BuildReport;
         try {
-          report = await deps.tools.build(args);
+          report = await deps.tools.build({ preview: args.preview }, args.postId);
         } catch (e) {
           // The job never ran at all — a container-step failure; every other step is
           // honestly "did not run" rather than absent (the shape's own rule).
@@ -697,9 +855,9 @@ export async function runCodegenLoop(
       }
 
       if (tc.name === 'read_file') {
-        const { path } = tc.args as { path: string };
+        const { path, postId } = tc.args as { path: string; postId?: string };
         try {
-          const content = await deps.tools.read_file(path);
+          const content = await deps.tools.read_file(path, postId);
           deps.onProgress?.(`read ${path}`);
           // The model gets the content; the RECORD gets its size in BYTES (UTF-8, what the
           // file holds — not UTF-16 code units) — the content is already in the transcript,
@@ -713,9 +871,9 @@ export async function runCodegenLoop(
       }
 
       if (tc.name === 'edit_file') {
-        const { path, anchor, replacement } = tc.args as { path: string; anchor: string; replacement: string };
+        const { path, anchor, replacement, postId } = tc.args as { path: string; anchor: string; replacement: string; postId?: string };
         try {
-          const written = await deps.tools.edit_file(path, anchor, replacement);
+          const written = await deps.tools.edit_file(path, anchor, replacement, postId);
           deps.onProgress?.(`edited ${written.path}`);
           appliedPaths.push(written.path);
           const result = { edited: written.path };
@@ -731,9 +889,9 @@ export async function runCodegenLoop(
       // is where every check runs, and its report is the self-correction signal. The
       // path rule is the entry's (`assertModelPath` runs first inside `writeSource`), so a
       // traversal or a reserved path arrives here as a throw and is captured.
-      const { path, content } = tc.args as { path: string; content: string };
+      const { path, content, postId } = tc.args as { path: string; content: string; postId?: string };
       try {
-        const written = await deps.tools.write_file(path, content);
+        const written = await deps.tools.write_file(path, content, postId);
         deps.onProgress?.(`wrote ${written.path}`); // per-file progress step
         appliedPaths.push(written.path);
         const result = { written: written.path };

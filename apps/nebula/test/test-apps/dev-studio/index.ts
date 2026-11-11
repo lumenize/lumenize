@@ -86,8 +86,12 @@ export class GalaxyLoopProbe extends Galaxy {
     this.#scriptIdx = 0;
     this.#seenMessages = [];
     const cfg: CodegenLoopConfig = { ...DEFAULT_LOOP_CONFIG, ...(config ?? {}) };
-    // runCodegenTurn + callModel are protected on Galaxy — reachable here.
-    const result = await this.runCodegenTurn(userRequest, cfg);
+    // runCodegenTurn + callModel are protected on Galaxy — reachable here. No commit brought a
+    // post, so this call stands in as the one that did: the loop's tools run under this
+    // caller's claims, as they would under a real poster's.
+    const tookUp = `probe-${crypto.randomUUID()}`;
+    this.holdPost(tookUp);
+    const result = await this.runCodegenTurn(userRequest, cfg, undefined, { tookUp });
     return { result, seenMessages: this.#seenMessages };
   }
 

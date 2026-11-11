@@ -19,7 +19,8 @@ export {
 } from './chat-constants';
 export { chatOntologySeedRow } from './chat-ontology';
 // Participant derivation — display identity from the stamped recordedClaims (client-safe).
-export { deriveKind, deriveParticipants } from './participants';
+export { deriveKind, deriveParticipants, waitingPosts } from './participants';
+export type { ThreadMessage } from './participants';
 export {
   startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay, TURN_IDLE_MS, TURN_HEARTBEAT_MS,
   type TurnLiveness, type TurnPhase, type TurnDisplay,
