@@ -113,7 +113,7 @@ describe('a landing records its build as .dev\'s newest ServedBuild', () => {
     const report = await building;
     expect(report.preview.refreshed).toBe(true);
     const snap = await newestNaming(o, sub, report.bundle.indexSha256!);
-    expect(snap.meta.actingToken.sub).toBe(p.sub);
+    expect(snap.meta.recordedClaims.sub).toBe(p.sub);
     // The positive control for the revoke: the collaborator's next build is refused at the door.
     await expect(g(p.client, scope).build()).rejects.toThrow(/^write permission required on node /);
     o[Symbol.dispose](); p.client[Symbol.dispose]();
@@ -148,17 +148,17 @@ describe('a landing records its build as .dev\'s newest ServedBuild', () => {
     await o.postUserMessage('build it');
     await vi.waitFor(async () => {
       const snap = await newest(o, sub);
-      expect(snap?.meta.actingToken.act?.sub).toBe(NEBULA_SUB);
+      expect(snap?.meta.recordedClaims.act?.sub).toBe(NEBULA_SUB);
     }, { timeout: 15_000 });
     const turnRow = (await newest(o, sub))!;
-    expect(turnRow.meta.actingToken.sub).toBe(oP.sub);
+    expect(turnRow.meta.recordedClaims.sub).toBe(oP.sub);
 
     // A direct build, with an option the wire might carry.
     await ops.write('src/App.vue', '<template><p>direct</p></template>');
     const direct = await ops.build({ preview: true, actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB }, inTurn: true });
     const directRow = await newestNaming(o, sub, direct.bundle.indexSha256!);
-    expect(directRow.meta.actingToken.sub).toBe(oP.sub);
-    expect(directRow.meta.actingToken.act).toBeUndefined();
+    expect(directRow.meta.recordedClaims.sub).toBe(oP.sub);
+    expect(directRow.meta.recordedClaims.act).toBeUndefined();
 
     // P builds directly while O's turn is still thinking.
     o.callGalaxySeedChatScript(scope, [{ __delayMs: 2_500 }, { choices: [{ message: { content: 'thought about it', reasoning_content: '', tool_calls: [] } }] }]);
@@ -168,8 +168,8 @@ describe('a landing records its build as .dev\'s newest ServedBuild', () => {
     await g(p.client, scope).write('src/App.vue', '<template><p>during</p></template>');
     const during = await g(p.client, scope).build();
     const duringRow = await newestNaming(o, sub, during.bundle.indexSha256!);
-    expect(duringRow.meta.actingToken.sub).toBe(p.sub);
-    expect(duringRow.meta.actingToken.act).toBeUndefined();
+    expect(duringRow.meta.recordedClaims.sub).toBe(p.sub);
+    expect(duringRow.meta.recordedClaims.act).toBeUndefined();
     o[Symbol.dispose](); p.client[Symbol.dispose]();
   });
 

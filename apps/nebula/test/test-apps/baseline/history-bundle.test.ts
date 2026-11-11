@@ -61,7 +61,7 @@ async function postAndWait(client: StudioClientTest, scope: string, sub: { resou
   await vi.waitFor(async () => {
     for (const rid of sub.resourceIds) {
       const snap = await client.resources.read('Message', rid) as Snapshot | null;
-      if (snap && deriveKind(snap.meta.actingToken) === 'agent' && (snap.value as { replyTo?: string }).replyTo === id) return;
+      if (snap && deriveKind(snap.meta.recordedClaims) === 'agent' && (snap.value as { replyTo?: string }).replyTo === id) return;
     }
     throw new Error('no reply yet');
   }, { timeout: 15000 });
@@ -157,7 +157,7 @@ describe('the chat history in the prompt', () => {
     await vi.waitFor(async () => {
       for (const rid of sub.resourceIds) {
         const snap = await client.resources.read('Message', rid) as Snapshot | null;
-        if (snap && deriveKind(snap.meta.actingToken) === 'agent' && (snap.value as { replyTo?: string }).replyTo === m1) return;
+        if (snap && deriveKind(snap.meta.recordedClaims) === 'agent' && (snap.value as { replyTo?: string }).replyTo === m1) return;
       }
       throw new Error('no reply yet');
     }, { timeout: 15000 });

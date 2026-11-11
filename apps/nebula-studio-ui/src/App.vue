@@ -170,9 +170,9 @@ const thread = computed<ThreadMsg[]>(() => {
   const mySub = (nebula.value?.client as { claims?: { sub?: string } } | undefined)?.claims?.sub;
   const out: ThreadMsg[] = [];
   for (const id of messageIds.value) {
-    const snap = (store.resources as Record<string, Record<string, { value?: Record<string, unknown>; meta?: { actingToken?: never } }>>).Message?.[id];
+    const snap = (store.resources as Record<string, Record<string, { value?: Record<string, unknown>; meta?: { recordedClaims?: never } }>>).Message?.[id];
     if (!snap?.value || !snap?.meta) continue; // content sub still loading
-    const at = (snap.meta as { actingToken: Parameters<typeof deriveParticipants>[0] }).actingToken;
+    const at = (snap.meta as { recordedClaims: Parameters<typeof deriveParticipants>[0] }).recordedClaims;
     const parties = deriveParticipants(at);
     out.push({
       id,

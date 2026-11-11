@@ -46,7 +46,7 @@ import type {
 } from './types';
 import { parseId, isValidSlug, isPlatformScope, hasDominionOver, descendantRange } from './parse-id';
 import { deploymentOrigin, hostOrigin } from './hosts';
-import { projectActingToken } from './access-claims';
+import { toRecordedClaims } from './access-claims';
 import { reportUnconfiguredProtections } from './router';
 
 /**
@@ -336,7 +336,7 @@ export class AuthRegistry extends DurableObject {
     // touches. ⚠️ The parameter is REQUIRED even though nothing calls this yet — that is the point:
     // whoever builds the flow cannot forget it, because omitting it will not compile.
     debug('nebula-auth.Registry.identity.emailChanged').info('Email changed', {
-      sub, actingToken: projectActingToken(callerClaims),
+      sub, recordedClaims: toRecordedClaims(callerClaims),
     });
     return true;
   }
@@ -905,7 +905,7 @@ export class AuthRegistry extends DurableObject {
       this.ctx.storage.sql.exec('INSERT INTO Scopes (universeGalaxyStarId) VALUES (?)', `${universeGalaxyId}.dev`);
     });
     log.info('Galaxy created with its .dev workspace', {
-      universeGalaxyId, operationId, actingToken: projectActingToken(callerClaims),
+      universeGalaxyId, operationId, recordedClaims: toRecordedClaims(callerClaims),
     });
     return { instanceName: universeGalaxyId };
   }
@@ -1349,7 +1349,7 @@ export class AuthRegistry extends DurableObject {
    * claim — so a fourth caller inherits the record instead of having to remember it. Enumerating the
    * sites is the shape ADR-016 explicitly rules out.
    *
-   * ⚠️ **There is no `actingToken`, and its absence is the accurate record rather than a gap.** A
+   * ⚠️ **There is no `recordedClaims`, and its absence is the accurate record rather than a gap.** A
    * consume presents no token — proving a mailbox is what a magic link is FOR — so there are no
    * verified claims to hand the shared projection, and naming an actor nobody verified would be the
    * `sub`-only defect in a friendlier shape (`#revokeByHashes`'s logout path says the same of its
@@ -1854,11 +1854,11 @@ export class AuthRegistry extends DurableObject {
         // ADR-016-adjacent issuance attribution: an `invited` outcome MINTS a membership (an
         // authority change), and every outcome mints a login-channel token and sends mail on
         // someone's behalf — the abuse bound on the open invite rule is exactly this line. The
-        // record names the full acting token through the shared projection — never a bare `sub`,
+        // record names the caller's full claims through the shared projection — never a bare `sub`,
         // which under impersonation names the person acted upon as the person who acted. (The
         // promotion's own authority-change record is setIdentityAdmin's, not this one.)
         debug('nebula-auth.Registry.invite.issued').info('Invite issued', {
-          email, universeGalaxyStarId, outcome, actingToken: projectActingToken(callerClaims),
+          email, universeGalaxyStarId, outcome, recordedClaims: toRecordedClaims(callerClaims),
         });
         results.push({ email, sub: minted.sub, outcome, accepted: minted.accepted, inviteUrl });
       } catch (error) {
@@ -1957,7 +1957,7 @@ export class AuthRegistry extends DurableObject {
      *  absence is honest, whereas passing the token owner's `sub` here would assert an actor we never
      *  verified. Whose sessions these are is `subjectSub`, a separate field, because conflating the
      *  two is exactly the misreading ADR-016 exists to prevent. */
-    actingClaims?: AuthClaims,
+    callerClaims?: AuthClaims,
     subjectSub?: string,
     /** The request that asked, so a reader can find this record by its id. */
     operationId?: string,
@@ -1996,14 +1996,14 @@ export class AuthRegistry extends DurableObject {
     // ADR-016: this removes state, so the record names EVERY party — the subject whose sessions died
     // AND, through the shared projection, the full verified claims of whoever asked, including the
     // `act` chain. A `sub`-only record names the person acted upon as the person who acted, which is
-    // affirmatively wrong rather than merely incomplete, and it would be believed. `actingToken` is
+    // affirmatively wrong rather than merely incomplete, and it would be believed. `recordedClaims` is
     // absent on the logout path by design: that path carries no claims to verify, and asserting an
     // actor we never saw would be the same defect in a friendlier shape.
     debug('nebula-auth.Registry.token.revoked').warn('Refresh tokens revoked', {
       reason,
       subjectSub,
       ...(operationId ? { operationId } : {}),
-      actingToken: actingClaims ? projectActingToken(actingClaims) : undefined,
+      recordedClaims: callerClaims ? toRecordedClaims(callerClaims) : undefined,
       requested: tokenHashes.length,
       revoked: confirmed.length,
     });
@@ -2085,7 +2085,7 @@ export class AuthRegistry extends DurableObject {
     }
     // ADR-016: this is the authority change itself — the record must name every party.
     debug('nebula-auth.Registry.identity.roleUpdated').info('scopeAdmin converged', {
-      sub, scopeAdmin, tokens: tokens.length, actingToken: projectActingToken(callerClaims),
+      sub, scopeAdmin, tokens: tokens.length, recordedClaims: toRecordedClaims(callerClaims),
     });
   }
 
@@ -2141,7 +2141,7 @@ export class AuthRegistry extends DurableObject {
       this.ctx.storage.sql.exec('DELETE FROM Scopes WHERE universeGalaxyStarId = ?', name);
     }
 
-    // ADR-016 — the FULL verified claims of the ACTING token, write-time-pinned. Every element: the
+    // ADR-016 — the FULL verified claims the action ran under, write-time-pinned. Every element: the
     // subject `sub`, the complete `act` chain, `profileId`, the `access` entry and `aud`. Under
     // impersonation `sub` is the person acted UPON, so `act` is what names who actually drove this;
     // a `sub`-only record is affirmatively wrong, not merely incomplete.
@@ -2149,15 +2149,13 @@ export class AuthRegistry extends DurableObject {
       target,
       operationId,
       callerSub: callerClaims.sub,
-      // ⚠️ **Named for the TOKEN, not for a role — deliberately.** The field is ADR-016's own
-      // phrase: "the FULL verified claims of the acting token". So `actingToken.sub` reads as *the
-      // token's subject*, which is what it is; nobody expects a token's `sub` to be its actor.
-      // A ROLE name inverts and misleads here: `actor.sub` reads as "the actor", but under
+      // ⚠️ **Named for what it holds, not for a role — deliberately.** `recordedClaims.sub` reads
+      // as *those claims' subject*, which is what it is; nobody expects a claims `sub` to be its
+      // actor. A ROLE name inverts and misleads here: `actor.sub` reads as "the actor", but under
       // impersonation `sub` is the person acted UPON — the actor is `act.sub`. That is the exact
-      // misreading ADR-016 exists to prevent, and it would be believed. (`actingClaims` was the same
-      // defect one step removed — "the acting claims" still invites "the acting sub".) Let the
-      // structure carry the meaning: a token has a subject and an actor, and `act` names the actor.
-      actingToken: projectActingToken(callerClaims),
+      // misreading ADR-016 exists to prevent, and it would be believed. Let the structure carry
+      // the meaning: claims have a subject and an actor, and `act` names the actor.
+      recordedClaims: toRecordedClaims(callerClaims),
       affected: plan.affected.map(a => a.instanceName),
     });
     return { affected: plan.affected };
@@ -2175,10 +2173,10 @@ export class AuthRegistry extends DurableObject {
    * revoke began, and it remains enumerable and revocable.
    */
   async #invalidateRefreshTokensForSub(
-    sub: string, reason: string, actingClaims?: AuthClaims, operationId?: string,
+    sub: string, reason: string, callerClaims?: AuthClaims, operationId?: string,
   ): Promise<void> {
     const tokens = this.#sql`SELECT tokenHash FROM RefreshTokenIndex WHERE sub = ${sub}`;
-    await this.#revokeByHashes(tokens.map(t => t.tokenHash as string), reason, actingClaims, sub, operationId);
+    await this.#revokeByHashes(tokens.map(t => t.tokenHash as string), reason, callerClaims, sub, operationId);
   }
 
   #computeDeletionPlan(target: string, callerClaims: AuthClaims): ScopeDeletionPlan {

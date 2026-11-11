@@ -61,7 +61,7 @@ async function agentReplies(client: StudioClientTest, ids: readonly string[]): P
   for (const id of ids) {
     const snap = await client.resources.read('Message', id) as Snapshot | null;
     if (!snap) continue;
-    if (deriveKind(snap.meta.actingToken) === 'agent') {
+    if (deriveKind(snap.meta.recordedClaims) === 'agent') {
       out.set((snap.value as { replyTo?: string }).replyTo ?? '', snap);
     }
   }
@@ -88,10 +88,10 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     }, { timeout: 15000 });
     const reply = (await agentReplies(client, sub.resourceIds)).get(posted)!;
     expect((reply.value as { content?: string }).content).toBe('Here is your change.');
-    expect(reply.meta.actingToken.act).toMatchObject({ sub: NEBULA_SUB, profileId: NEBULA_SUB });
+    expect(reply.meta.recordedClaims.act).toMatchObject({ sub: NEBULA_SUB, profileId: NEBULA_SUB });
     // The turn ran under the POSTER's own authority (the participant model): the
     // reply's subject IS the poster.
-    expect(reply.meta.actingToken.sub).toBe(client.claims.sub);
+    expect(reply.meta.recordedClaims.sub).toBe(client.claims.sub);
 
     client[Symbol.dispose]();
   });

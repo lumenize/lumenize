@@ -157,7 +157,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.deepEqual(record.data.opener, { sub: owner.sub, profileId: claimsOf(atGalaxy.accessToken).profileId, scope: universe, scopeAdmin: true },
       'the record names the opener from its cookie record');
     assert.equal(record.data.star, dev);
-    assert.equal(record.data.actingToken, undefined, 'a persona refresh records no acting token');
+    assert.equal(record.data.recordedClaims, undefined, 'a persona refresh records no claims');
     console.error("  ✓ limb 3 — the refresh's record named O as the opener beside Manny");
   }
 

@@ -46,7 +46,7 @@ describe('the read_file record', () => {
     await vi.waitFor(async () => {
       for (const id of sub.resourceIds) {
         const snap = await client.resources.read('Message', id) as Snapshot | null;
-        if (snap && deriveKind(snap.meta.actingToken) === 'agent' && (snap.value as { replyTo?: string }).replyTo === userMessageId) {
+        if (snap && deriveKind(snap.meta.recordedClaims) === 'agent' && (snap.value as { replyTo?: string }).replyTo === userMessageId) {
           reply = snap;
         }
       }

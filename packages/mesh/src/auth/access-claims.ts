@@ -21,7 +21,7 @@
  * of 2026-07-31 no crypto import either (the `jti` is a direct `crypto.randomUUID()` call) — so the
  * Node-safe `@lumenize/mesh/auth/testing` subpath and `@lumenize/mesh/client` re-export from it. That
  * is the route by which a module in a Node-safe value graph (e.g. Resources' `snapshots.ts`, reachable
- * from its client subpath) takes `projectActingToken` without the Registry DO (`cloudflare:workers`).
+ * from its client subpath) takes `toRecordedClaims` without the Registry DO (`cloudflare:workers`).
  * Signing stays with the caller (the server resolves BLUE/GREEN from env; the test-util reads
  * `.dev.vars`).
  */
@@ -93,11 +93,11 @@ export function buildAccessEntry(
  * RFC 8693 §4.1 chain nesting, written ONCE: prepend `actor` as the NEW OUTERMOST `act` entry,
  * preserving any pre-existing verified chain beneath it. Flattening/overwriting DROPS the
  * delegation chain — the wrong shape this helper exists to make unwritable. Callers: the
- * server-composed actor on an `actingToken` RECORD (the Resources plane's `#buildActingToken`,
+ * server-composed actor on a `recordedClaims` record (the Resources plane's `#buildRecordedClaims`,
  * `packages/resources/src/snapshots.ts`) and any later cross-node mint path, so the two cannot
  * drift on the RFC semantics.
  *
- * ⚠️ **Applies to an actingToken RECORD only — never to a TOKEN.** A live refusal keys on an actor
+ * ⚠️ **Applies to recorded claims only — never to an access token.** A live refusal keys on an actor
  * chain being PRESENT and would fire on a session token that grew one: `worker-token.ts`'s
  * root-identity gate refuses to re-narrow. Prepend an actor into somebody's own session token and
  * they lose their ability to impersonate, for a reason nobody intended. If a token ever seems to
@@ -120,7 +120,7 @@ export function prependActor(
 }
 
 /** The acting-principal record: every party to an action, projected from verified claims. */
-export interface ActingTokenRecord {
+export interface RecordedClaims {
   /** The AUTHORITY principal — the token's subject. ⚠️ Under impersonation this is the person acted
    *  UPON, not the actor; the actor is `act.sub`. Never read this alone to answer "who did it". */
   sub: string;
@@ -138,17 +138,18 @@ export interface ActingTokenRecord {
  * Project verified claims into the ADR-016 acting-principal record — **the one shared projection; no
  * site assembles its own.**
  *
- * ⚠️ **Named for the TOKEN, never for a role.** `actingToken.sub` reads as *the token's subject*,
- * which is what it is. Every role name inverts: `actor.sub` reads as "the actor" but holds the person
- * acted *upon* — the misreading ADR-016 exists to prevent, and it would be believed. `actingClaims`
- * is the same defect one step removed, since "the acting claims" still invites "the acting sub".
+ * ⚠️ **Named for what it holds, never for a role.** `recordedClaims.sub` reads as *those claims'
+ * subject*, which is what it is. Every role name inverts: `actor.sub` reads as "the actor" but holds
+ * the person acted *upon* — the misreading ADR-016 exists to prevent, and it would be believed.
+ * "Recorded" marks it as history: live claims are never stored, and a stored copy is never read back
+ * as an authorization input.
  *
  * ⚠️ **Pass the CLAIMS, never a pre-picked `sub`.** A bare string cannot carry the `act` chain, so a
  * caller that narrows to `claims.sub` before calling here silently produces a record naming the wrong
  * human under impersonation — which ADR-016 calls affirmatively wrong and worse than no record. Taking
  * the whole payload is what makes that shape impossible to write.
  */
-export function projectActingToken(claims: AuthClaims): ActingTokenRecord {
+export function toRecordedClaims(claims: AuthClaims): RecordedClaims {
   return { sub: claims.sub, act: claims.act, profileId: claims.profileId, access: claims.access, aud: claims.aud };
 }
 

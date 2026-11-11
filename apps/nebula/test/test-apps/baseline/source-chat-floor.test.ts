@@ -139,13 +139,13 @@ describe('the source entries sit at the chat floor', () => {
     await g.write('src/App.vue', '<template><p>recorded</p></template>');
     const commits = entries.filter((e) => e.namespace === 'nebula.Galaxy.writeSource' && e.message === 'commit');
     expect(commits).toHaveLength(1);
-    const data = commits[0]!.data as { path?: string; clientAddress?: string; actingToken?: { sub?: string; act?: unknown } };
+    const data = commits[0]!.data as { path?: string; clientAddress?: string; recordedClaims?: { sub?: string; act?: unknown } };
     expect(data.path).toBe('src/App.vue');
     // The projection names the MEMBER (the subject of the verified claims), not the owner
     // who granted them, and the client that made the call. Mutation: strip the claims from
-    // the log line → `actingToken` is absent → red.
-    expect(data.actingToken?.sub).toBe(payload.sub);
-    expect(data.actingToken?.act).toBeUndefined(); // self-acting — no delegation chain
+    // the log line → `recordedClaims` is absent → red.
+    expect(data.recordedClaims?.sub).toBe(payload.sub);
+    expect(data.recordedClaims?.act).toBeUndefined(); // self-acting — no delegation chain
     expect(data.clientAddress).toBe(addressOfClient(member));
 
     owner[Symbol.dispose](); member[Symbol.dispose]();
@@ -171,7 +171,7 @@ describe('the source entries sit at the chat floor', () => {
     try {
       await vi.waitFor(async () => {
         const snaps = await Promise.all(sub.resourceIds.map((id) => owner.resources.read('Message', id) as Promise<Snapshot | null>));
-        const reply = snaps.find((x) => x && deriveKind(x.meta.actingToken) === 'agent' && (x.value as { replyTo?: string }).replyTo === posted);
+        const reply = snaps.find((x) => x && deriveKind(x.meta.recordedClaims) === 'agent' && (x.value as { replyTo?: string }).replyTo === posted);
         expect(reply).toBeTruthy();
         expect((reply!.value as { content?: string }).content).toBe('Still here after the revoke.');
       }, { timeout: 15000 });

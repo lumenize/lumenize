@@ -572,7 +572,7 @@ describe('getScopesForProfile — only ACCEPTED memberships confer scope authori
   });
 });
 
-describe('ADR-016 — an authority change records the ACTING TOKEN, not just its target', () => {
+describe('ADR-016 — an authority change records the CALLER\'S CLAIMS, not just its target', () => {
   const entries: any[] = [];
   beforeEach(() => { entries.length = 0; setDebugSink((e) => entries.push(e)); });
   afterEach(() => { clearDebugSink(); });
@@ -580,7 +580,7 @@ describe('ADR-016 — an authority change records the ACTING TOKEN, not just its
   /**
    * ⚠️ **The required parameter is only HALF the guarantee, which is why this test exists.** Making
    * `callerClaims` required means a call site cannot forget to PASS it — that is a compile error. But
-   * deleting the `actingToken` field from the record itself compiles cleanly and silently reverts the
+   * deleting the `recordedClaims` field from the record itself compiles cleanly and silently reverts the
    * site to a target-only line, which under impersonation names the person acted upon as the person
    * who acted. Only an assertion on the emitted record covers that half.
    */
@@ -595,18 +595,18 @@ describe('ADR-016 — an authority change records the ACTING TOKEN, not just its
 
     const sent = entries.filter(e => e.namespace === 'nebula-auth.Registry.invite.issued');
     expect(sent).toHaveLength(1);
-    // Reds against deleting `actingToken: projectActingToken(callerClaims)` from the record — the
+    // Reds against deleting `recordedClaims: toRecordedClaims(callerClaims)` from the record — the
     // mutation that type-checks.
-    expect(sent[0].data.actingToken).toBeDefined();
-    expect(sent[0].data.actingToken.sub).toBe(admin.parsed.sub);
+    expect(sent[0].data.recordedClaims).toBeDefined();
+    expect(sent[0].data.recordedClaims.sub).toBe(admin.parsed.sub);
     // ...and it carries the ASSERTED authority, not just an id — ADR-016 wants the full claims, and a
     // record narrowed to `{ sub }` cannot answer "under what authority" after the fact.
-    expect(sent[0].data.actingToken.access).toBeDefined();
+    expect(sent[0].data.recordedClaims.access).toBeDefined();
   });
 
   /**
    * The promotion is an AUTHORITY CHANGE (the bit flips and every live session converges), so its
-   * record must name the full acting token — through the ONE shared projection, never a
+   * record must name the caller's full claims — through the ONE shared projection, never a
    * hand-assembled second one. Reds against passing a `sub`-only projection to the record, the
    * mutation that type-checks and silently names only the person acted upon.
    */
@@ -624,9 +624,9 @@ describe('ADR-016 — an authority change records the ACTING TOKEN, not just its
 
     const roleUpdated = entries.filter(e => e.namespace === 'nebula-auth.Registry.identity.roleUpdated');
     expect(roleUpdated).toHaveLength(1);
-    expect(roleUpdated[0].data.actingToken).toBeDefined();
-    expect(roleUpdated[0].data.actingToken.sub).toBe(admin.parsed.sub);
-    expect(roleUpdated[0].data.actingToken.access).toBeDefined();
+    expect(roleUpdated[0].data.recordedClaims).toBeDefined();
+    expect(roleUpdated[0].data.recordedClaims.sub).toBe(admin.parsed.sub);
+    expect(roleUpdated[0].data.recordedClaims.access).toBeDefined();
   });
 });
 

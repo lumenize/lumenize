@@ -150,7 +150,7 @@ describe('Studio\'s Wipe on the .dev Star', () => {
     expect(presser.lastError).toBeUndefined();
     const reset = wipes(dev).at(-1)!.data!;
     expect(reset.cause).toBe('reset');
-    expect(reset.actingToken.sub).toBe(presser.claims.sub);
+    expect(reset.recordedClaims.sub).toBe(presser.claims.sub);
     presser[Symbol.dispose]();
   });
 

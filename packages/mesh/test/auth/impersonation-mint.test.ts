@@ -384,7 +384,7 @@ describe('the acting principal is recorded (ADR-016)', () => {
   beforeEach(() => { sink = []; setDebugSink((e) => sink.push(e)); });
   afterEach(() => clearDebugSink());
 
-  // Mutation: record only the subject → `actingToken` is absent → reds.
+  // Mutation: record only the subject → `recordedClaims` is absent → reds.
   it('the mint records the subject beside the caller\'s whole projected claims, page included', async () => {
     const u = uni();
     const admin = await foundUniverse(SELF, u, `admin-${u}@example.com`);
@@ -393,7 +393,7 @@ describe('the acting principal is recorded (ADR-016)', () => {
 
     const record = sink.find((e) => e.namespace === 'nebula-auth.facade.impersonate');
     expect(record?.data.subOfNarrowerToken).toBe(user.parsed.sub);
-    expect(record?.data.actingToken).toEqual({
+    expect(record?.data.recordedClaims).toEqual({
       sub: admin.parsed.sub, profileId: admin.parsed.profileId,
       access: { authScope: u, scopeAdmin: true }, aud: u,
     });
@@ -417,17 +417,17 @@ describe('the acting principal is recorded (ADR-016)', () => {
       e.namespace === 'nebula-auth.Registry.executeScopeDeletion' && e.message === 'Scope deleted');
     expect(record).toBeDefined();
     // (1) The subject `sub` — the person acted upon.
-    expect(record.data.actingToken.sub).toBe(starAdmin.parsed.sub);
+    expect(record.data.recordedClaims.sub).toBe(starAdmin.parsed.sub);
     // (2) The complete `act` chain — WHO ACTUALLY DROVE IT, the element whose absence makes the
     // record affirmatively wrong.
-    expect(record.data.actingToken.act).toEqual({
+    expect(record.data.recordedClaims.act).toEqual({
       sub: admin.parsed.sub, profileId: admin.parsed.profileId,
     });
     // (3) `profileId` — display-only, write-time-pinned.
-    expect(record.data.actingToken.profileId).toBe(starAdmin.parsed.profileId);
+    expect(record.data.recordedClaims.profileId).toBe(starAdmin.parsed.profileId);
     // (4) The `access` entry — what authority was ASSERTED. Never read back as an authz input.
-    expect(record.data.actingToken.access).toEqual({ authScope: star, scopeAdmin: true });
+    expect(record.data.recordedClaims.access).toEqual({ authScope: star, scopeAdmin: true });
     // (5) The page the token was minted for. Mutation: drop `aud` from the projection → reds.
-    expect(record.data.actingToken.aud).toBe(star);
+    expect(record.data.recordedClaims.aud).toBe(star);
   });
 });

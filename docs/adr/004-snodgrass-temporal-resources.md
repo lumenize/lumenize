@@ -40,7 +40,7 @@ This is transaction-time history — intervals record when the platform committe
 
 ### Positive
 - Time-series charting and trend analytics are a platform property: state-as-of-T, time-in-state, and trend rollups are queries over snapshots, not reconstructions — the original-Lumenize capability, available to every Nebula app.
-- Audit is built in: "what changed, when, and by whom" (the `actingToken` record rides every snapshot) is a lookup.
+- Audit is built in: "what changed, when, and by whom" (the `recordedClaims` record rides every snapshot) is a lookup.
 - Undo falls out alongside soft delete — restoring means re-addressing a prior snapshot; nothing was destroyed in the first place.
 - A repeat is recognized from committed snapshots rather than a side ledger (ADR-005).
 - The conflict-resolution 3-way-merge `base` is **client-held, NOT a history lookup**. The client holds the `base` it diverged from, the same snapshot it keeps for optimistic rollback, which decouples the merge from history retention and the R2 offload. See ADR-005 and [tasks/archive/factory-conflict-outcome.md](../../tasks/archive/factory-conflict-outcome.md) invariant 5.

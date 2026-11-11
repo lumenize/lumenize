@@ -88,14 +88,14 @@ describe('the impersonation mint — the DAG verdict', () => {
     admin[Symbol.dispose](); memberClient[Symbol.dispose]();
   });
 
-  // ── `actingToken` is the FULL ADR-016 record, and the wire copy carries the chain ──────────────
+  // ── `recordedClaims` is the FULL ADR-016 record, and the wire copy carries the chain ──────────────
   // The persisted column stores the whole projected claims: subject `sub` + `profileId`, the widened
   // `act` chain (the actor PAIR, actor `profileId` included), and the asserted `access`.
   //
   // **Principal, pinned:** the subject is granted an explicit `write` tier on the node FIRST. Without
   // it a narrower token for a non-admin subject holds no DAG grant in a fresh Star and the write is
   // denied for an unrelated reason (the very denial the test above asserts).
-  it('persists actingToken = the FULL claims record, and the wire copy carries the act chain', async () => {
+  it('persists recordedClaims = the FULL claims record, and the wire copy carries the act chain', async () => {
     const universe = `mnt-${crypto.randomUUID().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const browser = new Browser();
@@ -132,16 +132,16 @@ describe('the impersonation mint — the DAG verdict', () => {
 
     // Assert the PERSISTED column — the mechanism the invariant governs, not a value echoed into a
     // payload. Mutation: build the record with an identity-only/narrowed projection instead of the
-    // shared `projectActingToken` → `profileId`/actor-`profileId`/`access` vanish → this reds.
+    // shared `toRecordedClaims` → `profileId`/actor-`profileId`/`access` vanish → this reds.
     const rows = () => (runInDurableObject as any)(
       (env as any).STAR.getByName(star),
       (inst: any) => [...inst.ctx.storage.sql.exec(
-        'SELECT actingToken, validFrom FROM Snapshots WHERE resourceId = ?', rid)]
-        .map((r: any) => ({ actingToken: r.actingToken as string, validFrom: r.validFrom as string })),
+        'SELECT recordedClaims, validFrom FROM Snapshots WHERE resourceId = ?', rid)]
+        .map((r: any) => ({ recordedClaims: r.recordedClaims as string, validFrom: r.validFrom as string })),
     );
     const after1 = await rows();
     expect(after1).toHaveLength(1);
-    expect(JSON.parse(after1[0].actingToken)).toEqual({
+    expect(JSON.parse(after1[0].recordedClaims)).toEqual({
       sub: member.sub,
       act: { sub: adminPayload.sub, profileId: adminPayload.profileId },
       profileId: member.profileId,
@@ -151,12 +151,12 @@ describe('the impersonation mint — the DAG verdict', () => {
 
     // The WIRE copy carries the chain for display — actor `sub` + actor `profileId` ride; the
     // asserted `access` does not. Direct coverage of act-chain INCLUSION on the wire (not only via
-    // the coalesce compare). Mutation: drop `act` from `toWireActingToken` → this reds.
+    // the coalesce compare). Mutation: drop `act` from `toWireRecordedClaims` → this reds.
     const wire = await impersonating.lmz.callAsync('STAR', star,
       impersonating.ctn<Star>().resources.read(VERSION, rid)) as Snapshot;
-    expect(wire.meta.actingToken.act).toEqual({ sub: adminPayload.sub, profileId: adminPayload.profileId });
-    expect('access' in wire.meta.actingToken).toBe(false);
-    expect('aud' in wire.meta.actingToken).toBe(false);
+    expect(wire.meta.recordedClaims.act).toEqual({ sub: adminPayload.sub, profileId: adminPayload.profileId });
+    expect('access' in wire.meta.recordedClaims).toBe(false);
+    expect('aud' in wire.meta.recordedClaims).toBe(false);
 
     // ── The chain is part of who wrote it ──
     // A put made under impersonation, resent from the member's own session, is another writer's

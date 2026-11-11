@@ -14,7 +14,7 @@
  *    seeded `Profile` ("Lumenize" + avatar).
  *
  * Every party sees every message on the SAME durable `Message` subscription; kinds and
- * subjects are derived from the stamped actingToken, never from the values.
+ * subjects are derived from the stamped recordedClaims, never from the values.
  */
 import assert from 'node:assert/strict';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
@@ -53,7 +53,7 @@ async function waitForReply(driver: Driver, sub: { resourceIds: string[] }, repl
   for (;;) {
     for (const id of sub.resourceIds) {
       const snap = await driver.client.resources.read('Message', id) as Snapshot | null;
-      if (snap && deriveKind(snap.meta.actingToken) === 'agent'
+      if (snap && deriveKind(snap.meta.recordedClaims) === 'agent'
         && (snap.value as { replyTo?: string }).replyTo === repliedTo) return snap;
     }
     assert.ok(Date.now() < deadline,
@@ -157,7 +157,7 @@ export async function run(stack: DevStack): Promise<void> {
 
     // Nebula replies — triggered by the NON-ADMIN collaborator's write-granted commit.
     const reply = await waitForReply(owner, ownerSub, austenMsg);
-    assert.equal(reply.meta.actingToken.sub, austenSession.sub,
+    assert.equal(reply.meta.recordedClaims.sub, austenSession.sub,
       'the reply runs under the TRIGGERING person\'s own authority (the participant model)');
     // EXPLORATORY limb (e) of the guidance file tree — REPORTED, never gated: in a four-party
     // thread, "what does this app do so far?" gets a reply naming what the app has. This
@@ -168,8 +168,8 @@ export async function run(stack: DevStack): Promise<void> {
     console.error(`  ${namesWhatItHas ? '✓' : '✗'} limb (e) [reported] — the four-party "what does it do" reply ` +
       `${namesWhatItHas ? 'names what the app has' : 'does NOT name what the app has'}: ${JSON.stringify(replyText.slice(0, 160))}`);
     console.error(`- ${new Date().toISOString().slice(0, 10)} · (e) · ${namesWhatItHas ? 'pass' : 'fail'} · four-party "what does this app do so far?" → ${JSON.stringify(replyText.slice(0, 100))}`);
-    assert.equal(reply.meta.actingToken.act?.sub, NEBULA_SUB, 'Nebula is the stamped actor');
-    const parties = deriveParticipants(reply.meta.actingToken);
+    assert.equal(reply.meta.recordedClaims.act?.sub, NEBULA_SUB, 'Nebula is the stamped actor');
+    const parties = deriveParticipants(reply.meta.recordedClaims);
     assert.deepEqual(parties.map((p) => p.kind), ['agent', 'human'], 'byline: Nebula for {Austen}');
 
     // ── ALL FOUR parties visible to ALL THREE humans, attribution derived per message ──
@@ -183,8 +183,8 @@ export async function run(stack: DevStack): Promise<void> {
         [austenMsg, austenSession.sub, 'human'],
       ] as const) {
         const snap = await client.client.resources.read('Message', id) as Snapshot;
-        assert.equal(snap.meta.actingToken.sub, expectSub, `${who} sees ${id} attributed to its sender`);
-        assert.equal(deriveKind(snap.meta.actingToken), expectKind, `${who} derives the right kind`);
+        assert.equal(snap.meta.recordedClaims.sub, expectSub, `${who} sees ${id} attributed to its sender`);
+        assert.equal(deriveKind(snap.meta.recordedClaims), expectKind, `${who} derives the right kind`);
       }
       assert.ok(sub.resourceIds.length >= 6, `${who} sees the whole thread (${sub.resourceIds.length})`);
     }

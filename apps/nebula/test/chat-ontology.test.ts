@@ -10,7 +10,7 @@
  *   2. `codegen` EMBEDS as a value object — never rewritten to a by-id ref (the
  *      inline-literal vehicle the collapse task's build-check demanded confirming);
  *   3. the deleted identity fields stay deleted — the type declares no `role` and
- *      no `author`, so display can only derive from the stamped `actingToken`.
+ *      no `author`, so display can only derive from the stamped `recordedClaims`.
  *
  * (The former hand-bumped `SESSION_MESSAGE_BUNDLE_ID` is DELETED: the loader
  * bundle id now derives from the INSTALLED version label — `{u}.{g}/chat/{label}`,
@@ -58,7 +58,7 @@ describe('platform Chat/Message ontology', () => {
     expect(md).toContain('appliedPaths: string[]');
   });
 
-  it('declares NO role and NO author — display derives only from the stamped actingToken', () => {
+  it('declares NO role and NO author — display derives only from the stamped recordedClaims', () => {
     // The discriminator: the OLD type carried `role: string` and `author?: string`; the
     // bare words appear nowhere in the new source (`; role:` / `author?:` shapes).
     expect(CHAT_MESSAGE_TYPES).not.toMatch(/\brole\??:/);

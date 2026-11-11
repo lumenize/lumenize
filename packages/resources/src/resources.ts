@@ -36,7 +36,7 @@ import type { NebulaClient } from './nebula-client';
 import { getParserValidatorFacet } from '@lumenize/ts-runtime-parser-validator/runtime';
 import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator/runtime';
 import type { InviteSummary, InviteeError, AuthClaims } from '@lumenize/mesh/auth';
-import { projectActingToken } from '@lumenize/mesh/client';
+import { toRecordedClaims } from '@lumenize/mesh/client';
 import type { PermissionTier } from './org-ops';
 import { OrgTree } from './org-tree';
 import { Snapshots } from './snapshots';
@@ -638,7 +638,7 @@ export class Resources {
     }
     const claims = this.#lmz().callContext.originAuth?.claims as AuthClaims | undefined;
     debug('nebula.Resources.wipe').info('wipe', {
-      instanceName: host, cause: 'reset', actingToken: claims ? projectActingToken(claims) : null,
+      instanceName: host, cause: 'reset', recordedClaims: claims ? toRecordedClaims(claims) : null,
     });
     const tell = this.#subscriptions.clear(['resource', 'query', 'roster', 'tree']);
     this.#ctx.storage.transactionSync(() => {
@@ -732,7 +732,7 @@ export class Resources {
 
     if (valid.length > 0) {
       // `pending` rows, converged on (email, node) — through the ordinary transaction path, so
-      // validation, `actingToken` attribution (the inviter, `act` chain included) and subscriber
+      // validation, `recordedClaims` attribution (the inviter, `act` chain included) and subscriber
       // fan-out all apply. Server-side write → no originating client to exclude ('').
       const ops: Record<string, OperationDescriptor> = {};
       for (const v of valid) {

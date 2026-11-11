@@ -318,7 +318,7 @@ describe('invite facade — ADR-016 records survive the reshape', () => {
 
       const issued = sink.filter((e) => e.namespace === 'nebula-auth.Registry.invite.issued');
       expect(issued).toHaveLength(1);
-      const acting = issued[0].data.actingToken;
+      const acting = issued[0].data.recordedClaims;
       // The full verified claims thread callContext.originAuth → facade → issueInvites: the
       // SUBJECT as `sub`, the DRIVER in `act` (mutation: project only `access` at the facade —
       // this limb reds), and the asserted authority.

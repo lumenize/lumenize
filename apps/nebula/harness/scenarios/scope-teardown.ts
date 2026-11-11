@@ -123,8 +123,8 @@ export async function run(stack: DevStack): Promise<void> {
       assert.ok(markers.every((m) => loggedAfter(created, m)), "the create's completion must follow every marker it caused");
       const record = all.find((l) => l.namespace === 'nebula-auth.Registry.createGalaxy' && l.data.operationId === op);
       // Mutation: record the create as before (no projection) → no `access` and no `aud` → reds.
-      assert.equal(record?.data.actingToken?.aud, universe, 'the create record must name the page');
-      assert.deepEqual(record?.data.actingToken?.access, { authScope: universe, scopeAdmin: true },
+      assert.equal(record?.data.recordedClaims?.aud, universe, 'the create record must name the page');
+      assert.deepEqual(record?.data.recordedClaims?.access, { authScope: universe, scopeAdmin: true },
         'the create record must carry the authority asserted');
     }
 
@@ -203,7 +203,7 @@ export async function run(stack: DevStack): Promise<void> {
       assert.equal(all.filter((l) => l.namespace === 'nebula.scope.teardown' && l.message === 'teardown failed').length, 0,
         'a deletion must log no teardown error');
       const record = all.find((l) => l.namespace === 'nebula-auth.Registry.executeScopeDeletion' && l.data.operationId === op);
-      assert.equal(record?.data.actingToken?.aud, galaxy, "a deletion from the galaxy's page must record that page");
+      assert.equal(record?.data.recordedClaims?.aud, galaxy, "a deletion from the galaxy's page must record that page");
     }
 
     // ── 5. A new owner starts empty ─────────────────────────────────────────────────────────────
@@ -306,8 +306,8 @@ export async function run(stack: DevStack): Promise<void> {
       assert.equal(all.filter((l) => l.namespace === 'nebula.scope.teardown'
         && l.data.operationId === creates[3].data.operationId).length, 0,
         'a refused create must log no teardown marker');
-      const fromGalaxyPage = recordOf(galaxy)!.data.actingToken;
-      const fromUniversePage = recordOf(`${universe}.crm2`)!.data.actingToken;
+      const fromGalaxyPage = recordOf(galaxy)!.data.recordedClaims;
+      const fromUniversePage = recordOf(`${universe}.crm2`)!.data.recordedClaims;
       assert.equal(fromUniversePage.aud, universe, "a deletion from the universe's page must record that page");
       // Mutation: drop `aud` from the projection → the two projections are identical → reds.
       assert.notDeepEqual(fromGalaxyPage, fromUniversePage, 'two pages must leave two different records');

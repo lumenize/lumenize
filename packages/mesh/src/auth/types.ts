@@ -61,8 +61,8 @@ export type EmailMessage =
  * ⚠️ **Local, deliberately.** `@lumenize/crypto` is a shared primitive package with its own consumers; widening
  * its type is out of scope. ⚠️ **Not a pending reconciliation** — `tasks/archive/nebula-auth-decouple-from-auth.md`
  * considered folding this widening into the shared package and REJECTED it. This widened chain is also
- * exactly what persists: `apps/nebula`'s `Snapshots.actingToken` column stores the full
- * `ActingTokenRecord` (ADR-016), whose `act` is this type — the old narrow-`changedBy` interim and its
+ * exactly what persists: `apps/nebula`'s `Snapshots.recordedClaims` column stores the full
+ * `RecordedClaims` (ADR-016), whose `act` is this type — the old narrow-`changedBy` interim and its
  * `projectActClaim` projection were deleted when `nebula-pre-alpha.md`'s schema-surgery item 6 landed
  * (2026-08-20).
  *
@@ -352,7 +352,7 @@ export const RESERVED_UNIVERSE_SLUGS: ReadonlySet<string> = new Set([
 
 /**
  * Nebula's reserved AGENT id — an **actor** id, never a standalone subject: a Nebula-authored
- * message's `actingToken.sub` is always the triggering human, with `{ sub: NEBULA_SUB,
+ * message's `recordedClaims.sub` is always the triggering human, with `{ sub: NEBULA_SUB,
  * profileId: NEBULA_SUB }` prepended as the outermost `act` entry (RFC 8693). Self-describing
  * over a UUID: readable, syntactically not-a-human, and it degrades legibly in a cold record.
  *

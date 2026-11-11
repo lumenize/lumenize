@@ -37,7 +37,7 @@ import {
   getParserValidatorFacet,
   type ParserValidator,
 } from '@lumenize/ts-runtime-parser-validator/runtime';
-import { NEBULA_SUB, projectActingToken } from '@lumenize/mesh/auth';
+import { NEBULA_SUB, toRecordedClaims } from '@lumenize/mesh/auth';
 import type { AuthClaims } from '@lumenize/mesh/auth';
 import { GATEWAY_PREFIX, ScopedMeshDO, requireDominionHere } from '@lumenize/mesh';
 // Types only — the COMPILE itself runs in the container build job
@@ -643,7 +643,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       instanceName: this.lmz.instanceName,
       path: rel,
       oid,
-      ...(origin ? { clientAddress: origin.clientAddress, actingToken: projectActingToken(origin.claims) } : {}),
+      ...(origin ? { clientAddress: origin.clientAddress, recordedClaims: toRecordedClaims(origin.claims) } : {}),
     });
     return { oid, path: rel };
   }
@@ -1403,7 +1403,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * permissions above it vary** — anyone whose write lands may trigger, and a caller
    * whose write is refused at the DAG can never reach the model.
    *
-   * The predicate is on KIND (the stamped actingToken — never `sub`, never the value):
+   * The predicate is on KIND (the stamped recordedClaims — never `sub`, never the value):
    * an agent reply is itself a committed `Message`, so without the human-only gate
    * Nebula answers itself forever. SINGLE-FLIGHT: a human Message committed while a
    * generation is in flight fires nothing — the skipped message sits in the thread and
@@ -1417,7 +1417,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   #onChatCommitted(mutations: Map<string, Snapshot>): void {
     for (const [resourceId, snap] of mutations) {
       if (snap.meta.typeName !== 'Message' || snap.meta.nodeId !== CHAT_NODE_ID) continue;
-      if (deriveKind(snap.meta.actingToken) !== 'human') continue;
+      if (deriveKind(snap.meta.recordedClaims) !== 'human') continue;
       if (this.#turnInFlight) {
         debug('nebula.Galaxy.trigger').info('skipped: generation in flight (single-flight)', { resourceId });
         continue;
@@ -1706,7 +1706,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * server-supplied write-option (`{ sub: NEBULA_SUB, profileId: NEBULA_SUB }` — the
    * actor-`profileId` stamp is ALWAYS emitted, so a Nebula message never triggers a
    * `sub`→`profileId` Registry lookup). No `role`/`author` is written — display derives
-   * only from the stamped `meta.actingToken`.
+   * only from the stamped `meta.recordedClaims`.
    *
    * `replyTo` is REQUIRED here (the corpus needs prompt→reply linkage — the folded-shape
    * pin) though optional in the ontology TYPE (a human message has none); `codegen` is
@@ -2113,12 +2113,12 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         replyTo?: string;
         codegen?: { stop?: string; rounds?: number; appliedPaths?: string[]; sourceCommit?: string; build?: { findings?: string[] } };
       };
-      const isAgent = deriveKind(snap.meta.actingToken) === 'agent';
+      const isAgent = deriveKind(snap.meta.recordedClaims) === 'agent';
       const cg = v.codegen;
       rows.push({
         id, isAgent, replyTo: v.replyTo,
         entry: {
-          speaker: isAgent ? 'agent' : labelFor(snap.meta.actingToken.sub),
+          speaker: isAgent ? 'agent' : labelFor(snap.meta.recordedClaims.sub),
           content: v.content ?? '',
           ...(isAgent && cg ? {
             manifest: {

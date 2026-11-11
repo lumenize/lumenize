@@ -21,7 +21,7 @@
  */
 import { debug } from '@lumenize/debug';
 import { signJwt, importPrivateKey, generateRandomString, hashString } from '@lumenize/crypto';
-import { buildAuthClaims, projectActingToken } from './access-claims';
+import { buildAuthClaims, toRecordedClaims } from './access-claims';
 import { hasDominionOver, isAtOrAbove, isPlatformScope, parseId } from './parse-id';
 import { verifyAccessToken } from './verify';
 import {
@@ -1109,7 +1109,7 @@ export async function mintImpersonationToken(
   // ADR-016: a mint ESTABLISHES a session, so the record names every party through the one shared
   // projection — the subject's `sub` beside the caller's whole projected claims.
   debug('nebula-auth.facade.impersonate').info('Impersonation token issued', {
-    subOfNarrowerToken: sub, operationId, actingToken: projectActingToken(callerClaims),
+    subOfNarrowerToken: sub, operationId, recordedClaims: toRecordedClaims(callerClaims),
   });
   return { ok: true, accessToken, expiresIn: effectiveTtlSeconds };
 }

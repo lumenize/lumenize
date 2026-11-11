@@ -2,7 +2,7 @@
  * Participant derivation — how a chat message's displayed identity is computed, in one
  * pure, client-safe module (Phase 4's render and the tests both consume it).
  *
- * **Display derives ONLY from the server-stamped `meta.actingToken`** (verified claims:
+ * **Display derives ONLY from the server-stamped `meta.recordedClaims`** (verified claims:
  * author from `sub`, `kind` from the outermost `act?.sub === NEBULA_SUB`) — never from
  * anything in the message VALUE. That is what makes author spoofing impossible: typia is
  * non-strict, so a hostile client can persist `author`/`role`/any excess key at rest, but
@@ -15,7 +15,7 @@
  */
 
 import { NEBULA_SUB } from '@lumenize/mesh/client';
-import type { WireActingToken } from '@lumenize/resources/client';
+import type { WireRecordedClaims } from '@lumenize/resources/client';
 
 /** A message participant's kind — `agent` for a Nebula-actor-stamped message, else `human`. */
 export type ParticipantKind = 'agent' | 'human';
@@ -33,8 +33,8 @@ export interface ParticipantRef {
  * `kind` from the stamp: a message is the AGENT's iff the OUTERMOST `act` entry is the
  * reserved Nebula actor. A constant compare — shape-agnostic, no UUID assumptions.
  */
-export function deriveKind(actingToken: Pick<WireActingToken, 'act'>): ParticipantKind {
-  return actingToken.act?.sub === NEBULA_SUB ? 'agent' : 'human';
+export function deriveKind(recordedClaims: Pick<WireRecordedClaims, 'act'>): ParticipantKind {
+  return recordedClaims.act?.sub === NEBULA_SUB ? 'agent' : 'human';
 }
 
 /**
@@ -45,10 +45,10 @@ export function deriveKind(actingToken: Pick<WireActingToken, 'act'>): Participa
  * (resolved via its `profileId`) joined with " for " — *Nebula for {coach} for {user}*
  * on the depth-2 record, no parentheses.
  */
-export function deriveParticipants(actingToken: WireActingToken): ParticipantRef[] {
-  const kind = deriveKind(actingToken);
+export function deriveParticipants(recordedClaims: WireRecordedClaims): ParticipantRef[] {
+  const kind = deriveKind(recordedClaims);
   const parties: ParticipantRef[] = [];
-  for (let a = actingToken.act; a; a = a.act) {
+  for (let a = recordedClaims.act; a; a = a.act) {
     parties.push({
       sub: a.sub,
       // Only the OUTERMOST reserved actor is the agent; a deeper chain entry is a human
@@ -58,10 +58,10 @@ export function deriveParticipants(actingToken: WireActingToken): ParticipantRef
     });
   }
   parties.push({
-    sub: actingToken.sub,
+    sub: recordedClaims.sub,
     // The subject of an agent-actor message is still the human it ran for.
     kind: parties.length === 0 ? kind : 'human',
-    ...(actingToken.profileId ? { profileId: actingToken.profileId } : {}),
+    ...(recordedClaims.profileId ? { profileId: recordedClaims.profileId } : {}),
   });
   return parties;
 }

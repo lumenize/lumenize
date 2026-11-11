@@ -64,12 +64,12 @@ describe('child3 Phase 6 — history-restore + multi-participant e2e', () => {
     await vi.waitFor(() => expect(sc.resourceIds).toEqual([u1, a1, u2, a2]));
 
     // Kinds alternate human/agent across the restored history — DERIVED from each
-    // message's stamped actingToken (never a stored role) — and content is intact.
+    // message's stamped recordedClaims (never a stored role) — and content is intact.
     const snaps: Snapshot[] = [];
     for (const id of sc.resourceIds) {
       snaps.push(await coach.resources.read('Message', id) as Snapshot);
     }
-    expect(snaps.map((m) => deriveKind(m.meta.actingToken))).toEqual(['human', 'agent', 'human', 'agent']);
+    expect(snaps.map((m) => deriveKind(m.meta.recordedClaims))).toEqual(['human', 'agent', 'human', 'agent']);
     expect(snaps.map((m) => (m.value as { content?: string }).content)).toEqual([
       'add a counter', 'Added the counter.', 'make it blue', 'Styled it blue.',
     ]);
@@ -78,7 +78,7 @@ describe('child3 Phase 6 — history-restore + multi-participant e2e', () => {
     // lookup ever needed to display a Nebula reply).
     expect((snaps[1].value as { replyTo?: string }).replyTo).toBe(u1);
     expect((snaps[3].value as { replyTo?: string }).replyTo).toBe(u2);
-    expect(snaps[1].meta.actingToken.act).toMatchObject({ sub: NEBULA_SUB, profileId: NEBULA_SUB });
+    expect(snaps[1].meta.recordedClaims.act).toMatchObject({ sub: NEBULA_SUB, profileId: NEBULA_SUB });
     // The coach received the conversation with ZERO ephemeral chunks (pure durable recovery).
     expect(coach.streamChunkCount).toBe(0);
 

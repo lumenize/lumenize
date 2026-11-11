@@ -111,7 +111,7 @@ async function latestAgentTurn(stack: DevStack, galaxy: string, session: { acces
     const replies: Array<{ at: string; v: Record<string, unknown> }> = [];
     for (const rid of sub.resourceIds) {
       const snap = await driver.client.resources.read('Message', rid) as Snapshot | null;
-      if (snap && deriveKind(snap.meta.actingToken) === 'agent') replies.push({ at: String((snap.meta as { validFrom?: string }).validFrom ?? ''), v: snap.value as Record<string, unknown> });
+      if (snap && deriveKind(snap.meta.recordedClaims) === 'agent') replies.push({ at: String((snap.meta as { validFrom?: string }).validFrom ?? ''), v: snap.value as Record<string, unknown> });
     }
     const last = replies.sort((a, b) => a.at.localeCompare(b.at)).at(-1);
     if (!last) return { manifest: 'no agent reply found', reply: '', heldBack: false };

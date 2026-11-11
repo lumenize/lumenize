@@ -73,7 +73,7 @@ What remains is a shape, not a problem: a collaborator holds **one membership pe
 - **[ADR-015](../../docs/adr/015-passage-and-dominion.md)** — dominion flows downward only; dominion is `scopeAdmin` ∧ the caller's `authScope` at or above this node; restraint is a UI warning, never an authz refusal.
 - **[ADR-008](../../docs/adr/008-full-org-tree-visibility.md)** — within a Star the org tree is visible to members by design; enforcement is at the point of action.
 - **[ADR-003](../../docs/adr/003-continuation-messaging.md)** — the pre-stage is a one-way `lmz.call`; no node holds a reply channel open across a hop.
-- **[ADR-016](../../docs/adr/016-record-the-acting-principal.md)** — the endpoint moves authority, so it records the acting token's full verified claims.
+- **[ADR-016](../../docs/adr/016-record-the-acting-principal.md)** — the endpoint moves authority, so it records the caller's full verified claims.
 - **`security.md`** — never grant broader than the inviter holds; the bound is server-derived, never client-supplied.
 - **`mesh.md`** — `apps/nebula` → `nebula-auth` is the allowed dependency direction; the reverse is not.
 
@@ -101,7 +101,7 @@ What remains is a shape, not a problem: a collaborator holds **one membership pe
 - **An inviter cannot grant beyond what their own scope covers.** An admin of `{u}.{g}` attempting a bundle naming a node in a sibling Galaxy is refused at issue time, and **no** membership is minted. *Reds against validating at redeem.*
 - **The payload never leaves the token path.** The invite email body and the invite URL contain no grant data. *Reds against putting the bundle in the link.*
 - **Cleanup is tied to the single-use token.** Consuming the invite deletes the `Contexts` row; an unconsumed one is gone by `INVITE_TTL`. *Reds against a leak that outlives the invite.*
-- **ADR-016** — the endpoint records the acting token's full verified claims through the shared `projectActingToken` projection. *Stripping the claims argument must red.*
+- **ADR-016** — the endpoint records the caller's full verified claims through the shared `toRecordedClaims` projection. *Stripping the claims argument must red.*
 
 ## Non-goals
 

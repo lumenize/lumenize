@@ -3,7 +3,7 @@
  *
  * `StudioClient.postUserMessage` (the create half of `chat`) writes ONE atomic Message
  * carrying NO identity fields — attribution comes entirely from the server-stamped
- * `meta.actingToken` (verified claims), which is what makes author spoofing impossible.
+ * `meta.recordedClaims` (verified claims), which is what makes author spoofing impossible.
  * It rides the chat query, so the sender AND a second subscriber both see it via the
  * fanout — the sender does NOT optimistically echo (D-echo default: wait for the
  * rerun). A user message is never streamed (no `handleStreamChunk` fires for it).
@@ -67,15 +67,15 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     // forgeable source of truth). Capable-of-failing: restore the old value-side stamps → red.
     expect(v.author).toBeUndefined();
     expect(v.role).toBeUndefined();
-    // The server-stamped actingToken IS the attribution: the sender's verified sub +
+    // The server-stamped recordedClaims IS the attribution: the sender's verified sub +
     // profileId, and NO act chain on a human's own message.
-    expect(snap.meta.actingToken.sub).toBe(senderPayload.sub);
-    expect(snap.meta.actingToken.sub).not.toContain('@'); // never re-anchor on an email
-    expect(snap.meta.actingToken.profileId).toBe(senderPayload.profileId);
-    expect(snap.meta.actingToken.act).toBeUndefined();
+    expect(snap.meta.recordedClaims.sub).toBe(senderPayload.sub);
+    expect(snap.meta.recordedClaims.sub).not.toContain('@'); // never re-anchor on an email
+    expect(snap.meta.recordedClaims.profileId).toBe(senderPayload.profileId);
+    expect(snap.meta.recordedClaims.act).toBeUndefined();
     // The DERIVED display: a human message from the sender, one party.
-    expect(deriveKind(snap.meta.actingToken)).toBe('human');
-    expect(deriveParticipants(snap.meta.actingToken)).toEqual([
+    expect(deriveKind(snap.meta.recordedClaims)).toBe('human');
+    expect(deriveParticipants(snap.meta.recordedClaims)).toEqual([
       { sub: senderPayload.sub, kind: 'human', profileId: senderPayload.profileId },
     ]);
     expect(snap.meta.nodeId).toBe(CHAT_NODE_ID);
@@ -143,9 +143,9 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     // …and change NOTHING: attribution derives from the verified stamp alone. A client
     // cannot supply an `actor` either — the door's `transaction` takes no such argument and
     // the plane's op takes no options (the trust fence), so `act` is absent and the kind is human.
-    expect(snap.meta.actingToken.sub).toBe(payload.sub);
-    expect(snap.meta.actingToken.act).toBeUndefined();
-    expect(deriveKind(snap.meta.actingToken)).toBe('human');
+    expect(snap.meta.recordedClaims.sub).toBe(payload.sub);
+    expect(snap.meta.recordedClaims.act).toBeUndefined();
+    expect(deriveKind(snap.meta.recordedClaims)).toBe('human');
 
     mallory[Symbol.dispose]();
   });
@@ -186,7 +186,7 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     // The impersonated session posts: subject = user, actor = coach (depth 1).
     const u1 = await impersonated.postUserMessage('do it for me');
     const human = await impersonated.resources.read('Message', u1) as Snapshot;
-    expect(human.meta.actingToken).toMatchObject({
+    expect(human.meta.recordedClaims).toMatchObject({
       sub: userSub, profileId: userProfile,
       act: { sub: coachSub, profileId: coachProfile },
     });
@@ -198,12 +198,12 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     await vi.waitFor(() => expect(impersonated.callCompleted).toBe(true));
     expect(impersonated.lastError).toBeUndefined();
     const agent = await impersonated.resources.read('Message', a1) as Snapshot;
-    expect(agent.meta.actingToken).toMatchObject({
+    expect(agent.meta.recordedClaims).toMatchObject({
       sub: userSub,
       act: { sub: NEBULA_SUB, profileId: NEBULA_SUB, act: { sub: coachSub, profileId: coachProfile } },
     });
     // The byline walk, top-down: Nebula for {coach} for {user}.
-    expect(deriveParticipants(agent.meta.actingToken).map((p) => [p.sub, p.kind])).toEqual([
+    expect(deriveParticipants(agent.meta.recordedClaims).map((p) => [p.sub, p.kind])).toEqual([
       [NEBULA_SUB, 'agent'], [coachSub, 'human'], [userSub, 'human'],
     ]);
 

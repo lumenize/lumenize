@@ -71,12 +71,12 @@ export async function run(stack: DevStack): Promise<void> {
     // (Each assert is backed by an in-lane mutation: narrowed projection reds the profileId limb;
     // wire pass-through reds the access limb — mint-narrower-token-payoff / star-resources.)
     {
-      const at = readBack.meta.actingToken;
+      const at = readBack.meta.recordedClaims;
       const claims = driver.client.claims;
       assert.ok(claims.profileId, 'fixture guard: a real login must carry a profileId claim, or the equality below is vacuous');
-      assert.equal(at.sub, claims.sub, 'actingToken.sub must be the logged-in writer');
+      assert.equal(at.sub, claims.sub, 'recordedClaims.sub must be the logged-in writer');
       assert.equal(at.profileId, claims.profileId,
-        'actingToken.profileId must ride for display (the ADR-013 write-time stamp)');
+        'recordedClaims.profileId must ride for display (the ADR-013 write-time stamp)');
       assert.ok(!('access' in at), 'the asserted access must NOT ride a client-bound snapshot');
     }
 

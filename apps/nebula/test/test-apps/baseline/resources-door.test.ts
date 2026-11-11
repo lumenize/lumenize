@@ -382,8 +382,8 @@ describe('the door derives the caller\'s own address — a trailing one is ignor
         { actor: { sub: NEBULA_SUB, profileId: NEBULA_SUB }, pinnedAtDoor: true })) as TransactionResult;
     expect(out.ok).toBe(true);
     const snap = await client.resources.read('Message', mid) as Snapshot;
-    expect(snap.meta.actingToken.sub).toBe(client.claims.sub);
-    expect(snap.meta.actingToken.act).toBeUndefined();
+    expect(snap.meta.recordedClaims.sub).toBe(client.claims.sub);
+    expect(snap.meta.recordedClaims.act).toBeUndefined();
     client[Symbol.dispose]();
   });
 });

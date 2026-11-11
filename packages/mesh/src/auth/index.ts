@@ -61,11 +61,11 @@ export type { VerdictClaims } from './parse-id';
 
 // ADR-016's acting-principal projection — the ONE shared shape every record site uses.
 // ⚠️ Exported deliberately: `@lumenize/resources` records the identical shape (the `Snapshots` engine's
-// `actingToken` column), and a second hand-rolled projection there is the divergence ADR-016 calls
+// `recordedClaims` column), and a second hand-rolled projection there is the divergence ADR-016 calls
 // unrecoverable history. (`Snapshots` itself imports it from Mesh's Node-safe `/client` subpath, not
 // this barrel — that module is in its client value graph and this barrel exports the Registry DO.)
-export { projectActingToken } from './access-claims';
-export type { ActingTokenRecord } from './access-claims';
+export { toRecordedClaims } from './access-claims';
+export type { RecordedClaims } from './access-claims';
 
 // Types needed by consuming packages
 export type {

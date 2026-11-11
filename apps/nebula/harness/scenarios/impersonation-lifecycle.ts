@@ -201,9 +201,9 @@ export async function run(stack: DevStack): Promise<void> {
   {
     const isRecord = (l: DebugLine) => l.message === 'Impersonation token issued' && l.data.subOfNarrowerToken === subject.sub;
     const record = (await waitForDebugLines(stack, (all) => all.some(isRecord), "the mint's record")).find(isRecord)!;
-    assert.equal(record.data.actingToken?.sub, admin.sub, "the mint's record must carry the caller's claims");
-    assert.equal(record.data.actingToken?.aud, star, "the mint's record must name the caller's page");
-    assert.ok(record.data.actingToken?.access, "the mint's record must carry the authority asserted");
+    assert.equal(record.data.recordedClaims?.sub, admin.sub, "the mint's record must carry the caller's claims");
+    assert.equal(record.data.recordedClaims?.aud, star, "the mint's record must name the caller's page");
+    assert.ok(record.data.recordedClaims?.access, "the mint's record must carry the authority asserted");
   }
 
   // ── 1b. MINT FIDELITY: the derived token is indistinguishable from the subject's own ────────────

@@ -200,7 +200,7 @@ Folded into [nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-s
 
 One CF-dashboard worker-delete + redeploy, deliberately one and not two. Greenfield means every DB is created fresh. Runbook: [archive/do-exports-and-toolchain-upgrade.md](archive/do-exports-and-toolchain-upgrade.md) § *Phase 4* — not the surrogate-sub file's older `migrations`-shaped narration, which the declarative `exports` conversion superseded.
 
-**The wipe is the closing window for free schema surgery**, and several built things already lean on it: the identity model's collapsed `REGISTRY_MIGRATIONS` baseline, `Snapshots.actingToken`, and `subscriptions.ts`'s in-place migration edit. The constraint they share, and that ④ inherits: **no deploy stands between those rewrites and the wipe.**
+**The wipe is the closing window for free schema surgery**, and several built things already lean on it: the identity model's collapsed `REGISTRY_MIGRATIONS` baseline, `Snapshots.recordedClaims`, and `subscriptions.ts`'s in-place migration edit. The constraint they share, and that ④ inherits: **no deploy stands between those rewrites and the wipe.**
 
 **Ops at the deploy:**
 
@@ -340,7 +340,7 @@ One line each. The archived file is the record and the code is the authority.
 - DevContainer wakeup fix → [archive/nebula-container-wakeup-fix.md](archive/nebula-container-wakeup-fix.md)
 - Mesh continuation-only + `callAsync` → [archive/mesh-continuation-only-calls.md](archive/mesh-continuation-only-calls.md) · [archive/mesh-client-callasync.md](archive/mesh-client-callasync.md)
 - Auth foundation: surrogate `sub` → [archive/nebula-auth-surrogate-sub.md](archive/nebula-auth-surrogate-sub.md) · identity data model → [archive/nebula-identity-data-model.md](archive/nebula-identity-data-model.md) · dominion vocabulary → [archive/nebula-dominion-vocabulary-rename.md](archive/nebula-dominion-vocabulary-rename.md) · passage/dominion from scope → [archive/nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md) · registry route guards → [archive/nebula-registry-route-guards.md](archive/nebula-registry-route-guards.md) · invite → [archive/nebula-invite.md](archive/nebula-invite.md)
-- `Snapshots.actingToken`, the ADR-016 record — `identityKey`'s JSDoc in `snapshots.ts` carries the argument
+- `Snapshots.recordedClaims`, the ADR-016 record — `identityKey`'s JSDoc in `snapshots.ts` carries the argument
 - Compilers out of the Worker, and NO bundle split → [archive/nebula-move-compilers-out-of-the-worker.md](archive/nebula-move-compilers-out-of-the-worker.md); `check-worker-graph.mjs` is the standing tripwire
 - Galaxy collapse + chat history UI, preview survives redeploys, ontology installs only by lazy-pull → [archive/nebula-galaxy-collapse-and-chat.md](archive/nebula-galaxy-collapse-and-chat.md)
 - Container vite on rolldown with `unplugin-swc` for decorators, shipped with the collapse — `vite.config.ts` says why the plugin is required ([[rolldown-no-tc39-decorators]])

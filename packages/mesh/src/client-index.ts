@@ -108,8 +108,8 @@ export {
 export type { VerdictClaims } from './auth/parse-id';
 export { parseHost, platformOrigin, deploymentOrigin, hostOrigin, checkedReturnTo } from './auth/hosts';
 export type { HostTarget } from './auth/hosts';
-export { projectActingToken, prependActor } from './auth/access-claims';
-export type { ActingTokenRecord } from './auth/access-claims';
+export { toRecordedClaims, prependActor } from './auth/access-claims';
+export type { RecordedClaims } from './auth/access-claims';
 export {
   PLATFORM_SCOPE,
   RESERVED_STAR_SLUGS,

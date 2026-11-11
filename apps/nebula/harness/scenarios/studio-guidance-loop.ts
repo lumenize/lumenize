@@ -54,7 +54,7 @@ async function turn(driver: Driver<StudioClient>, sub: { resourceIds: string[] }
   for (;;) {
     for (const rid of sub.resourceIds) {
       const snap = await driver.client.resources.read('Message', rid) as Snapshot | null;
-      if (snap && deriveKind(snap.meta.actingToken) === 'agent' && (snap.value as { replyTo?: string }).replyTo === id) {
+      if (snap && deriveKind(snap.meta.recordedClaims) === 'agent' && (snap.value as { replyTo?: string }).replyTo === id) {
         const v = snap.value as { content?: string; codegen?: Codegen };
         console.error(`  ↳ turn "${text.slice(0, 48)}…" replied in ${((Date.now() - t0) / 1000).toFixed(1)}s — stop=${v.codegen?.stop} rounds=${v.codegen?.rounds} applied=${(v.codegen?.appliedPaths ?? []).join(',') || '-'}`);
         return { content: v.content ?? '', codegen: v.codegen };

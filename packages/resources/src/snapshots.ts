@@ -10,10 +10,10 @@ import type { CallContext } from '@lumenize/mesh';
 import type { AuthClaims } from '@lumenize/mesh';
 // ⚠️ VALUE import from Mesh's `/client` subpath, NEVER its root: this module sits in the Node-safe
 // client value graph (`client-index.ts` re-exports `END_OF_TIME`), and Mesh's root exports
-// `ScopedMeshDO`, which pulls `cloudflare:workers`. `/client` is pure, and `projectActingToken` is
+// `ScopedMeshDO`, which pulls `cloudflare:workers`. `/client` is pure, and `toRecordedClaims` is
 // ADR-016's ONE shared projection; no site assembles its own record.
-import { projectActingToken, prependActor } from '@lumenize/mesh/client';
-import type { ActingTokenRecord } from '@lumenize/mesh/client';
+import { toRecordedClaims, prependActor } from '@lumenize/mesh/client';
+import type { RecordedClaims } from '@lumenize/mesh/client';
 import { debug } from '@lumenize/debug';
 import { PermissionDeniedError, WipedMidTransactionError } from './errors';
 import type {
@@ -42,12 +42,12 @@ const LATEST_MOMENT_KEY = 'resources:latestMoment';
  * The CLIENT-BOUND attribution projection of the stored ADR-016 record — an ALLOW-LIST (pick, never
  * subtract): identity (`sub` + the complete `act` chain, actor `profileId`s included — display-only,
  * public per ADR-012/013) plus the subject's `profileId`, and nothing else. The column stores the full
- * `ActingTokenRecord` including the asserted `access`; `access` never rides a snapshot off the DO —
+ * `RecordedClaims` including the asserted `access`; `access` never rides a snapshot off the DO —
  * a reader has no claim to the writer's asserted authority, and ADR-016 already forbids reading it
  * back as an authz input. Allow-list so a field later added to the record stays withheld without
  * anyone deciding (the same shape as ADR-012's private-by-default).
  */
-export interface WireActingToken {
+export interface WireRecordedClaims {
   /** The token's SUBJECT. ⚠️ Under impersonation this is the person acted UPON; the actor is `act.sub`. */
   sub: string;
   act?: AuthClaims['act'];
@@ -60,7 +60,7 @@ export interface SnapshotMeta {
   ontologyVersion: string;
   validFrom: string;
   validTo: string;
-  actingToken: WireActingToken;
+  recordedClaims: WireRecordedClaims;
   deleted: boolean;
 }
 
@@ -126,8 +126,8 @@ export interface TransactionOpts {
   pinnedAtDoor?: true;
 }
 
-/** Allow-list pick for the wire — see {@link WireActingToken}. */
-function toWireActingToken(rec: ActingTokenRecord): WireActingToken {
+/** Allow-list pick for the wire — see {@link WireRecordedClaims}. */
+function toWireRecordedClaims(rec: RecordedClaims): WireRecordedClaims {
   return {
     sub: rec.sub,
     ...(rec.act && { act: rec.act }),
@@ -169,7 +169,7 @@ function storedRow(row: Record<string, SqlStorageValue>): StoredRow {
     typeName: row.typeName as string,
     deleted: Boolean(row.deleted),
     value: row.value as string,
-    writer: identityKey(JSON.parse(row.actingToken as string) as ActingTokenRecord),
+    writer: identityKey(JSON.parse(row.recordedClaims as string) as RecordedClaims),
   };
 }
 
@@ -202,7 +202,7 @@ export class Snapshots {
         ontologyVersion TEXT NOT NULL,
         validFrom TEXT NOT NULL,
         validTo TEXT NOT NULL DEFAULT '${END_OF_TIME}',
-        actingToken TEXT NOT NULL,
+        recordedClaims TEXT NOT NULL,
         deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1)),
         value TEXT NOT NULL,
         PRIMARY KEY (resourceId, validFrom),
@@ -226,7 +226,7 @@ export class Snapshots {
    */
   #getCurrentSnapshot(resourceId: string): Snapshot | null {
     const rows = this.#ctx.storage.sql.exec(
-      `SELECT resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, actingToken, deleted, value
+      `SELECT resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, recordedClaims, deleted, value
        FROM Snapshots
        WHERE resourceId = ?
        ORDER BY validFrom DESC
@@ -248,7 +248,7 @@ export class Snapshots {
         // The ONE wire choke point: every outbound Snapshot — read(), a conflict's currentSnapshot,
         // the post-write fanout capture — is built here, so the allow-list projection here is what
         // keeps the stored `access` inside the column.
-        actingToken: toWireActingToken(JSON.parse(row.actingToken as string) as ActingTokenRecord),
+        recordedClaims: toWireRecordedClaims(JSON.parse(row.recordedClaims as string) as RecordedClaims),
         deleted: Boolean(row.deleted),
       },
     };
@@ -274,10 +274,10 @@ export class Snapshots {
    *  `prependActor` helper (`@lumenize/mesh/client`) — preserving any pre-existing verified chain
    *  beneath (an impersonated session's committed message triggering Nebula yields the
    *  two-level chain; a flatten would drop the delegation). */
-  #buildActingToken(actor?: { sub: string; profileId: string }): ActingTokenRecord {
+  #buildRecordedClaims(actor?: { sub: string; profileId: string }): RecordedClaims {
     const cc = this.#getCallContext();
     const payload = cc.originAuth?.claims as unknown as AuthClaims;
-    const record = projectActingToken(payload);
+    const record = toRecordedClaims(payload);
     if (actor) return { ...record, act: prependActor(record.act, actor) };
     return record;
   }
@@ -287,7 +287,7 @@ export class Snapshots {
     current: Snapshot | null,
     op: OperationDescriptor,
     validFrom: string,
-    actingToken: ActingTokenRecord,
+    recordedClaims: RecordedClaims,
     typeName: string,
     ontologyVersion: string,
   ): void {
@@ -321,7 +321,7 @@ export class Snapshots {
 
     // The FULL record goes into the column (ADR-016: `sub` + complete `act` chain + `profileId` +
     // asserted `access`); the wire copies are projected at #getCurrentSnapshot.
-    const actingTokenJson = JSON.stringify(actingToken);
+    const recordedClaimsJson = JSON.stringify(recordedClaims);
 
     // Every committed op is a snapshot: close the current one, then open one at this moment.
     if (current) {
@@ -333,9 +333,9 @@ export class Snapshots {
 
     // Insert new snapshot
     this.#ctx.storage.sql.exec(
-      `INSERT INTO Snapshots (resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, actingToken, deleted, value)
+      `INSERT INTO Snapshots (resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, recordedClaims, deleted, value)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      resourceId, nodeId, typeName, ontologyVersion, validFrom, END_OF_TIME, actingTokenJson, deleted ? 1 : 0, value,
+      resourceId, nodeId, typeName, ontologyVersion, validFrom, END_OF_TIME, recordedClaimsJson, deleted ? 1 : 0, value,
     );
   }
 
@@ -347,7 +347,7 @@ export class Snapshots {
   #successorOf(resourceId: string, version: string): { before: StoredRow; after: StoredRow } | null {
     const row = this.#ctx.storage.sql.exec(
       `SELECT b.nodeId AS bNode, b.deleted AS bDeleted, b.value AS bValue,
-              a.validFrom, a.nodeId, a.typeName, a.deleted, a.value, a.actingToken
+              a.validFrom, a.nodeId, a.typeName, a.deleted, a.value, a.recordedClaims
        FROM Snapshots b JOIN Snapshots a ON a.resourceId = b.resourceId AND a.validFrom = b.validTo
        WHERE b.resourceId = ? AND b.validFrom = ?`,
       resourceId, version,
@@ -363,7 +363,7 @@ export class Snapshots {
   /** The resource's first snapshot, the one its create wrote, or `null` when it has none. */
   #firstSnapshotOf(resourceId: string): StoredRow | null {
     const row = this.#ctx.storage.sql.exec(
-      `SELECT validFrom, nodeId, typeName, deleted, value, actingToken
+      `SELECT validFrom, nodeId, typeName, deleted, value, recordedClaims
        FROM Snapshots WHERE resourceId = ? ORDER BY validFrom ASC LIMIT 1`,
       resourceId,
     ).toArray()[0];
@@ -520,9 +520,9 @@ export class Snapshots {
       currentSnapshots.set(resourceId, this.#getCurrentSnapshot(resourceId));
     }
 
-    // Step 4: Build the acting-token record from callContext (+ any server-composed actor)
-    const actingToken = this.#buildActingToken(actor);
-    const writer = identityKey(actingToken);
+    // Step 4: Build the recorded claims from callContext (+ any server-composed actor)
+    const recordedClaims = this.#buildRecordedClaims(actor);
+    const writer = identityKey(recordedClaims);
 
     // Step 4.5: Monotonic pre-check (before the validator). It may ONLY act on a conclusion a
     // concurrent commit can't reverse between the Step-1 read and the txn: a resource whose current
@@ -727,7 +727,7 @@ export class Snapshots {
         const typeName = op.op === 'create'
           ? op.typeName
           : authoritative.get(resourceId)!.meta.typeName;
-        this.#writeSnapshot(resourceId, current, op, validFrom, actingToken, typeName, ontologyVersion);
+        this.#writeSnapshot(resourceId, current, op, validFrom, recordedClaims, typeName, ontologyVersion);
 
         // Capture the post-write snapshot for fanout. Re-read inside the
         // transactionSync so the captured value matches what was actually

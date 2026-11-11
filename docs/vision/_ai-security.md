@@ -45,7 +45,7 @@ stated there: an AI that can never read what the asking user cannot read — nev
 
 **What is shared across levels 2 and 3 is the substrate, and that is the important part.** A Studio chat
 message and an end-user chat message are both Resources. So both inherit full non-destructive history, both
-carry an `actingToken` naming who wrote them, and both would inherit an observation record naming what an answer
+carry `recordedClaims` naming who wrote them, and both would inherit an observation record naming what an answer
 read. Neither level needs its own attribution story, and neither should get one — the level-specific sections
 below therefore point at § *Attribution* rather than restating it.
 
@@ -361,9 +361,9 @@ at knowing within seconds when something has gone sideways and exactly who did i
 | A bad turn's writes can be undone without losing later ones | an agent that restores prior values from history | **Not built**; nothing reads a past snapshot yet (same section) |
 | A signal fires a tripwire, and the tripwire opens a review | none for Nebula; `check-worker-graph.mjs` and `/nightly-pass` run it for this repo | **Not built** (§ *Tripwires over human in the loop*) |
 | An injection's read blast radius is capped at the asking user | ReBAC/DAG substrate ([`auth.md`](auth.md) § *The data plane*) | **Built** |
-| Every resource change names who made it | `Snapshots.actingToken` | **Built** — the full ADR-016 record |
+| Every resource change names who made it | `Snapshots.recordedClaims` | **Built** — the full ADR-016 record |
 | A record names the agent that acted for a human | server-composed actor, [ADR-016](../adr/016-record-the-acting-principal.md) | **Designed, not built** |
-| Destructive and authority-changing acts record the full acting token | one shared projection, ADR-016 | **Partially built**; durable sink absent |
+| Destructive and authority-changing acts record the caller's full claims | one shared projection, ADR-016 | **Partially built**; durable sink absent |
 | A shared answer is the permission-holder's disclosure decision | the consent loop (§ *A worked scenario*); ADR-019 withdrawn 2026-08-26 | **Model settled; brokered ask planned** (`tasks/nebula-agent-posts-as-itself.md`) |
 | The inference layer is recorded, not just the message | the agent `Message`'s `codegen` value object | **Designed, not built** |
 | Every outbound call is recorded and cannot be bypassed | the egress broker as `globalOutbound` | **Designed**; the record itself unspecified |
@@ -412,7 +412,7 @@ exposure is a rim around an attributed core; theirs is the core.
 **Most outside-world traffic is inbound, and it splits cleanly.**
 
 - **Pulled into Resources** — the common case, and there is no gap at all: the moment external data lands as a
-  Resource it inherits full history and an `actingToken`, exactly as if a person had typed it.
+  Resource it inherits full history and `recordedClaims`, exactly as if a person had typed it.
 - **Used ephemerally** — never persisted, so there is nothing to version. What we keep is the **who and when**
   of the call, plus some of the **what** (the URL, the address) — deliberately not the full content, which
   would mean warehousing third-party data we chose not to keep. ⏳ *Designed, not built:* the hook is the
@@ -443,7 +443,7 @@ or cite back at them, and that is the line to hold: a byproduct they own, never 
 Attribution is one question asked in four parts, and we have clean answers to two of them.
 
 **Who acted.** `originAuth` on the mesh call context carries the verified claims of whoever originated the
-call, propagated automatically across every hop. Resources project it into `Snapshots.actingToken` on every
+call, propagated automatically across every hop. Resources project it into `Snapshots.recordedClaims` on every
 write, so "what changed, when, and by whom" is a lookup rather than a reconstruction. Under impersonation the
 record names both parties — the subject and the full actor chain — which is [`auth.md`](auth.md) §
 *Impersonation*'s second rule, and ADR-016's whole reason for existing.
@@ -456,7 +456,7 @@ tracing mechanism — provenance is not something a caller threads by hand.
 context: `callChain` is the topology, and `originAuth` — the verified `sub` plus the full JWT payload,
 including the `act` chain — is the identity, inherited **unchanged at every hop** and never re-derived. So
 any node, however many hops deep, can answer *who is this on behalf of* without a lookup and without anyone
-threading it by hand; that is what lets Resources build the `actingToken` record from context alone. At a client origin the
+threading it by hand; that is what lets Resources build the `recordedClaims` record from context alone. At a client origin the
 identity is even present in the topology element, since a client's id begins with its `sub` and the
 Worker checks that against the verified JWT before routing the socket to its host node. **Attribution needs both halves, and
 both are already present** — what is missing is somewhere to put them (below), not the data itself.
@@ -466,8 +466,8 @@ verified sources, and a client's frame carries no chain at all, so nothing a cli
 everything appended downstream is framework-stamped. `originAuth` carries no such caveat — it is replaced wholesale from the verified
 attachment. Neither is an authorization input.
 
-⚠️ **Neither of these is persisted anywhere durable except the `actingToken` column.** `callChain` lives for the duration of
-a call. The acting-token records that ADR-016 requires today go to the debug log and nowhere durable
+⚠️ **Neither of these is persisted anywhere durable except the `recordedClaims` column.** `callChain` lives for the duration of
+a call. The recorded claims that ADR-016 requires today go to the debug log and nowhere durable
 ([`auth.md`](auth.md) § *Attribution*). So the "know within seconds exactly who did it" half of the
 position is, right now, a design and a log line — not a capability. **That gap is the single largest distance
 between this document and the system.**

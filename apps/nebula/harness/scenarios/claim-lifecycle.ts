@@ -272,7 +272,7 @@ export async function run(stack: DevStack): Promise<void> {
       assert.deepEqual(record.data.accepted, [founderSub], 'the acceptance record must name the sub accepted');
       assert.deepEqual([...record.data.teardown].sort(), [universe, galaxy, `${galaxy}.dev`].sort(),
         'the acceptance record must name the scopes it handed to teardown');
-      assert.ok(!('actingToken' in record.data), 'an acceptance presents no token, so its record names no actor');
+      assert.ok(!('recordedClaims' in record.data), 'an acceptance presents no token, so its record names no actor');
       console.error('  ✓ limb 5 — the acceptance recorded credential, address, sub and teardown, with no actor');
     }
 
@@ -306,7 +306,7 @@ export async function run(stack: DevStack): Promise<void> {
       const consume = all.find((l) => l.namespace === 'nebula-auth.Registry.login.established' && l.data.email === founder);
       assert.ok(consume, "the founder's consume left no record");
       assert.ok(consume.data.sessions.some((s: { sub: string }) => s.sub === founderSub), 'the consume record must name the sessions it opened');
-      assert.ok(!('actingToken' in consume.data), 'a consume presents no token, so its record names no actor');
+      assert.ok(!('recordedClaims' in consume.data), 'a consume presents no token, so its record names no actor');
       console.error('  ✓ limb 6 — each claim, the ticket-backed one included, and the consume left its record');
     }
 

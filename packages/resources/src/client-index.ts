@@ -20,7 +20,7 @@ export { END_OF_TIME } from './snapshots';
 export type {
   Snapshot,
   SnapshotMeta,
-  WireActingToken,
+  WireRecordedClaims,
   OperationDescriptor,
   TransactionResult,
   TransactionError,

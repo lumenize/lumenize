@@ -10,7 +10,7 @@
 
 A list that other sections cite gives each item a prefixed ID: `DI` for an item of design intent, `B` for a blocker in today's code, `D` for a decision, `Q` for an open question, and `F` for a review finding. IDs follow the order items were raised, not the order shown, and are never reused, so D2 is the second decision made wherever its row sits, and a gap such as Q1 is a question answered. A decision that answers an open question records it, as D1's "(was Q2)" does.
 
-Three terms stay apart. An **access token** is the signed JWT a Client holds, and only Mesh's auth layer mints one. **Claims** are what a node reads from `callContext.originAuth`, which every `lmz.call` in a chain inherits unchanged. **Recorded claims** are what a write stores: the claims at the moment of the write, projected and kept as history, never read back as an authorization input ([ADR-016](../docs/adr/016-record-the-acting-principal.md)). Live claims are never stored. Today's field is `actingToken` (D10). A step's claims are written *Jennifer + agent* for `{ sub: <Jennifer's sub>, act: { sub: 'agent:lumenize' } }`: the claims of a chain the agent starts for Jennifer, never an access token.
+Three terms stay apart. An **access token** is the signed JWT a Client holds, and only Mesh's auth layer mints one. **Claims** are what a node reads from `callContext.originAuth`, which every `lmz.call` in a chain inherits unchanged. **Recorded claims** are what a write stores: the claims at the moment of the write, projected and kept as history, never read back as an authorization input ([ADR-016](../docs/adr/016-record-the-acting-principal.md)). Live claims are never stored. Until Phase 1 the field was `actingToken` (D10). A step's claims are written *Jennifer + agent* for `{ sub: <Jennifer's sub>, act: { sub: 'agent:lumenize' } }`: the claims of a chain the agent starts for Jennifer, never an access token.
 
 These words name a turn's lifecycle (D12):
 
@@ -157,7 +157,7 @@ The post at the limit is the agent's own, and "keep going" is a new yes that bri
 
 ## What changes
 
-**Renamed first (D10), in one sweep with its standing guidance, so the tree never names both.** The items after it name today's symbols.
+**Renamed first (D10), in one sweep with its standing guidance, so the tree never names both.** Built 2026-11-11; the items after it use the new names.
 
 - **Code:** `actingToken` becomes `recordedClaims`: the `Snapshots` column, the `meta` field and the Registry's log field. `ActingTokenRecord` becomes `RecordedClaims`, `WireActingToken` becomes `WireRecordedClaims`, `projectActingToken` becomes `toRecordedClaims`, `toWireActingToken` becomes `toWireRecordedClaims`, and `#buildActingToken` becomes `#buildRecordedClaims`. The `actingClaims` parameters in `auth-registry.ts`, which hold live claims, become `callerClaims`. The pre-alpha wipe recreates the column, so it needs no migration.
 - **Standing guidance and other live text:** every non-archived file the checks below list, among them ADR-004, ADR-012, ADR-016 (whose naming bullet reverses), `auth.md`, `_ai-security.md`, `security.md`'s reader list, `workflow.md`'s ADR-016 line, the master plan's ⑥ inventory, and `website/docs/nebula/api-reference.md`, after which the platform embed is regenerated. The prose phrase "acting token" becomes "recorded claims" where it names the record, and stays where it means a real access token, as in ADR-016's line on an action that establishes a session.
@@ -173,7 +173,7 @@ The post at the limit is the agent's own, and "keep going" is a new yes that bri
 2. **A `chat` node of its own** under the root, at a fixed id as the root is, which `CHAT_NODE_ID` names and item 1's seed creates; today `CHAT_NODE_ID` is the root. The harness sites that post Galaxy `Message`s at `ROOT_NODE_ID` move with it (`grep -rn ROOT_NODE_ID apps/nebula/harness`), and the `CHAT_NODE_ID` JSDoc in `chat-constants.ts` changes.
 3. **Running a block under claims, in two forms.** Today `newChain: true` starts a chain with no `originAuth` (`buildOutgoingCallContext` in `lmz-api.ts`), and the call context is already held by `runWithCallContext`.
    - **Claims Mesh builds**, for an identity with no Registry membership. The agent's own (DI3) never leave the Galaxy: a call made under them starts a fresh chain, enforced in `buildOutgoingCallContext`. A local principal's entry takes only its name; Mesh derives the rest from the node's own name, never sets `scopeAdmin`, and refuses a name shaped like a UUID. Personas' `asPersona` uses a separate builder and carries its claims onward, as a tab's do.
-   - **A new chain under the claims of the call the node is running in, with its local principal prepended as the outermost `act`**, by `prependActor` (DI1, DI4). Inside a held post's continuation (item 4) those are the poster's claims. The node holds them only as an opaque handle Mesh returns, with no exported constructor, so it cannot compose claims, and Mesh adds the actor, so a chain the agent starts for Jennifer cannot leave the agent off. Every `lmz.call` and in-node write inside it inherits them unchanged: `projectActingToken` records both on every node the chain reaches, a tenant Star and the Registry's invite record included, and `#buildActingToken` already projects the ambient claims for in-node writes.
+   - **A new chain under the claims of the call the node is running in, with its local principal prepended as the outermost `act`**, by `prependActor` (DI1, DI4). Inside a held post's continuation (item 4) those are the poster's claims. The node holds them only as an opaque handle Mesh returns, with no exported constructor, so it cannot compose claims, and Mesh adds the actor, so a chain the agent starts for Jennifer cannot leave the agent off. Every `lmz.call` and in-node write inside it inherits them unchanged: `toRecordedClaims` records both on every node the chain reaches, a tenant Star and the Registry's invite record included, and `#buildRecordedClaims` already projects the ambient claims for in-node writes.
 4. **Held claims (DI2).** `#onChatCommitted` keeps, from inside the poster's call, a handle the Galaxy re-enters for each tool call that acts for that post, never a claims object it could compose. A person's `put` on a waiting post captures the handle again, since a `put` needs only `write` on `chat` and the words the agent reads are then the editor's (D25). An edit to a post already answered starts nothing. The claims are released when the turn that posted the post's answer ends. Each piece of work it starts gets its own `ctx.waitUntil`.
 5. **A decision (DI7).** When a turn ends with posts still waiting, the agent starts the next turn itself. Its first step reads the thread under the agent's claims and picks one waiting post to take up, and from the pick on the turn runs inside that post's held call (item 4).
    - **The pick is a tool, `take_up(postId)`, that reaches no Galaxy entry,** as `mark_complete` reaches none, so it is no loop tool (D24). The Galaxy checks that the post is waiting and its call is held, then runs the rest of the turn inside that call. Without a valid pick, the step's text becomes the agent's message, answering whichever posts it names, and no further decision runs until a new post arrives. A waiting post with no held call can be answered or asked about that way, never taken up. The single-flight latch passes from a turn's end to its decision with no `await` between, and clears only when no decision follows.
@@ -199,7 +199,7 @@ The post at the limit is the agent's own, and "keep going" is a new yes that bri
 **Adapted:**
 
 - **`commitAgentMessage`** writes under the agent's claims, without the `actor` and `pinnedAtDoor` options it passes today.
-- **`#recordServedBuild`** writes as the agent (D5), and **`buildNow`** logs its caller's claims through `projectActingToken`, as `writeSource` logs each commit.
+- **`#recordServedBuild`** writes as the agent (D5), and **`buildNow`** logs its caller's claims through `toRecordedClaims`, as `writeSource` logs each commit.
 - **Each source commit names whose authority it used, twice (D15).**
   - **On the agent Message:** each `codegen.toolCalls` entry gains the post it acted for and the wire form of the claims it ran under, `sub`, `act` and `profileId`, since a Message's value reaches every subscriber and ADR-016 keeps `access` and `aud` off what a client is sent. `codegen` is an inline type in the chat ontology, so the field rides the one ontology bump. The commit's oid, already in the tool's result, joins a commit to its entry. Studio renders a marker on each tool call from this record. The model still writes the *under Jennifer's authority* sentence (`TOOL_CONTRACT`); the marker, never the model's text, is what attests it.
   - **On the commit:** `writeSource` passes the person whose claims the write ran under as git's `author`, as `<profileId>@profiles.lumenize.invalid` (ADR-013's write-time display stamp, on a domain that can never receive mail). The `committer` is `agent@lumenize.invalid` when the agent made the write, and the person again for a direct call. Its debug line reads the current claims rather than `#clientOrigin()`, which requires a chain that starts at a Client and would drop the claims of a chain the agent starts.
@@ -215,7 +215,7 @@ The post at the limit is the agent's own, and "keep going" is a new yes that bri
 **Removed:**
 
 - **`pinnedAtDoor`** in `TransactionOpts`, and the check Snapshots skips for it (D5).
-- **The `actor` a write carries (D6):** `TransactionOpts.actor`, `ensureResource`'s `actor` option, the actor branch of `#buildActingToken` in `snapshots.ts`, and `turnContext` in `galaxy.ts`. The claims carry the agent instead. A direct `writeSource` call's debug line still carries no actor, because no chain the agent started is running.
+- **The `actor` a write carries (D6):** `TransactionOpts.actor`, `ensureResource`'s `actor` option, the actor branch of `#buildRecordedClaims` in `snapshots.ts`, and `turnContext` in `galaxy.ts`. The claims carry the agent instead. A direct `writeSource` call's debug line still carries no actor, because no chain the agent started is running.
 
 **Kept as they are:** one turn at a time, and the generation deadline, with item 5's interim until Q3 decides it.
 
@@ -311,7 +311,7 @@ Numbered in build order. Every phase lands before personas (D13); the wake check
 **Every phase also meets these, so no phase restates them:**
 
 - `npm run type-check` passes, and the suites of every workspace the phase touches pass with their `Test Files` counts compared to the phase before.
-- The handle grep finds nothing in the source and tests the phase changed: `grep -nE '\b(DI|[SDQCB])(1[0-9]|[1-9])\b|\bPhase[ -][0-9]+\b|\bChild [0-9]+\b'`. Run on 2026-11-11 over the files these phases change, it finds two hits that predate them, in `participants.ts`'s header and beside `__executeOperation` in `lmz-api.ts`; Phases 4 and 2 remove them. A premise this file states under an ID is written in source as prose, or cites ADR-015, ADR-016 or ADR-025.
+- The phase adds no task-file handle to source or tests: `git diff -U0 -- packages apps scripts | grep -E '^\+[^+]' | grep -nE '\b(DI|[SDQCB])(1[0-9]|[1-9])\b|\bPhase[ -][0-9]+\b|\bChild [0-9]+\b'` prints nothing. It reads added lines only, because files these phases touch already carry older tasks' handles, in ten of Phase 1's alone. A line a phase rewrites loses its handle then, as `participants.ts`'s header does in Phase 4. A premise this file states under an ID is written in source as prose, or cites ADR-015, ADR-016 or ADR-025.
 - After Phases 3, 4, 5 and 9, which change what scenarios others wrote depend on, `drive.ts all` runs, or `--rerun` after a stop, and any flake is named. After Phases 5, 6 and 9, which change what the model is told, `studio-guidance-loop`, `four-party-chat` and `first-app-built` run, and a limb that moves gets a dated line in `nebula-pre-alpha.md` § *Data-bound generation*.
 
 **Log lines the criteria read,** all in the `nebula.Galaxy.turn` namespace, each naming its step and post id: `took up` with the wire form of the claims the turn runs under, `decision` with the post picked or none, `closing step` with the posts appended, and `request` with the tool names a model request offered. A check that a line is absent waits for the turn's final message to commit first.
@@ -421,6 +421,22 @@ Numbered in build order. Every phase lands before personas (D13); the wake check
       - `drive.ts all` passes, Docker scenarios included.
       - `deploy-test.sh` deploys, and this build's scenarios pass with `HARNESS_TARGET_URL`, after their deployed-only branches are checked against the new invite refusals.
       - Workers Issues since the pass began show nothing new.
+
+## Build notes
+
+### Phase 1, the rename (2026-11-11)
+
+**For the human:** nothing needs a decision. One criterion changed from what Stage 2 left: the handle check now reads only the lines a phase adds, because ten of the files this phase touched already carry older tasks' handles.
+
+**Retro:**
+
+- **The swap left six comments false, and no check would have caught them.** Two JSDoc blocks, in `access-claims.ts` and `auth-registry.ts`, argued that the field was rightly named for the token, and after the swap they made that argument about `recordedClaims`. Reading every changed comment line found them, as `workflow.md` § *Symbol renames* asks.
+- **"Acting token" survives in four code comments and ADR-016, on purpose.** Each says that an action which establishes a session presents no access token.
+- **`git grep` reports `platform-embed.ts` as a binary match,** since `.gitattributes` unsets its diff. It is generated, so the doc was edited and the embed regenerated.
+- **Suites, before and after, are identical:** Mesh 82 files and 1,013 tests with 4 skipped, Resources 2 and 19, Nebula 126 files with 1 skipped and 1,117 tests with 2 skipped. The before run was taken from the stashed tree.
+- **The `/live` sweep (`drive.ts all --fast`): 55 of 57 passed, then 2 of 2 on `--rerun`, with one parked.** `each-transaction-gets-one-moment` and `identity-convergence` each failed once waiting 60 s for a login email that Resend reported delivered, and passed on the rerun with nothing changed. Both are flakes in mail delivery, not passes that cancel a failure.
+
+**Close-out:** ADR-016's naming bullet now argues for the new name and lists the three old ones. The backlog's *Queryable ADR-016 trail* row and `on-hold/nebula-collaborator-tiers.md` say "the caller's full verified claims". Personas' superseded row keeps "stored acting token", as history.
 
 ## Non-goals
 

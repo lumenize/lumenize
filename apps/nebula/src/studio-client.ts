@@ -98,7 +98,7 @@ export class StudioClient extends NebulaClient {
    * arrives on the `Message` subscription.
    *
    * ⚠️ Writes NO identity fields: attribution comes entirely from the server-stamped
-   * `meta.actingToken` (`sub` + `profileId` from the writer's verified JWT), which is what makes
+   * `meta.recordedClaims` (`sub` + `profileId` from the writer's verified JWT), which is what makes
    * author spoofing impossible — a client-written `author`/`role` would be a second, forgeable
    * source of truth. Returns the client-minted message id (idempotency, ADR-010); the agent reply
    * links back to it via `replyTo`. Rides the `Message where chat==DEFAULT_CHAT_ID` query, so the
