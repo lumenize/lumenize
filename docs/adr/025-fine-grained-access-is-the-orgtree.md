@@ -41,7 +41,7 @@ These things follow:
 
 These things follow:
 
-- **Its grant is ordinary data in the tree.** It is seeded when the tree is created, and visible to the tree's members like every grant ([ADR-008](008-full-org-tree-visibility.md)). Studio's agent's grant on `chat` alone cannot be revoked or lowered: the agent is the product's way to change a grant, so with its own revoked it could never hear the request to restore it.
+- **Its grant is ordinary data in the tree.** It is seeded when the tree is created, and visible to the tree's members like every grant ([ADR-008](008-full-org-tree-visibility.md)). Studio's agent's grant on `chat` alone cannot be revoked or lowered. It is part of the tree's skeleton, like the root, which no one can delete: refusing either refuses everyone alike, so it vetoes no admin's dominion ([ADR-015](015-passage-and-dominion.md)). The reason it is protected: the agent is the product's way to change a grant, so with its own revoked it could never hear the request to restore it.
 - **Coarse-grained checks grant it nothing.** `hasDominionOver` reads its claims on every orgTree check and finds no admin bit, and the claims never leave its node: a call made under them starts a fresh chain, so the callee sees the node speaking for itself ([ADR-015](015-passage-and-dominion.md)).
 - **It has no session to steal and no subject to impersonate.** A session rests on a membership, and the impersonation mint requires an accepted one; a local principal holds neither.
 - **Its `sub` names what it is**, as `agent:lumenize` does, and is never a UUID. Built claims therefore cannot carry a person's random id or a persona's name-based one.

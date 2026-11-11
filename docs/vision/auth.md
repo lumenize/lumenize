@@ -304,7 +304,7 @@ Downward dominion is total ([ADR-015](../adr/015-passage-and-dominion.md), which
 
 That totality is the point, not an overreach. A Universe or Galaxy admin stands to their tenancy roughly as we stand to our own Cloudflare account: anyone holding broad access can do very nearly anything, and the discipline lives in *who you hand it to* — never in what the platform will permit once they hold it. These admins have their own clients to serve, and they cannot administer that relationship through a platform that second-guesses them. So who gets `scopeAdmin` is their call, made as carefully as we make ours; where an action is destructive we may warn, but we never refuse ([ADR-015](../adr/015-passage-and-dominion.md)).
 
-What that totality means for user data — a bypass over a Star's whole permission tree, with no grant ever written — is discussed more in § *The data plane*.
+What that totality means for user data — a bypass over a Star's whole permission tree, with no grant ever written — is discussed more in § *The data plane*. A tree's skeleton stands apart from it: nobody, an admin included, can delete a tree's root or revoke the grant a Galaxy seeds for Studio's agent, and that refuses everyone alike rather than vetoing anyone.
 
 ## Inside the node
 

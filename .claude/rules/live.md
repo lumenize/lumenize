@@ -56,6 +56,13 @@ the tree is, and `drive.ts` says what it is deployed.
 **The `/live` scenario MUST be written first. You MAY drop to the vitest-plugin lane when the behaviour is
 genuinely pure — a predicate, a parser, a classification table — and the test MUST then say why it
 needed no running system.**
+**A behaviour that turns on a choice the real model cannot be made to make MAY gate in a lane that
+scripts the model's output behind the real commit path, and its scene MUST still run in `/live`,**
+gating there only on what holds whatever the model chooses; the lane test MUST say that is why it
+is there. Decided 2026-11-11 on the agent loop: which waiting post a decision picks, which posts a
+closing message answers and whether the model calls `invite` could not be asked of the real model,
+so `/live` gates on them could not fail.
+
 This inverts the older "calibrate, reach for it when runtime behaviour is uncertain" framing, on
 evidence rather than taste:
 
