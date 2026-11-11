@@ -54,7 +54,7 @@ import { Resources } from '@lumenize/resources';
 import type { OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from '@lumenize/resources';
 import type { QueryDescriptor } from '@lumenize/resources';
 import { chatOntologySeedRow } from './chat-ontology';
-import { DEFAULT_CHAT_ID, CHAT_NODE_ID } from './chat-constants';
+import { DEFAULT_CHAT_ID, CHAT_NODE_ID, GALAXY_TREE_SEED } from './chat-constants';
 import { serveApp } from './serve';
 import { afterCall, cloudflareCertificateApi, isFinalStatus, nextCall, onWake, packHosts, packNamesGalaxy, teardownSteps } from './certificate';
 import type { CertificateApi, CertificateState } from './certificate';
@@ -509,6 +509,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       () => this.lmz,
       this.#chatOntologySource(),
       (mutations) => this.#onChatCommitted(mutations),
+      { seed: GALAXY_TREE_SEED },
     );
   }
 

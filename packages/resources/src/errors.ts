@@ -91,6 +91,22 @@ export class PermissionDeniedError extends Error {
 }
 
 /**
+ * A grant its host seeds as protected was asked to be revoked, or lowered below its declared tier.
+ * It is refused to everyone alike, a covering admin included: the grant is part of the tree's
+ * skeleton, as the root is, and no permission (ADR-015). Detect it across the wire by `name`.
+ */
+export class ProtectedGrantError extends Error {
+  override name = 'ProtectedGrantError';
+  constructor(
+    public readonly sub: string,
+    public readonly nodeId: string,
+    public readonly tier: PermissionTier,
+  ) {
+    super(`The grant of "${sub}" on node ${nodeId} is protected: its host seeds it, so it cannot be revoked or lowered below ${tier}`);
+  }
+}
+
+/**
  * For code across the wire, where `instanceof` fails: a refused `client.orgTree.*` mutation reaches
  * the Client as an `Error` named `PermissionDeniedError`, its `tier` and `nodeId` intact. No caller
  * yet; a generated app that shows a refusal, as pre-alpha's *Denied access shows in the app* plans, is one.

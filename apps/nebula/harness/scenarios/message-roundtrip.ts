@@ -18,8 +18,8 @@
  * Mutation: call at once with the scope still unknown, and the snapshot never arrives.
  */
 import assert from 'node:assert/strict';
-import { ROOT_NODE_ID, NebulaClient } from '@lumenize/resources/client';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import { NebulaClient } from '@lumenize/resources/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID } from '@lumenize/nebula/client';
 import type { Snapshot } from '@lumenize/resources/client';
 import type { DevStack } from '../lib/harness';
 import {
@@ -41,11 +41,11 @@ export async function run(stack: DevStack): Promise<void> {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     const out = await driver.client.resources.transaction({
-      [chatId]: { op: 'create', typeName: 'Chat', nodeId: ROOT_NODE_ID, value: { title: 'harness chat' } },
+      [chatId]: { op: 'create', typeName: 'Chat', nodeId: CHAT_NODE_ID, value: { title: 'harness chat' } },
       [messageId]: {
         op: 'create',
         typeName: 'Message',
-        nodeId: ROOT_NODE_ID,
+        nodeId: CHAT_NODE_ID,
         value: { chat: chatId, content: marker },
       },
     });

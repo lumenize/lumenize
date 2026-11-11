@@ -7,7 +7,8 @@
  * use them WITHOUT dragging server code into the browser bundle. The COMPILE of {@link CHAT_MESSAGE_TYPES} lives in `./chat-ontology` (it
  * reaches the parser-validator → `cloudflare:workers`); only the pure strings live here.
  */
-import { ROOT_NODE_ID } from '@lumenize/resources/client';
+import { ROOT_NODE_ID, type TreeSeed } from '@lumenize/resources/client';
+import { NEBULA_SUB } from '@lumenize/mesh/client';
 
 /**
  * The fixed, well-known Chat id for pre-alpha's single chat thread. Client and server
@@ -20,14 +21,24 @@ import { ROOT_NODE_ID } from '@lumenize/resources/client';
 export const DEFAULT_CHAT_ID = '00000000-0000-4000-8000-000000000001';
 
 /**
- * The single DAG node every chat `Message` lives under — MAPS to `ROOT_NODE_ID`: the
- * Galaxy's orgTree is ONE node (chat is the whole of the Galaxy's resource plane, so
- * there is no other subtree for a grant on the root to cascade into), and the three
- * tiers on that single node (`read` · `write` = post · `admin` = invite/manage) are
- * the whole permission model. Map rather than collapse: the constant stays, so a
- * later second node is a one-value change instead of every call site.
+ * The DAG node every chat `Message` lives under: a node of its own beneath the Galaxy's root, at a
+ * fixed id as the root's is, so a grant on it covers the conversation and nothing a later node
+ * beside it holds. Its three tiers are the chat's whole permission model: `read`, `write` to post,
+ * and `admin` to invite and manage. The Galaxy's seed creates it ({@link GALAXY_TREE_SEED}).
  */
-export const CHAT_NODE_ID = ROOT_NODE_ID;
+export const CHAT_NODE_ID = '00000000-0000-4000-8000-000000000002';
+
+/**
+ * What the Galaxy declares in its tree: the `chat` node, and the agent's `write` on it. These are
+ * the two rows nobody's request creates. The owner reaches the tree through dominion and a
+ * collaborator gets a grant by invite, while the agent holds no membership, so a grant in this tree
+ * is its only way to read the thread and post (ADR-025). The grant is protected: with it revoked
+ * the agent could not hear the request to restore it.
+ */
+export const GALAXY_TREE_SEED: TreeSeed = {
+  nodes: [{ nodeId: CHAT_NODE_ID, parentNodeId: ROOT_NODE_ID, slug: 'chat', label: 'Chat' }],
+  grants: [{ nodeId: CHAT_NODE_ID, sub: NEBULA_SUB, tier: 'write', protected: true }],
+};
 
 /**
  * The platform chat ontology's version LABEL — the value a chat client sends on every

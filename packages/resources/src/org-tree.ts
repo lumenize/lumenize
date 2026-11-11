@@ -21,9 +21,10 @@ import {
   getNodeDescendants as getNodeDescendantsPure,
   buildOrgTreeView,
   makeEdgeKey,
+  isBelowTier,
 } from './org-ops';
-import type { PermissionTier, OrgTreeState, OrgTreeView, EdgeKey, OrgTreeNodeData } from './org-ops';
-import { PermissionDeniedError, NodeNotFoundError, NodeIdCollisionError } from './errors';
+import type { PermissionTier, OrgTreeState, OrgTreeView, EdgeKey, OrgTreeNodeData, TreeSeed } from './org-ops';
+import { PermissionDeniedError, NodeNotFoundError, NodeIdCollisionError, ProtectedGrantError } from './errors';
 
 export class OrgTree {
   #ctx: DurableObjectState
@@ -32,24 +33,28 @@ export class OrgTree {
   #getCallContext: () => CallContext
   #onChanged: () => void
   #getHostName: () => string | undefined
+  #seed: TreeSeed
 
   /**
    * @param getHostName - The host DO's instance name as a **thunk** (never a captured value — the
    *   host builds this in `onStart()`, before its identity is stamped). It is the scope the
    *   `access.scopeAdmin` bypass is confined to in {@link requirePermission}.
+   * @param seed - The nodes and grants this host declares, created with the tree ({@link TreeSeed}).
    */
   constructor(
     ctx: DurableObjectState,
     getCallContext: () => CallContext,
     onChanged: () => void,
     getHostName: () => string | undefined,
+    seed: TreeSeed = {},
   ) {
     this.#ctx = ctx
     this.#getCallContext = getCallContext
     this.#onChanged = onChanged
     this.#getHostName = getHostName
+    this.#seed = seed
     this.#createSchema()
-    this.#ensureRoot()
+    this.#ensureSeed()
   }
 
   // ─── Schema & Initialization ──────────────────────────────────────
@@ -85,11 +90,31 @@ export class OrgTree {
     `)
   }
 
-  #ensureRoot() {
-    this.#ctx.storage.sql.exec(
+  /**
+   * Create the tree's skeleton: the root every tree has, then what this host declares. Every row is
+   * an `INSERT OR IGNORE`, so a wake after the first writes nothing, and none of it passes a
+   * permission check: creating the tree is bookkeeping no one person asked for (ADR-025).
+   */
+  #ensureSeed() {
+    const sql = this.#ctx.storage.sql
+    sql.exec(
       `INSERT OR IGNORE INTO Nodes (nodeId, slug, label, deleted) VALUES (?, 'root', 'Root', 0)`,
       ROOT_NODE_ID,
     )
+    for (const node of this.#seed.nodes ?? []) {
+      validateNodeId(node.nodeId)
+      validateSlug(node.slug)
+      sql.exec('INSERT OR IGNORE INTO Nodes (nodeId, slug, label, deleted) VALUES (?, ?, ?, 0)', node.nodeId, node.slug, node.label)
+      sql.exec('INSERT OR IGNORE INTO Edges (parentNodeId, childNodeId) VALUES (?, ?)', node.parentNodeId, node.nodeId)
+    }
+    for (const grant of this.#seed.grants ?? []) {
+      sql.exec('INSERT OR IGNORE INTO Permissions (nodeId, sub, permission) VALUES (?, ?, ?)', grant.nodeId, grant.sub, grant.tier)
+    }
+  }
+
+  /** The tier a protected grant was declared at, or `undefined` for any other grant. */
+  #protectedTier(nodeId: string, sub: string): PermissionTier | undefined {
+    return this.#seed.grants?.find((g) => g.protected && g.nodeId === nodeId && g.sub === sub)?.tier
   }
 
   // ─── Cache ────────────────────────────────────────────────────────
@@ -340,6 +365,13 @@ export class OrgTree {
     this.#onChanged()
   }
 
+  /**
+   * Sets the node's `deleted` flag, which {@link undeleteNode} clears. Nothing else reads the flag:
+   * a deleted node still carries its grants and still answers a permission check. A node holding a
+   * protected grant can be deleted for that reason alone, since the grant keeps working. Whatever
+   * first reads `deleted` to hide or disable a node must exempt a node holding a protected grant,
+   * or refuse its delete here: a host protects a grant because nothing could restore it once gone.
+   */
   deleteNode(nodeId: string): void {
     this.#requireNodeExists(nodeId)
     if (nodeId === ROOT_NODE_ID) throw new Error('Cannot delete root node')
@@ -411,6 +443,11 @@ export class OrgTree {
   setPermission(nodeId: string, targetSub: string, level: PermissionTier): void {
     this.#requireNodeExists(nodeId)
     this.requirePermission(nodeId, 'admin')
+    // After the permission check, so a caller without `admin` hears that and nothing else.
+    const protectedTier = this.#protectedTier(nodeId, targetSub)
+    if (protectedTier && isBelowTier(level, protectedTier)) {
+      throw new ProtectedGrantError(targetSub, nodeId, protectedTier)
+    }
 
     this.#ctx.storage.transactionSync(() => {
       this.#ctx.storage.sql.exec(
@@ -430,6 +467,8 @@ export class OrgTree {
     if (!nodePerms || !nodePerms.has(targetSub)) return
 
     this.requirePermission(nodeId, 'admin')
+    const protectedTier = this.#protectedTier(nodeId, targetSub)
+    if (protectedTier) throw new ProtectedGrantError(targetSub, nodeId, protectedTier)
 
     this.#ctx.storage.transactionSync(() => {
       this.#ctx.storage.sql.exec(

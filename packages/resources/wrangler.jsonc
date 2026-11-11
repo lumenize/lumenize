@@ -18,6 +18,8 @@
     "bindings": [
       // The host every scope's page connects to, under the binding `NebulaClient` names by default.
       { "name": "STAR", "class_name": "ResourcesHostDO" },
+      // A host that declares a tree seed, as a Galaxy does. No route names it: its tests call its stub.
+      { "name": "SEEDED", "class_name": "SeededHostDO" },
       // Mesh's auth: the Registry every login goes through, and the Profile.
       { "name": "AUTH_REGISTRY", "class_name": "AuthRegistry" },
       { "name": "PROFILE", "class_name": "Profile" }
@@ -25,6 +27,7 @@
   },
   "exports": {
     "ResourcesHostDO": { "type": "durable-object", "storage": "sqlite" },
+    "SeededHostDO": { "type": "durable-object", "storage": "sqlite" },
     "AuthRegistry": { "type": "durable-object", "storage": "sqlite" },
     "Profile": { "type": "durable-object", "storage": "sqlite" }
   },

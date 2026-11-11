@@ -38,8 +38,7 @@
  */
 import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
-import { ROOT_NODE_ID } from '@lumenize/resources/client';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID } from '@lumenize/nebula/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar, superuserEmail } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
@@ -150,8 +149,8 @@ export async function run(stack: DevStack): Promise<void> {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     const posted = await d.client.resources.transaction({
-      [chatId]: { op: 'create', typeName: 'Chat', nodeId: ROOT_NODE_ID, value: { title: content } },
-      [messageId]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: chatId, content } },
+      [chatId]: { op: 'create', typeName: 'Chat', nodeId: CHAT_NODE_ID, value: { title: content } },
+      [messageId]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: chatId, content } },
     });
     assert.equal(posted.kind, 'committed', `the chat post must commit, got ${posted.kind}`);
     const read = async () => {

@@ -170,7 +170,7 @@ export async function bootDevStack(
   const signingKey = readDevVar('JWT_PRIVATE_KEY_BLUE');
 
   // Fresh DO store each run — `wrangler dev --local` persists `.wrangler/state`, and
-  // `CREATE TABLE IF NOT EXISTS` does NOT migrate a stale schema (onStart #ensureRoot throws
+  // `CREATE TABLE IF NOT EXISTS` does NOT migrate a stale schema (onStart #ensureSeed throws
   // SQLITE_MISMATCH). This wipe is the harness's local reset primitive.
   rmSync(resolve(NEBULA_DIR, '.wrangler/state'), { recursive: true, force: true });
   // wrangler HARD-ERRORS if the declared `assets.directory` (the Studio SPA dist) is absent;

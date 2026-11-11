@@ -22,9 +22,9 @@
 import assert from 'node:assert/strict';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { Browser } from '@lumenize/testing';
-import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources/client';
+import { NebulaClient } from '@lumenize/resources/client';
 import type { NebulaStoreAdapter } from '@lumenize/resources/client';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, StudioClient } from '@lumenize/nebula/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, StudioClient } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { chatPairOf, connectDriver, constructionPairs, inviteViaMesh, readDevVar, scopeUrlOf } from '../lib/harness';
 import {
@@ -427,7 +427,7 @@ export async function run(stack: DevStack): Promise<void> {
     );
     const chatId = crypto.randomUUID();
     await studio.resources.transaction({
-      [chatId]: { op: 'create', typeName: 'Chat', nodeId: ROOT_NODE_ID, value: { title: 'before' } },
+      [chatId]: { op: 'create', typeName: 'Chat', nodeId: CHAT_NODE_ID, value: { title: 'before' } },
     });
     await studio.resources.subscribe('Chat', chatId).snapshot;
     const asAdmin = await studio.impersonate(galaxyAdmin.sub, { ttlSeconds: SAFE_TTL });

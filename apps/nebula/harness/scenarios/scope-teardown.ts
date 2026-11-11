@@ -26,7 +26,7 @@
 import assert from 'node:assert/strict';
 import { uniqueTestEmail } from '@lumenize/email-test/client';
 import { ROOT_NODE_ID } from '@lumenize/resources/client';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID } from '@lumenize/nebula/client';
 import type { Galaxy, Star } from '@lumenize/nebula';
 import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 import type { DevStack, Driver } from '../lib/harness';
@@ -150,8 +150,8 @@ export async function run(stack: DevStack): Promise<void> {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     const posted = await atGalaxy.client.resources.transaction({
-      [chatId]: { op: 'create', typeName: 'Chat', nodeId: ROOT_NODE_ID, value: { title: 'before the delete' } },
-      [messageId]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: chatId, content: 'hello' } },
+      [chatId]: { op: 'create', typeName: 'Chat', nodeId: CHAT_NODE_ID, value: { title: 'before the delete' } },
+      [messageId]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: chatId, content: 'hello' } },
     });
     assert.equal(posted.kind, 'committed', `the chat post must commit, got ${posted.kind}`);
     const nodeId = crypto.randomUUID();
@@ -256,8 +256,8 @@ export async function run(stack: DevStack): Promise<void> {
     const keptChat = crypto.randomUUID();
     const keptMessage = crypto.randomUUID();
     const kept = await atGalaxy.client.resources.transaction({
-      [keptChat]: { op: 'create', typeName: 'Chat', nodeId: ROOT_NODE_ID, value: { title: 'survives' } },
-      [keptMessage]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: keptChat, content: 'kept' } },
+      [keptChat]: { op: 'create', typeName: 'Chat', nodeId: CHAT_NODE_ID, value: { title: 'survives' } },
+      [keptMessage]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: keptChat, content: 'kept' } },
     });
     assert.equal(kept.kind, 'committed');
     const taken = await refusal(atUniverse.client.scopes.createGalaxy(universe, 'crm'));

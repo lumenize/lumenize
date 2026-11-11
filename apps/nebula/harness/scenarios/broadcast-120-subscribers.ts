@@ -24,7 +24,7 @@
  * decides every claim here; nothing about the fan-out is constructed on this side.
  */
 import assert from 'node:assert/strict';
-import { ROOT_NODE_ID } from '@lumenize/resources/client';
+import { CHAT_NODE_ID } from '@lumenize/nebula/client';
 import type { QuerySubscription } from '@lumenize/resources';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
@@ -71,9 +71,9 @@ export async function run(stack: DevStack): Promise<void> {
     const chatId = crypto.randomUUID();
     const seedMessageId = crypto.randomUUID();
     const seeded = await originator.client.resources.transaction({
-      [chatId]: { op: 'create', typeName: 'Chat', nodeId: ROOT_NODE_ID, value: { title: 'broadcast width' } },
+      [chatId]: { op: 'create', typeName: 'Chat', nodeId: CHAT_NODE_ID, value: { title: 'broadcast width' } },
       [seedMessageId]: {
-        op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID,
+        op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID,
         value: { chat: chatId, content: 'seed' },
       },
     });
@@ -111,7 +111,7 @@ export async function run(stack: DevStack): Promise<void> {
     const wideMessageId = crypto.randomUUID();
     const committed = await originator.client.resources.transaction({
       [wideMessageId]: {
-        op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID,
+        op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID,
         value: { chat: chatId, content: 'to every subscriber' },
       },
     });

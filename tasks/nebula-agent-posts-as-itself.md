@@ -456,6 +456,24 @@ Numbered in build order. Every phase lands before personas (D13); the wake check
 
 **Close-out:** `security.md`'s rule on chains a node starts now names the two forms as the only code that may write `originAuth`. `prependActor`'s JSDoc names `lmz.actFor` as a caller and warns against a person's access token. A stale handle beside `__executeOperation` in `lmz-api.ts` is gone.
 
+### Phase 3, the Galaxy's seed (2026-11-11)
+
+**For the human:** nothing needs a decision. Two things differ from what the phase said:
+
+- **On the deployed target, the scenario asserts "only the root" for the tenant Star alone.** The shared app's `.dev` Star is every scenario's there, so for `.dev` it asserts no chat node and no grant for the agent, and adds "only the root" on a stack it booted itself.
+- **Four scenarios still create a bare `Chat` at a Galaxy's root:** `reaper-victim-is-the-address`, `push-survives-token-lapse`, `resubscribe-when-lost` and `gateway-stamps-the-chain`. Each uses it as a resource to subscribe to and posts no `Message`, so the phase's check does not list them and they were left.
+
+**Retro:**
+
+- **Nothing failed loudly when the chat node moved off the root.** Both suites stayed green with the seven files still posting at the root, because the owner's dominion admits a post anywhere in the tree. The phase's check is what found them.
+- **The two new tests and the scenario's four limbs passed on first write, and all were real.** Five mutations in the Resources lane and six in `/live`, one per limb, each reddened only what it was meant to. One mutation was refused before it ran, because its edit text matched nothing, and was rewritten.
+- **A collaborator's grant exists before anyone accepts.** The node invite mints the person and grants them at the node in its result handler, so the scenario's positive control needs no second login: it invites a real address, waits for the grant to show in the tree, and revokes it.
+- **`#ensureRoot` was named in three comments outside the diff,** in `org-ops.ts`, the harness's boot and the UI smoke lane's setup. A grep for the old name found them.
+- **Suites:** Resources 3 files and 21 tests, up by the file and 2 tests added. Nebula 127 files and 1,119 tests, unchanged; `browser/smoke.test.ts` failed once waiting 60 s for a login email and passed on a rerun with nothing changed, a flake in mail delivery.
+- **The `/live` sweep (`drive.ts all`, Docker scenarios included): 69 of 69 passed, with one parked,** in 37.6 minutes.
+
+**Close-out:** `CHAT_NODE_ID`'s JSDoc no longer says the chat is the root. `deleteNode`'s JSDoc carries the premise about the first reader of `deleted`. Local `npm run dev` storage made before this phase holds its chat at the root and needs wiping; the harness wipes its own on every boot.
+
 ## Non-goals
 
 - **The wake check (item 6):** fast-follow Item 15, after Q3 (D19).

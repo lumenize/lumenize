@@ -37,7 +37,7 @@ import { getParserValidatorFacet } from '@lumenize/ts-runtime-parser-validator/r
 import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator/runtime';
 import type { InviteSummary, InviteeError, AuthClaims } from '@lumenize/mesh/auth';
 import { toRecordedClaims } from '@lumenize/mesh/client';
-import type { PermissionTier } from './org-ops';
+import type { PermissionTier, TreeSeed } from './org-ops';
 import { OrgTree } from './org-tree';
 import { Snapshots } from './snapshots';
 import { Subscriptions } from './subscriptions';
@@ -200,6 +200,7 @@ export class Resources {
   #lmz: () => LmzApi;
   #source: OntologySource;
   #onCommitted?: (mutations: Map<string, Snapshot>) => void;
+  #seed: TreeSeed;
   #orgTree!: OrgTree;
   #snapshots!: Snapshots;
   #subscriptions!: Subscriptions;
@@ -233,17 +234,21 @@ export class Resources {
    *   everything else here — the plane telling the host — and fires on every commit path
    *   (client transactions and server-internal ensures alike); the host's own predicate decides
    *   what reacts. The Galaxy's codegen trigger hangs here.
+   * @param options - `seed`: the nodes and grants this host declares, created with its tree
+   *   ({@link TreeSeed}), and again after a wipe drops the tree's tables.
    */
   constructor(
     ctx: DurableObjectState,
     lmz: () => LmzApi,
     source: OntologySource,
     onCommitted?: (mutations: Map<string, Snapshot>) => void,
+    options: { seed?: TreeSeed } = {},
   ) {
     this.#ctx = ctx;
     this.#lmz = lmz;
     this.#source = source;
     this.#onCommitted = onCommitted;
+    this.#seed = options.seed ?? {};
     this.#build();
     this.requests = this.#buildRequests();
     this.results = this.#buildResults();
@@ -265,7 +270,7 @@ export class Resources {
     // exists by then. A tree change sends the tree and nothing else: the server re-runs no query
     // on a permission change (a loss shows at the next update, and a client watching the tree
     // re-subscribes what it was denied).
-    this.#orgTree = new OrgTree(this.#ctx, getCallContext, () => this.#broadcastTree(), getHostName);
+    this.#orgTree = new OrgTree(this.#ctx, getCallContext, () => this.#broadcastTree(), getHostName, this.#seed);
     this.#snapshots = new Snapshots(this.#ctx, getCallContext, this.#orgTree);
     this.#subscriptions = new Subscriptions(this.#ctx, getCallContext, this.#snapshots, getHostName);
   }

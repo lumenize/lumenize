@@ -48,6 +48,7 @@ export type {
   OrgTreeView,
   OrgTreeNodeData,
   EdgeKey as OrgTreeEdgeKey,
+  TreeSeed,
 } from './org-ops';
 
 // Ontology config types — the shape contract for a test lane's Star install initiators.

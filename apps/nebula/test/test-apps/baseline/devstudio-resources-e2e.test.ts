@@ -17,7 +17,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/resources';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
 import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
@@ -52,8 +52,8 @@ describe('Galaxy resources e2e (real NebulaClient, resourceHostBinding: GALAXY)'
     const messageId = crypto.randomUUID();
 
     const out = await client.resources.transaction({
-      [chatId]: { op: 'create', typeName: 'Chat', nodeId: ROOT_NODE_ID, value: { title: 'chat 1' } },
-      [messageId]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { chat: chatId, content: 'hello' } },
+      [chatId]: { op: 'create', typeName: 'Chat', nodeId: CHAT_NODE_ID, value: { title: 'chat 1' } },
+      [messageId]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: chatId, content: 'hello' } },
     });
     expect(out.kind).toBe('committed');
 
@@ -77,7 +77,7 @@ describe('Galaxy resources e2e (real NebulaClient, resourceHostBinding: GALAXY)'
     const { client: b } = await devAdmin(scope);
     const messageId = crypto.randomUUID();
 
-    using sub = a.resources.createAndSubscribe('Message', messageId, ROOT_NODE_ID, { chat: 'chat-x', content: 'v1' });
+    using sub = a.resources.createAndSubscribe('Message', messageId, CHAT_NODE_ID, { chat: 'chat-x', content: 'v1' });
     const created = await sub.snapshot;
     expect(created).not.toBeNull();
     const version = created!.meta.validFrom;
