@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { NEBULA_SUB } from '@lumenize/mesh/client';
-import { waitingPosts } from '../src/participants';
+import { toolCallMarks, waitingPosts } from '../src/participants';
 import {
   agentMessageValue, heldCallFor, renderClosingRequest, renderDecisionRequest, renderHeldBlock, HELD_HEADER,
 } from '../src/codegen-loop';
@@ -91,5 +91,27 @@ describe('what the prompt says about held and waiting posts', () => {
     const request = renderClosingRequest([{ postId: 'a1', speaker: 'human 2', content: 'sort by name instead' }]);
     expect(request).toContain('While you worked, these posts arrived, oldest first:\n- post a1 (human 2): sort by name instead\n');
     expect(request).toContain('No tool that acts is offered in this step.');
+  });
+});
+
+describe('toolCallMarks', () => {
+  const AGENT = { sub: NEBULA_SUB, profileId: NEBULA_SUB };
+  const value = { codegen: { toolCalls: [
+    { name: 'read_file', post: 'j1', claims: { sub: 'jennifer', profileId: 'p-jennifer', act: AGENT } },
+    { name: 'mark_complete' },
+    { name: 'write_file', post: 'a1', claims: { sub: 'austen', profileId: 'p-austen', act: AGENT } },
+  ] } };
+
+  // Mutation: build each mark from the message's own record → every mark names the agent alone.
+  it('marks each tool call that recorded its claims, the agent first and the person it acted for last', () => {
+    expect(toolCallMarks(AGENT, value).map((m) => [m.index, m.name, m.post, m.parties.map((p) => p.sub)])).toEqual([
+      [0, 'read_file', 'j1', [NEBULA_SUB, 'jennifer']],
+      [2, 'write_file', 'a1', [NEBULA_SUB, 'austen']],
+    ]);
+  });
+
+  // Mutation: read the value whoever wrote the message → a person's forged record is marked.
+  it('marks nothing on a message a person wrote, whatever its value carries', () => {
+    expect(toolCallMarks({ sub: 'austen' }, value)).toEqual([]);
   });
 });

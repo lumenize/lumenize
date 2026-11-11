@@ -537,6 +537,22 @@ One thing to know rather than decide: a person who edits an agent message makes 
 
 **Close-out:** `harness/lib/chat-cast.ts` is the two-person cast both new scenarios use. The closing step's request is a third prompt part for Phase 10's `studio-guidance.md` row.
 
+### Phase 7, each commit names whose authority it used (2026-11-11)
+
+**For the human:** nothing needs a decision. Three choices were mine:
+
+- **A commit's author name is the person's `profileId`,** beside the `<profileId>@profiles.lumenize.invalid` address the task file set. No display name is at hand where the commit is made, and a name pinned in git could not follow a later change to it. The agent commits as `Lumenize <agent@lumenize.invalid>`.
+- **A write's tool result now carries its commit's oid.** The task file says the oid was already there. `writeSource` returned it, but the loop's result kept only the path, so the record had nothing to join a commit by. The model sees it too.
+- **Studio lists the marks inside the thought-process panel,** one line per tool call: the tool's name and *under {name}'s authority*.
+
+**Retro:**
+
+- **The four new tests passed on first write, and seven mutations each reddened one.** With no identity passed at all, a commit is made as git's default, `noreply@lumenize.io`, which is what every source commit said before this phase.
+- **`held-post-answered` now signs Jennifer in a second time, in a browser,** to read Studio's marks against the records. Its first request asks the model to read a file, so there is a tool call to mark. On two runs the model made one.
+- **Suites:** Nebula 129 files and 1,141 tests, up by 3. `audit:classes` passes on the 180 class tokens Studio uses.
+
+**Close-out:** two `codegen-loop.test.ts` expectations gained the oid. `participants.ts`'s header now says where a message's value is read, `toolCallMarks` and `waitingPosts`, and why that is safe only on the agent's own messages; Phase 8's byline joins that list.
+
 ## Non-goals
 
 - **The wake check (item 6):** fast-follow Item 15, after Q3 (D19).

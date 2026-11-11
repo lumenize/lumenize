@@ -27,8 +27,8 @@ export { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from './
 
 // Participant derivation — display identity from the stamped `meta.recordedClaims`
 // (author from `sub`, kind from whether that subject is the agent). Pure.
-export { deriveKind, deriveParticipants, waitingPosts } from './participants';
-export type { ThreadMessage } from './participants';
+export { deriveKind, deriveParticipants, waitingPosts, toolCallMarks } from './participants';
+export type { ThreadMessage, ToolCallMark } from './participants';
 export {
   startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay, TURN_IDLE_MS, TURN_HEARTBEAT_MS,
   type TurnLiveness, type TurnPhase, type TurnDisplay,

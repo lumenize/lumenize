@@ -314,6 +314,46 @@ describe('a turn that ends after posts arrived mid-turn closes by reading them',
   });
 });
 
+describe('each source commit names whose authority it used', () => {
+  // Mutations: leave the claims off a tool call's record → the entry has no `claims`; record the
+  // full projection → `access` and `aud` reach every subscriber; commit a turn's write as the
+  // person alone → the committer is Austen; commit every write as the agent → her direct write
+  // names the agent as its committer.
+  it('a turn\'s write records the post and the claims it ran under, and its commit names the person and the agent; a direct write names its caller alone', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
+    const a1 = crypto.randomUUID();
+    const head = () => c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<GalaxyTest>().headCommitForTest()) as Promise<{ oid: string; author: string; committer: string }>;
+    await c.seed([
+      call('write_file', { path: 'src/austen.txt', content: 'asked for by Austen' }),
+      call('mark_complete', {}, 'Done, Austen.'),
+    ]);
+    await post(c.a, a1, 'Write me a file.');
+    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(1), { timeout: 15_000 });
+
+    // The record on the agent's message: which post the call acted for, and whose claims it ran
+    // under, with nothing a client must not be sent.
+    const reply = (await agentMessages(c.j, sub.resourceIds)).get('Done, Austen.')!;
+    const [write] = (reply.value as { codegen: { toolCalls: Array<{ name: string; post?: string; claims?: object; result?: { oid?: string } }> } }).codegen.toolCalls;
+    expect(write!.post).toBe(a1);
+    expect(write!.claims).toEqual({ sub: c.aSub, profileId: c.aProfile, act: AGENT });
+    // The commit that call made: Austen's authority, the agent's hand.
+    const turnCommit = await head();
+    expect(turnCommit.oid).toBe(write!.result!.oid);
+    expect(turnCommit.author).toBe(`${c.aProfile}@profiles.lumenize.invalid`);
+    expect(turnCommit.committer).toBe('agent@lumenize.invalid');
+
+    // Austen's own direct write: she is both.
+    const direct = await c.a.lmz.callAsync('GALAXY', scope, c.a.ctn<Galaxy>().writeSource('src/direct.txt', 'by hand')) as { oid: string };
+    const directCommit = await head();
+    expect(directCommit.oid).toBe(direct.oid);
+    expect(directCommit.author).toBe(`${c.aProfile}@profiles.lumenize.invalid`);
+    expect(directCommit.committer).toBe(`${c.aProfile}@profiles.lumenize.invalid`);
+    c.dispose();
+  });
+});
+
 describe('a post left without its held call', () => {
   // Mutations: let a decision consider only posts whose call is held → the orphaned post is
   // never answered; send the decision the loop's tools → its request lists `write_file`; let a

@@ -149,9 +149,9 @@ describe('loop driver: stop conditions', () => {
     const r = await runCodegenLoop(INITIAL, h.deps);
     expect(r.stop).toBe('complete');
     expect(h.writes).toEqual([{ path: 'src/App.vue', content: GOOD_APP }]);
-    // A write does no work at all: its tool result confirms the save and nothing else,
-    // and no build ran, so there is no report.
-    expect(r.toolCalls[0]).toEqual({ name: 'write_file', args: { path: 'src/App.vue', content: GOOD_APP }, result: { written: 'src/App.vue' } });
+    // A write does no work at all: its tool result confirms the save, with the commit it
+    // made, and nothing else, and no build ran, so there is no report.
+    expect(r.toolCalls[0]).toEqual({ name: 'write_file', args: { path: 'src/App.vue', content: GOOD_APP }, result: { written: 'src/App.vue', oid: 'oid1' } });
     expect(r.lastBuild).toBeUndefined();
     expect(r.appliedPaths).toEqual(['src/App.vue']);
   });
@@ -480,7 +480,7 @@ describe('the read and edit tools (loop-level; the real deps are the Galaxy laye
     expect(h.files.get('AGENTS.md')).toBe('# App\n- No timers.\n');
     expect(r.appliedPaths).toEqual(['AGENTS.md']);
     expect(r.toolCalls[0]).toEqual({
-      name: 'edit_file', args: { path: 'AGENTS.md', anchor: '# App', replacement: '# App\n- No timers.' }, result: { edited: 'AGENTS.md' },
+      name: 'edit_file', args: { path: 'AGENTS.md', anchor: '# App', replacement: '# App\n- No timers.' }, result: { edited: 'AGENTS.md', oid: 'oid1' },
     });
   });
 

@@ -608,6 +608,13 @@ export class GalaxyTest extends Galaxy {
     this.#chatScript = [...script];
   }
 
+  /** Whom the Workspace's newest commit names. */
+  @mesh(requireDominionHere)
+  async headCommitForTest(): Promise<{ oid: string; author: string; committer: string } | undefined> {
+    const head = await this.headCommit();
+    return head && { oid: head.oid, author: head.author.email, committer: head.committer.email };
+  }
+
   /** The people's posts the Galaxy reads as still waiting for an answer. */
   @mesh(requireDominionHere)
   waitingPostsForTest(): string[] {

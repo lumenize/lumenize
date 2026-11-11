@@ -630,6 +630,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * claims it ran under, the ADR-016 record of the edit: a person's own for a direct call, and
    * for a turn's write the poster's with the agent as actor, since the loop runs each tool
    * inside the held call of the post it acts for. A direct call also logs its client's address.
+   * The commit itself names them too ({@link commitIdentities}), so a repo that leaves this
+   * Durable Object still says whose authority each commit used.
    */
   @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
   async writeSource(path: string, content: string): Promise<{ oid: string; path: string }> {
@@ -639,9 +641,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     }
     await (await this.#workspace()).fs.writeFile(wsPath(rel), content);
     await (await this.#workspace()).git.add({ dir: WS_ROOT, paths: [rel] });
-    const { oid } = await (await this.#workspace()).git.commit({ dir: WS_ROOT, message: `edit ${rel}` });
-    const origin = this.#clientOrigin();
     const claims = this.#claimsIfAny();
+    const { oid } = await (await this.#workspace()).git.commit({ dir: WS_ROOT, message: `edit ${rel}`, ...commitIdentities(claims) });
+    const origin = this.#clientOrigin();
     debug('nebula.Galaxy.writeSource').debug('commit', {
       instanceName: this.lmz.instanceName,
       path: rel,
@@ -650,6 +652,12 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       ...(claims ? { recordedClaims: toRecordedClaims(claims) } : {}),
     });
     return { oid, path: rel };
+  }
+
+  /** The Workspace's newest commit, or `undefined` in a repo with none. `protected` so a test
+   *  probe can read whom a commit names. */
+  protected async headCommit(): Promise<{ oid: string; author: { name: string; email: string }; committer: { name: string; email: string } } | undefined> {
+    try { return (await (await this.#workspace()).git.log({ dir: WS_ROOT, depth: 1 }))[0]; } catch { return undefined; /* fresh repo */ }
   }
 
   /** Local read — the LLM hot path (read relevant files into context). Chat floor;
@@ -1749,8 +1757,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   ): Promise<void> {
     // The tree the turn READ — captured BEFORE the loop writes (the codegen record's
     // `sourceCommit`; git is local to this DO's VFS, so the ref recovers the bytes).
-    let sourceCommit: string | undefined;
-    try { sourceCommit = (await (await this.#workspace()).git.log({ dir: WS_ROOT, depth: 1 }))[0]?.oid; } catch { /* fresh repo */ }
+    const sourceCommit = (await this.headCommit())?.oid;
     const result = await this.runCodegenTurn(
       message, DEFAULT_LOOP_CONFIG,
       (step) => this.#chatProgress(agentMessageId, step, userMessageId),
@@ -2216,6 +2223,13 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       ...(opts.tookUp !== undefined ? { postId: opts.tookUp } : {}),
     };
     const deps: CodegenLoopDeps = {
+      // What each call's record says it acted for: the same held call `under` steps into.
+      actsFor: (postId) => {
+        const post = postId ?? opts.tookUp;
+        const held = post === undefined ? undefined : this.#held.get(post);
+        const claims = held && this.lmz.actFor(held, NEBULA_SUB, () => wireClaims(this.#claimsIfAny()));
+        return post !== undefined && claims ? { post, claims } : undefined;
+      },
       callModel: (m, p) => this.callModel(m, p, onDelta, offered),
       ...(onDelta ? { onDelta } : {}),
       tools,
@@ -2450,6 +2464,21 @@ const GALAXY_LAYER_PREFACE = "The app's own AGENTS.md — the layer below the pl
  * and answers whether a decision may follow it.
  */
 type TurnBody = (tookUp: (postId: string) => void) => Promise<boolean>;
+
+/**
+ * Who a source commit names, from the claims it ran under. The author is the person whose
+ * authority the write used, at an address built from their `profileId`: the display stamp a
+ * write pins (ADR-013), on a domain that can never receive mail. The committer is the agent
+ * when the agent made the write for them, and the person again for their own direct call. A
+ * write with no claims, which only an in-process probe makes, leaves git's default identity.
+ */
+function commitIdentities(claims: AuthClaims | undefined): { author?: GitIdentity; committer?: GitIdentity } {
+  if (!claims) return {};
+  const person = { name: claims.profileId, email: `${claims.profileId}@profiles.lumenize.invalid` };
+  const byAgent = (claims.act as { sub?: string } | undefined)?.sub === NEBULA_SUB;
+  return { author: person, committer: byAgent ? { name: 'Lumenize', email: 'agent@lumenize.invalid' } : person };
+}
+type GitIdentity = { name: string; email: string };
 
 /** A set of tool definitions one model request offers. */
 type OfferedTools = ReadonlyArray<{ function: { name: string } }>;

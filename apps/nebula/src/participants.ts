@@ -2,12 +2,16 @@
  * Participant derivation — how a chat message's displayed identity is computed, in one
  * pure, client-safe module, which Studio's render and the tests both consume.
  *
- * **Display derives ONLY from the server-stamped `meta.recordedClaims`** (the claims the write
- * ran under: author from `sub`, and `kind` from whether that subject is the agent) — never from
- * anything in the message VALUE. That is what makes author spoofing impossible: typia is
- * non-strict, so a hostile client can persist `author`/`role`/any excess key at rest, but
- * no derivation here reads the value at all — the forged keys are indistinguishable from
- * other excess-key garbage.
+ * **Who wrote a message derives ONLY from the server-stamped `meta.recordedClaims`** (the claims
+ * the write ran under: author from `sub`, and `kind` from whether that subject is the agent) —
+ * never from anything in the message VALUE. That is what makes author spoofing impossible:
+ * typia is non-strict, so a hostile client can persist `author`/`role`/any excess key at rest,
+ * and nothing here reads it.
+ *
+ * A message's value is read in the places that say so, and only on a message whose recorded
+ * subject is the agent: {@link toolCallMarks} and {@link waitingPosts}. No client can write
+ * such a message, since only the Galaxy's own code runs under the agent's claims, so what its
+ * value says is the Galaxy's word and never a person's.
  *
  * `kind` is DERIVED, never stored: a stored kind would be a second, client-writable
  * source of truth that can contradict the stamp, and deriving means a future agent type
@@ -83,4 +87,36 @@ export function waitingPosts(thread: readonly ThreadMessage[]): string[] {
     if (m.sub === NEBULA_SUB) for (const id of m.answers ?? []) answered.add(id);
   }
   return thread.filter((m) => m.sub !== NEBULA_SUB && !answered.has(m.id)).map((m) => m.id);
+}
+
+/** What Studio marks one tool call with: the post it acted for, and whose claims it ran under,
+ *  in byline order, the agent first and the person it acted for last. */
+export interface ToolCallMark {
+  /** The call's position in the message's `codegen.toolCalls`. */
+  index: number;
+  name: string;
+  post: string;
+  parties: ParticipantRef[];
+}
+
+/**
+ * The marks for an agent message's tool calls, one per call that recorded the claims it ran
+ * under. They attest whose authority each call used: the model also says so in its reply, and
+ * only this record, which the Galaxy wrote as the call ran, can be relied on.
+ *
+ * This is the one place display reads a message's VALUE, and only on a message whose recorded
+ * subject is the agent. No client can write such a message, since only the Galaxy's own code
+ * runs under the agent's claims, so a person's message carrying a forged `codegen.toolCalls`
+ * yields no mark.
+ */
+export function toolCallMarks(
+  recordedClaims: Pick<WireRecordedClaims, 'sub'>,
+  value: { codegen?: { toolCalls?: ReadonlyArray<{ name?: string; post?: string; claims?: WireRecordedClaims }> } } | undefined,
+): ToolCallMark[] {
+  if (recordedClaims.sub !== NEBULA_SUB) return [];
+  const marks: ToolCallMark[] = [];
+  (value?.codegen?.toolCalls ?? []).forEach((call, index) => {
+    if (call.post && call.claims?.sub) marks.push({ index, name: call.name ?? '', post: call.post, parties: deriveParticipants(call.claims) });
+  });
+  return marks;
 }

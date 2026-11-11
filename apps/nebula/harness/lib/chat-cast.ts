@@ -16,6 +16,8 @@ const uniqueTestEmail = () => `test-${crypto.randomUUID().slice(0, 8)}@lumenize-
 
 export interface ChatCast {
   jennifer: Driver<StudioClient>;
+  /** The address Jennifer signed in with, so a scenario can sign her in again in a browser. */
+  jenniferEmail: string;
   austen: Driver<StudioClient>;
   /** Austen's `sub`, as the server minted it. */
   austenSub: string;
@@ -25,7 +27,8 @@ export interface ChatCast {
 /** Found the app at `scope` as Jennifer, and bring Austen into its chat by invite. */
 export async function chatCast(stack: DevStack, scope: string, testToken: string): Promise<ChatCast> {
   const origin = stack.baseUrl.replace(/\/$/, '');
-  const jennifer = await connectDriver(stack, { scope, Client: StudioClient });
+  const jenniferEmail = uniqueTestEmail();
+  const jennifer = await connectDriver(stack, { scope, Client: StudioClient, email: jenniferEmail });
   const drivers: Driver<StudioClient>[] = [jennifer];
   try {
     const austenEmail = uniqueTestEmail();
@@ -48,7 +51,7 @@ export async function chatCast(stack: DevStack, scope: string, testToken: string
     const session = await refreshAccessToken(origin, { refreshToken: austenRefresh, authScope: scope }, scope, fetch);
     const austen = await connectDriver(stack, { scope, Client: StudioClient, session });
     drivers.push(austen);
-    return { jennifer, austen, austenSub: session.sub, dispose: () => { for (const d of drivers) d.dispose(); } };
+    return { jennifer, jenniferEmail, austen, austenSub: session.sub, dispose: () => { for (const d of drivers) d.dispose(); } };
   } catch (e) {
     for (const d of drivers) d.dispose();
     throw e;

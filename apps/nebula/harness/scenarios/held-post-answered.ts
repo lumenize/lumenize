@@ -26,18 +26,25 @@
  *     Jennifer's post still waits.
  *  5. **The decision after Jennifer's turn is offered a pick and a message, and no tool that
  *     acts.** Mutation: send it the loop's tools, and its request lists `write_file`.
+ *  6. **Each tool call's record names the post it acted for and that post's poster, with the
+ *     agent as actor, and Studio marks each one with that person.** Jennifer signs in again in a
+ *     browser, and the marks Studio renders are compared with the records. Mutation: build a
+ *     mark from the message's own record, and Studio names the agent. The model is asked to
+ *     read a file, so there is a tool call to mark; how many it makes is recorded.
  */
 import assert from 'node:assert/strict';
+import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 import { NEBULA_SUB } from '@lumenize/mesh/client';
 import type { Snapshot } from '@lumenize/resources';
 import { DEFAULT_CHAT_ID } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
-import { readDevVar } from '../lib/harness';
+import { readDevVar, NEW_HOST_TIMEOUT_MS } from '../lib/harness';
+import { bootStudioVite, launchChromium, instrumentedPage } from '../lib/browser';
 import { chatCast } from '../lib/chat-cast';
 import { waitForDebugLines, type DebugLine } from '../lib/stdio';
 import { testSlug } from '../lib/test-scopes';
 
-/** Chat and auth only: the requests ask for words, never for code. */
+/** Chat and auth only: the requests ask for a file to be read and for words, never for code. */
 export const needsContainer = false;
 
 const SCOPE = `${testSlug('held')}.app`;
@@ -45,7 +52,10 @@ const SCOPE = `${testSlug('held')}.app`;
 const TURN_TIMEOUT_MS = 240_000;
 const chatQuery = { queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
 
-type Value = { content?: string; replyTo?: string; answers?: string[] };
+type Value = {
+  content?: string; replyTo?: string; answers?: string[];
+  codegen?: { toolCalls?: Array<{ name: string; post?: string; claims?: Record<string, unknown> & { sub?: string; act?: { sub?: string } } }> };
+};
 
 export async function run(stack: DevStack): Promise<void> {
   const cast = await chatCast(stack, SCOPE, readDevVar('TEST_TOKEN'));
@@ -66,7 +76,7 @@ export async function run(stack: DevStack): Promise<void> {
       all.filter((l) => l.namespace === 'nebula.Galaxy.turn' && l.message === message && here(l));
 
     // ── The two posts: Austen's lands while Jennifer's turn is running ──
-    const j1 = await jennifer.client.postUserMessage('Reply with the one word READY and nothing else. Do not change any code.');
+    const j1 = await jennifer.client.postUserMessage('Read AGENTS.md with read_file, then reply with the one word READY and nothing else. Do not change any code.');
     const a1 = await austen.client.postUserMessage('When you get to me, reply with the one word SET and nothing else. Do not change any code.');
 
     // The loop is idle again once the decision that follows Jennifer's turn is over: it either
@@ -131,6 +141,45 @@ export async function run(stack: DevStack): Promise<void> {
     assert.ok(decisionRequests.length >= 1, 'the decision must have made a model request');
     for (const request of decisionRequests) assert.deepEqual(request.data.tools, ['take_up', 'mark_complete']);
     console.error('  ✓ limb 5 — the decision was offered take_up and mark_complete only');
+
+    // ── LIMB 6: each tool call's record, and Studio's mark for it ──
+    const recorded = agentMessages.flatMap(({ snap }) => (snap.value as Value).codegen?.toolCalls ?? []).filter((call) => call.claims);
+    for (const call of recorded) {
+      assert.equal(call.claims!.sub, writerOf(call.post!), `a ${call.name} for post ${call.post} must record its poster's claims`);
+      assert.equal(call.claims!.act?.sub, NEBULA_SUB, 'with the agent as actor');
+      assert.deepEqual(Object.keys(call.claims!).filter((k) => k === 'access' || k === 'aud'), [], 'and nothing a client must not be sent');
+    }
+    const testToken = readDevVar('TEST_TOKEN');
+    const vite = await bootStudioVite(stack.baseUrl);
+    const chromium = await launchChromium();
+    try {
+      const { page } = await instrumentedPage(chromium);
+      await page.goto(`${vite.viteBaseUrl}/auth/login`, { waitUntil: 'domcontentloaded' });
+      // `_scopeless`: the login request names no scope, so its mail carries no scope tag.
+      const waiter = waitForEmail({ testToken, instance: '_scopeless', to: cast.jenniferEmail, timeout: 120_000 });
+      let link: string;
+      try {
+        await page.getByPlaceholder('you@example.com').fill(cast.jenniferEmail);
+        await page.getByRole('button', { name: /Email me a link/ }).click();
+        link = extractMagicLink(await waiter.emailPromise);
+      } finally {
+        waiter.cleanup();
+      }
+      await page.goto(link, { waitUntil: 'domcontentloaded' });
+      await page.getByTestId('link-continue').click();
+      await page.waitForURL((u) => u.origin === vite.scopeUrl(SCOPE), { timeout: NEW_HOST_TIMEOUT_MS });
+      await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
+      await page.getByTestId('byline').first().waitFor({ state: 'attached', timeout: 30_000 });
+      const marksLocator = page.getByTestId('tool-call-mark');
+      if (recorded.length > 0) await marksLocator.first().waitFor({ state: 'attached', timeout: 30_000 });
+      const marks = await marksLocator.evaluateAll((els) => els.map((el) => ({ post: el.getAttribute('data-post'), sub: el.getAttribute('data-sub') })));
+      assert.equal(marks.length, recorded.length, `Studio must mark each of the ${recorded.length} recorded tool call(s), and marked ${marks.length}`);
+      for (const mark of marks) assert.equal(mark.sub, writerOf(mark.post!), `the mark on a call for post ${mark.post} must name its poster`);
+    } finally {
+      await chromium.close();
+      await vite.close();
+    }
+    console.error(`  ✓ limb 6 — ${recorded.length} tool call(s) recorded under their post's poster, and Studio marked each with that person`);
 
     // ── Recorded, never gated: what the real model did with Austen's waiting post ──
     const how = tookAustenUp ? 'the decision took her post up, and its turn answered it'

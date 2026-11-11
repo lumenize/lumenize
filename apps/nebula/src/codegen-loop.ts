@@ -39,7 +39,15 @@ export interface ToolCall {
   args: unknown;
   result?: unknown;
   error?: string;
+  /** The held post a loop tool acted for, when one was held for it. */
+  post?: string;
+  /** The claims that call ran under, in the form a client may be sent: who, and for whom. */
+  claims?: ActedUnder;
 }
+
+/** Whose claims a tool call ran under: `sub`, `act` and `profileId`, never `access` or `aud`,
+ *  since the record reaches every subscriber of the chat (ADR-016). */
+export interface ActedUnder { sub: string; profileId?: string; act?: unknown }
 
 // ─── Tool surface (read_file + write_file + edit_file + build + mark_complete) ───
 // The tool-args TYPES + bundle id live in the Node-safe leaf `./tool-args-constants`,
@@ -384,6 +392,12 @@ export interface CodegenLoopDeps {
   callModel(messages: ChatMessage[], params: ModelParams): Promise<unknown>;
   /** The entry-reaching tools, keyed by tool name ({@link LoopToolDeps}). */
   tools: LoopToolDeps;
+  /**
+   * The post a loop tool call acts for and the claims it will run under, given the `postId` the
+   * model named, or `undefined` when no post is held for it. Asked before the call runs, since
+   * a post's claims are released once it is answered, and written on the call's record.
+   */
+  actsFor?: (postId: string | undefined) => { post: string; claims: ActedUnder } | undefined;
   /** typia shape validation of tool args (+ the unknown-key refusal). Async — the validator is a facet. */
   validateToolArgs(toolName: string, args: unknown): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
@@ -828,6 +842,7 @@ export async function runCodegenLoop(
         // as the tool result; a failed step or a type finding makes this a fix round,
         // never an abort.
         const args = tc.args as { preview?: boolean; postId?: string };
+        const acted = deps.actsFor?.(args.postId);
         deps.onProgress?.('building…');
         let report: BuildReport;
         try {
@@ -845,7 +860,7 @@ export async function runCodegenLoop(
           };
         }
         lastBuild = report;
-        recorded.push({ name: tc.name, args, result: report });
+        recorded.push({ name: tc.name, args, result: report, ...acted });
         messages.push(toolResultMessage(tc.id, report));
         if (stepFailed(report.container)) {
           // The box did not run — infrastructure, not the model's code. Told once, with
@@ -872,13 +887,14 @@ export async function runCodegenLoop(
 
       if (tc.name === 'read_file') {
         const { path, postId } = tc.args as { path: string; postId?: string };
+        const acted = deps.actsFor?.(postId);
         try {
           const content = await deps.tools.read_file(path, postId);
           deps.onProgress?.(`read ${path}`);
           // The model gets the content; the RECORD gets its size in BYTES (UTF-8, what the
           // file holds — not UTF-16 code units) — the content is already in the transcript,
           // and the record fans to every chat subscriber.
-          recorded.push({ name: tc.name, args: tc.args, result: { path, bytes: new TextEncoder().encode(content).length } });
+          recorded.push({ name: tc.name, args: tc.args, result: { path, bytes: new TextEncoder().encode(content).length }, ...acted });
           messages.push(toolResultMessage(tc.id, { path, content }));
         } catch (e) {
           fail(tc, e instanceof Error ? e.message : String(e), tc.args);
@@ -888,12 +904,13 @@ export async function runCodegenLoop(
 
       if (tc.name === 'edit_file') {
         const { path, anchor, replacement, postId } = tc.args as { path: string; anchor: string; replacement: string; postId?: string };
+        const acted = deps.actsFor?.(postId);
         try {
           const written = await deps.tools.edit_file(path, anchor, replacement, postId);
           deps.onProgress?.(`edited ${written.path}`);
           appliedPaths.push(written.path);
-          const result = { edited: written.path };
-          recorded.push({ name: tc.name, args: tc.args, result });
+          const result = { edited: written.path, oid: written.oid };
+          recorded.push({ name: tc.name, args: tc.args, result, ...acted });
           messages.push(toolResultMessage(tc.id, result));
         } catch (e) {
           fail(tc, e instanceof Error ? e.message : String(e), tc.args);
@@ -906,12 +923,13 @@ export async function runCodegenLoop(
       // path rule is the entry's (`assertModelPath` runs first inside `writeSource`), so a
       // traversal or a reserved path arrives here as a throw and is captured.
       const { path, content, postId } = tc.args as { path: string; content: string; postId?: string };
+      const acted = deps.actsFor?.(postId);
       try {
         const written = await deps.tools.write_file(path, content, postId);
         deps.onProgress?.(`wrote ${written.path}`); // per-file progress step
         appliedPaths.push(written.path);
-        const result = { written: written.path };
-        recorded.push({ name: tc.name, args: tc.args, result });
+        const result = { written: written.path, oid: written.oid };
+        recorded.push({ name: tc.name, args: tc.args, result, ...acted });
         messages.push(toolResultMessage(tc.id, result));
       } catch (e) {
         fail(tc, e instanceof Error ? e.message : String(e), tc.args);

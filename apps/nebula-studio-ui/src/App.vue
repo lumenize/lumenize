@@ -8,7 +8,7 @@ import ConfirmDelete from "./ConfirmDelete.vue";
 import HostWait from "./HostWait.vue";
 import { needsFreshLogin } from "./auth/home-logic";
 import { createNebulaClient } from "@lumenize/resources/frontend";
-import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay, decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS } from "@lumenize/nebula/client";
+import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, toolCallMarks, startTurn, signalTurn, settleTurn, evaluateTurn, deriveTurnDisplay, decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS } from "@lumenize/nebula/client";
 import type { FactoryResult } from "@lumenize/resources/frontend";
 import type { TurnLiveness, PreviewFrameState, PreviewFrameEvent, PreviewFrameAction } from "@lumenize/nebula/client";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
@@ -148,6 +148,9 @@ type ThreadMsg = {
    *  the person it ran for behind, offset just enough to stay hoverable. A plain message is one face. */
   stack: Party[];
   content: string; thought?: string;
+  /** One per tool call the agent made under a person's claims: which tool, and whose authority it
+   *  used, read from the record the Galaxy wrote as the call ran, never from the reply's text. */
+  marks: Array<{ index: number; name: string; post: string; sub: string; who: string }>;
 };
 /** What a hover reveals: the full name, when the person set one and it is not what the byline
  *  already shows. A `title` rather than a hover-only widget, so assistive tech and keyboards get
@@ -189,6 +192,10 @@ const thread = computed<ThreadMsg[]>(() => {
       })),
       content: String(snap.value.content ?? ""),
       thought: typeof snap.value.thought === "string" ? snap.value.thought : undefined,
+      marks: toolCallMarks(at, snap.value as Parameters<typeof toolCallMarks>[1]).map((mark) => {
+        const person = mark.parties[mark.parties.length - 1]!;
+        return { index: mark.index, name: mark.name, post: mark.post, sub: person.sub, who: participantName(person) };
+      }),
     });
   }
   return out;
@@ -809,6 +816,12 @@ const confirmingAccount = ref(false);
           </div>
           <details v-if="m.thought" class="text-xs opacity-70 -mt-1">
             <summary class="cursor-pointer select-none">💭 thought process</summary>
+            <!-- Whose authority each tool call used, from the record the Galaxy wrote as it ran. -->
+            <ul v-if="m.marks.length" class="mt-2 flex flex-col gap-1" data-testid="tool-call-marks">
+              <li v-for="mark in m.marks" :key="mark.index" data-testid="tool-call-mark" :data-post="mark.post" :data-sub="mark.sub">
+                <span class="badge badge-ghost badge-sm">{{ mark.name }}</span> under {{ mark.who }}'s authority
+              </li>
+            </ul>
             <pre class="mt-2 whitespace-pre-wrap break-words bg-base-300 rounded p-2 max-h-80 overflow-auto">{{ m.thought }}</pre>
           </details>
         </template>
