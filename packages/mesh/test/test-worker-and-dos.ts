@@ -512,6 +512,32 @@ export class TestDO extends UnscopedMeshDO<Env> {
     });
   }
 
+  /** Act under a stored record: keep what in-node code reads inside the block and whether the
+   *  record's claims hold dominion over `dominionOver`, and call `captureContext` on another node. */
+  @mesh()
+  actForRecord(record: any, principal: string, binding: string, instance: string, dominionOver: string): void {
+    this.lmz.actFor(record, principal, () => {
+      const context = this.lmz.callContext;
+      this.ctx.storage.kv.put('record_context', context);
+      this.ctx.storage.kv.put('record_dominion', hasDominionOver(context.originAuth?.claims as any, dominionOver));
+      this.lmz.call(binding, instance, this.ctn<TestDO>().captureContext(),
+        this.ctn<TestDO>().recordCallFailure(), { onErrorOnly: true });
+    });
+  }
+
+  /** Give this node the origin a Client's accepted upgrade would have stored. */
+  setTestOrigin(origin: string): void {
+    this.lmz.__setOrigin?.(origin);
+  }
+
+  /** Run one refusal case of the record form, and keep what it threw (or 'ran'). */
+  @mesh()
+  tryRecordForm(which: string, record: any, principal: string): void {
+    let outcome = 'ran';
+    try { this.lmz.actFor(record, principal, () => undefined); } catch (e) { outcome = (e as Error).message; }
+    this.ctx.storage.kv.put(`record_form_${which}`, outcome);
+  }
+
   /** The type-level half of the 'forged' case: a node-built object is not a `HeldCall`. Never
    *  called; `tsc` fails on an unused `@ts-expect-error` if the type ever accepts it. */
   protected typeCheckForgedHandle(): void {

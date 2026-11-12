@@ -113,8 +113,9 @@ describe('lmz.actFor — a node acts for a caller it holds', () => {
 
   // Mutation: accept any object carrying `originAuth` (read it off the argument instead of the
   // registry of genuine handles) → the forged handle runs → this reads 'ran'.
+  // An object that is no genuine handle is read as a record, and this one has no `sub`.
   it('refuses a handle the node built itself', async () => {
-    expect(await refusalOf('act_for_forged_1', 'forged')).toMatch(/Not a held call/);
+    expect(await refusalOf('act_for_forged_1', 'forged')).toMatch(/not shaped like a person's id/);
   });
 
   // Mutation: drop the `local-principal` refusal in `holdCallShared` → the handle holds the
@@ -152,6 +153,101 @@ describe('lmz.actFor — a node acts for a caller it holds', () => {
   // Mutation: skip the name check in `actForShared` → 'ran'.
   it('refuses an actor named like a person', async () => {
     expect(await refusalOf('act_for_uuid_1', 'uuid-actor')).toMatch(/shaped like a person's id/);
+  });
+});
+
+/**
+ * The record form. The person in the record is never the caller of the probe: the probe's call
+ * carries PERSON's claims, with another `sub`, scope and admin bit, so a build that re-used the
+ * call it runs in would show PERSON's and fail every case here.
+ */
+const WRITER = '7c1e2f3a-4b5c-4d6e-8f70-112233445566';
+const RECORD = { sub: WRITER, profileId: 'b0d4a1c2-0000-4000-8000-000000000001', aud: 'beta.shop', access: { authScope: 'beta.shop' } };
+
+/** Send PERSON's call to `actForRecord` on `actor`, and read what the block and the second node saw. */
+async function actUnder(tag: string, record: Record<string, unknown>, dominionOver = 'beta.shop') {
+  const actor = env.TEST_DO.getByName(`record_actor_${tag}`);
+  const second = env.TEST_DO.getByName(`record_second_${tag}`);
+  expect(await actor.__executeOperation(callWithClaims(
+    `record_actor_${tag}`, 'actForRecord', [record, PRINCIPAL, 'TEST_DO', `record_second_${tag}`, dominionOver], PERSON,
+  ))).toEqual({ $ack: true });
+  const seen = await vi.waitFor(async () => {
+    const c = await second.getObservedContext();
+    expect(c).toBeDefined();
+    return c;
+  });
+  return { actor, seen, inNode: await actor.readKv('record_context'), dominion: await actor.readKv('record_dominion') };
+}
+
+async function recordRefusal(tag: string, record: Record<string, unknown>, principal = PRINCIPAL): Promise<string> {
+  const node = env.TEST_DO.getByName(`record_refusal_${tag}`);
+  expect(await node.__executeOperation(callWithClaims(`record_refusal_${tag}`, 'tryRecordForm', [tag, record, principal], PERSON))).toEqual({ $ack: true });
+  return vi.waitFor(async () => {
+    const outcome = await node.readKv(`record_form_${tag}`);
+    expect(outcome).toBeDefined();
+    return outcome as string;
+  });
+}
+
+describe('lmz.actFor — a node acts under a stored record', () => {
+  // MUTATIONS: run under the record unchanged (drop the `act` line), and `act` is missing; build
+  // from the call the probe runs in, and the subject, scope and admin bit are PERSON's.
+  it('runs under the record\'s subject, scope and access, with the principal as actor', async () => {
+    const { seen, inNode } = await actUnder('plain', RECORD);
+    for (const context of [inNode, seen]) {
+      expect(context.originAuth.sub).toBe(WRITER);
+      expect(context.originAuth.claims).toEqual({ ...RECORD, act: { sub: PRINCIPAL, profileId: PRINCIPAL } });
+    }
+    // A fresh chain the acting node starts.
+    expect(seen.callChain).toHaveLength(1);
+    expect(seen.callChain[0]).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'record_actor_plain' });
+  });
+
+  // MUTATION: pass `undefined` as `prependActor`'s base, and the coach vanishes from both nodes.
+  it('keeps the actor a record already has beneath the principal', async () => {
+    const coach = { sub: 'c0ac4000-0000-4000-8000-000000000002', profileId: 'c0ac4000-0000-4000-8000-000000000003' };
+    const { seen, inNode } = await actUnder('impersonated', { ...RECORD, act: coach });
+    for (const context of [inNode, seen]) {
+      expect(context.originAuth.claims.act).toEqual({ sub: PRINCIPAL, profileId: PRINCIPAL, act: coach });
+    }
+  });
+
+  // MUTATION: drop `access` when building the claims, and the admin's record holds no dominion.
+  it('carries the record\'s admin bit, and none where the record has none', async () => {
+    const admin = await actUnder('admin', { ...RECORD, access: { authScope: 'beta.shop', scopeAdmin: true } });
+    expect(admin.dominion).toBe(true);
+    const member = await actUnder('member', RECORD);
+    expect(member.dominion).toBe(false);
+  });
+
+  // MUTATION: never set `originRequest`, and the callee sees none.
+  it('hands the chain the node\'s own origin when it has one, and none otherwise', async () => {
+    const origin = 'http://shop.beta.lumenize.localhost:5174';
+    await env.TEST_DO.getByName('record_actor_origin').setTestOrigin(origin);
+    const withOrigin = await actUnder('origin', RECORD);
+    expect(withOrigin.inNode.originRequest).toEqual({ origin });
+    expect(withOrigin.seen.originRequest).toEqual({ origin });
+    // PERSON's own call arrived with an origin of its own, which the block does not inherit.
+    const without = await actUnder('no_origin', RECORD);
+    expect(without.inNode.originRequest).toBeUndefined();
+    expect(without.seen.originRequest).toBeUndefined();
+  });
+
+  // MUTATION: drop the shape check on `sub`, and a local principal's own record runs.
+  it('refuses a record a local principal wrote as itself', async () => {
+    expect(await recordRefusal('own', { sub: PRINCIPAL, profileId: PRINCIPAL, aud: 'beta.shop', access: { authScope: 'beta.shop' } }))
+      .toMatch(/not shaped like a person's id/);
+  });
+
+  // MUTATION: drop the check on the outermost actor, and the principal is prepended twice.
+  it('refuses a record the principal already acts in', async () => {
+    expect(await recordRefusal('twice', { ...RECORD, act: { sub: PRINCIPAL, profileId: PRINCIPAL } }))
+      .toMatch(/already its outermost actor/);
+  });
+
+  // MUTATION: skip the name check on the principal, and it runs.
+  it('refuses a principal named like a person', async () => {
+    expect(await recordRefusal('uuid', RECORD, crypto.randomUUID())).toMatch(/shaped like a person's id/);
   });
 });
 

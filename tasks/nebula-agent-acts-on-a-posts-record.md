@@ -284,3 +284,12 @@ Each phase leaves every suite it touches green. A criterion that names a test or
 - **Changed from the plan:** the retired-key grep prints one line, since the test names the two keys to assert nothing writes them. The criterion says so now.
 - **Not mutated:** the case that a reset keeps the origin. It is storage by construction, so no single change keeps the names and loses the origin.
 - **Retro:** all twelve passed on first run, which is the signal to distrust, so every one was mutated before the phase closed. A first contact now makes one `kv.put` where it made two.
+
+### Phase 3
+
+- **Built:** `lmz.actFor(record, principal, fn)` in `packages/mesh/src/lmz-api.ts`, beside the held form, which is marked TEMP. A node with a stored origin hands it to the chain; a `MeshWorker` hands none.
+- **Evidence:** `packages/mesh` passes 83 files and 1040 tests, seven more than Phase 2 left. Each of the seven reddened under its mutation: the record run unchanged, the claims built from the probe's own call, `act` overwritten, `access` dropped, `originRequest` never set, and each of the refusals dropped. `apps/nebula` type-checks against the widened signature.
+- **Changed from the plan:** the held form's case for a handle a node built itself now reads the record form's refusal, since an object that is no genuine handle is taken for a record. The JSDoc on `RecordedClaims` said its `access` is never read back as an authz input, which this phase made false, so it is reworded here and not in Phase 6.
+- **Not added:** a new case in `impersonation-mint.test.ts`. The record form's claims equal the held form's, field for field, which the first case asserts, and the mint's existing case keys on `act` being there.
+- **Retro:** the record's person had to differ from the probe's caller in `sub`, scope and admin bit, or a build that re-used the running call would pass. The mutation that does exactly that reddened three cases.
+

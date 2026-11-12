@@ -10,7 +10,7 @@ import { isClientInstanceName, hostInstanceOf } from './client-address.js';
 import type { ClientGateway } from './client-gateway.js';
 import { PASSAGE_STEP, UNSCOPED_NODE } from './node-kinds.js';
 import { parseId, isPlatformScope } from './auth/parse-id.js';
-import { prependActor } from './auth/access-claims.js';
+import { prependActor, type RecordedClaims } from './auth/access-claims.js';
 
 /**
  * Whether a name is a scope's (`acme`, `acme.crm`, `acme.crm.tenant1`), the reserved `_platform` included. Not a string reads as a scope, so a
@@ -231,11 +231,36 @@ function holdCallShared(): HeldCall {
   return held;
 }
 
-function actForShared<T>(held: HeldCall, principal: string, fn: () => T): T {
-  const context = typeof held === 'object' && held !== null ? heldCalls.get(held) : undefined;
-  if (!context?.originAuth) {
-    throw new TypeError('Not a held call: only `lmz.holdCall()` makes one');
+/**
+ * Run `fn` under the claims a stored record holds, with `principal` prepended as the outermost
+ * actor. `origin` is the acting node's own, from its stored address, and rides as the chain's
+ * `originRequest.origin`, so a link a callee builds names the stack the node is served on.
+ */
+function actForRecord<T>(record: RecordedClaims, principal: string, origin: string | undefined, fn: () => T): T {
+  requireLocalPrincipalName(principal);
+  // A person's id is a UUID and a local principal's name never is, so a record a local principal
+  // wrote as itself, an agent's own post say, is no one to act for.
+  if (typeof record?.sub !== 'string' || !UUID_SHAPE.test(record.sub)) {
+    throw new TypeError(`Cannot act for this record: its sub is not shaped like a person's id`);
   }
+  if (record.act?.sub === principal) {
+    throw new Error(`Cannot act for this record: '${principal}' is already its outermost actor`);
+  }
+  const built = {
+    callChain: [],
+    originAuth: {
+      sub: record.sub,
+      claims: { ...record, act: prependActor(record.act, { sub: principal, profileId: principal }) },
+    },
+    ...(origin !== undefined ? { originRequest: { origin } } : {}),
+  } as CallContext;
+  return runWithCallContext(built, fn);
+}
+
+function actForShared<T>(target: HeldCall | RecordedClaims, principal: string, origin: string | undefined, fn: () => T): T {
+  // TEMP → target=the record form alone. The held form goes when the Galaxy stops holding calls.
+  const context = typeof target === 'object' && target !== null ? heldCalls.get(target) : undefined;
+  if (!context?.originAuth) return actForRecord(target as RecordedClaims, principal, origin, fn);
   requireLocalPrincipalName(principal);
   const claims = (context.originAuth.claims ?? {}) as Record<string, unknown>;
   const rechained = {
@@ -750,15 +775,21 @@ export interface LmzApi {
   holdCall(): HeldCall;
 
   /**
-   * Run `fn` in a fresh chain under a held call's claims, with `principal` prepended as the
-   * outermost `act` (RFC 8693). Every `lmz.call` and every read of `callContext` inside inherits
-   * them unchanged, so a record written on any node the chain reaches names both. Authorization is
-   * unchanged, since every check reads the subject and never `act`.
+   * Run `fn` under a person's claims, with `principal`, this node's local principal, prepended as
+   * the outermost actor. A call made inside carries them on, so every record the chain leaves names
+   * the person and the principal both, and every check reads the person's permission.
    *
-   * @throws TypeError if `held` did not come from `holdCall()`; Error if `principal` is empty or
-   *   shaped like a UUID.
+   * The claims come from a stored record: what the server stamped on a snapshot from the verified
+   * claims of the write that made it. `access` and `aud` are therefore as of that write. A node
+   * that hosts Clients also hands the chain its own origin, as `originRequest.origin`.
+   *
+   * TEMP → target=the record form alone: a `HeldCall` from `holdCall()` is still accepted.
+   *
+   * @throws Error if `principal` is empty or shaped like a UUID; TypeError if the record's `sub` is
+   *   not shaped like a person's id, as a local principal's own is not; Error if `principal` is
+   *   already the record's outermost actor.
    */
-  actFor<T>(held: HeldCall, principal: string, fn: () => T): T;
+  actFor<T>(target: HeldCall | RecordedClaims, principal: string, fn: () => T): T;
 
   /**
    * Run `fn` under claims Mesh builds for a local principal of this node: `principal` as subject,
@@ -981,8 +1012,8 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       return holdCallShared();
     },
 
-    actFor<T>(held: HeldCall, principal: string, fn: () => T): T {
-      return actForShared(held, principal, fn);
+    actFor<T>(target: HeldCall | RecordedClaims, principal: string, fn: () => T): T {
+      return actForShared(target, principal, stored()?.origin, fn);
     },
 
     asLocalPrincipal<T>(principal: string, fn: () => T): T {
@@ -1064,8 +1095,9 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       return holdCallShared();
     },
 
-    actFor<T>(held: HeldCall, principal: string, fn: () => T): T {
-      return actForShared(held, principal, fn);
+    actFor<T>(target: HeldCall | RecordedClaims, principal: string, fn: () => T): T {
+      // A Worker has no stored address, so its chain carries no origin.
+      return actForShared(target, principal, undefined, fn);
     },
 
     asLocalPrincipal<T>(principal: string, fn: () => T): T {

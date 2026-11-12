@@ -128,9 +128,10 @@ export interface RecordedClaims {
   /** The complete delegation chain, or absent when the subject acted for themselves. */
   act?: AuthClaims['act'];
   profileId: string;
-  /** Authority as ASSERTED at write time. Immutable history — never read back as an authz input. */
+  /** Authority as asserted at the write, and never updated: a later demotion does not change it.
+   *  `lmz.actFor` runs a local principal's work for the subject under it. */
   access?: AuthClaims['access'];
-  /** The page the call came from, whose scope bounds how far it reaches (ADR-016). Asserted history,
+  /** The page the call came from, whose scope bounds how far it reaches (ADR-016). As of the write,
    *  like `access`. */
   aud?: string;
 }
@@ -142,8 +143,8 @@ export interface RecordedClaims {
  * ⚠️ **Named for what it holds, never for a role.** `recordedClaims.sub` reads as *those claims'
  * subject*, which is what it is. Every role name inverts: `actor.sub` reads as "the actor" but holds
  * the person acted *upon* — the misreading ADR-016 exists to prevent, and it would be believed.
- * "Recorded" marks it as history: live claims are never stored, and a stored copy is never read back
- * as an authorization input.
+ * "Recorded" marks it as of the write: nothing updates a stored copy when the subject's membership
+ * changes.
  *
  * ⚠️ **Pass the CLAIMS, never a pre-picked `sub`.** A bare string cannot carry the `act` chain, so a
  * caller that narrows to `claims.sub` before calling here silently produces a record naming the wrong
