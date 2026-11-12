@@ -364,7 +364,7 @@ at knowing within seconds when something has gone sideways and exactly who did i
 | Every resource change names who made it | `Snapshots.recordedClaims` | **Built** — the full ADR-016 record |
 | A record names the agent that acted for a human | server-composed actor, [ADR-016](../adr/016-record-the-acting-principal.md) | **Designed, not built** |
 | Destructive and authority-changing acts record the caller's full claims | one shared projection, ADR-016 | **Partially built**; durable sink absent |
-| A shared answer is the permission-holder's disclosure decision | the consent loop (§ *A worked scenario*); ADR-019 withdrawn 2026-08-26 | **Model settled; brokered ask planned** (`tasks/nebula-agent-posts-as-itself.md`) |
+| A shared answer is the permission-holder's disclosure decision | the consent loop (§ *A worked scenario*); ADR-019 withdrawn 2026-08-26 | **Model settled; brokered ask planned** (`tasks/archive/nebula-agent-posts-as-itself.md`) |
 | The inference layer is recorded, not just the message | the agent `Message`'s `codegen` value object | **Designed, not built** |
 | Every outbound call is recorded and cannot be bypassed | the egress broker as `globalOutbound` | **Designed**; the record itself unspecified |
 | The system changes itself from outcome signal | [`self-improving-platform.md`](self-improving-platform.md) | **Direction committed, timing gated** |

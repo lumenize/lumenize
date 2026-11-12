@@ -3,7 +3,7 @@
 **Date**: 2026-10-15
 **Status**: Proposed
 **Deciders**: Larry
-**Evidence**: `requireChatWrite` (`apps/nebula/src/galaxy.ts`), which gates the Galaxy's source and builds with `orgTree.requirePermission(CHAT_NODE_ID, 'write')`; `OrgTree.requirePermission` (`packages/resources/src/org-tree.ts`), the one fine-grained check; `TransactionOpts.pinnedAtDoor`, which let the platform's own writes skip that check until the agent became a local principal and it was removed. Decided in `tasks/nebula-agent-posts-as-itself.md` § *Decisions*, whose first draft proposed reading the chat with no check at all.
+**Evidence**: `requireChatWrite` (`apps/nebula/src/galaxy.ts`), which gates the Galaxy's source and builds with `orgTree.requirePermission(CHAT_NODE_ID, 'write')`; `OrgTree.requirePermission` (`packages/resources/src/org-tree.ts`), the one fine-grained check; `TransactionOpts.pinnedAtDoor`, which let the platform's own writes skip that check until the agent became a local principal and it was removed. Decided in `tasks/archive/nebula-agent-posts-as-itself.md` § *Decisions*, whose first draft proposed reading the chat with no check at all.
 
 ## Context
 
