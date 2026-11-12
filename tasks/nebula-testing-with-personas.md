@@ -1,6 +1,6 @@
 # Personas
 
-**Status:** Pass 1, rewritten on 2026-10-09 and reshaped at two gates on 2026-10-10; Larry hand-reviewed § *Context*, § *Objective and goals* and § *Design intent*. Its sibling `archive/nebula-agent-posts-as-itself.md` was built 2026-11-11; it now waits on the task that replaces that build's held call with claims minted live for a post's author (that file's D30, 2026-11-12), which `provision` should be written against. Then the author applies the third pass's remaining findings, Pass 2 writes the phases, and Stage 2 runs.
+**Status:** Pass 1, rewritten on 2026-10-09 and reshaped at two gates on 2026-10-10; Larry hand-reviewed § *Context*, § *Objective and goals* and § *Design intent*. Its sibling `archive/nebula-agent-posts-as-itself.md` was built 2026-11-11; it now waits on the task that replaces that build's held call with claims minted live for a post's author (`nebula-agent-mints-claims-for-a-post.md`, Pass 1 drafted 2026-11-12), which `provision` should be written against. Then the author applies the third pass's remaining findings, Pass 2 writes the phases, and Stage 2 runs.
 
 ## Context
 
