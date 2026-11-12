@@ -201,16 +201,15 @@ export class TestDO extends UnscopedMeshDO<Env> {
   // Test helpers for this.lmz.init() - now obsolete, tests use this.lmz.init() directly
 
   async getStoredBindingName() {
-    return this.ctx.storage.kv.get('__lmz_do_binding_name');
+    return (this.ctx.storage.kv.get('__lmz_do_address') as { bindingName?: string } | undefined)?.bindingName;
   }
 
   async getStoredInstanceName() {
-    return this.ctx.storage.kv.get('__lmz_do_instance_name');
+    return (this.ctx.storage.kv.get('__lmz_do_address') as { instanceName?: string } | undefined)?.instanceName;
   }
 
   async clearStoredMetadata() {
-    this.ctx.storage.kv.delete('__lmz_do_binding_name');
-    this.ctx.storage.kv.delete('__lmz_do_instance_name');
+    this.ctx.storage.kv.delete('__lmz_do_address');
   }
 
   // Test helper for fetch() with custom headers

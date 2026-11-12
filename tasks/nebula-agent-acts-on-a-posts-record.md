@@ -195,7 +195,7 @@ Each phase leaves every suite it touches green. A criterion that names a test or
      - A call from a Client hosted on another node, whose `originRequest.origin` names that other host, leaves the record unchanged. Mutation: fill the origin from an arriving call's `originRequest`.
      - An unscoped node's call leaves no `__lmz_do_address` row and holds no origin. The existing case asserts absence through a list of keys, so after porting it, the mutation "persist for every node" is run again to see it red. A scoped node's record keeps its origin across `ctx.abort()`.
      - The `/live` scenario `client-routes` still passes: a Client's call to an unscoped id nobody created leaves no row.
-     - `grep -rn '__lmz_do_binding_name\|__lmz_do_instance_name' packages/mesh/src packages/mesh/test apps/nebula/src apps/nebula/test website/docs` prints nothing. Today it prints `lmz-api.ts`, `identity-stamp.test.ts`, `test-worker-and-dos.ts` and `gateway.mdx`.
+     - `grep -rn '__lmz_do_binding_name\|__lmz_do_instance_name' packages/mesh/src packages/mesh/test apps/nebula/src apps/nebula/test website/docs` prints one line, the list of retired keys `identity-stamp.test.ts` asserts are never written. Before the phase it printed `lmz-api.ts`, `test-worker-and-dos.ts` and `gateway.mdx` as well.
      - The whole `packages/mesh` suite passes with the same `Test Files` count as before the phase.
 
 3. **`lmz.actFor` runs a function under a stored record (DI1, DI3).** `actFor(record, principal, fn)` takes a `RecordedClaims`. It builds the call's context as it does today from a held call: an empty `callChain`, `originAuth` with the record's `sub` and its claims, and the node's principal prepended as the outermost `act` by `prependActor`. It adds `originRequest: { origin }` from the node's address when one is stored; a `MeshWorker` has no address and adds none. It refuses a record whose `sub` is not shaped like a person's id, by the `UUID_SHAPE` test that already refuses a principal shaped like one, and a record whose outermost `act.sub` is already the principal. The form that takes a held call stays beside it until Phase 5 removes it, marked `TEMP → target=the record form alone`, so the Galaxy keeps working between phases.
@@ -276,3 +276,11 @@ Each phase leaves every suite it touches green. A criterion that names a test or
 - **Changed from the plan:** ADR-025 says nothing of held claims, so it has no edit. ADR-015's one line that does, in its § *Terminology* code block, is reworded here with the rest, since it states the model and is his to approve in the same read.
 - **Retro:** `auth.md` said the agent "can do exactly what the person whose claims it uses could and nothing more". Under D5 that is no longer exact, so the paragraph now says which permissions are read when.
 - **Close-out:** `durable-objects.md` § *Wall-clock billing* no longer says the fix is a mint.
+
+### Phase 2
+
+- **Built:** one `__lmz_do_address` record in `createLmzApiForDO`, and `__setOrigin` on `LmzApi`, called by `ScopedMeshDO.onRequest` after a 101.
+- **Evidence:** `packages/mesh` passes 83 files and 1033 tests, the file count it had. `identity-stamp.test.ts` went from six cases to twelve, and each new assertion reddened alone under its mutation: a retired key written, the name comparison dropped, a write on every upgrade, a write only when none is stored, whole origins compared, the origin set before the accept, the origin filled from an arriving call, and every node persisting. `/live` `client-routes` passed.
+- **Changed from the plan:** the retired-key grep prints one line, since the test names the two keys to assert nothing writes them. The criterion says so now.
+- **Not mutated:** the case that a reset keeps the origin. It is storage by construction, so no single change keeps the names and loses the origin.
+- **Retro:** all twelve passed on first run, which is the signal to distrust, so every one was mutated before the phase closed. A first contact now makes one `kv.put` where it made two.

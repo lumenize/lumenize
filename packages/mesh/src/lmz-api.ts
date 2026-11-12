@@ -626,7 +626,7 @@ export interface LmzApi {
   /**
    * Binding name for this DO or Worker (e.g., 'USER_DO')
    *
-   * - **MeshDO**: Stored in `ctx.storage.kv.get('__lmz_do_binding_name')`; an unscoped node holds a
+   * - **MeshDO**: Stored in the node's address record, `__lmz_do_address`; an unscoped node holds a
    *   call's in memory until it persists it (`createLmzApiForDO`)
    * - **MeshWorker**: Stored in private field
    *
@@ -637,7 +637,7 @@ export interface LmzApi {
   /**
    * Instance name for this DO (undefined for Workers)
    *
-   * - **MeshDO**: Stored in `ctx.storage.kv.get('__lmz_do_instance_name')`; an unscoped node holds a
+   * - **MeshDO**: Stored in the node's address record, `__lmz_do_address`; an unscoped node holds a
    *   call's in memory until it persists it (`createLmzApiForDO`)
    * - **MeshWorker**: Always undefined (Workers are ephemeral)
    *
@@ -692,6 +692,14 @@ export interface LmzApi {
    * @internal
    */
   __persistIdentity?(): void;
+
+  /**
+   * @internal Record the origin this node's own pages are served on, from a Client's accepted
+   * upgrade. Rewrites the stored address only when the scheme or the port differs from the stored
+   * origin's: every host of a deployment shares both, so a persona's host on a `.dev` Star writes
+   * nothing, and production writes once. A node that hosts no Clients never has one.
+   */
+  __setOrigin?(origin: string): void;
 
   /**
    * One-way call whose outcome reaches a result handler continuation
@@ -820,12 +828,24 @@ export function initIdentityFromHeaders(
   return undefined; // success (or no headers present)
 }
 
+/** The key a node's stored address sits under. */
+const ADDRESS_KEY = '__lmz_do_address';
+
+/** A node's stored address. `origin` is set only on a node one of whose own Clients has connected. */
+interface StoredAddress { bindingName?: string; instanceName?: string; origin?: string }
+
+function sameSchemeAndPort(a: string, b: string): boolean {
+  const x = new URL(a);
+  const y = new URL(b);
+  return x.protocol === y.protocol && x.port === y.port;
+}
+
 /**
  * Create LmzApi implementation for MeshDO
  *
- * Identity is persisted in Durable Object storage:
- * - `bindingName` → `ctx.storage.kv.get/put('__lmz_do_binding_name')`
- * - `instanceName` → `ctx.storage.kv.get/put('__lmz_do_instance_name')`
+ * A node's address is persisted in Durable Object storage as one record under one key,
+ * `__lmz_do_address`: its `bindingName`, its `instanceName`, and for a node that hosts Clients the
+ * `origin` its own pages are served on. One key, so the stamp check on every call is one read.
  *
  * A scoped node persists both at its first contact. An unscoped node, named by an id such as a
  * `profileId`, keeps the stamp a call brings in memory, so a call naming an id nobody created
@@ -841,8 +861,14 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
   let heldBindingName: string | undefined;
   let heldInstanceName: string | undefined;
 
-  const storedBindingName = () => ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
-  const storedInstanceName = () => ctx.storage.kv.get('__lmz_do_instance_name') as string | undefined;
+  const stored = () => ctx.storage.kv.get(ADDRESS_KEY) as StoredAddress | undefined;
+
+  /** The one place the record is written. A test counts writes by this line's debug output. */
+  function putAddress(patch: StoredAddress): void {
+    const next = { ...stored(), ...patch };
+    ctx.storage.kv.put(ADDRESS_KEY, next);
+    debug('lmz.mesh.address').debug('address stored', next);
+  }
 
   /** Whether this node has scheduled an alarm, which may wake it with no call to stamp from. */
   function hasAlarmRow(): boolean {
@@ -851,47 +877,26 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
     return table.length > 0 && ctx.storage.sql.exec(`SELECT 1 FROM __lmz_alarms LIMIT 1`).toArray().length > 0;
   }
 
-  // Private method to set bindingName (used internally by __init)
-  // __init runs on EVERY incoming envelope/routed request, so the already-stamped
-  // re-init is the hot path — skip the redundant put (SQLite writes bill 1000× reads).
-  function setBindingName(value: string, persist: boolean): void {
-    const current = storedBindingName() ?? heldBindingName;
-
-    if (current !== undefined && current !== value) {
-      throw new Error(
-        `DO binding name mismatch: stored '${current}' but received '${value}'. ` +
+  // `__init` runs on EVERY incoming envelope/routed request, so the already-stamped re-init is
+  // the hot path: one read, and no put (SQLite writes bill 1000× reads).
+  function requireSameName(kind: 'binding' | 'instance', current: string | undefined, value: string): void {
+    if (current === undefined || current === value) return;
+    throw new Error(kind === 'binding'
+      ? `DO binding name mismatch: stored '${current}' but received '${value}'. ` +
         `A DO instance cannot change its binding name.`
-      );
-    }
-
-    if (!persist) heldBindingName = value;
-    else if (storedBindingName() === undefined) ctx.storage.kv.put('__lmz_do_binding_name', value);
-  }
-
-  // Private method to set instanceName (used internally by __init)
-  function setInstanceName(value: string, persist: boolean): void {
-    const current = storedInstanceName() ?? heldInstanceName;
-
-    if (current !== undefined && current !== value) {
-      throw new Error(
-        `DO instance name mismatch: stored '${current}' but received '${value}'. ` +
-        `A DO instance cannot change its name.`
-      );
-    }
-
-    if (!persist) heldInstanceName = value;
-    else if (storedInstanceName() === undefined) ctx.storage.kv.put('__lmz_do_instance_name', value);
+      : `DO instance name mismatch: stored '${current}' but received '${value}'. ` +
+        `A DO instance cannot change its name.`);
   }
 
   return {
     // --- Getters (all readonly) ---
 
     get bindingName(): string | undefined {
-      return storedBindingName() ?? heldBindingName;
+      return stored()?.bindingName ?? heldBindingName;
     },
 
     get instanceName(): string | undefined {
-      return storedInstanceName() ?? heldInstanceName;
+      return stored()?.instanceName ?? heldInstanceName;
     },
 
     get type(): 'LumenizeDO' {
@@ -925,22 +930,33 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
         );
       }
 
+      const address = stored();
+      const patch: StoredAddress = {};
       if (options.bindingName !== undefined) {
-        setBindingName(options.bindingName, persist);
+        requireSameName('binding', address?.bindingName ?? heldBindingName, options.bindingName);
+        if (!persist) heldBindingName = options.bindingName;
+        else if (address?.bindingName === undefined) patch.bindingName = options.bindingName;
       }
-
       if (options.instanceName !== undefined) {
-        setInstanceName(options.instanceName, persist);
+        requireSameName('instance', address?.instanceName ?? heldInstanceName, options.instanceName);
+        if (!persist) heldInstanceName = options.instanceName;
+        else if (address?.instanceName === undefined) patch.instanceName = options.instanceName;
       }
+      if (patch.bindingName !== undefined || patch.instanceName !== undefined) putAddress(patch);
     },
 
     __persistIdentity(): void {
-      if (heldBindingName !== undefined && storedBindingName() === undefined) {
-        ctx.storage.kv.put('__lmz_do_binding_name', heldBindingName);
-      }
-      if (heldInstanceName !== undefined && storedInstanceName() === undefined) {
-        ctx.storage.kv.put('__lmz_do_instance_name', heldInstanceName);
-      }
+      const address = stored();
+      const patch: StoredAddress = {};
+      if (heldBindingName !== undefined && address?.bindingName === undefined) patch.bindingName = heldBindingName;
+      if (heldInstanceName !== undefined && address?.instanceName === undefined) patch.instanceName = heldInstanceName;
+      if (patch.bindingName !== undefined || patch.instanceName !== undefined) putAddress(patch);
+    },
+
+    __setOrigin(origin: string): void {
+      const current = stored()?.origin;
+      if (current !== undefined && sameSchemeAndPort(current, origin)) return;
+      putAddress({ origin });
     },
 
     call<T = any>(

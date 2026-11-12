@@ -81,9 +81,7 @@ This mechanism ensures:
 
 ## Why Not Extend LumenizeDO?
 
-LumenizeDO stores identity in `ctx.storage.kv`:
-- `__lmz_do_binding_name`
-- `__lmz_do_instance_name`
+LumenizeDO stores identity in `ctx.storage.kv`, as one record under `__lmz_do_address` that holds its binding name and instance name.
 
 For Gateway's zero-storage requirement, this is unacceptable. Gateway extends `DurableObject` directly and derives all state from:
 - WebSocket list

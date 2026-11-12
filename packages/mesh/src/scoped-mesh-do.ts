@@ -290,7 +290,11 @@ export abstract class ScopedMeshDO<Env = any> extends MeshDO<Env> implements Cli
    */
   override async onRequest(request: Request): Promise<Response> {
     if (new URL(request.url).pathname.startsWith(`${GATEWAY_PREFIX}/`)) {
-      return this.#clientGateway.acceptUpgrade(request);
+      const response = await this.#clientGateway.acceptUpgrade(request);
+      // An accepted upgrade came in on this node's own host, so its origin is where this node's
+      // pages are served. A refused one says nothing about where the node lives.
+      if (response.status === 101) this.lmz.__setOrigin?.(new URL(request.url).origin);
+      return response;
     }
     return new Response('Not Found', { status: 404 });
   }
