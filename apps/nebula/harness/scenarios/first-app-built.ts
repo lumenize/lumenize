@@ -244,13 +244,17 @@ export async function run(stack: DevStack): Promise<void> {
     let transcriptChecked = false;
     let lastTailAt = 0;
     const turnStartedAt = Date.now();
+    // The strip and the thinking bubble replace each other as a turn runs, so one counted a moment
+    // ago can be gone at the read. A read of a vanished element is no sample; waited out at
+    // Playwright's default it failed a streaming turn at 30 s (2026-11-12).
+    const gone = (read: Promise<string | null>): Promise<string | null> => read.catch(() => null);
     const liveWatch = (async () => {
       const deadline = Date.now() + TURN_TIMEOUT_MS;
       while (Date.now() < deadline) {
         if (await page.getByText('💭 thought process').count() > 0) return;
         const tailEl = page.getByTestId('stream-tail');
         if (await tailEl.count() > 0) {
-          const tail = (await tailEl.first().textContent())?.trim() ?? '';
+          const tail = (await gone(tailEl.first().textContent({ timeout: 2_000 })))?.trim() ?? '';
           if (tail && !tailsSeen.has(tail)) { tailsSeen.add(tail); lastTailAt = Date.now(); }
           // Judge the modal only once the strip is a TAIL (the leading ellipsis marks truncation
           // at 80 chars): sampled earlier, the transcript IS the strip, and 75 vs 75 reads as a
@@ -270,8 +274,9 @@ export async function run(stack: DevStack): Promise<void> {
         }
         const thinking = page.getByTestId('turn-thinking');
         if (await thinking.count() > 0) {
-          const text = (await thinking.first().textContent())?.trim() ?? '';
-          if (!thinkingFirst) thinkingFirst = { text, at: Date.now() };
+          const text = (await gone(thinking.first().textContent({ timeout: 2_000 })))?.trim() ?? '';
+          if (!text) { /* replaced between the count and the read */ }
+          else if (!thinkingFirst) thinkingFirst = { text, at: Date.now() };
           else if (!thinkingMoved && Date.now() - thinkingFirst.at >= 2_000) {
             if (text === thinkingFirst.text) {
               await captureArtifacts(inst, 'first-app-built-spinner-frozen');

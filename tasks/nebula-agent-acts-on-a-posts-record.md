@@ -353,3 +353,15 @@ One reader for each phase, on the tree at the Phase 6 commit. Phases 2, 3 and 4 
 - **Left as they are:** ADR-019, withdrawn and kept as history, still quotes the dropped clause. `auth.md` § *When the agent acts* says all of a turn's work runs under its post, where a landing's `ServedBuild` is the agent's own write, and it states the structured yes in present tense with no note that it is unbuilt; both predate this build. On a `.dev` Star the stored origin's host can be a persona's, which the JSDoc now says. Deployed, `post-edited-mid-turn` did exercise its third limb, and `waiting-posts-answered` did not exercise its decision limb.
 - **After the fixes:** see § *Close of the build* for the suites, the sweep and the deployed pass on the final tree.
 
+
+### Close of the build
+
+Every number here is from the tree at `be63ff1`, the commit after the last source edit.
+
+- **Suites:** `apps/nebula` 129 files and 1165 tests, `packages/mesh` 83 and 1031, `packages/resources` 4 and 29, all passing.
+- **Local sweep:** every scenario ran on this tree, and all passed, with one flake. `first-app-built` failed once and passed on a rerun with nothing changed.
+  - The flake was the scenario's own watch. It counted the thinking bubble and then read its text, and when the stream strip replaced the bubble between the two, the read waited Playwright's default 30 s and failed a turn that was streaming normally.
+  - The watch now treats a read of a vanished element as no sample. That edit came after the sweep, and `first-app-built` alone was run again on it and passed.
+- **Deployed pass:** `test-nebula` was redeployed and its self-check matched `be63ff1`. `post-edited-mid-turn`, `agent-invites`, `waiting-posts-answered` and `closing-step` passed there. An earlier deploy of this tree failed on a registry push, so the passes recorded before it were against the Phase 5 deploy.
+- **Workers Issues since that deploy:** nothing new. The standing `scope-deleted`, and a recurring `teardown failed` from objects the deploy itself reset.
+- **Not verified:** a post waiting across a real redeploy and answered after it, which `redeploy-strands-no-client` would be the place for; and the stored origin's value on a deployed `.dev` Star, where only the invite link's host was read.
