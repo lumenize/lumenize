@@ -52,7 +52,7 @@ passage(aud, scopeAdmin, targetScope)  = isAtOrBelow(aud, targetScope)
    membership the token rests on. Code a host serves therefore acts within that host's scope
    and below, not within everything its holder's broadest membership covers. A chain a node
    started carries no token: its activeScope is that node's name when the name is a scope,
-   and its scopeAdmin is false, so it holds passage at most, except below and under held claims (ADR-025).
+   and its scopeAdmin is false, so it holds passage at most, except below and under recorded claims (ADR-025).
 ```
 
 **One implementation.** Every site needing either verdict calls the shared predicate against the scope it is acting on, rather than re-inlining ([ADR-007](007-shared-node-security-core.md)) — which is what made both violations in § *Context* fixable in one place instead of N. The symbols are `hasDominionOver(claims, targetScope)` and `hasPassageInto(claims, targetScope)`.
