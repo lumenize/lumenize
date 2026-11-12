@@ -271,6 +271,39 @@ describe('a post\'s claims are held with it, and a decision takes waiting posts 
   });
 });
 
+describe('a post edited while its turn runs', () => {
+  // Mutation: hold the editor's call for a post a turn has already taken up → the turn's write
+  // records Austen's claims, though the turn read Jennifer's words.
+  it('keeps the claims its turn took it up under: the turn\'s tools do not run as the editor, and the edit starts nothing', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
+    const j1 = crypto.randomUUID();
+    await c.seed([
+      { __delayMs: 1500 }, call('write_file', { path: 'src/jennifer.txt', content: 'asked for by Jennifer' }),
+      call('mark_complete', {}, 'Done, Jennifer.'),
+      say('a round only a second turn on the edited post would use'),
+    ]);
+    await post(c.j, j1, 'Write me a file.');
+    await turnUnderWay(scope);
+    // Austen rewrites Jennifer's post while Jennifer's turn waits on the model.
+    const running = await c.a.resources.read('Message', j1) as Snapshot;
+    const rewritten = await c.a.resources.transaction({
+      [j1]: { op: 'put', typeName: 'Message', ifValidFromMatches: running.meta.validFrom, value: { chat: DEFAULT_CHAT_ID, content: 'Austen\'s words now.' } },
+    });
+    expect(rewritten.kind).toBe('committed');
+    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(1), { timeout: 20_000 });
+    await new Promise((r) => setTimeout(r, 1200));
+
+    const reply = (await agentMessages(c.j, sub.resourceIds)).get('Done, Jennifer.')!;
+    const [write] = (reply.value as { codegen: { toolCalls: Array<{ name: string; post?: string; claims?: { sub: string } }> } }).codegen.toolCalls;
+    expect([write!.name, write!.post, write!.claims?.sub]).toEqual(['write_file', j1, c.jSub]);
+    expect(turnLines(scope, 'took up').map((l) => l.postId)).toEqual([j1]);
+    expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(1);
+    c.dispose();
+  });
+});
+
 describe('a turn that ends after posts arrived mid-turn closes by reading them', () => {
   // Mutations: skip the closing step → no line, and the turn's draft is its message; send the
   // step the loop's tools → its request lists `write_file`; drop the posts the closing message
@@ -327,6 +360,33 @@ describe('a turn that ends after posts arrived mid-turn closes by reading them',
     expect(turnLines(scope, 'took up').map((l) => l.postId)).toEqual([j1, a1]);
     const messages = await agentMessages(c.j, sub.resourceIds);
     expect((messages.get('Done, Jennifer.')!.value as { answers?: string[] }).answers).toEqual([j1]);
+    expect((messages.get('Done, Austen.')!.value as { answers?: string[] }).answers).toEqual([a1]);
+    c.dispose();
+  });
+});
+
+describe('a closing step that names a post and writes no message', () => {
+  // Mutation: take the posts a wordless closing step names as answered → Austen's post is
+  // answered by a draft written before the model saw it, and no decision takes it up.
+  it('answers nothing more: the turn\'s own reply stands, and the named post waits for a decision', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
+    const [j1, a1] = [crypto.randomUUID(), crypto.randomUUID()];
+    await c.seed([
+      { __delayMs: 1500 }, say('A draft for Jennifer.'),
+      call('mark_complete', { answers: [a1] }),
+      call('take_up', { postId: a1 }), say('Done, Austen.'),
+    ]);
+    await post(c.j, j1, 'Sort by when items were added.');
+    await turnUnderWay(scope);
+    await post(c.a, a1, 'Add a search box.');
+    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(2), { timeout: 20_000 });
+
+    expect(turnLines(scope, 'closing step').map((l) => l.posts)).toEqual([[a1]]);
+    const messages = await agentMessages(c.j, sub.resourceIds);
+    expect((messages.get('A draft for Jennifer.')!.value as { answers?: string[] }).answers).toEqual([j1]);
+    expect(turnLines(scope, 'decision').map((l) => l.postId)).toEqual([a1]);
     expect((messages.get('Done, Austen.')!.value as { answers?: string[] }).answers).toEqual([a1]);
     c.dispose();
   });

@@ -35,6 +35,18 @@ describe('a host\'s tree seed', () => {
   });
 });
 
+describe('a seeded node an admin has since moved', () => {
+  // Mutation: write a declared node's edge on every construction → the wake after a move puts
+  // the node back under the root as well, with no check and no broadcast, and writes a row.
+  it('stays where it was moved to: a later construction does not put it back under the root', async () => {
+    const host = await seededHost();
+    const moved = await host.moveGrantedUnderBare();
+    expect(moved).toContain(`${BARE_NODE_ID}>${GRANTED_NODE_ID}`);
+    expect(await host.rowsWrittenBySecondConstruction()).toBe(0);
+    expect(await host.edges()).toEqual(moved);
+  });
+});
+
 describe('a write as the host\'s local principal', () => {
   // Mutation, the first half: build a local principal's claims with `scopeAdmin` → the dominion
   // bypass admits the write at the bare node → `ok` is true and this reds.

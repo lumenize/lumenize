@@ -7,9 +7,9 @@
  *    written by the agent as itself, observed on the SUBSCRIPTION (the product's own shape).
  *  - T2 one turn at a time: two human Messages committed during ONE generation → one turn;
  *    the second waits, and no turn starts beside the first.
- *  - T3 the human-only predicate, BOUNDED: one human message yields exactly one agent
- *    message past an idle window (never asserted by watching for non-termination —
- *    dropping the predicate makes Nebula answer itself).
+ *  - T3 only a waiting post starts a turn, BOUNDED: an agent message yields nothing past an
+ *    idle window (never asserted by watching for non-termination). Mutation: count an agent
+ *    message as a waiting post in `waitingPosts` → Nebula answers itself.
  *  - T4 the DAG door: an ungranted member's post is REFUSED at the DAG (the MESSAGE is
  *    matched — a boundary refusal and a DAG refusal are indistinguishable as booleans)
  *    with zero trigger markers (no AI spend), alongside the positive control (the same
@@ -130,16 +130,16 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     client[Symbol.dispose]();
   });
 
-  it('T3: the human-only predicate, BOUNDED — an agent Message committed with the latch FREE fires nothing', async () => {
+  it('T3: only a waiting post starts a turn, BOUNDED — an agent Message committed with the latch FREE fires nothing', async () => {
     // ⚠️ The shape matters: INSIDE a turn the single-flight latch already blocks the
-    // self-trigger (measured — dropping the predicate alone cannot red the in-turn
+    // self-trigger (measured — counting an agent message as waiting cannot red the in-turn
     // path), so the predicate's LIVE case is an agent commit landing while no turn is
     // in flight: a deadline-abandoned turn's late commit, or any direct agent commit.
     // Drive that exact shape and assert BOUNDED (never by watching for
     // non-termination): the thread past an idle window holds ONLY the agent message.
     const scope = uniqueChatScope();
     const { client } = await devClient(scope);
-    // A round available ON PURPOSE: with the predicate dropped, the latch-free agent
+    // A round available ON PURPOSE: with an agent message counted as waiting, the latch-free agent
     // commit triggers a generation that CAN complete — that is what reds the count.
     await seedScript(client, scope, [round('self-answer'), round('self-answer 2')]);
 

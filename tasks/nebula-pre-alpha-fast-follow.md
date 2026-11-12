@@ -128,7 +128,7 @@ Its reasons rested on `.dev` holding only test data, so re-derive them here. A S
 
 ## Item 6: Mid-generation chat UX — the two-stage arrival pipeline
 
-**Moved here from the backlog 2026-08-24** (it is near-term, with a demand trigger — not a someday row). Pre-alpha the codegen trigger is **single-flight**: a mid-generation post starts no turn of its own (collapse Phase 4), and until [nebula-agent-posts-as-itself.md](nebula-agent-posts-as-itself.md) lands it just sits in the thread. Larry judges that unacceptable UX beyond pre-alpha.
+**Moved here from the backlog 2026-08-24** (it is near-term, with a demand trigger — not a someday row). Pre-alpha the codegen trigger is **single-flight**: a mid-generation post starts no turn of its own (collapse Phase 4). Since 2026-11-11 it waits with its poster's call held, and the running turn's closing step or the decision after it answers it ([nebula-agent-posts-as-itself.md](nebula-agent-posts-as-itself.md)). Larry judges that unacceptable UX beyond pre-alpha.
 
 **Answering the posts that arrive during a turn moved out on 2026-10-10**, to the personas task and then, when that task split, to [nebula-agent-posts-as-itself.md](nebula-agent-posts-as-itself.md), which calls it a decision: when a turn ends, the agent reads the posts that arrived during it and answers or acts on them, holding each poster's claims in memory, because the personas wipe is confirmed by a chat reply. What stays here is steering a turn while it generates, and the discriminator. Until it exists every human post gets a turn, which costs more and is affordable with pre-alpha's few users; Larry calls the discriminator a cost optimization that can come later.
 
@@ -150,7 +150,7 @@ Its reasons rested on `.dev` holding only test data, so re-derive them here. A S
 3. **Only the poster is present and no tag → respond.** "Present" is the chat query's live data-subscriber roster, a table the Galaxy already holds for presence — a synchronous local read. Key it by `sub`, not by client, so a person with two Studio tabs counts once. Personas never appear: they are logged into the app preview, not into Studio's chat.
 4. **Others present and no tag → the cheap model decides**, given the roster and the last six or so messages with their bylines, and failing open to *respond* — an unanswered request is the worse error in a building session. Draft prompt: *"A group chat in an app-building workspace. Nebula is the assistant. Given who is present and the last messages, reply with ONLY `{"respond": true}` if the newest message asks Nebula for something or continues an exchange with Nebula, and `{"respond": false}` if it is addressed to another person."*
 
-Single-flight sits before all four: a message during a generation starts no turn of its own, and once [nebula-agent-posts-as-itself.md](nebula-agent-posts-as-itself.md) lands, the agent answers it when the generation ends.
+Single-flight sits before all four: a message during a generation starts no turn of its own, and the agent answers it when the generation ends.
 
 **2026-10-10 — start with Cloudflare's Clef, not Jev (Larry).** Clef is Cloudflare's own competitor to Jev, built for the same job, and Larry picks it for being faster, more local and cheaper. The shape below was written for Jev, so check it against Clef's docs at pickup.
 
@@ -183,7 +183,7 @@ const { respond } = await env.AI.run('typesafe/jev', {
 
 - *Superseded 2026-11-10 by [nebula-agent-posts-as-itself.md](nebula-agent-posts-as-itself.md) D8: a killed turn is answered after the restart, never restarted.* **Consider a lease per turn.** The human Message is durable before the model runs; if the Galaxy is evicted mid-turn the turn dies, and today the person posts again. On wake, a Message with no reply and no turn in flight is a lease that expired: restart it once, from the durable state (the commits, the history bundle), never a blind rerun, because a turn is a multi-minute model job. The idempotency key already exists — one reply per Message — so a restart that finds the reply landed is a no-op.
 - *Moved 2026-11-10 to [nebula-agent-posts-as-itself.md](nebula-agent-posts-as-itself.md) Q3, which bounds the wake check.* **Consider an attempt cap with a parked reply.** Two attempts, then a reply that says what landed and that it stopped, where someone has to look. Without the cap a restart is the article's poison message retried forever; with it, a corrupt Workspace surfaces as a message rather than a loop.
-- *Owned since 2026-11-10 by [nebula-agent-posts-as-itself.md](nebula-agent-posts-as-itself.md) Q3.* **Consider reconciling on wake.** An eviction skips the turn's `finally`, so a build box can outlive its build. On wake, destroy any running container no build owns, and name the Workspace's state — uncommitted changes against the last commit — so the restarted turn, or the person, starts from something named.
+- *Decided with § Item 15: The wake check.* **Consider reconciling on wake.** An eviction skips the turn's `finally`, so a build box can outlive its build. On wake, destroy any running container no build owns, and name the Workspace's state — uncommitted changes against the last commit — so the restarted turn, or the person, starts from something named.
 
 ## Notes
 
@@ -375,11 +375,11 @@ The experiment turned up two more things any design has to handle. `@swc/core` 1
 
 ## Item 15: The wake check — a turn a reset cuts off is answered on wake
 
-**Goal:** when a Galaxy wakes and finds a person's post that no agent message answers, it schedules a turn that reads the thread and asks whether to proceed, without waiting for someone to post again. [nebula-agent-posts-as-itself.md](nebula-agent-posts-as-itself.md) specifies it as its item 6 and holds the question that bounds it, Q3; it moved here on 2026-11-11 (that file's D19).
+**Goal:** when a Galaxy wakes and finds a person's post that no agent message answers, it schedules a turn that reads the thread and asks whether to proceed, without waiting for someone to post again. [nebula-agent-posts-as-itself.md](nebula-agent-posts-as-itself.md) specifies it as its item 6; the question that bounds it, that file's Q3, is the list below, and it moved here on 2026-11-11 (that file's D19).
 
 **Until then:** an evicted turn's post shows as waiting in Studio, and the agent answers it through the decision after the next post's turn.
 
-**What it has to decide first: how the loop recovers when a turn fails.** Deferred until the multi-player happy path is settled (Larry, 2026-10-16). `galaxy.ts` points here from its interim at the generation deadline, `#stillRunning`:
+**What it has to decide first: how the loop recovers when a turn fails.** Deferred until the multi-player happy path is settled (Larry, 2026-10-16). `galaxy.ts` points here from its interim at the generation deadline, `#takenUp`:
 
 - **Who writes the post that ends the turn** when the model call hangs. The model cannot, so our own code must, with a fixed message or one more short model call. A turn that uses all 32 tool-call rounds (`maxToolDepth`) already posts the model's text or a fixed fallback (`#codegenTurn`).
 - **Which event frees the latch.** Today the 14-minute deadline frees it while the turn keeps running, and the abandoned turn may still write and land. Until this is decided, a turn the deadline cut off starts no decision, and no decision takes its post up again while it still runs.

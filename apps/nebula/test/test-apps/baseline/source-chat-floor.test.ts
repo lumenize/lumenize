@@ -151,7 +151,7 @@ describe('the source entries sit at the chat floor', () => {
     owner[Symbol.dispose](); member[Symbol.dispose]();
   });
 
-  it('F5: the poster\'s grant revoked mid-turn does not refuse the reply, which is the agent\'s own write', async () => {
+  it('F5: the poster\'s grant revoked mid-turn refuses neither the turn\'s source write, which runs on the post\'s verdict, nor the reply, which is the agent\'s own write', async () => {
     // The agent posts as itself, on its own grant at the chat node, so what happens to the
     // poster's grant after the post cannot refuse the reply: the scripted model pauses two
     // seconds before its reply, the OWNER revokes the member's chat-node write inside that
@@ -159,11 +159,18 @@ describe('the source entries sit at the chat floor', () => {
     // the member's own read goes with the grant, which the tail proves. Mutation: commit the
     // reply under the turn's own context, the poster's → the commit is refused at the chat
     // node, no reply lands, the wait reds.
+    //
+    // The turn's source write lands after the revoke too: it runs inside the held call of a post
+    // that passed the chat floor when it was posted, and is not checked again. Mutation: check
+    // the chat floor again inside `writeSource` → the tool call records a refusal and no commit.
     const scope = uniqueScope();
     const { owner, member, payload, grantWrite } = await ownerAndMember(scope);
     await grantWrite();
     owner.callGalaxySeedChatScript(scope, [
       { __delayMs: 2000 },
+      { choices: [{ message: { content: '', reasoning_content: '', tool_calls: [
+        { id: 'w1', type: 'function', function: { name: 'write_file', arguments: JSON.stringify({ path: 'src/after-revoke.txt', content: 'written after the revoke' }) } },
+      ] } }] },
       { choices: [{ message: { content: 'Still here after the revoke.', reasoning_content: '', tool_calls: [] } }] },
     ]);
     using sub = owner.resources.subscribeQuery(chatQuery); await sub.ready;
@@ -175,6 +182,10 @@ describe('the source entries sit at the chat floor', () => {
         const reply = snaps.find((x) => x && deriveKind(x.meta.recordedClaims) === 'agent' && (x.value as { replyTo?: string }).replyTo === posted);
         expect(reply).toBeTruthy();
         expect((reply!.value as { content?: string }).content).toBe('Still here after the revoke.');
+        // The write the turn made after the revoke: under the member's claims, and committed.
+        const [write] = (reply!.value as { codegen: { toolCalls: Array<{ name: string; error?: string; claims?: { sub: string }; result?: { oid?: string } }> } }).codegen.toolCalls;
+        expect([write!.name, write!.error, write!.claims?.sub]).toEqual(['write_file', undefined, payload.sub]);
+        expect(write!.result?.oid).toMatch(/^[0-9a-f]{40}$/);
       }, { timeout: 15000 });
     } catch (e) {
       // A red says WHY: the Galaxy's own turn entries ride the sink.

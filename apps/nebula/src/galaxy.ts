@@ -1505,21 +1505,27 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   #held = new Map<string, HeldCall>();
 
   /**
-   * The posts whose turn the generation deadline cut off and is still running.
+   * The posts a running turn has taken up, each from the moment its turn takes it up until that
+   * turn's promise settles. Two things read it. An edit to such a post holds nothing and starts
+   * nothing ({@link #onChatCommitted}): the turn read the words its poster wrote, so its tools
+   * keep running under that poster's claims, and never under an editor's. And no decision
+   * offers such a post, which matters for a turn the generation deadline cut off and that is
+   * still running.
    * TEMP → target=our own code ends a turn the deadline cuts off, with a post that answers the
    * post it took up, and so releases its claims. Until how a failed turn recovers is decided
    * (`tasks/nebula-pre-alpha-fast-follow.md` § *Item 15: The wake check*), such a turn starts no
-   * decision, and no decision takes its post up again while it runs: the post is still
-   * unanswered and its call still held, so without this a second turn would start on it, inside
-   * the same call, every time the deadline passes.
+   * decision, and its post stays here while it runs: the post is still unanswered and its call
+   * still held, so without this a second turn would start on it, inside the same call, every
+   * time the deadline passes.
    */
-  #stillRunning = new Set<string>();
+  #takenUp = new Set<string>();
 
   /**
    * Keep the running call as `postId`'s held call. Called from inside the call that brought the
    * post's snapshot, so a person who edits a waiting post becomes the one whose claims its turn
    * runs under: a `put` needs only `write` at the chat node, and the words the agent reads are
-   * then the editor's. A call Mesh will not hold, one that carries no claims, leaves the post
+   * then the editor's. That holds until a turn takes the post up, after which an edit changes
+   * nothing ({@link #takenUp}). A call Mesh will not hold, one that carries no claims, leaves the post
    * waiting with nothing held. `protected` so a test probe can hold a post it never committed.
    */
   protected holdPost(postId: string): void {
@@ -1575,9 +1581,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * permissions above it vary** — anyone whose write lands may trigger, and a caller
    * whose write is refused at the DAG can never reach the model.
    *
-   * The predicate is on KIND, read from the stamped `recordedClaims` and never from the value:
-   * an agent reply is itself a committed `Message`, so without the human-only gate
-   * the agent answers itself forever.
+   * Only a waiting post starts one ({@link waitingPosts}), which is a person's post no agent
+   * message has answered, decided from the stamped `recordedClaims` and never from the value.
+   * An agent reply is itself a committed `Message` and is never a waiting post, so the agent
+   * does not answer itself forever.
    *
    * It runs inside the poster's call, which is the one moment that call can be held
    * ({@link holdPost}): a post that arrives while a turn runs waits with its call held, and the
@@ -1587,8 +1594,11 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   #onChatCommitted(mutations: Map<string, Snapshot>): void {
     for (const [resourceId, snap] of mutations) {
       if (snap.meta.typeName !== 'Message' || snap.meta.nodeId !== CHAT_NODE_ID) continue;
-      if (deriveKind(snap.meta.recordedClaims) !== 'human') continue;
       if (!this.waitingPostIds().includes(resourceId)) continue;
+      if (this.#takenUp.has(resourceId)) {
+        debug('nebula.Galaxy.trigger').info('edited while its turn runs: the turn keeps its claims', { resourceId });
+        continue;
+      }
       this.holdPost(resourceId);
       if (this.#turnInFlight) {
         debug('nebula.Galaxy.trigger').info('waiting: a turn is in flight', { resourceId });
@@ -1661,14 +1671,19 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    *
    * The GENERATION DEADLINE stays: past it the latch releases and the turn surfaces as failed
    * server-side (the client's idle timeout owns the UX), so a hung await cannot wedge the loop
-   * for the rest of the 15-minute hold. The turn it cut off may still be running, which is what
-   * {@link #stillRunning} is for.
+   * for the rest of the 15-minute hold. The turn it cut off may still be running, and its post
+   * stays in {@link #takenUp} until it settles.
    */
   async #underDeadline(turn: TurnBody): Promise<boolean | 'cut'> {
     // The post this turn took up, once it has one: a decision has none until it picks.
     let userMessageId: string | undefined;
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-    const running = turn((postId) => { userMessageId = postId; });
+    const running = turn((postId) => { userMessageId = postId; this.#takenUp.add(postId); });
+    const settled = (): void => { if (userMessageId !== undefined) this.#takenUp.delete(userMessageId); };
+    // Each turn holds the Galaxy on its own promise, so a decision's turn gets a hold that
+    // starts with it and not with the turn before it. Whether a later hold outlasts the 15
+    // minutes of the trigger's own, which is still pending around it, is not measured.
+    this.ctx.waitUntil(running.then(settled, settled));
     try {
       return await Promise.race([
         running,
@@ -1677,12 +1692,6 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
             debug('nebula.Galaxy.trigger').error('turn failed: generation exceeded the deadline', {
               userMessageId, deadlineMs: this.generationDeadlineMs,
             });
-            const cutOff = userMessageId;
-            if (cutOff !== undefined) {
-              this.#stillRunning.add(cutOff);
-              const settled = (): void => { this.#stillRunning.delete(cutOff); };
-              running.then(settled, settled);
-            }
             resolve('cut');
           }, this.generationDeadlineMs);
         }),
@@ -1705,7 +1714,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    */
   #decisionFor(): TurnBody | undefined {
     const thread = this.#thread();
-    const waiting = this.#waiting(thread).filter((id) => !this.#stillRunning.has(id));
+    const waiting = this.#waiting(thread).filter((id) => !this.#takenUp.has(id));
     if (waiting.length === 0) return undefined;
     return async (tookUp) => {
       const { bundle: history, labelFor } = this.#historyBundle(thread);
@@ -2360,15 +2369,18 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     }
     const parsed = parseModelTurn(raw);
     const named = (parsed.toolCalls.find((tc) => tc.name === 'mark_complete')?.args as { answers?: unknown } | undefined)?.answers;
+    // A step that wrote nothing leaves the turn's reply, which was written before the model saw
+    // these posts, so the posts the step names are not answered by it and wait for a decision.
+    const wrote = parsed.text.trim().length > 0;
     const answers = [
       ...(result.answers ?? []),
-      ...(Array.isArray(named) ? named.filter((id): id is string => typeof id === 'string' && posts.includes(id)) : []),
+      ...(wrote && Array.isArray(named) ? named.filter((id): id is string => typeof id === 'string' && posts.includes(id)) : []),
     ];
     return {
       ...result,
       rounds: result.rounds + 1,
-      // The closing message replaces the turn's reply; a step that wrote nothing leaves it.
-      ...(parsed.text.trim().length > 0 ? { output: parsed.text } : {}),
+      // The closing message replaces the turn's reply.
+      ...(wrote ? { output: parsed.text } : {}),
       ...(answers.length > 0 ? { answers } : {}),
     };
   }

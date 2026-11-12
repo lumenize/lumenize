@@ -91,9 +91,15 @@ export class OrgTree {
   }
 
   /**
-   * Create the tree's skeleton: the root every tree has, then what this host declares. Every row is
-   * an `INSERT OR IGNORE`, so a wake after the first writes nothing, and none of it passes a
-   * permission check: creating the tree is bookkeeping no one person asked for (ADR-025).
+   * Create the tree's skeleton: the root every tree has, then what this host declares. None of it
+   * passes a permission check: creating the tree is bookkeeping no one person asked for (ADR-025).
+   *
+   * A declared node's edge, and an unprotected grant on it, are written only by the construction
+   * that creates the node. Both can be changed afterwards, since a declared node may be moved and
+   * an unprotected grant revoked, and a seed that re-asserted them on every wake would undo that
+   * change with no check and no broadcast. A protected grant is written whenever it is missing: it
+   * cannot be revoked or lowered, so there is no change of anyone's to undo. Either way a wake
+   * after the first writes nothing.
    */
   #ensureSeed() {
     const sql = this.#ctx.storage.sql
@@ -101,13 +107,17 @@ export class OrgTree {
       `INSERT OR IGNORE INTO Nodes (nodeId, slug, label, deleted) VALUES (?, 'root', 'Root', 0)`,
       ROOT_NODE_ID,
     )
+    const created = new Set<string>()
     for (const node of this.#seed.nodes ?? []) {
       validateNodeId(node.nodeId)
       validateSlug(node.slug)
-      sql.exec('INSERT OR IGNORE INTO Nodes (nodeId, slug, label, deleted) VALUES (?, ?, ?, 0)', node.nodeId, node.slug, node.label)
+      const inserted = sql.exec('INSERT OR IGNORE INTO Nodes (nodeId, slug, label, deleted) VALUES (?, ?, ?, 0)', node.nodeId, node.slug, node.label)
+      if (inserted.rowsWritten === 0) continue
+      created.add(node.nodeId)
       sql.exec('INSERT OR IGNORE INTO Edges (parentNodeId, childNodeId) VALUES (?, ?)', node.parentNodeId, node.nodeId)
     }
     for (const grant of this.#seed.grants ?? []) {
+      if (!grant.protected && !created.has(grant.nodeId)) continue
       sql.exec('INSERT OR IGNORE INTO Permissions (nodeId, sub, permission) VALUES (?, ?, ?)', grant.nodeId, grant.sub, grant.tier)
     }
   }

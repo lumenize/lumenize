@@ -18,9 +18,11 @@
  *     in the app. Mutation: send the admin invite through the node invite, and that invitee is
  *     a plain member.
  *  2. **An admin invite's result is posted by the Galaxy, as the agent.** The post records
- *     `agent:lumenize` with no `act`, replies to nothing and answers nothing, and no turn takes
- *     it up. Mutation: post it under the call it answers in, and it records Jennifer and starts
- *     a turn.
+ *     `agent:lumenize` with no `act`, replies to nothing and answers nothing. Mutation: post it
+ *     under the call it answers in, and it records Jennifer. That no turn takes the agent's
+ *     own post up is not gated here: a post recorded as the agent is never a waiting post,
+ *     which `chat-trigger.test.ts` T3 holds, and here every such post lands while a turn or a
+ *     decision holds the latch, so a limb for it could not fail.
  *  3. **The invite link's host is this stack's own.** Mutation: drop the origin request from the
  *     chain the agent starts, and the link names the deployment's configured host.
  *  4. **P is promoted in the workspace through the one promotion path.** P's existing `.dev`
@@ -45,7 +47,7 @@ import type { Galaxy } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
 import { chatCast } from '../lib/chat-cast';
-import { debugLines, waitForDebugLines } from '../lib/stdio';
+import { waitForDebugLines } from '../lib/stdio';
 import { testSlug } from '../lib/test-scopes';
 import { refreshAccessToken, refreshTokenForScope, setCookieHeaders, consumeLink } from '../../test/lib/email-login';
 
@@ -161,10 +163,7 @@ export async function run(stack: DevStack): Promise<void> {
       assert.equal(handlers[0]!.snap.meta.recordedClaims.act, undefined);
       assert.equal((handlers[0]!.snap.value as Value).answers, undefined);
     }
-    const tookUp = debugLines(stack.logs()).filter((l) => l.namespace === 'nebula.Galaxy.turn' && l.message === 'took up' && l.data.instanceName === SCOPE);
-    const agentIds = new Set((await agentPosts()).map(({ id }) => id));
-    assert.deepEqual(tookUp.filter((l) => agentIds.has(l.data.postId)), [], "no turn takes the agent's own post up");
-    console.error("  ✓ limb 2 — the admin invite's result was posted as the agent, replying to and answering nothing, and started no turn");
+    console.error("  ✓ limb 2 — the admin invite's result was posted as the agent, replying to and answering nothing");
 
     // ── LIMB 4: P is promoted in the workspace, on Jennifer's authority with the agent as actor ──
     for (const deadline = Date.now() + TURN_TIMEOUT_MS; ;) {
@@ -173,8 +172,12 @@ export async function run(stack: DevStack): Promise<void> {
       assert.ok(Date.now() < deadline, "P's existing workspace session never gained the admin bit");
       await new Promise((r) => setTimeout(r, 1000));
     }
-    const promoted = await waitForDebugLines(stack, (all) => all.some((l) => l.namespace === 'nebula-auth.Registry.identity.roleUpdated' && l.data.scopeAdmin === true), "the promotion's record");
-    const record = promoted.find((l) => l.namespace === 'nebula-auth.Registry.identity.roleUpdated' && l.data.scopeAdmin === true)!.data.recordedClaims as { sub?: string; act?: { sub?: string } };
+    // P's own promotion: the record names whose bit changed, and other promotions may share the capture.
+    const pSub = (parseJwtUnsafe((await refreshAccessToken(origin, { refreshToken: p.refreshToken, authScope: DEV }, DEV, fetch)).accessToken)!.payload as { sub: string }).sub;
+    const isPsPromotion = (l: { namespace: string; data: Record<string, any> }): boolean =>
+      l.namespace === 'nebula-auth.Registry.identity.roleUpdated' && l.data.scopeAdmin === true && l.data.sub === pSub;
+    const promoted = await waitForDebugLines(stack, (all) => all.some(isPsPromotion), "P's promotion's record");
+    const record = promoted.find(isPsPromotion)!.data.recordedClaims as { sub?: string; act?: { sub?: string } };
     assert.equal(record.sub, jennifer.sub, "the promotion's record must name Jennifer, whose authority it used");
     assert.equal(record.act?.sub, NEBULA_SUB, 'with the agent as actor');
     console.error("  ✓ limb 4 — P's existing workspace session is an admin's now, and the record names Jennifer with the agent as actor");
@@ -207,6 +210,7 @@ export async function run(stack: DevStack): Promise<void> {
     const tried = (answer?.value as Value | undefined)?.codegen?.toolCalls?.filter((tc) => tc.name === 'invite') ?? [];
     console.error(`  · recorded — asked by Austen, the agent ${tried.length === 0 ? 'did not call invite' : tried.some((tc) => tc.error) ? 'called invite and was refused within the turn' : 'called invite and it LANDED'}: ${JSON.stringify(((answer?.value as Value | undefined)?.content ?? '(no answer)').slice(0, 200))}`);
     assert.ok(!tried.some((tc) => !tc.error), "an invite in Austen's turn must never land: she is no admin of the app");
+
   } finally {
     cast.dispose();
   }

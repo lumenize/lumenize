@@ -132,6 +132,21 @@ export class SeededHostDO extends ResourcesHostDO {
     return written;
   }
 
+  /** Move the seeded `granted` node from under the root to under `bare`, as an admin's move
+   *  would leave the tree, and answer every edge as stored. */
+  moveGrantedUnderBare(): string[] {
+    const sql = this.ctx.storage.sql;
+    sql.exec('DELETE FROM Edges WHERE childNodeId = ?', GRANTED_NODE_ID);
+    sql.exec('INSERT INTO Edges (parentNodeId, childNodeId) VALUES (?, ?)', BARE_NODE_ID, GRANTED_NODE_ID);
+    return this.edges();
+  }
+
+  /** Every edge as stored, `parent>child`, sorted. */
+  edges(): string[] {
+    return this.ctx.storage.sql.exec('SELECT parentNodeId, childNodeId FROM Edges').toArray()
+      .map((r) => `${r.parentNodeId as string}>${r.childNodeId as string}`).sort();
+  }
+
   /** The seeded rows as stored: each node's slug, and each grant. */
   seededRows(): { slugs: string[]; grants: Array<{ nodeId: string; sub: string; permission: string }> } {
     const sql = this.ctx.storage.sql;

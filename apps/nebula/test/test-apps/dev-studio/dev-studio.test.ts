@@ -39,8 +39,8 @@ const uniqueGalaxyScope = () => `u${crypto.randomUUID().slice(0, 8)}.app`;
 const versionOf = async (types: string) => (await git.hashBlob({ object: types })).oid;
 
 // Direct in-DO call, which returns the method's result where the mesh's early-ack path returns
-// only {$ack}. It runs under an admin's call context (`asCaller`), since a landing records its
-// `ServedBuild` under the caller's claims and a call with none records nothing.
+// only {$ack}. It runs under an admin's call context (`asCaller`): a loop tool runs only inside
+// the held call of a post, and a call with no claims cannot be held (`as-caller.ts`).
 const inDO = (binding: any, instance: string, fn: (inst: any) => unknown) =>
   (runInDurableObject as any)(binding.getByName(instance), (inst: any) => asCaller(instance, () => fn(inst)));
 

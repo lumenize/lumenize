@@ -31,15 +31,20 @@
  *  6. **Each tool call's record names the post it acted for and that post's poster, with the
  *     agent as actor, and Studio marks each one with that person.** The marks Austen's Studio
  *     renders are compared with the records. Mutation: build a mark from the message's own
- *     record, and Studio names the agent. The model is asked to read a file, so there is a
- *     tool call to mark; how many it makes is recorded.
+ *     record, and Studio names the agent; leave the claims off a call's record, and a call
+ *     that ran has none. Every loop tool call that ran is checked, so one with no record
+ *     fails. The model is asked to read a file, so there is a call to check; how many it
+ *     makes is recorded, and none at all is reported as not exercised.
  *  7. **In Austen's Studio her post ends answered, and never shows as failed.** Austen has
  *     Studio open in a real browser and posts from its composer. Once an agent message names
  *     her post, the status bubble under the thread goes: no *thinking*, no *waiting*, no
  *     failure banner. This holds whether the agent took her post up or answered it in a
  *     message that replies to Jennifer's. Mutation: let Studio decide by `replyTo`, and on the
  *     second path her post shows *thinking* for good. A post the model left unanswered is
- *     recorded, and this limb then gates only on the absence of the failure banner.
+ *     recorded, and this limb then gates only on the absence of the failure banner. The
+ *     banner is watched for from the page's first load to the end, so one that showed and
+ *     went fails the limb. Whether the *waiting* bubble showed is recorded and not gated: it
+ *     shows once Jennifer's turn sends a chunk after Austen's post, which is the model's timing.
  */
 import assert from 'node:assert/strict';
 import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
@@ -63,8 +68,10 @@ const chatQuery = { queryType: 'parentChild' as const, typeName: 'Message', fiel
 
 type Value = {
   content?: string; replyTo?: string; answers?: string[];
-  codegen?: { toolCalls?: Array<{ name: string; post?: string; claims?: Record<string, unknown> & { sub?: string; act?: { sub?: string } } }> };
+  codegen?: { toolCalls?: Array<{ name: string; error?: string; post?: string; claims?: Record<string, unknown> & { sub?: string; act?: { sub?: string } } }> };
 };
+/** The tools that act, each of which runs inside a held post's call and records it. */
+const LOOP_TOOLS = ['read_file', 'write_file', 'edit_file', 'build', 'invite'];
 
 export async function run(stack: DevStack): Promise<void> {
   const cast = await chatCast(stack, SCOPE, readDevVar('TEST_TOKEN'));
@@ -78,6 +85,23 @@ export async function run(stack: DevStack): Promise<void> {
     const chromium = await launchChromium();
     closers.push(() => chromium.close(), () => vite.close());
     const { page } = await instrumentedPage(chromium);
+    // What Austen's Studio ever showed, kept across the whole run: a banner that came and went
+    // is a failure a read at the end cannot see. The page reports to the harness through an
+    // exposed function, which outlives every navigation. The script is a string because tsx
+    // wraps a named inner function in a helper the page does not have.
+    const saw = { watching: false, failed: false, waiting: false };
+    await page.exposeFunction('harnessSaw', (what: keyof typeof saw) => { saw[what] = true; });
+    await page.addInitScript(`(() => {
+      const report = (what) => { try { window.harnessSaw(what); } catch (e) { /* not installed in this frame */ } };
+      const look = () => {
+        if (!document.body) return;
+        report('watching');
+        if (document.body.innerText.includes('No reply arrived')) report('failed');
+        if (document.querySelector('[data-testid="turn-waiting"]')) report('waiting');
+      };
+      const start = () => { new MutationObserver(look).observe(document.documentElement, { childList: true, subtree: true, characterData: true }); look(); };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+    })()`);
     await page.goto(`${vite.viteBaseUrl}/auth/login`, { waitUntil: 'domcontentloaded' });
     // `_scopeless`: the login request names no scope, so its mail carries no scope tag.
     const waiter = waitForEmail({ testToken, instance: '_scopeless', to: cast.austenEmail, timeout: 120_000 });
@@ -197,8 +221,12 @@ export async function run(stack: DevStack): Promise<void> {
       : "  ✓ limb 5 — no decision ran: the closing step of Jennifer's turn answered Austen's post (not exercised)");
 
     // ── LIMB 6: each tool call's record, and Studio's mark for it ──
-    const recorded = agentMessages.flatMap(({ snap }) => (snap.value as Value).codegen?.toolCalls ?? []).filter((call) => call.claims);
+    // Every loop tool call that ran, whether or not it recorded anything: one with no record
+    // is the failure, so the list cannot be built from the records.
+    const recorded = agentMessages.flatMap(({ snap }) => (snap.value as Value).codegen?.toolCalls ?? [])
+      .filter((call) => LOOP_TOOLS.includes(call.name) && call.error === undefined);
     for (const call of recorded) {
+      assert.ok(call.post && call.claims, `a ${call.name} that ran must record the post it acted for and the claims it ran under, and recorded ${JSON.stringify({ post: call.post, claims: call.claims })}`);
       assert.equal(call.claims!.sub, writerOf(call.post!), `a ${call.name} for post ${call.post} must record its poster's claims`);
       assert.equal(call.claims!.act?.sub, NEBULA_SUB, 'with the agent as actor');
       assert.deepEqual(Object.keys(call.claims!).filter((k) => k === 'access' || k === 'aud'), [], 'and nothing a client must not be sent');
@@ -208,10 +236,17 @@ export async function run(stack: DevStack): Promise<void> {
     const marks = await marksLocator.evaluateAll((els) => els.map((el) => ({ post: el.getAttribute('data-post'), sub: el.getAttribute('data-sub') })));
     assert.equal(marks.length, recorded.length, `Studio must mark each of the ${recorded.length} recorded tool call(s), and marked ${marks.length}`);
     for (const mark of marks) assert.equal(mark.sub, writerOf(mark.post!), `the mark on a call for post ${mark.post} must name its poster`);
-    console.error(`  ✓ limb 6 — ${recorded.length} tool call(s) recorded under their post's poster, and Studio marked each with that person`);
+    console.error(recorded.length > 0
+      ? `  ✓ limb 6 — ${recorded.length} tool call(s) recorded under their post's poster, and Studio marked each with that person`
+      : '  ✓ limb 6 — the model called no tool that acts, so no record was checked (not exercised)');
 
     // ── LIMB 7: in Austen's Studio her post ends answered, and never shows as failed ──
-    assert.equal(await page.getByText('No reply arrived').count(), 0, "Austen's post must never show as failed");
+    assert.equal(saw.watching, true, "the watch on Austen's Studio never ran, so it cannot say what the page showed");
+    assert.equal(saw.failed, false, "Austen's Studio must never show her post as failed, at any moment of the run");
+    assert.equal(await page.getByText('No reply arrived').count(), 0, "Austen's post must not show as failed");
+    // Whether the waiting bubble showed turns on when Jennifer's turn sent a chunk, which is the
+    // model's timing, so it is recorded and not gated.
+    console.error(`  · recorded — Austen's Studio ${saw.waiting ? 'showed' : 'never showed'} her post as waiting behind Jennifer's turn`);
     if (answered.has(a1)) {
       const settled = async (): Promise<boolean> =>
         await page.getByTestId('turn-thinking').count() === 0 && await page.getByTestId('turn-waiting').count() === 0;
