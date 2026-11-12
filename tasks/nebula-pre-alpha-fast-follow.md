@@ -375,11 +375,11 @@ The experiment turned up two more things any design has to handle. `@swc/core` 1
 
 ## Item 15: The wake check — a turn a reset cuts off is answered on wake
 
-**Goal:** when a Galaxy wakes and finds a person's post that no agent message answers, it schedules a turn that reads the thread and asks whether to proceed, without waiting for someone to post again. [nebula-agent-posts-as-itself.md](archive/nebula-agent-posts-as-itself.md) specifies it as its item 6; the question that bounds it, that file's Q3, is the list below, and it moved here on 2026-11-11 (that file's D19).
+**Goal:** when a Galaxy wakes and finds a person's post that no agent message answers, it schedules a turn that reads the thread and takes the post up, without waiting for someone to post again. The turn can do the work: a post is stored with the claims its write carried, and a turn runs under them ([nebula-agent-acts-on-a-posts-record.md](nebula-agent-acts-on-a-posts-record.md)). [nebula-agent-posts-as-itself.md](archive/nebula-agent-posts-as-itself.md) specifies it as its item 6; the question that bounds it, that file's Q3, is the list below, and it moved here on 2026-11-11 (that file's D19).
 
-**Until then:** an evicted turn's post shows as waiting in Studio, and the agent answers it through the decision after the next post's turn.
+**Until then:** an evicted turn's post shows as waiting in Studio, and the decision after the next post's turn can take it up and work it.
 
-**What it has to decide first: how the loop recovers when a turn fails.** Deferred until the multi-player happy path is settled (Larry, 2026-10-16). `galaxy.ts` points here from its interim at the generation deadline, `#takenUp`:
+**What it has to decide first: how the loop recovers when a turn fails.** Deferred until the multi-player happy path is settled (Larry, 2026-10-16). `galaxy.ts` points here from its interim at the generation deadline, `#takenUp`, which keeps a second turn off a post whose first turn the deadline cut off and which is still running:
 
 - **Who writes the post that ends the turn** when the model call hangs. The model cannot, so our own code must, with a fixed message or one more short model call. A turn that uses all 32 tool-call rounds (`maxToolDepth`) already posts the model's text or a fixed fallback (`#codegenTurn`).
 - **Which event frees the latch.** Today the 14-minute deadline frees it while the turn keeps running, and the abandoned turn may still write and land. Until this is decided, a turn the deadline cut off starts no decision, and no decision takes its post up again while it still runs.

@@ -1,6 +1,6 @@
 # The agent acts under the claims recorded on a post
 
-**Status:** Pass 1 hand-reviewed and through Stage 1 on 2026-11-12; phases written the same day, for Stage 2. It comes before the wipe and before [nebula-testing-with-personas.md](nebula-testing-with-personas.md), whose `provision` tool should be written against it.
+**Status:** Built on 2026-11-12, on `pre-alpha`, through its six phases; § *Build notes* has each phase's record. Waiting on the verifier panel and the hand-off. It comes before the wipe and before [nebula-testing-with-personas.md](nebula-testing-with-personas.md), whose `provision` tool should be written against it.
 
 ## Conventions
 
@@ -253,7 +253,7 @@ Each phase leaves every suite it touches green. A criterion that names a test or
      - `git diff --name-only <the commit before Phase 2> -- packages apps | xargs grep -nE '\b(DI|[SDQCB])(1[0-9]|[1-9])\b|\bPhase[ -][0-9]+\b|\bChild [0-9]+\b'` prints no task-file handle. The builder first points it at a line known to hold one, to see it print.
      - `npm run type-check`, `npm run audit:mesh-vocab`, `npm run audit:dep-direction`, `npm run audit:do-http` and `node scripts/check-prose.mjs` on each prose file touched all pass.
      - `npx tsx apps/nebula/harness/drive.ts all` passes, or `all --rerun` after a fix, with any flake reported as one.
-     - A deployed pass of `waiting-posts-answered`, `post-edited-mid-turn` and `agent-invites` on `test-nebula` passes. One Galaxy's stored origin there reads `https://` and its own host. `node scripts/issues.mjs --worker test-nebula --since <its start>` shows no new issue. `test-nebula` is redeployed in place, so an object stamped under the old keys can wake from an alarm with no `__lmz_do_address`: the stale-account sweep runs first, and any issue of that kind is named in § *Build notes*, not counted as new.
+     - A deployed pass of `waiting-posts-answered`, `post-edited-mid-turn` and `agent-invites` on `test-nebula` passes. A deployed Galaxy's stored origin cannot be read from outside it, so its value there is unchecked (§ *Build notes*). `node scripts/issues.mjs --worker test-nebula --since <its start>` shows no new issue. `test-nebula` is redeployed in place, so an object stamped under the old keys can wake from an alarm with no `__lmz_do_address`: the stale-account sweep runs first, and any issue of that kind is named in § *Build notes*, not counted as new.
      - No changed file holds a NUL or an NBSP, by the byte counts in `workflow.md`.
 
 ## Non-goals
@@ -320,4 +320,17 @@ Each phase leaves every suite it touches green. A criterion that names a test or
   - The dev-studio lane ran its Galaxy with no name and a caller whose `sub` was the word `admin`. A probe now writes a real post, so the stand-in call names a Client, carries a `sub` shaped like a person's, and stamps the node's name.
   - The lane file passed twenty tests on one shared owner address, and the twenty-first failed at the owner's refresh. It is the known limit of about two dozen memberships on one address, so the owner has an address per test now.
 - **Close-out:** `as-caller.ts` still has its use, so the backlog row on a public seam stays, with a new reason to write in Phase 6.
+
+### Phase 6
+
+- **Reworded:** `security.md` (the two forms that write `originAuth`, the refusals `actFor` makes, the bound on work the agent does for a person, and the chat floor, which a turn's source tools now meet as they run), `studio-guidance.md` (no held-posts block), `live-scenarios.md` (the scenario's name), fast-follow Item 15, the personas file's superseded row, three backlog rows, one Registry comment that restated the sentence ADR-016 lost, and `auth.md`'s *Today's code differs* note.
+- **Triage of the command in § *Constraints*:** it prints this file and four sibling task files. Each remaining line is history and is left: `nebula-pre-alpha.md`'s rows on what the held call was, the personas file's status line and review log, the backlog's row that says the held call went and its pointer at what the archived build landed, and fast-follow's pointer at `#takenUp`, which still exists.
+- **Local sweep:** 71 of 73 passed on the first run, with `redeploy-strands-no-client` parked by design. `post-edited-mid-turn` failed its third limb on a 20-second wait for a line the model's answer comes before; the wait now allows a model call, and it passed alone and on the rerun. `refresh-reads-the-host` failed on an email Resend reports delivered and passed on the rerun with nothing changed: **a flake**, reported as one. `all --rerun` then showed 73 of 73 on this tree.
+- **Deployed pass:** `test-nebula` was redeployed at the Phase 5 commit and its self-check matched. `post-edited-mid-turn`, `agent-invites` and `waiting-posts-answered` each passed there. In `waiting-posts-answered` the closing step answered Austen's post, so the decision limb reported *not exercised*.
+- **Workers Issues since the deploy began (2026-11-12T20:35:45Z):** one, the recurring `scope-deleted` exception first seen 2026-10-13, which a scope's teardown raises by design. Nothing new.
+- **For Larry, not verified:**
+  - **A deployed Galaxy's stored origin.** Nothing outside a Durable Object can read its storage, and deployed the agent's invite link reads the same from the stored origin as from the facade's fallback, so `agent-invites`' link limb cannot tell them apart there. Locally it can, and did.
+  - **A post left waiting across a real redeploy** (Phase 5's note).
+- **Retro:** the sweep found what running the new scenario alone did not, a wait sized for a log line where a model call sits in between. Under the sweep's load the model took longer than 20 seconds.
+- **Close-out still owed at the hand-off:** the personas file's status line and `nebula-pre-alpha.md`'s row, which both say this task is waiting; the archive move; and the memory note on this design.
 

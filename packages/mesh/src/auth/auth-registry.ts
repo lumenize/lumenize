@@ -2126,8 +2126,8 @@ export class AuthRegistry extends DurableObject {
    *
    * `callerClaims` are the verified claims of this call, checked and recorded as one argument: the
    * check reads the calling host's scope through `hasDominionOver`, and the record projects the
-   * whole token (ADR-016). What is never read back
-   * as an authz input is the STORED record — that would be the stored scope set ADR-013 rejects.
+   * whole token (ADR-016). The check reads this call's own claims, never a record stored
+   * by an earlier one.
    * Required, since ADR-016's contents are not retrofittable and a call that omitted them would
    * under-record silently. `operationId` names the facade call in the record.
    */

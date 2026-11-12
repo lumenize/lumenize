@@ -480,7 +480,7 @@ The id `agent:lumenize` is self-describing and syntactically not a human, so a r
 
 Two inversions are tempting and both are wrong. A membership would give the agent a login, with passage and dominion that then have to be confined, where a grant in the Galaxy's orgTree confines it to the one audience it serves, in plain sight of every member. And the subject and actor are composed server-side: a client able to name either would defeat the record entirely.
 
-> **Today's code differs.** The agent's tools still run inside the poster's own call, kept open in memory, so after a restart a waiting post can be answered but not worked, and the agent may run a source tool under another waiting poster's claims. A turn that a restart or a deploy cuts off is answered only once someone posts again: nothing yet checks, when the Galaxy wakes, for a post left waiting. And the one thing the agent does today that changes who can do what is an invite.
+> **Today's code differs.** A turn that a restart or a deploy cuts off is answered only once someone posts again: nothing yet checks, when the Galaxy wakes, for a post left waiting. And the one thing the agent does today that changes who can do what is an invite.
 
 ### Attribution
 

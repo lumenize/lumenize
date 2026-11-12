@@ -34,7 +34,7 @@ import { DEFAULT_CHAT_ID } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
 import { chatCast } from '../lib/chat-cast';
-import { waitForDebugLines, type DebugLine } from '../lib/stdio';
+import { waitForDebugLines, LOG_WAIT_MS, type DebugLine } from '../lib/stdio';
 import { testSlug } from '../lib/test-scopes';
 
 /** Chat and auth only: the requests ask for a file to be read and for a word, never for code. */
@@ -101,12 +101,12 @@ export async function run(stack: DevStack): Promise<void> {
     console.error('  ✓ limb 2 — its message answers no post, and says the post changed');
 
     // ── LIMB 3: a later turn on the edited post ran under its editor ──
-    // The decision after the stopped turn is offered the edited post. Its line arrives when its
-    // invocation ends, so this waits for it rather than reading the capture as it stands.
+    // The decision after the stopped turn is offered the edited post. Its line is logged once
+    // the model has answered, so the wait allows a model call on top of the capture's own lag.
     const turnLines = (all: DebugLine[], message: string): DebugLine[] =>
       all.filter((l) => l.namespace === 'nebula.Galaxy.turn' && l.message === message && l.data.instanceName === SCOPE);
     const lines = await waitForDebugLines(stack, (all) => turnLines(all, 'decision').length > 0,
-      'the decision that follows the stopped turn');
+      'the decision that follows the stopped turn', LOG_WAIT_MS + TURN_TIMEOUT_MS);
     const decision = turnLines(lines, 'decision')[0]!;
     if (decision.data.postId !== j1) {
       console.error(`  · limb 3 not exercised: the decision took up ${decision.data.postId ?? 'no post'}, answering ${JSON.stringify(decision.data.answers ?? [])}`);
