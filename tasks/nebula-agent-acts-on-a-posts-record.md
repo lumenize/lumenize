@@ -293,3 +293,11 @@ Each phase leaves every suite it touches green. A criterion that names a test or
 - **Not added:** a new case in `impersonation-mint.test.ts`. The record form's claims equal the held form's, field for field, which the first case asserts, and the mint's existing case keys on `act` being there.
 - **Retro:** the record's person had to differ from the probe's caller in `sub`, scope and admin bit, or a build that re-used the running call would pass. The mutation that does exactly that reddened three cases.
 
+### Phase 4
+
+- **Built:** `Resources.actUnderClaimsOf` in `packages/resources/src/resources.ts`, `Snapshots.currentRecord` for the full record, and `ResourceMovedOnError` with its guard in `errors.ts`, exported from the package.
+- **Evidence:** `packages/resources` passes 4 files and 29 tests, one file and six tests more. Each of the six reddened under its mutation: the claims built from the wire projection, the claims taken from the probe's own call, the `validFrom` comparison skipped, a tombstone accepted, the member added to `requests`, and the orgTree check skipped for a write under a record. `npm run audit:dep-direction` passes.
+- **How the fixtures are honest:** each record was stamped by the server from a `NebulaClient` logged in through the Registry. The probe is called on the stub with no call running, so the mutation that reads the running call's claims fails four cases at once.
+- **Retro:** the writer in the grant case had to be the universe's second login, a plain member. Its first login is an admin, whose bit bypasses the grant, and the case would have passed for the wrong reason.
+- **Close-out:** the JSDoc on `WireRecordedClaims` no longer cites ADR-016 for a sentence the ADR lost in Phase 1.
+

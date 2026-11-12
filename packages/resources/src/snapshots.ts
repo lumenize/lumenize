@@ -43,8 +43,7 @@ const LATEST_MOMENT_KEY = 'resources:latestMoment';
  * subtract): identity (`sub` + the complete `act` chain, actor `profileId`s included — display-only,
  * public per ADR-012/013) plus the subject's `profileId`, and nothing else. The column stores the full
  * `RecordedClaims` including the asserted `access`; `access` never rides a snapshot off the DO —
- * a reader has no claim to the writer's asserted authority, and ADR-016 already forbids reading it
- * back as an authz input. Allow-list so a field later added to the record stays withheld without
+ * a reader has no claim to the writer's asserted authority. Allow-list so a field later added to the record stays withheld without
  * anyone deciding (the same shape as ADR-012's private-by-default).
  */
 export interface WireRecordedClaims {
@@ -392,6 +391,25 @@ export class Snapshots {
   }
 
   // ─── Public API ───────────────────────────────────────────────────
+
+  /**
+   * The full record of a resource's current snapshot, `access` and `aud` included, with the moment
+   * it was written at. No permission check, and never off the Durable Object: every read a Client
+   * can reach goes through {@link read}'s allow-list instead. Its one caller is
+   * `Resources.actUnderClaimsOf`.
+   */
+  currentRecord(resourceId: string): { validFrom: string; deleted: boolean; recordedClaims: RecordedClaims } | null {
+    const row = this.#ctx.storage.sql.exec(
+      `SELECT validFrom, deleted, recordedClaims FROM Snapshots WHERE resourceId = ? ORDER BY validFrom DESC LIMIT 1`,
+      resourceId,
+    ).toArray()[0];
+    if (!row) return null;
+    return {
+      validFrom: row.validFrom as string,
+      deleted: Boolean(row.deleted),
+      recordedClaims: JSON.parse(row.recordedClaims as string) as RecordedClaims,
+    };
+  }
 
   read(resourceId: string): Snapshot | null {
     const snapshot = this.#getCurrentSnapshot(resourceId);

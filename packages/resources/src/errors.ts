@@ -72,6 +72,30 @@ export class WipedMidTransactionError extends Error {
   }
 }
 
+/**
+ * Thrown by `Resources.actUnderClaimsOf` when the snapshot it was asked to act under is no longer
+ * the resource's current one: the resource was written again, or deleted, since the caller read it.
+ * Nothing has run when it is thrown. Detect it by `name`, as its neighbours are.
+ */
+export class ResourceMovedOnError extends Error {
+  override name = 'ResourceMovedOnError';
+  constructor(
+    public readonly resourceId: string,
+    /** The `validFrom` the caller named. */
+    public readonly named: string,
+    /** The resource's current `validFrom`, or absent when it is deleted or was never written. */
+    public readonly current?: string,
+  ) {
+    super(`Resource ${resourceId} has moved on since ${named}: nothing was done under its earlier record`);
+  }
+}
+
+/** Type guard for {@link ResourceMovedOnError} that works across the wire (`name` + shape). */
+export function isResourceMovedOnError(err: unknown): err is ResourceMovedOnError {
+  return err instanceof Error && err.name === 'ResourceMovedOnError'
+    && typeof (err as { resourceId?: unknown }).resourceId === 'string';
+}
+
 import type { PermissionTier } from './org-ops';
 
 /**

@@ -76,6 +76,43 @@ export class ResourcesHostDO extends ScopedMeshDO<Env> implements ResourcesHost 
   get resourcesResults(): ResourcesResults {
     return this.#resources.results;
   }
+
+  // ── Probes for `actUnderClaimsOf`, which only a host's own code calls (act-under-claims-of.test.ts).
+  // A test calls them on the stub, so no call context is running: whatever the block reads came
+  // from the stored record.
+
+  /** The current `validFrom` of `resourceId`, read from storage. */
+  currentValidFrom(resourceId: string): string | undefined {
+    const row = this.ctx.storage.sql.exec(
+      'SELECT validFrom FROM Snapshots WHERE resourceId = ? ORDER BY validFrom DESC LIMIT 1', resourceId).toArray()[0];
+    return row?.validFrom as string | undefined;
+  }
+
+  /** Run a block under one snapshot's claims, and answer what it read, or what refused it. */
+  probeActUnder(resourceId: string, validFrom: string, principal: string):
+    { ran: boolean; claims?: Record<string, any>; error?: { name: string; message: string } } {
+    let ran = false;
+    try {
+      const claims = this.#resources.actUnderClaimsOf(resourceId, validFrom, principal, () => {
+        ran = true;
+        return this.lmz.callContext.originAuth?.claims as Record<string, any> | undefined;
+      });
+      return { ran, claims };
+    } catch (e) {
+      return { ran, error: { name: (e as Error).name, message: (e as Error).message } };
+    }
+  }
+
+  /** Create a `Board` at `nodeId` from inside the block, through the plane's own write path. */
+  createUnder(resourceId: string, validFrom: string, principal: string, newId: string, nodeId: string): Promise<TransactionResult> {
+    return this.#resources.actUnderClaimsOf(resourceId, validFrom, principal, () =>
+      this.#resources.doTransaction({ [newId]: { op: 'create', typeName: 'Board', nodeId, value: { title: 'under a record' } } }, ''));
+  }
+
+  /** Whether the surface the `@mesh()`-decorated `resources` getter hands the wire has `member`. */
+  requestsHas(member: string): boolean {
+    return member in this.#resources.requests;
+  }
 }
 
 /** A node under the seeded host's root where its local principal holds a protected `write`. */

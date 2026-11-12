@@ -47,7 +47,7 @@ import type { QueryDescriptor, QueryUpdatePayload, SubscriberEntry } from './que
 import { parse } from '@lumenize/structured-clone';
 import type { OperationDescriptor, TransactionResult, Snapshot } from './snapshots';
 import type { OntologyVersionRow } from './ontology-version';
-import { OntologyStaleError, WipedMidTransactionError } from './errors';
+import { OntologyStaleError, ResourceMovedOnError, WipedMidTransactionError } from './errors';
 
 /**
  * Where a host's ontology comes from — the one ontology decision a host keeps (ADR-007's
@@ -1146,6 +1146,27 @@ export class Resources {
       });
       throw err instanceof Error ? err : new Error(String(err));
     }
+  }
+
+  /**
+   * Run `fn` under the claims recorded on one snapshot, with `principal`, the host's local
+   * principal, as actor (`lmz.actFor`). For a host acting on a person's stored request: the record
+   * is the one the server stamped when that person wrote the resource, so the host names a
+   * resource and never handles anyone's claims.
+   *
+   * The snapshot is named by its `validFrom`, as a write names the version it worked from. Host
+   * code calls this in-process; it is on neither surface a host hands the wire.
+   *
+   * @throws ResourceMovedOnError before `fn` runs, when `validFrom` is not the resource's current
+   *   one or the resource is deleted; and whatever `lmz.actFor` refuses, a local principal's own
+   *   record among them.
+   */
+  actUnderClaimsOf<T>(resourceId: string, validFrom: string, principal: string, fn: () => T): T {
+    const current = this.#snapshots.currentRecord(resourceId);
+    if (!current || current.deleted || current.validFrom !== validFrom) {
+      throw new ResourceMovedOnError(resourceId, validFrom, current && !current.deleted ? current.validFrom : undefined);
+    }
+    return this.#lmz().actFor(current.recordedClaims, principal, fn);
   }
 
   /** Read a resource (DAG read-permission enforced in `Snapshots.read`) and RETURN it — the framework
