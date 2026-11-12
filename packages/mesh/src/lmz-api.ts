@@ -211,9 +211,6 @@ function actForRecord<T>(record: RecordedClaims, principal: string, origin: stri
   if (typeof record?.sub !== 'string' || !UUID_SHAPE.test(record.sub)) {
     throw new TypeError(`Cannot act for this record: its sub is not shaped like a person's id`);
   }
-  if (record.act?.sub === principal) {
-    throw new Error(`Cannot act for this record: '${principal}' is already its outermost actor`);
-  }
   const built = {
     callChain: [],
     originAuth: {
@@ -669,7 +666,9 @@ export interface LmzApi {
    * @internal Record the origin this node's own pages are served on, from a Client's accepted
    * upgrade. Rewrites the stored address only when the scheme or the port differs from the stored
    * origin's: every host of a deployment shares both, so a persona's host on a `.dev` Star writes
-   * nothing, and production writes once. A node that hosts no Clients never has one.
+   * nothing, and production writes once. A node that hosts no Clients never has one. The stored
+   * host is that of the first accepted upgrade, which on a `.dev` Star can be a persona's, so a
+   * reader relies on the scheme and port alone.
    */
   __setOrigin?(origin: string): void;
 
@@ -723,8 +722,7 @@ export interface LmzApi {
    * that hosts Clients also hands the chain its own origin, as `originRequest.origin`.
    *
    * @throws Error if `principal` is empty or shaped like a UUID; TypeError if the record's `sub` is
-   *   not shaped like a person's id, as a local principal's own is not; Error if `principal` is
-   *   already the record's outermost actor.
+   *   not shaped like a person's id, as a local principal's own is not.
    */
   actFor<T>(record: RecordedClaims, principal: string, fn: () => T): T;
 

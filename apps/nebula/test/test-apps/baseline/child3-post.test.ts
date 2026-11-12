@@ -212,7 +212,7 @@ describe('child3 Phase 4 — client posts the user Message', () => {
   });
 
   // Pure, so it needs no running system: no write records a person with the agent acting for
-  // them until a turn's tools run under a held post, and the walk is a function of the record.
+  // them until a turn's tools run under a post's recorded claims, and the walk is a function of the record.
   // Mutations: read `kind` from the outermost `act` → the agent's own record reads human and the
   // person's reads agent; drop the chain walk → the middle entry is missing.
   it('kind and the byline walk read the record: the agent as subject is the agent, and a person the agent acted for is a person', () => {

@@ -17,8 +17,9 @@
  * whichever it picks. `waiting-posts.test.ts` gates the choices, with the model scripted.
  *
  *  1. **The turn on the first words acted on nothing.** Its message records no tool call that
- *     ran. The request asks for a file to be read, so a turn that was not stopped would have
- *     one. Mutation: act under the post's current record whatever its `validFrom`, and the
+ *     ran, and its loop ended `post-moved`. The request asks for a file to be read, so a turn
+ *     that was not stopped would have run one. A model that answers without any tool call
+ *     leaves nothing to stop, and the limb then says it was not exercised. Mutation: act under the post's current record whatever its `validFrom`, and the
  *     `read_file` runs and is recorded.
  *  2. **That turn's message answers no post.** It replies to nothing and names no post, and
  *     says in our own words that the post changed. Mutation: keep `replyTo` when the post
@@ -48,7 +49,7 @@ const LOOP_TOOLS = ['read_file', 'write_file', 'edit_file', 'build', 'invite'];
 const MOVED = 'The post I was working on was changed while I worked';
 
 type ToolCall = { name: string; error?: string; post?: string; claims?: { sub?: string; act?: { sub?: string } } };
-type Value = { content?: string; replyTo?: string; answers?: string[]; codegen?: { toolCalls?: ToolCall[] } };
+type Value = { content?: string; replyTo?: string; answers?: string[]; codegen?: { stop?: string; toolCalls?: ToolCall[] } };
 
 export async function run(stack: DevStack): Promise<void> {
   const cast = await chatCast(stack, SCOPE, readDevVar('TEST_TOKEN'));
@@ -92,7 +93,10 @@ export async function run(stack: DevStack): Promise<void> {
     const ran = (value.codegen?.toolCalls ?? []).filter((tc) => LOOP_TOOLS.includes(tc.name) && tc.error === undefined);
     assert.deepEqual(ran.map((tc) => tc.name), [],
       'a turn whose post was edited before its first tool call must record no tool call that ran');
-    console.error('  ✓ limb 1 — the turn on the first words ran no tool');
+    // The model may have answered without calling a tool at all, in which case nothing was
+    // there to stop: the loop ends `post-moved` only when a tool call met the moved post.
+    if (value.codegen?.stop === 'post-moved') console.error('  ✓ limb 1 — the turn on the first words was stopped at its first tool call, and ran none');
+    else console.error(`  · limb 1 not exercised: the turn called no tool (it ended ${value.codegen?.stop}), so there was no call to stop`);
 
     // ── LIMB 2: its message answers no post ──
     assert.equal(value.replyTo, undefined, "the stopped turn's message must reply to no post");

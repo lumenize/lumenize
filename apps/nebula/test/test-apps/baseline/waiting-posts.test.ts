@@ -369,6 +369,34 @@ describe('a post edited while its turn runs', () => {
     c.dispose();
   });
 
+  // The comparison at the close and the commit are not one step: the commit validates first,
+  // which awaits. The probe holds the commit there, the edit lands, and the commit goes on.
+  // Mutation: drop the look after the commit → the message answers the post, and the edited
+  // words are never worked.
+  it('is caught after the commit when the edit lands between the close\'s comparison and the commit', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
+    const j1 = crypto.randomUUID();
+    await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<GalaxyTest>().holdNextAgentCommitForTest());
+    await c.seed([say('Here is my answer.'), call('mark_complete', { answers: [j1] }, 'And to what you wrote instead.')]);
+    await post(c.j, j1, 'A question.');
+    const held = () => entries.some((e) => e.namespace === 'nebula.GalaxyTest.commit' && e.data?.instanceName === scope);
+    await vi.waitFor(() => expect(held()).toBe(true), { timeout: 15_000 });
+    // No message yet, and the turn has already compared: the edit lands in that gap.
+    expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(0);
+    await rewrite(c.j, j1, 'A different question.');
+    await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<GalaxyTest>().releaseAgentCommitForTest());
+    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(2), { timeout: 20_000 });
+
+    const messages = await agentMessages(c.j, sub.resourceIds);
+    const first = valueOf(messages.get(`Here is my answer.\n\n${POST_MOVED}`)!);
+    expect([first.replyTo, first.answers]).toEqual([undefined, undefined]);
+    expect(valueOf(messages.get('And to what you wrote instead.')!).answers).toEqual([j1]);
+    expect(await c.waiting()).toEqual([]);
+    c.dispose();
+  });
+
   // A deleted post has no words left to answer, and nothing waits.
   // Mutation: treat a missing post as unchanged at the close → the message replies to a post
   // that is gone.
@@ -425,7 +453,7 @@ describe('a post edited while its turn runs', () => {
 describe('a decision may pick only a post it was offered', () => {
   // Mutation: pass the model's id on without checking it against the waiting posts → a turn
   // starts on a post already answered, and then on the agent's own message.
-  it('a pick of an answered post, or of the agent\'s own message, is refused and starts no turn', async () => {
+  it('a pick of an answered post, of the agent\'s own message, or of a resource that is no post, is refused and starts no turn', async () => {
     const scope = uniqueScope();
     const c = await cast(scope);
     using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
@@ -449,8 +477,14 @@ describe('a decision may pick only a post it was offered', () => {
     await post(c.a, a2, 'Hello?');
     await vi.waitFor(() => expect(turnLines(scope, 'decision')).toHaveLength(2), { timeout: 20_000 });
     expect(turnLines(scope, 'decision')[1]).toMatchObject({ postId: null, refusedPick: agentMessageId });
-    // Two turns took a post up, one for each post that started one. Neither refused pick did.
-    expect(turnLines(scope, 'took up').map((l) => l.postId)).toEqual([j1, a2]);
+    // A third decision, which names the chat itself: a resource, and no post.
+    const a3 = crypto.randomUUID();
+    await c.seed([say('Hello a third time.'), call('take_up', { postId: DEFAULT_CHAT_ID })]);
+    await post(c.a, a3, 'Still there?');
+    await vi.waitFor(() => expect(turnLines(scope, 'decision')).toHaveLength(3), { timeout: 20_000 });
+    expect(turnLines(scope, 'decision')[2]).toMatchObject({ postId: null, refusedPick: DEFAULT_CHAT_ID });
+    // Three turns took a post up, one for each post that started one. No refused pick did.
+    expect(turnLines(scope, 'took up').map((l) => l.postId)).toEqual([j1, a2, a3]);
     c.dispose();
   });
 });

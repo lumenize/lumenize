@@ -87,7 +87,7 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
     for (const entry of named.filter((name) => callable.has(name))) expect(chat).toContain(entry);
     // The exact chat-floor set: the table's three decorated entries, and nothing else.
     expect(chat).toEqual(['buildNow', 'readSource', 'writeSource']);
-    // `invite` is on no wire: a loop tool calls it in-process, inside a held post's call, and a
+    // `invite` is on no wire: a loop tool calls it in-process, under the claims recorded on its turn's post, and a
     // client already has `resources.invite`, so a decorated entry would only be a second door.
     expect(named.filter((name) => !callable.has(name))).toEqual(['invite']);
     expect(typeof (Galaxy.prototype as unknown as Record<string, unknown>).invite).toBe('function'); // it exists, undecorated

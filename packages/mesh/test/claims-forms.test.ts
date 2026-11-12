@@ -45,7 +45,7 @@ async function refusalOf(instance: string, which: string): Promise<string> {
 
 describe('lmz.actFor — an object that is no record', () => {
   // A node cannot pass off a running call's claims as a record: the object has no `sub` of its
-  // own. Mutation: read `originAuth` off the argument → it runs.
+  // own. Mutation: drop the shape check on `sub` → it runs.
   it('refuses an object that only carries a call\'s claims', async () => {
     expect(await refusalOf('act_for_forged_1', 'forged')).toMatch(/not shaped like a person's id/);
   });
@@ -132,12 +132,6 @@ describe('lmz.actFor — a node acts under a stored record', () => {
   it('refuses a record a local principal wrote as itself', async () => {
     expect(await recordRefusal('own', { sub: PRINCIPAL, profileId: PRINCIPAL, aud: 'beta.shop', access: { authScope: 'beta.shop' } }))
       .toMatch(/not shaped like a person's id/);
-  });
-
-  // MUTATION: drop the check on the outermost actor, and the principal is prepended twice.
-  it('refuses a record the principal already acts in', async () => {
-    expect(await recordRefusal('twice', { ...RECORD, act: { sub: PRINCIPAL, profileId: PRINCIPAL } }))
-      .toMatch(/already its outermost actor/);
   });
 
   // MUTATION: skip the name check on the principal, and it runs.

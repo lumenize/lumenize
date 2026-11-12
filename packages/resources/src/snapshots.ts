@@ -394,9 +394,10 @@ export class Snapshots {
 
   /**
    * The full record of a resource's current snapshot, `access` and `aud` included, with the moment
-   * it was written at. No permission check, and never off the Durable Object: every read a Client
-   * can reach goes through {@link read}'s allow-list instead. Its one caller is
-   * `Resources.actUnderClaimsOf`.
+   * it was written at. No permission check, and never handed to a Client as a snapshot: every
+   * read a Client can reach goes through {@link read}'s allow-list instead. Its one caller is
+   * `Resources.actUnderClaimsOf`, which runs a block under the record, so the claims then ride
+   * that block's calls as any caller's do.
    */
   currentRecord(resourceId: string): { validFrom: string; deleted: boolean; recordedClaims: RecordedClaims } | null {
     const row = this.#ctx.storage.sql.exec(

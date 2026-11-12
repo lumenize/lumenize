@@ -625,6 +625,34 @@ export class GalaxyTest extends Galaxy {
     await this.runTriggeredTurn(post, message);
   }
 
+  /** While set, the next agent commit waits here, after the turn's last look at its post. */
+  #commitGate: { promise: Promise<void>; release: () => void } | undefined;
+
+  /** Hold the next agent commit until `releaseAgentCommitForTest`, so a test can land an edit
+   *  between a turn's comparison at the close and the commit that follows it. Nothing else can
+   *  arrange that order: the window is one validation call wide. */
+  @mesh(requireDominionHere)
+  holdNextAgentCommitForTest(): void {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => { release = resolve; });
+    this.#commitGate = { promise, release };
+  }
+
+  @mesh(requireDominionHere)
+  releaseAgentCommitForTest(): void {
+    this.#commitGate?.release();
+    this.#commitGate = undefined;
+  }
+
+  protected override async commitAgentMessage(...args: Parameters<Galaxy['commitAgentMessage']>): Promise<void> {
+    const gate = this.#commitGate;
+    if (gate) {
+      debug('nebula.GalaxyTest.commit').info('agent commit held', { instanceName: this.lmz.instanceName });
+      await gate.promise;
+    }
+    return super.commitAgentMessage(...args);
+  }
+
   /** Seed the fake-model script for turns the REAL commit hook will trigger (a
    *  `postUserMessage` commit fires `#onChatCommitted` in the same isolate, so the
    *  seeded script is what its generation consumes). Ephemeral by design. */

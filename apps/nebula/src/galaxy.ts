@@ -1394,9 +1394,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * `preview` is the only option passed on, so nothing a caller sends decides how its landing is
    * recorded.
    *
-   * Every in-process caller has already passed the chat floor: the loop's `build` tool runs inside
-   * a turn whose post passed the Message create's DAG `write` at the chat node, the same check
-   * `requireChatWrite` makes here. Each call logs the claims it ran under, the ADR-016 record
+   * An in-process call skips the decorator's guard, so the loop's `build` tool makes the same
+   * `requireChatWrite` check itself, under the claims recorded on the post its turn took up,
+   * each time it runs (`runCodegenTurn`). Each call logs the claims it ran under, the ADR-016 record
    * of who asked for a build, since the `ServedBuild` a landing writes is the agent's: a
    * person's own for a direct call, and the poster's with the agent as actor for a turn's.
    */
@@ -1922,6 +1922,13 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       codegen,
       answers,
     });
+    // The comparison above and that commit are not one step: the commit validates its value
+    // first, which awaits, and an edit can land in the wait. It starts nothing, since this turn
+    // still has the post. So look once more, and take the answer back if the post moved.
+    if (!moved && this.#thread().find(({ id }) => id === userMessageId)?.snap.meta.validFrom !== post.validFrom) {
+      debug('nebula.Galaxy.turn').info('the post moved on as this turn answered it: the answer is taken back', { instanceName: this.lmz.instanceName, postId: userMessageId });
+      await this.#takeAnswerBack(agentMessageId, userMessageId);
+    }
     // (No reload is asked for here: a turn's last build that landed recorded `.dev`'s newest
     // `ServedBuild`, which every Studio on the app hears, as a manual `buildNow()`'s does.)
   }
@@ -1999,6 +2006,29 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     debug('nebula.Galaxy.stream').debug('commit', { messageId, len: content.length });
     await this.lmz.asLocalPrincipal(NEBULA_SUB, () =>
       this.#resources.ensureResource(messageId, 'Message', nodeId, value));
+  }
+
+  /**
+   * Rewrite the agent's own message `messageId` so that it no longer answers `postId`: it
+   * replies to nothing, names every other post it named, and says in our own words that the
+   * post changed. The agent's write, on its own grant. A message that is not there, or that
+   * moved on in turn, is left as it is: the post it answered is then somebody's edit of it.
+   */
+  async #takeAnswerBack(messageId: string, postId: string): Promise<void> {
+    await this.lmz.asLocalPrincipal(NEBULA_SUB, async () => {
+      const current = this.#resources.doRead(messageId);
+      if (!current) return;
+      const was = current.value as { chat: string; content: string; answers?: string[]; thought?: string; codegen?: Record<string, unknown> };
+      const value = agentMessageValue({
+        chat: was.chat, content: `${was.content}\n\n${POST_MOVED_LINE}`,
+        answers: (was.answers ?? []).filter((id) => id !== postId),
+        ...(was.thought !== undefined ? { thought: was.thought } : {}),
+        ...(was.codegen !== undefined ? { codegen: was.codegen } : {}),
+      });
+      await this.#resources.doTransaction({
+        [messageId]: { op: 'put', ifValidFromMatches: current.meta.validFrom, value },
+      }, '');
+    });
   }
 
   /**
@@ -2377,7 +2407,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * `this.writeSource()` / `this.buildNow()` are the ordinary calls they look like, made
    * in-process, where a guard on the decorator does not run: `runCodegenTurn` runs each
    * under the claims recorded on the post its turn took up, makes the chat floor's check itself
-   * for the source entries, and offers none of them to a turn that took up no post. `protected` so a test probe can
+   * for the source entries. `protected` so a test probe can
    * assert the keys are exactly the table's.
    */
   protected loopToolDeps(): LoopToolDeps {

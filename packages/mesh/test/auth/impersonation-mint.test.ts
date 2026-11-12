@@ -336,7 +336,7 @@ describe('the impersonation mint', () => {
       expect(refusalOf(await mint(actBearing.access_token, user.parsed.sub))).toMatch(/root identity/);
     });
 
-    // A chain a node starts with `lmz.actFor` carries the held caller's claims with the node's local
+    // A chain a node starts with `lmz.actFor` carries a stored record's claims with the node's local
     // principal prepended, the shape `claims-forms.test.ts` pins. The caller here holds dominion and
     // calls from the SUBJECT's own host, so eligibility passes and only the root-identity gate can
     // refuse. Mutation: delete the gate → it mints → this reds.
@@ -442,7 +442,7 @@ describe('the acting principal is recorded (ADR-016)', () => {
     });
     // (3) `profileId` — display-only, write-time-pinned.
     expect(record.data.recordedClaims.profileId).toBe(starAdmin.parsed.profileId);
-    // (4) The `access` entry — what authority was ASSERTED. Never read back as an authz input.
+    // (4) The `access` entry — what authority was asserted at the write.
     expect(record.data.recordedClaims.access).toEqual({ authScope: star, scopeAdmin: true });
     // (5) The page the token was minted for. Mutation: drop `aud` from the projection → reds.
     expect(record.data.recordedClaims.aud).toBe(star);

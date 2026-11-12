@@ -42,7 +42,7 @@ export {
   NodeIdCollisionError,
   ProtectedGrantError,
   NoOntologyInstalledError, isNoOntologyInstalledError,
-  ResourceMovedOnError, isResourceMovedOnError,
+  ResourceMovedOnError,
 } from './errors';
 
 // The org tree

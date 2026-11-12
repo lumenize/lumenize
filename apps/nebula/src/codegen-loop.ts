@@ -203,7 +203,7 @@ export const CODEGEN_TOOLS = [
         'bundle ok, and any remaining type findings are ones you have judged harmless. A build ' +
         'you did not preview is served nowhere. Your text beside this call is the message ' +
         'everyone reads. Pass answers: the ids of the OTHER posts that message answers, each ' +
-        'done, refused or asked back; the post this turn took up is always counted.',
+        'done, refused or asked back; the post this turn took up is counted without being named.',
       parameters: {
         type: 'object',
         additionalProperties: false,

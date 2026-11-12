@@ -90,12 +90,6 @@ export class ResourceMovedOnError extends Error {
   }
 }
 
-/** Type guard for {@link ResourceMovedOnError} that works across the wire (`name` + shape). */
-export function isResourceMovedOnError(err: unknown): err is ResourceMovedOnError {
-  return err instanceof Error && err.name === 'ResourceMovedOnError'
-    && typeof (err as { resourceId?: unknown }).resourceId === 'string';
-}
-
 import type { PermissionTier } from './org-ops';
 
 /**
