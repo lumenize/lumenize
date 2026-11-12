@@ -387,3 +387,15 @@ The experiment turned up two more things any design has to handle. `@swc/core` 1
 - **What reconciles on wake:** Item 6's *Consider reconciling on wake* bullet, which destroys a build box no build owns.
 
 **Trigger:** evictions that leave posts waiting long enough for someone to notice during pre-alpha. Larry, 2026-11-11: if it proves a problem, it moves to the top of this list.
+
+## Item 16: Studio replies to a message, and never edits one
+
+**Goal:** a person who wants to correct or build on an earlier chat message replies to it, and Studio shows the reply with the message it answers. Studio offers no way to edit a message, its author's own included (Larry, 2026-11-12).
+
+**Why not editing.** Any chat member may `put` any message, since a `put` needs only `write` on `chat`. An edit of an agent message makes it the editor's post by its record: it stops answering what it named, so that post waits again, and the edited message starts a turn under the editor's claims ([nebula-agent-posts-as-itself.md](nebula-agent-posts-as-itself.md) § *Build notes*, and `waitingPosts` in `apps/nebula/src/participants.ts`). That is traceable and gives nobody claims they lack, but a typo fix re-runs work.
+
+**Today:** Studio has no edit control, so an edit comes only from code calling the client API. A message already carries `replyTo`, which the agent's messages set.
+
+**Open:** whether the affordance is a reply, which sets `replyTo` on the new post, or a quote, which copies the earlier message's text into it. Larry leaned toward the reply.
+
+**Not this item:** refusing the edit below Studio. `tasks/backlog.md` § *Nebula* has that row, *Only a message's author, or nobody, can change it*.

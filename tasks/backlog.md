@@ -675,6 +675,7 @@ Strengthen the case that Nebula's data layer is an *ontology* (not just a typed 
 
 ### Other Nebula backlog
 
+- [ ] **Only a message's author, or nobody, can change it — refused by Resources, not by Studio (Larry, 2026-11-12).** Every chat message lives at the one `chat` node, where a `put` needs only `write`, so any member can rewrite any message, the agent's included. An edited agent message becomes the editor's post, the post it answered waits again, and the edit starts a turn under the editor's claims. Refusing it in the orgTree means each message, or each author's messages, sits at a node of its own with its own grant, so the chat's content moves down the tree. That is a large change and not soon. Until then Studio offers no edit control: [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 16: Studio replies to a message, and never edits one*.
 
 - [ ] **A generated app passed the string `"ROOT_NODE_ID"` as a node id (2026-10-15).** test-nebula raised a new Workers Issue, `NodeNotFoundError: Node ROOT_NODE_ID not found`, twice at 01:04Z while `first-app-built` ran. Studio's guidance (`apps/nebula/platform/AGENTS.md`, `apps/nebula/platform/skills/wire-a-view/SKILL.md`) names `ROOT_NODE_ID` and says to import it from `@lumenize/resources/frontend`, and the model wrote the name as a string instead. A literal import line in the guidance, or an error that says the id looks like the constant's name, would steer it.
 
