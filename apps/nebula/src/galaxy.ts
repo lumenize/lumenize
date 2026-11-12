@@ -1730,7 +1730,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       });
       const text = parsed.text.trim();
       if (text.length > 0) {
-        await this.commitAgentMessage(DEFAULT_CHAT_ID, crypto.randomUUID(), text, CHAT_NODE_ID, undefined, { answers });
+        // The decision read each waiting post once, before its model call.
+        const read = new Map(posts.map(({ id, snap }) => [id, snap.meta.validFrom]));
+        await this.#commitAnswering(crypto.randomUUID(), text, undefined, answers, read, {});
       }
       return false;
     };
@@ -1823,6 +1825,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // The tree the turn READ — captured BEFORE the loop writes (the codegen record's
     // `sourceCommit`; git is local to this DO's VFS, so the ref recovers the bytes).
     const sourceCommit = (await this.headCommit())?.oid;
+    // Each post the model is shown this turn, with the `validFrom` of the snapshot it was shown.
+    const read = new Map<string, string>();
     const result = await this.runCodegenTurn(
       message, DEFAULT_LOOP_CONFIG,
       (step) => this.#chatProgress(agentMessageId, step, userMessageId),
@@ -1830,6 +1834,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         // The post the turn took up: excluded from the history bundle, since the request
         // bundle carries it, once, and the post every tool call acts for.
         tookUp: post,
+        read,
         // The structural warm: the first write of the turn.
         onFirstWrite: () => warm.fire(),
       },
@@ -1907,28 +1912,12 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // The client reconciles its ephemeral stream against it by id.
     // The other posts the model says its message answers, kept only where they are people's
     // posts in this thread: the model's word is the one source for what a message answers.
-    const now = this.#thread();
-    const posts = new Set(now.filter(({ snap }) => deriveKind(snap.meta.recordedClaims) === 'human').map(({ id }) => id));
-    // The post the turn took up may have been edited or deleted while it ran: a tool call found
-    // so and stopped the loop, or nothing looked since the last one. Either way this message was
-    // written for words that are no longer the post, so it answers no post of that id, whatever
-    // the model named. The post waits again, and the decision after this turn can take it up.
-    const moved = now.find(({ id }) => id === userMessageId)?.snap.meta.validFrom !== post.validFrom;
-    if (moved) debug('nebula.Galaxy.turn').info('the post moved on: this turn answers none of it', { instanceName: this.lmz.instanceName, postId: userMessageId });
-    const answers = (result.answers ?? []).filter((id) => posts.has(id) && !(moved && id === userMessageId));
-    const closing = moved && result.stop !== 'post-moved' ? `${reply}\n\n${POST_MOVED_LINE}` : reply;
-    await this.commitAgentMessage(DEFAULT_CHAT_ID, agentMessageId, closing, CHAT_NODE_ID, moved ? undefined : userMessageId, {
-      thought,
-      codegen,
-      answers,
-    });
-    // The comparison above and that commit are not one step: the commit validates its value
-    // first, which awaits, and an edit can land in the wait. It starts nothing, since this turn
-    // still has the post. So look once more, and take the answer back if the post moved.
-    if (!moved && this.#thread().find(({ id }) => id === userMessageId)?.snap.meta.validFrom !== post.validFrom) {
-      debug('nebula.Galaxy.turn').info('the post moved on as this turn answered it: the answer is taken back', { instanceName: this.lmz.instanceName, postId: userMessageId });
-      await this.#takeAnswerBack(agentMessageId, userMessageId);
-    }
+    const posts = new Set(this.#thread().filter(({ snap }) => deriveKind(snap.meta.recordedClaims) === 'human').map(({ id }) => id));
+    const answers = (result.answers ?? []).filter((id) => posts.has(id));
+    // The post this turn took up is read as the snapshot the turn took up, whatever the thread
+    // held when the history was built.
+    read.set(userMessageId, post.validFrom);
+    await this.#commitAnswering(agentMessageId, reply, userMessageId, answers, read, { thought, codegen });
     // (No reload is asked for here: a turn's last build that landed recorded `.dev`'s newest
     // `ServedBuild`, which every Studio on the app hears, as a manual `buildNow()`'s does.)
   }
@@ -2009,19 +1998,53 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   }
 
   /**
-   * Rewrite the agent's own message `messageId` so that it no longer answers `postId`: it
-   * replies to nothing, names every other post it named, and says in our own words that the
-   * post changed. The agent's write, on its own grant. A message that is not there, or that
-   * moved on in turn, is left as it is: the post it answered is then somebody's edit of it.
+   * Commit an agent message that answers posts, each only if it still reads as the model read
+   * it. `read` holds, for every post the model was shown, the `validFrom` of the snapshot shown.
+   * A post edited or deleted since is dropped from what the message answers, whatever the model named, so its new words wait for a turn that reads them.
+   * When the dropped post is the one the turn took up, the message replies to nothing and says,
+   * in our own words, that the post changed.
+   *
+   * The comparison and the commit are not one step: the commit validates its value first, which
+   * awaits, and an edit can land in the wait. So the posts are compared once more after the
+   * commit, and an answer to one that moved meanwhile is taken back. That second look would
+   * catch every case alone. The first is what keeps an edit made any earlier to one write, and
+   * keeps a reply from showing in Studio and then losing the post it replied to.
    */
-  async #takeAnswerBack(messageId: string, postId: string): Promise<void> {
+  async #commitAnswering(
+    messageId: string, content: string, replyTo: string | undefined, answers: readonly string[],
+    read: ReadonlyMap<string, string>, extra: { thought?: string; codegen?: Record<string, unknown> },
+  ): Promise<void> {
+    const named = [...new Set([...(replyTo !== undefined ? [replyTo] : []), ...answers])];
+    const kept = this.#unmoved(named, read);
+    const reply = replyTo !== undefined && kept.includes(replyTo) ? replyTo : undefined;
+    if (named.length !== kept.length) {
+      debug('nebula.Galaxy.turn').info('posts moved on: this message answers none of them', {
+        instanceName: this.lmz.instanceName, posts: named.filter((id) => !kept.includes(id)),
+      });
+    }
+    const said = replyTo !== undefined && reply === undefined && !content.includes(POST_MOVED_LINE)
+      ? `${content}\n\n${POST_MOVED_LINE}` : content;
+    await this.commitAgentMessage(DEFAULT_CHAT_ID, messageId, said, CHAT_NODE_ID, reply, {
+      ...extra, answers: kept.filter((id) => id !== reply),
+    });
+    const still = this.#unmoved(kept, read);
+    const gone = kept.filter((id) => !still.includes(id));
+    if (gone.length === 0) return;
+    debug('nebula.Galaxy.turn').info('posts moved on as this message answered them: the answers are taken back', {
+      instanceName: this.lmz.instanceName, posts: gone,
+    });
+    // The agent's own write, on its own grant. A message that is not there, or that moved on in
+    // turn, is left as it is: it is then somebody's edit of the agent's message.
     await this.lmz.asLocalPrincipal(NEBULA_SUB, async () => {
       const current = this.#resources.doRead(messageId);
       if (!current) return;
-      const was = current.value as { chat: string; content: string; answers?: string[]; thought?: string; codegen?: Record<string, unknown> };
+      const was = current.value as { chat: string; content: string; replyTo?: string; answers?: string[]; thought?: string; codegen?: Record<string, unknown> };
+      const lostReply = was.replyTo !== undefined && gone.includes(was.replyTo);
       const value = agentMessageValue({
-        chat: was.chat, content: `${was.content}\n\n${POST_MOVED_LINE}`,
-        answers: (was.answers ?? []).filter((id) => id !== postId),
+        chat: was.chat,
+        content: lostReply && !was.content.includes(POST_MOVED_LINE) ? `${was.content}\n\n${POST_MOVED_LINE}` : was.content,
+        ...(was.replyTo !== undefined && !lostReply ? { replyTo: was.replyTo } : {}),
+        answers: (was.answers ?? []).filter((id) => !gone.includes(id)),
         ...(was.thought !== undefined ? { thought: was.thought } : {}),
         ...(was.codegen !== undefined ? { codegen: was.codegen } : {}),
       });
@@ -2029,6 +2052,12 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         [messageId]: { op: 'put', ifValidFromMatches: current.meta.validFrom, value },
       }, '');
     });
+  }
+
+  /** Of `ids`, the posts whose current snapshot is the one `read` says the model was shown. */
+  #unmoved(ids: readonly string[], read: ReadonlyMap<string, string>): string[] {
+    const now = new Map(this.#thread().map(({ id, snap }) => [id, snap.meta.validFrom]));
+    return ids.filter((id) => now.get(id) === read.get(id));
   }
 
   /**
@@ -2273,6 +2302,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       /** The post this turn took up, and the snapshot of it the turn read. The history bundle
        *  leaves it out, and every tool call runs under its recorded claims. */
       tookUp: TookUp;
+      /** Filled with each post the model is shown, and the `validFrom` of the snapshot shown:
+       *  the thread as the turn starts, and the posts a closing step adds. A message answers a
+       *  post only as it read here ({@link Galaxy.#commitAnswering}). */
+      read?: Map<string, string>;
       /** Called before the turn's FIRST write (`write_file` or `edit_file`) — the
        *  structural container warm (`#chatTurnBody`). */
       onFirstWrite?: () => void;
@@ -2283,6 +2316,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     let ontologyDts: string | undefined;
     try { ontologyDts = await (await this.#workspace()).fs.readFile(wsPath(ONTOLOGY_PATH), 'utf8'); } catch { /* none yet */ }
     const thread = this.#thread();
+    for (const { id, snap } of thread) opts.read?.set(id, snap.meta.validFrom);
     const { bundle: history, labelFor } = this.#historyBundle(thread, opts.tookUp.id);
     const tookUpBy = thread.find(({ id }) => id === opts.tookUp.id)?.snap.meta.recordedClaims.sub;
 
@@ -2342,7 +2376,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       onProgress,
     };
     const result = await runCodegenLoop(initial, deps, config);
-    return this.#closingStep(result, thread, opts.tookUp.id, labelFor);
+    return this.#closingStep(result, thread, opts.tookUp.id, labelFor, opts.read);
   }
 
   /**
@@ -2357,6 +2391,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    */
   async #closingStep(
     result: LoopResult, atStart: Array<{ id: string }>, tookUp: string, labelFor: (sub: string) => string,
+    read?: Map<string, string>,
   ): Promise<LoopResult> {
     if (result.stop !== 'complete' && result.stop !== 'no-tool-calls') return result;
     const seen = new Set(atStart.map(({ id }) => id));
@@ -2364,6 +2399,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     const waiting = new Set(this.#waiting(now));
     const arrived = now.filter(({ id }) => !seen.has(id) && id !== tookUp && waiting.has(id));
     if (arrived.length === 0) return result;
+    for (const { id, snap } of arrived) read?.set(id, snap.meta.validFrom);
     const posts = arrived.map(({ id }) => id);
     debug('nebula.Galaxy.turn').info('closing step', {
       instanceName: this.lmz.instanceName, step: 'closing', postId: tookUp, posts,

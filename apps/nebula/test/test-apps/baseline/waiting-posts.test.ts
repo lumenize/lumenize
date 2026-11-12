@@ -338,6 +338,11 @@ describe('a post edited while its turn runs', () => {
     const messages = await agentMessages(c.j, sub.resourceIds);
     const first = valueOf(messages.get(`Here is my answer.\n\n${POST_MOVED}`)!);
     expect([first.replyTo, first.answers]).toEqual([undefined, undefined]);
+    // The message was written once, already without the answer: the edit came before the commit,
+    // so nothing had to be taken back. Mutation: compare only after the commit → the message is
+    // written answering the post and then rewritten, and the second line appears.
+    expect(turnLines(scope, 'posts moved on: this message answers none of them')).toHaveLength(1);
+    expect(turnLines(scope, 'posts moved on as this message answered them: the answers are taken back')).toEqual([]);
     // The decision that followed answered the post as it now reads.
     expect(valueOf(messages.get('And to what you wrote instead.')!).answers).toEqual([j1]);
     expect(await c.waiting()).toEqual([]);
@@ -446,6 +451,70 @@ describe('a post edited while its turn runs', () => {
     await expect(c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<Galaxy>().readSource('src/stale.txt'))).rejects.toThrow();
     expect(await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<Galaxy>().readSource('src/fresh.txt'))).toBe('for the words as they read now');
     expect(turnLines(scope, 'decision').map((l) => l.postId)).toEqual([a1, a1]);
+    c.dispose();
+  });
+});
+
+describe('a message answers a post only as the model read it', () => {
+  async function rewrite(client: StudioClientTest, id: string, content: string): Promise<void> {
+    const current = await client.resources.read('Message', id) as Snapshot;
+    const out = await client.resources.transaction({
+      [id]: { op: 'put', typeName: 'Message', ifValidFromMatches: current.meta.validFrom, value: { chat: DEFAULT_CHAT_ID, content } },
+    });
+    expect(out.kind).toBe('committed');
+  }
+  const answersOf = (snap: Snapshot) => (snap.value as { answers?: string[] }).answers;
+
+  // A decision reads the waiting posts, then waits on the model. A post edited in that wait is
+  // not the post the model answered. Mutation: commit a decision's message with the answers the
+  // model named, unchecked → the edited post is marked answered and never waits again.
+  it('a decision\'s message does not answer a post edited while its model call was pending', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
+    const [j1, a1] = [crypto.randomUUID(), crypto.randomUUID()];
+    await c.seed([
+      { __delayMs: 1500 }, say('A draft for Jennifer.'), say('Done, Jennifer.'),
+      { __delayMs: 1500 }, call('mark_complete', { answers: [a1] }, 'Austen, noted.'),
+    ]);
+    await post(c.j, j1, 'First request.');
+    await turnUnderWay(scope);
+    await post(c.a, a1, 'Austen\'s request.');
+    await vi.waitFor(() => expect(turnLines(scope, 'request').filter((l) => l.step === 'decision')).toHaveLength(1), { timeout: 15_000 });
+    await rewrite(c.a, a1, 'Austen\'s request, reworded.');
+    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).has('Austen, noted.')).toBe(true), { timeout: 20_000 });
+
+    expect(answersOf((await agentMessages(c.j, sub.resourceIds)).get('Austen, noted.')!)).toBeUndefined();
+    expect(await c.waiting()).toEqual([a1]);
+    c.dispose();
+  });
+
+  // The same for a closing step, which reads the posts that arrived mid-turn and then waits on
+  // the model. Mutation: let the closing message's named posts through unchecked → Austen's
+  // edited post is answered by a message written before her edit.
+  it('a closing message does not answer a post edited while the closing step\'s model call was pending', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
+    const [j1, a1] = [crypto.randomUUID(), crypto.randomUUID()];
+    await c.seed([
+      { __delayMs: 1500 }, say('A draft for Jennifer.'),
+      { __delayMs: 1500 }, call('mark_complete', { answers: [a1] }, 'Done, both of you.'),
+      call('mark_complete', { answers: [a1] }, 'Austen, as you now put it.'),
+    ]);
+    await post(c.j, j1, 'First request.');
+    await turnUnderWay(scope);
+    await post(c.a, a1, 'Austen\'s request.');
+    await vi.waitFor(() => expect(turnLines(scope, 'closing step')).toHaveLength(1), { timeout: 15_000 });
+    await rewrite(c.a, a1, 'Austen\'s request, reworded.');
+    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(2), { timeout: 20_000 });
+
+    const messages = await agentMessages(c.j, sub.resourceIds);
+    // The closing message still answers Jennifer's post, which did not change.
+    expect(answersOf(messages.get('Done, both of you.')!)).toEqual([j1]);
+    // The decision that followed read Austen's post as it now is, and answered that.
+    expect(answersOf(messages.get('Austen, as you now put it.')!)).toEqual([a1]);
+    expect(await c.waiting()).toEqual([]);
     c.dispose();
   });
 });
