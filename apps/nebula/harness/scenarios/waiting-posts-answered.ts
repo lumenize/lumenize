@@ -4,14 +4,14 @@
  *
  * Jennifer owns the app. Austen is a collaborator, enrolled by the real node invite with `write`
  * at the chat node and no admin bit. Jennifer posts, and Austen posts while Jennifer's turn is
- * still running. The Galaxy holds each post's call with the post, so when the agent gets to
+ * still running. Each post is stored with the claims its write carried, so when the agent gets to
  * Austen's post it works under Austen's claims, never under those of whoever happened to post
  * first. The agent itself posts every message as `agent:lumenize`.
  *
  * The model is the real one, and what it does with Austen's waiting post is its own choice: it
  * may take the post up, answer it in a message, or write a message that names nothing. So each
  * limb gates only on what holds whichever it picks, and the scenario records the choice without
- * gating on it. `held-posts.test.ts` gates the choices themselves, with the model scripted.
+ * gating on it. `waiting-posts.test.ts` gates the choices themselves, with the model scripted.
  *
  *  1. **Austen's post waits while Jennifer's turn runs.** The Galaxy logs it as waiting, and
  *     starts no second turn beside the first. This is timing, not the model's choice: a turn is
@@ -61,7 +61,7 @@ import { testSlug } from '../lib/test-scopes';
 /** Chat and auth only: the requests ask for a file to be read and for words, never for code. */
 export const needsContainer = false;
 
-const SCOPE = `${testSlug('held')}.app`;
+const SCOPE = `${testSlug('waits')}.app`;
 /** A real generation fits well inside this; silence past it is the failure. */
 const TURN_TIMEOUT_MS = 240_000;
 const chatQuery = { queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
@@ -70,7 +70,7 @@ type Value = {
   content?: string; replyTo?: string; answers?: string[];
   codegen?: { toolCalls?: Array<{ name: string; error?: string; post?: string; claims?: Record<string, unknown> & { sub?: string; act?: { sub?: string } } }> };
 };
-/** The tools that act, each of which runs inside a held post's call and records it. */
+/** The tools that act, each of which runs under a post's recorded claims and records it. */
 const LOOP_TOOLS = ['read_file', 'write_file', 'edit_file', 'build', 'invite'];
 
 export async function run(stack: DevStack): Promise<void> {

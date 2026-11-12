@@ -151,7 +151,7 @@ describe('the source entries sit at the chat floor', () => {
     owner[Symbol.dispose](); member[Symbol.dispose]();
   });
 
-  it('F5: the poster\'s grant revoked mid-turn refuses neither the turn\'s source write, which runs on the post\'s verdict, nor the reply, which is the agent\'s own write', async () => {
+  it('F5: the poster\'s grant revoked mid-turn refuses the turn\'s source write, which meets the chat floor as it runs, and not the reply, which is the agent\'s own write', async () => {
     // The agent posts as itself, on its own grant at the chat node, so what happens to the
     // poster's grant after the post cannot refuse the reply: the scripted model pauses two
     // seconds before its reply, the OWNER revokes the member's chat-node write inside that
@@ -160,9 +160,10 @@ describe('the source entries sit at the chat floor', () => {
     // reply under the turn's own context, the poster's → the commit is refused at the chat
     // node, no reply lands, the wait reds.
     //
-    // The turn's source write lands after the revoke too: it runs inside the held call of a post
-    // that passed the chat floor when it was posted, and is not checked again. Mutation: check
-    // the chat floor again inside `writeSource` → the tool call records a refusal and no commit.
+    // The turn's source write after the revoke is refused: each source tool makes the chat
+    // floor's check as it runs, under the poster's recorded claims, so taking away a person's
+    // `write` stops the agent working for them. The model reads the refusal as the call's error.
+    // Mutation: skip the check in-process, as a decorator's guard is skipped → the write commits.
     const scope = uniqueScope();
     const { owner, member, payload, grantWrite } = await ownerAndMember(scope);
     await grantWrite();
@@ -182,10 +183,11 @@ describe('the source entries sit at the chat floor', () => {
         const reply = snaps.find((x) => x && deriveKind(x.meta.recordedClaims) === 'agent' && (x.value as { replyTo?: string }).replyTo === posted);
         expect(reply).toBeTruthy();
         expect((reply!.value as { content?: string }).content).toBe('Still here after the revoke.');
-        // The write the turn made after the revoke: under the member's claims, and committed.
+        // The write the turn tried after the revoke: under the member's claims, and refused with
+        // the message a direct call gets, naming the chat node.
         const [write] = (reply!.value as { codegen: { toolCalls: Array<{ name: string; error?: string; claims?: { sub: string }; result?: { oid?: string } }> } }).codegen.toolCalls;
-        expect([write!.name, write!.error, write!.claims?.sub]).toEqual(['write_file', undefined, payload.sub]);
-        expect(write!.result?.oid).toMatch(/^[0-9a-f]{40}$/);
+        expect([write!.name, write!.error, write!.claims?.sub]).toEqual(['write_file', `write permission required on node ${CHAT_NODE_ID}`, payload.sub]);
+        expect(write!.result).toBeUndefined();
       }, { timeout: 15000 });
     } catch (e) {
       // A red says WHY: the Galaxy's own turn entries ride the sink.
@@ -193,6 +195,8 @@ describe('the source entries sit at the chat floor', () => {
         .map((x) => `${x.level} ${x.namespace} ${x.message} ${(x.data?.error as { message?: string } | undefined)?.message ?? JSON.stringify(x.data?.error ?? '')}`);
       throw new Error(`${e instanceof Error ? e.message : String(e)} — the Galaxy's turn entries: ${turn.join(' | ').slice(0, 1500)}`);
     }
+    // Nothing was written.
+    await expect(owner.lmz.callAsync('GALAXY', scope, owner.ctn<Galaxy>().readSource('src/after-revoke.txt'))).rejects.toThrow();
     // The premise held — the grant is gone: the member's direct write is refused now.
     expect(await refusal(galaxy(member, scope).write('src/x.txt', 'x'))).toMatch(/write permission required on node/);
   });

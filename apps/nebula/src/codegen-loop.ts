@@ -39,7 +39,7 @@ export interface ToolCall {
   args: unknown;
   result?: unknown;
   error?: string;
-  /** The held post a loop tool acted for, when one was held for it. */
+  /** The post a loop tool acted for: the one its turn took up. */
   post?: string;
   /** The claims that call ran under, in the form a client may be sent: who, and for whom. */
   claims?: ActedUnder;
@@ -64,15 +64,6 @@ export const TOOL_ARG_TYPE: Record<string, string> = {
   take_up: 'TakeUpArgs',
   invite: 'InviteArgs',
 };
-
-/** The optional argument every loop tool takes: whose claims the call runs under. */
-const POST_ID_PROPERTY = {
-  type: 'string',
-  description:
-    'The id of a held post whose poster\'s claims this call runs under. Leave it out to act ' +
-    'for the post this turn took up. Name another only when that person asked for this work ' +
-    'or said yes to it; a post that is not held is refused.',
-} as const;
 
 /**
  * The tool definitions handed to the model (an OpenAI-shaped `tools` array, converted to JSON for
@@ -102,7 +93,6 @@ export const CODEGEN_TOOLS = [
         required: ['path'],
         properties: {
           path: { type: 'string', description: 'Relative path, e.g. "src/App.vue" or ".platform/docs/resources.md".' },
-          postId: POST_ID_PROPERTY,
         },
       },
     },
@@ -125,7 +115,6 @@ export const CODEGEN_TOOLS = [
         properties: {
           path: { type: 'string', description: 'Relative path, e.g. "src/App.vue".' },
           content: { type: 'string', description: 'The full new file contents.' },
-          postId: POST_ID_PROPERTY,
         },
       },
     },
@@ -148,7 +137,6 @@ export const CODEGEN_TOOLS = [
           path: { type: 'string', description: 'Relative path of an existing file, e.g. "AGENTS.md".' },
           anchor: { type: 'string', description: 'An exact substring of the file, occurring once.' },
           replacement: { type: 'string', description: 'What replaces the anchor (may be several lines, or empty to delete it).' },
-          postId: POST_ID_PROPERTY,
         },
       },
     },
@@ -179,7 +167,6 @@ export const CODEGEN_TOOLS = [
               'Your call on the .dev preview: true lands this build even with type findings you ' +
               'judge harmless, false holds a clean one back. A build you do not preview is served nowhere.',
           },
-          postId: POST_ID_PROPERTY,
         },
       },
     },
@@ -189,8 +176,8 @@ export const CODEGEN_TOOLS = [
     function: {
       name: 'invite',
       description:
-        'Invite a person into this app by email. It runs under the claims of the person whose ' +
-        'post this turn took up, and takes no postId: only an admin of the app can invite, so ' +
+        'Invite a person into this app by email. Like every tool, it runs under the claims of ' +
+        'the person whose post this turn took up: only an admin of the app can invite, so ' +
         'when that person is not one the call is refused, and you should say so and ask an ' +
         'admin in the chat. By default the invitee becomes a collaborator, who can post here ' +
         'and work in the preview. Pass { "scopeAdmin": true } only when you were asked to make ' +
@@ -237,8 +224,8 @@ const MARK_COMPLETE_TOOL = CODEGEN_TOOLS[CODEGEN_TOOLS.length - 1]!;
 
 /**
  * A decision's pick. It reaches no Galaxy entry, as `mark_complete` reaches none, so it is no
- * loop tool: the Galaxy checks the post and then runs the rest of the turn inside that post's
- * held call.
+ * loop tool: the Galaxy checks the post and then runs the rest of the turn under the claims
+ * recorded on it.
  */
 export const TAKE_UP_TOOL = {
   type: 'function',
@@ -246,7 +233,7 @@ export const TAKE_UP_TOOL = {
     name: 'take_up',
     description:
       'Take up one waiting post: the rest of this turn works on it, under its poster\'s claims, ' +
-      'and must end with a message that answers it. Only a post listed as held can be taken up.',
+      'and must end with a message that answers it. Only a post listed as waiting can be taken up.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -261,7 +248,7 @@ export const TAKE_UP_TOOL = {
 /** What a decision is offered: a pick, or a message. No loop tool, since nothing is taken up yet. */
 export const DECISION_TOOLS = [TAKE_UP_TOOL, MARK_COMPLETE_TOOL] as const;
 
-/** What a step with no held post is offered: a message, and nothing that acts. */
+/** What a step that may not act is offered: a message, and nothing else. */
 export const MESSAGE_ONLY_TOOLS = [MARK_COMPLETE_TOOL] as const;
 
 /** Every tool definition the model can be sent, for a lookup by name. */
@@ -284,10 +271,11 @@ How you work:
 - When the app is done and the last build report is acceptable, call mark_complete. When the request needs no change — a question, a conversation — answer it in prose and call no tool.
 - Your reply is what the people in the chat read. Say what you did in a sentence or two; the files themselves are not shown to them.
 Several people may post in one chat:
-- You post as yourself. Everything else you do, you do under the claims of a person whose post you hold, and the held posts are listed after the history. A tool runs under the post this turn took up unless you name another held post in postId.
-- Use a person's claims only for work that person asked for or said yes to, and say in your reply whose authority you used. Ask before acting on what nobody asked for.
+- You post as yourself. Everything else you do in a turn, you do under the claims of the person whose post the turn took up: every tool runs under them, and you cannot choose another's.
+- So do in a turn only what that person asked for or said yes to, and say in your reply whose authority you used. Work another person asked for waits for a turn that takes up their post. Ask before acting on what nobody asked for.
+- A tool is refused when that person lacks the permission it needs, and the refusal says which. Say so in your reply, and ask someone who holds it.
 - End every turn with a message that answers the post it took up. If that message also answers other posts, name them in mark_complete's answers; name a post only when the message answers it, done, refused or asked back, never for work you only promise.
-- When you are asked to decide what to take up next, call take_up with one held post's id, or answer in a message.`;
+- When you are asked to decide what to take up next, call take_up with one waiting post's id, or answer in a message.`;
 
 /**
  * The keys of `args` that `toolName` does not declare in its `parameters.properties`,
@@ -345,12 +333,20 @@ export interface ModelParams {
   max_tokens: number;
 }
 
+/** A tool's throw that means the post the turn took up changed under it: told by `name`, as the
+ *  Resources plane's errors are. Nothing ran, and nothing more may run under the old snapshot. */
+const postMoved = (e: unknown): boolean => e instanceof Error && e.name === 'ResourceMovedOnError';
+/** A refusal for want of a grant, by `name`. */
+const permissionDenied = (e: unknown): boolean => e instanceof Error && e.name === 'PermissionDeniedError';
+const POST_MOVED_DETAIL = 'the post this turn took up was edited or deleted while it ran';
+
 export type StopReason =
   | 'complete'        // mark_complete
   | 'max-depth'       // maxToolDepth cap
   | 'loop-detected'   // identical tool-call repeat OR repeated model text
   | 'no-tool-calls'   // model replied with text only (m2c) — safe termination
   | 'build-unavailable' // the container step failed TWICE in one turn — nothing the model writes changes that
+  | 'post-moved'      // the post the turn took up was edited or deleted while it ran
   | 'error';          // a controlled loop error (never an uncaught crash)
 
 export interface LoopResult {
@@ -377,26 +373,26 @@ export interface LoopResult {
 
 /**
  * The entry-reaching tool deps, keyed by TOOL NAME — one per loop tool that reaches a
- * Galaxy entry (`mark_complete` reaches nothing and is not here). Each takes the `postId` the
- * model named, last: the Galaxy runs the call under that held post's claims, or under the post
- * the turn took up when none is named. The Galaxy builds this
+ * Galaxy entry (`mark_complete` reaches nothing and is not here). None names a post: the Galaxy
+ * runs every one under the claims recorded on the post the turn took up. The Galaxy builds this
  * from its `LOOP_TOOL_ENTRIES` table, which is what makes "a tool cannot reach an entry the
  * table does not name" a property of the table rather than of the loop. Every dep may
- * throw; the loop captures the throw as that call's tool error and the turn continues.
+ * throw; the loop captures the throw as that call's tool error and the turn continues, except a
+ * `ResourceMovedOnError`, which means the post itself changed and ends the loop `post-moved`.
  */
 export interface LoopToolDeps {
   /** Read one file whole — a Workspace path through `readSource`, a `.platform/` path
    *  from the embed; throws naming the path when absent (and the reserved error for
    *  `.universe/`). */
-  read_file(path: string, postId?: string): Promise<string>;
+  read_file(path: string): Promise<string>;
   /** Persist one file (Galaxy.writeSource → Workspace + git commit). PURE — no
    *  compile, no check; the container `build` is where checking happens. A throw
    *  (the entry's path rule, say) is captured as the call's tool error. */
-  write_file(path: string, content: string, postId?: string): Promise<{ oid: string; path: string }>;
+  write_file(path: string, content: string): Promise<{ oid: string; path: string }>;
   /** Replace the one occurrence of `anchor` in the file at `path` — reads, counts,
    *  refuses zero or two-plus matches with nothing written, then writes through
    *  `writeSource`. */
-  edit_file(path: string, anchor: string, replacement: string, postId?: string): Promise<{ oid: string; path: string }>;
+  edit_file(path: string, anchor: string, replacement: string): Promise<{ oid: string; path: string }>;
   /**
    * One ephemeral container build cycle — the job runs each step (ontology compile,
    * SFC type check, `vite build`, which a failed compile skips) against the FUSE-mounted
@@ -405,11 +401,10 @@ export interface LoopToolDeps {
    * model's override (BuildArgs). A throw is captured by the loop into a report whose
    * `container` step failed; it never aborts the turn.
    */
-  build(opts?: { preview?: boolean }, postId?: string): Promise<BuildReport>;
+  build(opts?: { preview?: boolean }): Promise<BuildReport>;
   /**
-   * Invite a person into the app, as a collaborator or, with `scopeAdmin`, as an admin of it. It
-   * takes no `postId`: an invite changes who can do what, so it runs under the post the turn
-   * took up and nothing the model sends can pick another. Throws when that post's poster lacks
+   * Invite a person into the app, as a collaborator or, with `scopeAdmin`, as an admin of it.
+   * Throws when the poster of the post the turn took up lacks
    * dominion over the app, which reaches the model as the call's tool error within the turn.
    */
   invite(email: string, scopeAdmin?: boolean): Promise<{ invited: string; as: 'collaborator' | 'admin'; note: string }>;
@@ -424,11 +419,11 @@ export interface CodegenLoopDeps {
   /** The entry-reaching tools, keyed by tool name ({@link LoopToolDeps}). */
   tools: LoopToolDeps;
   /**
-   * The post a loop tool call acts for and the claims it will run under, given the `postId` the
-   * model named, or `undefined` when no post is held for it. Asked before the call runs, since
-   * a post's claims are released once it is answered, and written on the call's record.
+   * The post the latest loop tool call acted for and the claims it ran under, or `undefined`
+   * when it ran under none. Asked after the call, whether it returned or threw, and written on
+   * the call's record: the claims are the ones read inside the block the tool ran in.
    */
-  actsFor?: (postId: string | undefined) => { post: string; claims: ActedUnder } | undefined;
+  actsFor?: () => { post: string; claims: ActedUnder } | undefined;
   /** typia shape validation of tool args (+ the unknown-key refusal). Async — the validator is a facet. */
   validateToolArgs(toolName: string, args: unknown): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
@@ -513,7 +508,7 @@ export interface HistoryEntry {
   /** `agent`, or a stable per-person label in first-appearance order (`human 1`). */
   speaker: string;
   content: string;
-  /** A person's post: its id, which `take_up`, a tool's `postId` and `answers` name it by. */
+  /** A person's post: its id, which `take_up` and `answers` name it by. */
   postId?: string;
   /** An agent message: the posts it answers. */
   answers?: string[];
@@ -548,41 +543,18 @@ export function renderHistoryBundle(entries: HistoryEntry[]): string {
   return `${HISTORY_HEADER}\n${lines.join('\n')}`;
 }
 
-/** The held block's first line, stable so a test can find the block. */
-export const HELD_HEADER = 'Held posts — the posts whose poster\'s claims you hold and may act under, each still waiting for an answer:';
-
-/** One held post as the prompt lists it: which post, and whose claims they are. */
-export interface HeldEntry {
-  postId: string;
-  /** The poster's label in the history (`human 2`). */
-  speaker: string;
-  /** Whether those claims carry the admin bit for the scope they were issued at. */
-  admin: boolean;
-}
-
-/**
- * The held posts as one block, sent after the history: it changes more often than the history
- * does, and what changes goes last so the provider's cache keeps the prefix. With nothing held
- * it says so, since a step that holds nothing can read, answer and ask but not act.
- */
-export function renderHeldBlock(held: HeldEntry[]): string {
-  if (held.length === 0) return `${HELD_HEADER}\n- none. You can read, answer and ask, and no tool that acts is offered.`;
-  return `${HELD_HEADER}\n${held.map((h) => `- post ${h.postId}: ${h.speaker}${h.admin ? ', an admin' : ''}`).join('\n')}`;
-}
-
 /**
  * A decision's request, the dynamic tail of its prompt: the posts still waiting, oldest first,
- * and the two things the agent can do about them. A post that is not held can be answered or
- * asked about, never taken up, since there are no claims to act under.
+ * and the two things the agent can do about them.
  */
-export function renderDecisionRequest(waiting: Array<{ postId: string; speaker: string; held: boolean; content: string }>): string {
-  const posts = waiting.map((w) => `- post ${w.postId} (${w.speaker}, ${w.held ? 'held' : 'not held'}): ${w.content}`);
+export function renderDecisionRequest(waiting: Array<{ postId: string; speaker: string; content: string }>): string {
+  const posts = waiting.map((w) => `- post ${w.postId} (${w.speaker}): ${w.content}`);
   return [
     'No turn is running, and these posts are still waiting for an answer, oldest first:',
     ...posts,
-    'Decide what to do next. Call take_up with the id of one held post to work on it now. ' +
-    'Or write a message that answers one or more of them, and name each post it answers in ' +
-    'mark_complete\'s answers. A post that is not held can be answered or asked about, never taken up.',
+    'Decide what to do next. Call take_up with the id of one of them to work on it now, under ' +
+    'its poster\'s claims. Or write a message that answers one or more of them, and name each ' +
+    'post it answers in mark_complete\'s answers.',
   ].join('\n');
 }
 
@@ -622,21 +594,6 @@ export function agentMessageValue(input: {
   };
 }
 
-/**
- * The held call a tool call runs under: the post the model named, or the post the turn took up
- * when it named none. Throws, naming the post, when that post is not held, which reaches the
- * model as the call's tool error.
- */
-export function heldCallFor<H>(held: ReadonlyMap<string, H>, tookUp: string | undefined, named?: string): H {
-  const postId = named ?? tookUp;
-  const call = postId === undefined ? undefined : held.get(postId);
-  if (call === undefined) {
-    throw new Error(postId === undefined
-      ? 'no post is taken up, so no tool that acts can run: answer in a message'
-      : `post ${postId} is not held, so nothing can run under its poster's claims: name a post the held list shows, or ask that person`);
-  }
-  return call;
-}
 
 /** The user-layer self-correction message after a build with failures or findings
  *  (the per-write compile feedback's successor): the report's tails + findings plus the files written this
@@ -855,8 +812,8 @@ export async function runCodegenLoop(
       }
       if (tc.name === 'take_up') {
         // A pick belongs to a decision, which is not this loop: inside a turn a post is already
-        // taken up, and another person's work is named per call with `postId`.
-        fail(tc, 'take_up picks a post when you are asked to decide; this turn has already taken one up. Name another held post in a tool\'s postId instead.');
+        // taken up, and another person's work waits for a turn of its own.
+        fail(tc, 'take_up picks a post when you are asked to decide; this turn has already taken one up, and every tool in it runs under that post. Another person\'s work waits for a turn that takes up their post.');
         continue;
       }
       // Loop-detection #2 — identical tool call repeat (same name + args). A write_file
@@ -873,13 +830,16 @@ export async function runCodegenLoop(
         // ephemeral container cycle running EVERY step. The per-step report goes back
         // as the tool result; a failed step or a type finding makes this a fix round,
         // never an abort.
-        const args = tc.args as { preview?: boolean; postId?: string };
-        const acted = deps.actsFor?.(args.postId);
+        const args = tc.args as { preview?: boolean };
         deps.onProgress?.('building…');
         let report: BuildReport;
         try {
-          report = await deps.tools.build({ preview: args.preview }, args.postId);
+          report = await deps.tools.build({ preview: args.preview });
         } catch (e) {
+          if (postMoved(e)) return done('post-moved', POST_MOVED_DETAIL);
+          // A refusal at the chat floor is the poster's, not the box's: the model reads it as
+          // this call's error, where a container failure would tell it not to build again.
+          if (permissionDenied(e)) { fail(tc, (e as Error).message, args, deps.actsFor?.()); continue; }
           // The job never ran at all — a container-step failure; every other step is
           // honestly "did not run" rather than absent (the shape's own rule).
           const tail = e instanceof Error ? e.message : String(e);
@@ -892,7 +852,7 @@ export async function runCodegenLoop(
           };
         }
         lastBuild = report;
-        recorded.push({ name: tc.name, args, result: report, ...acted });
+        recorded.push({ name: tc.name, args, result: report, ...deps.actsFor?.() });
         messages.push(toolResultMessage(tc.id, report));
         if (stepFailed(report.container)) {
           // The box did not run — infrastructure, not the model's code. Told once, with
@@ -919,48 +879,47 @@ export async function runCodegenLoop(
 
       if (tc.name === 'invite') {
         const { email, scopeAdmin } = tc.args as { email: string; scopeAdmin?: boolean };
-        // Always the post the turn took up: the call names none.
-        const acted = deps.actsFor?.(undefined);
         try {
           const result = await deps.tools.invite(email, scopeAdmin);
           deps.onProgress?.(`invited ${email}`);
-          recorded.push({ name: tc.name, args: tc.args, result, ...acted });
+          recorded.push({ name: tc.name, args: tc.args, result, ...deps.actsFor?.() });
           messages.push(toolResultMessage(tc.id, result));
         } catch (e) {
-          fail(tc, e instanceof Error ? e.message : String(e), tc.args, acted);
+          if (postMoved(e)) return done('post-moved', POST_MOVED_DETAIL);
+          fail(tc, e instanceof Error ? e.message : String(e), tc.args, deps.actsFor?.());
         }
         continue;
       }
 
       if (tc.name === 'read_file') {
-        const { path, postId } = tc.args as { path: string; postId?: string };
-        const acted = deps.actsFor?.(postId);
+        const { path } = tc.args as { path: string };
         try {
-          const content = await deps.tools.read_file(path, postId);
+          const content = await deps.tools.read_file(path);
           deps.onProgress?.(`read ${path}`);
           // The model gets the content; the RECORD gets its size in BYTES (UTF-8, what the
           // file holds — not UTF-16 code units) — the content is already in the transcript,
           // and the record fans to every chat subscriber.
-          recorded.push({ name: tc.name, args: tc.args, result: { path, bytes: new TextEncoder().encode(content).length }, ...acted });
+          recorded.push({ name: tc.name, args: tc.args, result: { path, bytes: new TextEncoder().encode(content).length }, ...deps.actsFor?.() });
           messages.push(toolResultMessage(tc.id, { path, content }));
         } catch (e) {
-          fail(tc, e instanceof Error ? e.message : String(e), tc.args, acted);
+          if (postMoved(e)) return done('post-moved', POST_MOVED_DETAIL);
+          fail(tc, e instanceof Error ? e.message : String(e), tc.args, deps.actsFor?.());
         }
         continue;
       }
 
       if (tc.name === 'edit_file') {
-        const { path, anchor, replacement, postId } = tc.args as { path: string; anchor: string; replacement: string; postId?: string };
-        const acted = deps.actsFor?.(postId);
+        const { path, anchor, replacement } = tc.args as { path: string; anchor: string; replacement: string };
         try {
-          const written = await deps.tools.edit_file(path, anchor, replacement, postId);
+          const written = await deps.tools.edit_file(path, anchor, replacement);
           deps.onProgress?.(`edited ${written.path}`);
           appliedPaths.push(written.path);
           const result = { edited: written.path, oid: written.oid };
-          recorded.push({ name: tc.name, args: tc.args, result, ...acted });
+          recorded.push({ name: tc.name, args: tc.args, result, ...deps.actsFor?.() });
           messages.push(toolResultMessage(tc.id, result));
         } catch (e) {
-          fail(tc, e instanceof Error ? e.message : String(e), tc.args, acted);
+          if (postMoved(e)) return done('post-moved', POST_MOVED_DETAIL);
+          fail(tc, e instanceof Error ? e.message : String(e), tc.args, deps.actsFor?.());
         }
         continue;
       }
@@ -969,17 +928,17 @@ export async function runCodegenLoop(
       // is where every check runs, and its report is the self-correction signal. The
       // path rule is the entry's (`assertModelPath` runs first inside `writeSource`), so a
       // traversal or a reserved path arrives here as a throw and is captured.
-      const { path, content, postId } = tc.args as { path: string; content: string; postId?: string };
-      const acted = deps.actsFor?.(postId);
+      const { path, content } = tc.args as { path: string; content: string };
       try {
-        const written = await deps.tools.write_file(path, content, postId);
+        const written = await deps.tools.write_file(path, content);
         deps.onProgress?.(`wrote ${written.path}`); // per-file progress step
         appliedPaths.push(written.path);
         const result = { written: written.path, oid: written.oid };
-        recorded.push({ name: tc.name, args: tc.args, result, ...acted });
+        recorded.push({ name: tc.name, args: tc.args, result, ...deps.actsFor?.() });
         messages.push(toolResultMessage(tc.id, result));
       } catch (e) {
-        fail(tc, e instanceof Error ? e.message : String(e), tc.args, acted);
+        if (postMoved(e)) return done('post-moved', POST_MOVED_DETAIL);
+        fail(tc, e instanceof Error ? e.message : String(e), tc.args, deps.actsFor?.());
       }
     }
 

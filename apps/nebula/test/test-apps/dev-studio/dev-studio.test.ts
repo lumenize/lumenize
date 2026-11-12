@@ -42,7 +42,7 @@ const versionOf = async (types: string) => (await git.hashBlob({ object: types }
 // only {$ack}. It runs under an admin's call context (`asCaller`): a loop tool runs only inside
 // the held call of a post, and a call with no claims cannot be held (`as-caller.ts`).
 const inDO = (binding: any, instance: string, fn: (inst: any) => unknown) =>
-  (runInDurableObject as any)(binding.getByName(instance), (inst: any) => asCaller(instance, () => fn(inst)));
+  (runInDurableObject as any)(binding.getByName(instance), (inst: any) => asCaller(instance, () => fn(inst), inst));
 
 // Fire a method through the REAL early-ack receive path (claims injected in the envelope, the
 // isolated-DO norm) so its cross-DO `lmz.call` effects PROPAGATE callContext. Returns the {$ack};
@@ -371,7 +371,12 @@ describe('Galaxy turn runner — single-flight latch + generation deadline', () 
   // in storage, polled here.
   it('a hung generation is deadline-released, the latch refuses DURING it, and a post-deadline fresh trigger generates', async () => {
     const scope = uniqueGalaxyScope();
-    await fire(env.GALAXY_DEADLINE, 'GALAXY_DEADLINE', scope, 'chatDeadlineScenario');
+    // The scenario writes its three posts itself, through the plane, which takes a write only
+    // from a Client's call and records that call's claims: so the call names a Client as its
+    // origin and carries a subject.
+    await fire(env.GALAXY_DEADLINE, 'GALAXY_DEADLINE', scope, 'chatDeadlineScenario', [],
+      { sub: 'admin', aud: scope, profileId: 'p-admin', access: { scopeAdmin: true, authScope: scope.split('.')[0] } },
+      [{ type: 'LumenizeClient', bindingName: 'GALAXY_DEADLINE', instanceName: `${scope}/admin.tab` }]);
     const outcome = await vi.waitFor(async () => {
       const o = await inDO(env.GALAXY_DEADLINE, scope,
         (inst: any) => inst.ctx.storage.kv.get('probe:scenario'));

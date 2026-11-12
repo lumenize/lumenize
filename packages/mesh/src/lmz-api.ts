@@ -176,28 +176,16 @@ export function buildOutgoingCallContext(
 // ============================================
 
 /**
- * Marks a context Mesh built for a local principal, or re-chained from a held call. The key is a
+ * Marks a context Mesh built for a local principal. The key is a
  * symbol, so `buildOutgoingCallContext`'s spread carries it within the isolate and no wire carries it:
  * an envelope from another node can neither bring one nor forge one.
  */
 const CONTEXT_KIND = Symbol('lmz.contextKind');
-type ContextKind = 'local-principal' | 'rechained';
+type ContextKind = 'local-principal';
 
 function kindOf(context: CallContext | undefined): ContextKind | undefined {
   return (context as (CallContext & { [CONTEXT_KIND]?: ContextKind }) | undefined)?.[CONTEXT_KIND];
 }
-
-declare const HELD_CALL: unique symbol;
-
-/**
- * A call a node is holding so it can act for the caller later, made only by `lmz.holdCall()`.
- * It is opaque on purpose: a node holds a person's claims through one of these and can never build
- * one, so it cannot compose claims of its own.
- */
-export interface HeldCall { readonly [HELD_CALL]: true }
-
-/** Every genuine handle and the context it holds. Membership here IS what makes a handle genuine. */
-const heldCalls = new WeakMap<object, CallContext>();
 
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -209,26 +197,6 @@ function requireLocalPrincipalName(principal: string): void {
   if (UUID_SHAPE.test(principal)) {
     throw new Error(`A local principal's name says what it is, and "${principal}" is shaped like a person's id`);
   }
-}
-
-function holdCallShared(): HeldCall {
-  const context = getCurrentCallContext();
-  if (!context) {
-    throw new Error('Cannot hold a call outside of a mesh call: there is no caller to act for');
-  }
-  if (!context.originAuth) {
-    throw new Error('Cannot hold a call that carries no claims: there is no caller to act for');
-  }
-  const kind = kindOf(context);
-  if (kind === 'local-principal') {
-    throw new Error("Cannot hold a local principal's own claims: they never leave its node");
-  }
-  if (kind === 'rechained') {
-    throw new Error('Cannot hold a call already acted for: hold the call that brought the claims');
-  }
-  const held = Object.freeze({}) as HeldCall;
-  heldCalls.set(held, context);
-  return held;
 }
 
 /**
@@ -257,27 +225,6 @@ function actForRecord<T>(record: RecordedClaims, principal: string, origin: stri
   return runWithCallContext(built, fn);
 }
 
-function actForShared<T>(target: HeldCall | RecordedClaims, principal: string, origin: string | undefined, fn: () => T): T {
-  // TEMP → target=the record form alone. The held form goes when the Galaxy stops holding calls.
-  const context = typeof target === 'object' && target !== null ? heldCalls.get(target) : undefined;
-  if (!context?.originAuth) return actForRecord(target as RecordedClaims, principal, origin, fn);
-  requireLocalPrincipalName(principal);
-  const claims = (context.originAuth.claims ?? {}) as Record<string, unknown>;
-  const rechained = {
-    callChain: [],
-    originAuth: {
-      sub: context.originAuth.sub,
-      claims: {
-        ...claims,
-        act: prependActor(claims.act as Parameters<typeof prependActor>[0], { sub: principal, profileId: principal }),
-      },
-    },
-    // The caller's request facts ride on, so a link built from them names the host they are on.
-    ...(context.originRequest ? { originRequest: context.originRequest } : {}),
-    [CONTEXT_KIND]: 'rechained' as const,
-  } as CallContext;
-  return runWithCallContext(rechained, fn);
-}
 
 function asLocalPrincipalShared<T>(nodeName: string | undefined, principal: string, fn: () => T): T {
   requireLocalPrincipalName(principal);
@@ -767,14 +714,6 @@ export interface LmzApi {
   ): void;
 
   /**
-   * Hold the call this node is running in, so it can act for the caller later with `actFor`.
-   *
-   * @throws Error outside a mesh call, on a call carrying no claims, inside `asLocalPrincipal`, and
-   *   inside `actFor`: the handle always holds a caller's own verified claims.
-   */
-  holdCall(): HeldCall;
-
-  /**
    * Run `fn` under a person's claims, with `principal`, this node's local principal, prepended as
    * the outermost actor. A call made inside carries them on, so every record the chain leaves names
    * the person and the principal both, and every check reads the person's permission.
@@ -783,13 +722,11 @@ export interface LmzApi {
    * claims of the write that made it. `access` and `aud` are therefore as of that write. A node
    * that hosts Clients also hands the chain its own origin, as `originRequest.origin`.
    *
-   * TEMP → target=the record form alone: a `HeldCall` from `holdCall()` is still accepted.
-   *
    * @throws Error if `principal` is empty or shaped like a UUID; TypeError if the record's `sub` is
    *   not shaped like a person's id, as a local principal's own is not; Error if `principal` is
    *   already the record's outermost actor.
    */
-  actFor<T>(target: HeldCall | RecordedClaims, principal: string, fn: () => T): T;
+  actFor<T>(record: RecordedClaims, principal: string, fn: () => T): T;
 
   /**
    * Run `fn` under claims Mesh builds for a local principal of this node: `principal` as subject,
@@ -1008,12 +945,8 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       broadcastShared(this, targets, remoteContinuation, options);
     },
 
-    holdCall(): HeldCall {
-      return holdCallShared();
-    },
-
-    actFor<T>(target: HeldCall | RecordedClaims, principal: string, fn: () => T): T {
-      return actForShared(target, principal, stored()?.origin, fn);
+    actFor<T>(record: RecordedClaims, principal: string, fn: () => T): T {
+      return actForRecord(record, principal, stored()?.origin, fn);
     },
 
     asLocalPrincipal<T>(principal: string, fn: () => T): T {
@@ -1091,13 +1024,9 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       broadcastShared(this, targets, remoteContinuation, options);
     },
 
-    holdCall(): HeldCall {
-      return holdCallShared();
-    },
-
-    actFor<T>(target: HeldCall | RecordedClaims, principal: string, fn: () => T): T {
+    actFor<T>(record: RecordedClaims, principal: string, fn: () => T): T {
       // A Worker has no stored address, so its chain carries no origin.
-      return actForShared(target, principal, undefined, fn);
+      return actForRecord(record, principal, undefined, fn);
     },
 
     asLocalPrincipal<T>(principal: string, fn: () => T): T {

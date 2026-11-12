@@ -1,17 +1,17 @@
 /**
  * The pure pieces of the agent loop: which posts wait, what an agent message says it answers,
- * and which held call a tool call runs under. Each is a function of its arguments, which is why
- * these need no running system; `held-posts.test.ts` drives them behind real clients, and
- * `held-post-answered` behind real logins and the real model.
+ * and what the model is told about posts. Each is a function of its arguments, which is why
+ * these need no running system; `waiting-posts.test.ts` drives them behind real clients, and
+ * `waiting-posts-answered` behind real logins and the real model.
  */
 import { describe, it, expect } from 'vitest';
 import { NEBULA_SUB } from '@lumenize/mesh/client';
 import { messageByline, toolCallMarks, waitingPosts } from '../src/participants';
 import type { ParticipantRef } from '../src/participants';
-import { CODEGEN_TOOLS, unknownToolArgKeys } from '../src/codegen-loop';
+import { CODEGEN_TOOLS, DECISION_TOOLS, MESSAGE_ONLY_TOOLS, TOOL_CONTRACT, unknownToolArgKeys } from '../src/codegen-loop';
 import type { LoopToolDeps } from '../src/codegen-loop';
 import {
-  agentMessageValue, heldCallFor, renderClosingRequest, renderDecisionRequest, renderHeldBlock, HELD_HEADER,
+  agentMessageValue, renderClosingRequest, renderDecisionRequest,
 } from '../src/codegen-loop';
 
 describe('waitingPosts', () => {
@@ -57,37 +57,35 @@ describe('agentMessageValue', () => {
   });
 });
 
-describe('heldCallFor', () => {
-  const held = new Map([['j1', 'jennifer\'s call'], ['a1', 'austen\'s call']]);
-
-  // Mutation: validate the named post and then use the turn's own → the first line answers Austen's.
-  it('answers the named post\'s call, or the call of the post the turn took up', () => {
-    expect(heldCallFor(held, 'a1', 'j1')).toBe('jennifer\'s call');
-    expect(heldCallFor(held, 'a1')).toBe('austen\'s call');
-  });
-
-  // Mutation: skip the check and answer whatever the map holds → `undefined` comes back and the
-  // call would run under nobody.
-  it('throws, naming the post, when the post is not held', () => {
-    expect(() => heldCallFor(held, 'a1', 'gone')).toThrow('post gone is not held, so nothing can run under its poster\'s claims');
-    expect(() => heldCallFor(held, 'gone')).toThrow('post gone is not held');
-    expect(() => heldCallFor(held, undefined)).toThrow('no post is taken up');
-  });
-});
-
-describe('what the prompt says about held and waiting posts', () => {
-  it('lists each held post with whose claims they are, and says so when nothing is held', () => {
-    expect(renderHeldBlock([{ postId: 'j1', speaker: 'human 1', admin: true }, { postId: 'a1', speaker: 'human 2', admin: false }]))
-      .toBe(`${HELD_HEADER}\n- post j1: human 1, an admin\n- post a1: human 2`);
-    expect(renderHeldBlock([])).toBe(`${HELD_HEADER}\n- none. You can read, answer and ask, and no tool that acts is offered.`);
-  });
-
-  it('a decision\'s request lists the waiting posts, each held or not', () => {
+describe('what the prompt says about waiting posts', () => {
+  it('a decision\'s request lists the waiting posts, each of which can be taken up', () => {
     const request = renderDecisionRequest([
-      { postId: 'j1', speaker: 'human 1', held: false, content: 'build a wishlist' },
-      { postId: 'a1', speaker: 'human 2', held: true, content: 'hello?' },
+      { postId: 'j1', speaker: 'human 1', content: 'build a wishlist' },
+      { postId: 'a1', speaker: 'human 2', content: 'hello?' },
     ]);
-    expect(request).toContain('- post j1 (human 1, not held): build a wishlist\n- post a1 (human 2, held): hello?');
+    expect(request).toContain('- post j1 (human 1): build a wishlist\n- post a1 (human 2): hello?');
+  });
+
+  // Every waiting post can be worked, so nothing the model reads sorts posts into held and not.
+  // Mutation: leave the `held` label in `renderDecisionRequest`, or the sentence on held posts in
+  // `TOOL_CONTRACT`, and this finds the word.
+  it('tells the model of no held set, in the contract, any tool or either request', () => {
+    const told = [
+      TOOL_CONTRACT,
+      ...[...CODEGEN_TOOLS, ...DECISION_TOOLS, ...MESSAGE_ONLY_TOOLS].map((tool) => JSON.stringify(tool)),
+      renderDecisionRequest([{ postId: 'j1', speaker: 'human 1', content: 'build a wishlist' }]),
+      renderClosingRequest([{ postId: 'a1', speaker: 'human 2', content: 'sort by name' }]),
+    ];
+    for (const text of told) expect(text).not.toMatch(/\bheld\b/i);
+  });
+
+  // A turn's tools all run under the post it took up, so none takes a post as an argument.
+  // Mutation: leave `postId` on `write_file`'s schema.
+  it('no tool but take_up names a post', () => {
+    const naming = [...CODEGEN_TOOLS, ...DECISION_TOOLS]
+      .filter((tool) => 'postId' in (tool.function.parameters.properties as object))
+      .map((tool) => tool.function.name);
+    expect(naming).toEqual(['take_up']);
   });
 
   it('a closing step\'s request lists the posts that arrived, and says the step offers no tool that acts', () => {

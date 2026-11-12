@@ -12,6 +12,9 @@
  */
 import { mesh } from '@lumenize/mesh';
 import { Galaxy } from '../../../src/galaxy';
+import type { TookUp } from '../../../src/galaxy';
+import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '../../../src/chat-constants';
+import type { Snapshot, TransactionResult } from '@lumenize/resources';
 import { Star } from '../../../src/star';
 import { requireDominionHere } from '@lumenize/mesh';
 import { DEFAULT_LOOP_CONFIG } from '../../../src/codegen-loop';
@@ -74,6 +77,36 @@ export class GalaxyLoopProbe extends Galaxy {
     this.#seenMessages = [];
   }
 
+  /** Set while a probe writes a post of its own, so the commit hook starts no turn on it. */
+  #probePosting = false;
+
+  /**
+   * Put a person's post in the chat, at `id`, as this probe's caller, and answer the snapshot a
+   * turn would take up. The probe is called by a real Client, so the post's record is the one the
+   * server stamps from that Client's verified claims, which is what a turn then acts under. A post
+   * already at `id` is taken as it stands.
+   */
+  protected async postAsCallerForTest(id: string, content: string): Promise<TookUp> {
+    const existing = await Promise.resolve().then(() => this.resources.read(CHAT_MESSAGE_ONTOLOGY_VERSION, id)).catch(() => null);
+    if (existing) return { id, validFrom: (existing as Snapshot).meta.validFrom };
+    this.#probePosting = true;
+    try {
+      const written = await this.resources.transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, {
+        [id]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content } },
+      }) as TransactionResult;
+      if (!written.ok) throw new Error(`probe post failed: ${JSON.stringify(written.errors)}`);
+      return { id, validFrom: written.validFrom };
+    } finally {
+      this.#probePosting = false;
+    }
+  }
+
+  /** A probe's own post starts no turn: the probe runs the turn it means to. */
+  protected override async runTriggeredTurn(post: TookUp, content: string): Promise<void> {
+    if (this.#probePosting) return;
+    await super.runTriggeredTurn(post, content);
+  }
+
   /** Test-only entry: replay `script` through the real loop driver, return the
    *  LoopResult + the per-round transcripts. Admin-gated like every codegen method. */
   @mesh(requireDominionHere)
@@ -86,11 +119,10 @@ export class GalaxyLoopProbe extends Galaxy {
     this.#scriptIdx = 0;
     this.#seenMessages = [];
     const cfg: CodegenLoopConfig = { ...DEFAULT_LOOP_CONFIG, ...(config ?? {}) };
-    // runCodegenTurn + callModel are protected on Galaxy — reachable here. No commit brought a
-    // post, so this call stands in as the one that did: the loop's tools run under this
-    // caller's claims, as they would under a real poster's.
-    const tookUp = `probe-${crypto.randomUUID()}`;
-    this.holdPost(tookUp);
+    // runCodegenTurn + callModel are protected on Galaxy — reachable here. The post is written
+    // first, as this caller, so the loop's tools run under the claims the server recorded for
+    // it, as they do for any poster.
+    const tookUp = await this.postAsCallerForTest(crypto.randomUUID(), userRequest);
     const result = await this.runCodegenTurn(userRequest, cfg, undefined, { tookUp });
     return { result, seenMessages: this.#seenMessages };
   }
@@ -277,18 +309,23 @@ export class GalaxyDeadlineProbe extends GalaxyLoopProbe {
     // (1) The hung generation (fired, not awaited — the hang is the point).
     this.#hangNext = true;
     const t0 = Date.now();
-    const hung = this.runTriggeredTurn('m-hung', 'hang please');
+    const [mHung, mBusy, mFresh] = [
+      await this.postAsCallerForTest('m-hung', 'hang please'),
+      await this.postAsCallerForTest('m-busy', 'me too'),
+      await this.postAsCallerForTest('m-fresh', 'try again'),
+    ];
+    const hung = this.runTriggeredTurn(mHung, 'hang please');
     // Yield one microtask so the hung turn takes the latch before (2) probes it.
     await Promise.resolve();
     // (2) Single-flight: refused at once — no model round, no commit.
     const busyStart = Date.now();
-    await this.runTriggeredTurn('m-busy', 'me too');
+    await this.runTriggeredTurn(mBusy, 'me too');
     const busyMs = Date.now() - busyStart;
     // (3) The deadline releases the latch (the hung model call never resolves).
     await hung;
     const hungMs = Date.now() - t0;
     // (4) THE CRITERION: a fresh trigger now runs a NEW generation to completion.
-    await this.runTriggeredTurn('m-fresh', 'try again');
+    await this.runTriggeredTurn(mFresh, 'try again');
     this.ctx.storage.kv.put('probe:scenario', {
       busyMs,
       hungMs,

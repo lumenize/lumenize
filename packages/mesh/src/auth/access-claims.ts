@@ -93,8 +93,8 @@ export function buildAccessEntry(
  * RFC 8693 §4.1 chain nesting, written ONCE: prepend `actor` as the NEW OUTERMOST `act` entry,
  * preserving any pre-existing verified chain beneath it. Flattening/overwriting DROPS the
  * delegation chain — the wrong shape this helper exists to make unwritable. Its one caller is
- * `lmz.actFor` (`lmz-api.ts`), which prepends a node's local principal to the claims of a call the
- * node holds. A record is never given an actor of its own: a write records the claims its chain
+ * `lmz.actFor` (`lmz-api.ts`), which prepends a node's local principal to the claims a stored
+ * record holds. A record is never given an actor of its own: a write records the claims its chain
  * carries (`toRecordedClaims`).
  *
  * ⚠️ **Never into a person's access token.** A live refusal keys on an actor chain being PRESENT

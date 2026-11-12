@@ -32,7 +32,7 @@ export type { Schedule, ScheduledAlarm, DelayedAlarm, CronAlarm } from './alarms
 export type { BroadcastTarget, BroadcastOptions } from './broadcast';
 
 // Re-export Lumenize infrastructure API
-export type { LmzApi, CallEnvelope, HeldCall } from './lmz-api';
+export type { LmzApi, CallEnvelope } from './lmz-api';
 
 // Re-export mesh node identity and call context types
 export type {

@@ -119,7 +119,7 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
       expect(replies.get(m1)).toBeTruthy();
     }, { timeout: 15000 });
     // …then, past an idle window, no turn has taken m2 up: it waited while the first ran
-    // (`held-posts.test.ts` drives the decision that takes a waiting post up).
+    // (`waiting-posts.test.ts` drives the decision that takes a waiting post up).
     await new Promise((r) => setTimeout(r, 1200));
     const replies = await agentReplies(client, sub.resourceIds);
     expect(replies.get(m2)).toBeUndefined();

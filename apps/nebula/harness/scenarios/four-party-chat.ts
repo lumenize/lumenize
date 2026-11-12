@@ -145,7 +145,7 @@ export async function run(stack: DevStack): Promise<void> {
     // ── The messages: owner, coach, then AUSTEN — SEQUENTIAL, awaiting each reply.
     // One turn runs at a time, and a post sent during one waits for the decision that
     // follows it, so this scenario waits out each turn and every reply is to the post just
-    // sent (`held-post-answered` drives posts that overlap).
+    // sent (`waiting-posts-answered` drives posts that overlap).
     const ownerMsg = await owner.client.postUserMessage('Welcome to the build thread. Do not change any code yet.');
     await waitForReply(owner, ownerSub, ownerMsg);
     const coachMsg = await coach.client.postUserMessage('Coach here — looks good so far. No code changes needed.');

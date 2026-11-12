@@ -4,7 +4,7 @@
  *
  * The snapshots are seeded here in the shape the store keeps them, `{ value, meta }` by id, which
  * is why this needs no running system: the decision is a function of what has loaded.
- * `held-post-answered` drives the same check in a real Studio page, where a post the agent
+ * `waiting-posts-answered` drives the same check in a real Studio page, where a post the agent
  * answered without replying to it stops showing as waiting.
  */
 import { describe, it, expect } from 'vitest';

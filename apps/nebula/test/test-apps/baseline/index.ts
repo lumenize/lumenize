@@ -66,7 +66,8 @@ import { fakeBuildJob } from '../fake-build';
 import type { BuildFaults } from '../fake-build';
 import type { ResourcesResults } from '@lumenize/resources';
 import type { NebulaClientConfig, OrgTreeState, PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload, ResourceDenied } from '@lumenize/resources';
-import type { StudioClientConfig } from '@lumenize/nebula';
+import type { StudioClientConfig, TookUp } from '@lumenize/nebula';
+import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '../../../src/chat-constants';
 import type { ChatMessage, ModelParams, BuildReport } from '../../../src/codegen-loop';
 import type { CertificateApi, CertificatePack, CertificateResult } from '../../../src/certificate';
 
@@ -579,25 +580,49 @@ export class GalaxyTest extends Galaxy {
    *  their own messages alone; until 2026-09-06 an unscripted turn threw script-exhausted
    *  and died silently, which those tests leaned on without saying so. A failed model call
    *  now commits an error reply (the controlled `error` stop), so the no-turn is explicit. */
-  protected override async runTriggeredTurn(userMessageId: string, message: string): Promise<void> {
+  protected override async runTriggeredTurn(post: TookUp, message: string): Promise<void> {
+    if (this.#probePosting) return;
     if (this.#chatScript.length === 0) {
-      debug('nebula.GalaxyTest.trigger').debug('no script seeded — the turn is a no-op', { userMessageId });
+      debug('nebula.GalaxyTest.trigger').debug('no script seeded — the turn is a no-op', { userMessageId: post.id });
       return;
     }
-    await super.runTriggeredTurn(userMessageId, message);
+    await super.runTriggeredTurn(post, message);
+  }
+
+  /** Set while a probe writes a post of its own, so the commit hook starts no turn on it. */
+  #probePosting = false;
+
+  /**
+   * Put a person's post in the chat, at `id`, as this probe's caller, and answer the snapshot a
+   * turn would take up. The probe is called by a real Client, so the post's record is the one the
+   * server stamps from that Client's verified claims, which is what a turn then acts under. A post
+   * already at `id` is taken as it stands.
+   */
+  protected async postAsCallerForTest(id: string, content: string): Promise<TookUp> {
+    const existing = await Promise.resolve().then(() => this.resources.read(CHAT_MESSAGE_ONTOLOGY_VERSION, id)).catch(() => null);
+    if (existing) return { id, validFrom: (existing as Snapshot).meta.validFrom };
+    this.#probePosting = true;
+    try {
+      const written = await this.resources.transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, {
+        [id]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content } },
+      }) as TransactionResult;
+      if (!written.ok) throw new Error(`probe post failed: ${JSON.stringify(written.errors)}`);
+      return { id, validFrom: written.validFrom };
+    } finally {
+      this.#probePosting = false;
+    }
   }
 
   /** Run ONE real TRIGGERED turn against the scripted model (the whole pipeline:
    *  loop → commit → build-completion reload trigger).
    *  Drives `runTriggeredTurn` — the same runner the commit hook invokes. */
   @mesh(requireDominionHere)
-  async chatScriptedForTest(userMessageId: string, message: string, script: unknown[], opts: { held?: boolean } = {}): Promise<void> {
+  async chatScriptedForTest(userMessageId: string, message: string, script: unknown[]): Promise<void> {
+    // The post is written first, as this caller, so the turn's tools run under the claims the
+    // server recorded for it, as they do for any poster.
+    const post = await this.postAsCallerForTest(userMessageId, message);
     this.#chatScript = script;
-    // No commit brought this post, so this call stands in as the one that did: the turn's
-    // tools then run under this caller's claims, as they would under a real poster's. With
-    // `held: false` nothing is held, as after an eviction.
-    if (opts.held !== false) this.holdPost(userMessageId);
-    await this.runTriggeredTurn(userMessageId, message);
+    await this.runTriggeredTurn(post, message);
   }
 
   /** Seed the fake-model script for turns the REAL commit hook will trigger (a

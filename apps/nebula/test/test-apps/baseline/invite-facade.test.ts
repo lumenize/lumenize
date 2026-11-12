@@ -5,7 +5,7 @@
  *
  * The rule under test, enforced once, at this facade:
  *   eligibility = dominion over the target scope, or exact-scope membership anywhere but an app
- *   (only dominion invites into an app, which `held-posts.test.ts` drives);
+ *   (only dominion invites into an app, which `waiting-posts.test.ts` drives);
  *   the minted bit never exceeds the inviter's dominion verdict.
  *
  * ADR-009 rung 2 throughout (the whole baseline lane): real founding, real invites, real

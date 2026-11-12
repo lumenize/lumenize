@@ -18,7 +18,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, deriveKind } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
-import { HISTORY_HEADER, HELD_HEADER } from '../../../src/codegen-loop';
+import { HISTORY_HEADER } from '../../../src/codegen-loop';
 import { universeAdminClient } from '../../test-helpers';
 import { StudioClientTest } from './index';
 
@@ -76,11 +76,10 @@ async function lastTurnPrompt(client: StudioClientTest, scope: string): Promise<
   const first = calls[0]!;
   return { system: first[0]!.content, request: first[1]!.content };
 }
-/** The history bundle alone, out of a system layer — from its header to the held block, which
- *  always follows it. */
+/** The history bundle alone, out of a system layer: from its header to the layer's end. */
 const historyOf = (system: string): string | undefined => {
   const at = system.indexOf(HISTORY_HEADER);
-  return at < 0 ? undefined : system.slice(at, system.indexOf(HELD_HEADER)).trimEnd();
+  return at < 0 ? undefined : system.slice(at).trimEnd();
 };
 
 describe('the chat history in the prompt', () => {
@@ -108,12 +107,10 @@ describe('the chat history in the prompt', () => {
     expect(history).toContain(`- human 1 (post ${m1}): Build me a wishlist app.`);
     expect(history).toContain(`- agent (answers ${m1}): Saved the changes; nothing was built, so the preview is unchanged. [stop=complete rounds=2 applied=src/App.vue sourceCommit=`);
     expect(history).toMatch(/sourceCommit=[0-9a-f]{7}\]$/);
-    // The held block is the system layer's LAST bundle, after the history, since it changes
-    // more often: it lists the post this turn took up, whose poster's claims are held, and not
-    // turn one's, which is answered. Mutation: put the block ahead of the history → the layer
-    // no longer ends with it.
-    expect(t2.system.endsWith(`${HELD_HEADER}\n- post ${m2}: human 1, an admin`)).toBe(true);
-    expect(t1.system.endsWith(`${HELD_HEADER}\n- post ${m1}: human 1, an admin`)).toBe(true);
+    // The history is the system layer's LAST bundle: nothing lists which posts can be acted on,
+    // since every waiting post can. Mutation: append a block of held posts after the history →
+    // the layer no longer ends with the history's last line.
+    expect(t2.system.endsWith(history!)).toBe(true);
     // Never the tool calls' args (400 lines of App.vue) and never the thought panel.
     expect(t2.system).not.toContain('line 7 of a long App.vue');
     expect(t2.system).not.toContain('thinking hard');

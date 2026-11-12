@@ -452,51 +452,23 @@ export class TestDO extends UnscopedMeshDO<Env> {
     return this.ctx.storage.kv.get('observed_identity');
   }
 
-  // ── Running a block under claims: `holdCall` / `actFor` / `asLocalPrincipal` (claims-forms.test.ts) ──
-
-  /** Hold the incoming call, then act for its caller: record what in-node code reads inside the
-   *  re-chained block, and call `captureContext` on another node from inside it. */
-  @mesh()
-  holdThenActFor(principal: string, binding: string, instance: string, method = 'captureContext', args: unknown[] = []): void {
-    const held = this.lmz.holdCall();
-    this.lmz.actFor(held, principal, () => {
-      this.ctx.storage.kv.put('acted_context', this.lmz.callContext);
-      this.lmz.call(binding, instance, (this.ctn() as any)[method](...args),
-        this.ctn<TestDO>().recordCallFailure(), { onErrorOnly: true });
-    });
-  }
+  // ── Running a block under claims: `actFor` / `asLocalPrincipal` (claims-forms.test.ts) ──
 
   /** Run one refusal case inside a call that carries claims, and keep what it threw (or 'ran'). */
   @mesh()
-  tryClaimsForm(which: 'forged' | 'hold' | 'hold-in-local-principal' | 'hold-in-acted' | 'uuid-principal' | 'uuid-actor'): void {
+  tryClaimsForm(which: 'forged' | 'uuid-principal'): void {
     let outcome = 'ran';
     try {
       if (which === 'forged') {
-        // A node cannot build a handle: this object has the claims and is still refused.
+        // An object that carries claims and is no record: it has no `sub` of its own.
         this.lmz.actFor({ originAuth: this.lmz.callContext.originAuth } as any, 'agent:test', () => undefined);
-      } else if (which === 'hold') {
-        this.lmz.holdCall();
-      } else if (which === 'hold-in-local-principal') {
-        this.lmz.asLocalPrincipal('agent:test', () => this.lmz.holdCall());
-      } else if (which === 'hold-in-acted') {
-        const held = this.lmz.holdCall();
-        this.lmz.actFor(held, 'agent:test', () => this.lmz.holdCall());
-      } else if (which === 'uuid-principal') {
-        this.lmz.asLocalPrincipal(crypto.randomUUID(), () => undefined);
       } else {
-        const held = this.lmz.holdCall();
-        this.lmz.actFor(held, crypto.randomUUID(), () => undefined);
+        this.lmz.asLocalPrincipal(crypto.randomUUID(), () => undefined);
       }
     } catch (e) {
       outcome = (e as Error).message;
     }
     this.ctx.storage.kv.put(`claims_form_${which}`, outcome);
-  }
-
-  /** `holdCall` with no call running, as an alarm handler would find it: reached by direct RPC,
-   *  which sets no call context. */
-  tryHoldOutsideCall(): string {
-    try { this.lmz.holdCall(); return 'ran'; } catch (e) { return (e as Error).message; }
   }
 
   /** Run as a local principal: keep the claims in-node code reads and whether they would pass the
@@ -538,10 +510,10 @@ export class TestDO extends UnscopedMeshDO<Env> {
     this.ctx.storage.kv.put(`record_form_${which}`, outcome);
   }
 
-  /** The type-level half of the 'forged' case: a node-built object is not a `HeldCall`. Never
+  /** The type-level half of the 'forged' case: an object that is no record is not accepted. Never
    *  called; `tsc` fails on an unused `@ts-expect-error` if the type ever accepts it. */
-  protected typeCheckForgedHandle(): void {
-    // @ts-expect-error a HeldCall comes only from `lmz.holdCall()`
+  protected typeCheckForgedRecord(): void {
+    // @ts-expect-error a record has a `sub` and a `profileId`
     this.lmz.actFor({ originAuth: { sub: 'x' } }, 'agent:test', () => undefined);
   }
 

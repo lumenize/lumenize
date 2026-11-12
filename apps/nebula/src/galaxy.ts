@@ -26,7 +26,6 @@
  */
 
 import { addressOf, mesh, rawRpc } from '@lumenize/mesh';
-import type { HeldCall } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { Workspace } from '@cloudflare/computer';
 import { ContainerBackend, WorkspaceContainerAPI } from '@cloudflare/computer/backends/container';
@@ -73,11 +72,9 @@ import {
   parseModelTurn,
   assembleCodegenPrompt,
   renderHistoryBundle,
-  renderHeldBlock,
   renderDecisionRequest,
   renderClosingRequest,
   agentMessageValue,
-  heldCallFor,
   TOOL_CONTRACT,
   CODEGEN_TOOLS,
   DECISION_TOOLS,
@@ -86,7 +83,6 @@ import {
   unknownToolArgKeys,
   DEFAULT_LOOP_CONFIG,
   type HistoryEntry,
-  type HeldEntry,
   type CodegenLoopConfig,
   type CodegenLoopDeps,
   type LoopToolDeps,
@@ -94,6 +90,7 @@ import {
   type ChatMessage,
   type ModelParams,
   type LoopResult,
+  type ActedUnder,
 } from './codegen-loop';
 
 // Type-only re-exports survive (erased — no value edge to the compile half); the old
@@ -632,7 +629,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * ({@link assertModelPath}): only the user-owned tree is writable. Each commit logs the
    * claims it ran under, the ADR-016 record of the edit: a person's own for a direct call, and
    * for a turn's write the poster's with the agent as actor, since the loop runs each tool
-   * inside the held call of the post it acts for. A direct call also logs its client's address.
+   * under the claims recorded on the post its turn took up. A direct call also logs its client's address.
    * The commit itself names them too ({@link commitIdentities}), so a repo that leaves this
    * Durable Object still says whose authority each commit used.
    */
@@ -1421,8 +1418,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   /**
    * Invite a person into the app, for the loop's `invite` tool: as a collaborator, with `write`
    * at the chat node, or with `scopeAdmin` as an admin of the app. It has NO `@mesh()`, on
-   * purpose: a loop tool calls it in-process, inside the held call of the post its turn took
-   * up, and a client already has `resources.invite`, so a decorated entry here would only be a
+   * purpose: a loop tool calls it in-process, under the claims recorded on the post its turn
+   * took up, and a client already has `resources.invite`, so a decorated entry here would only be a
    * second door.
    *
    * It first checks that the claims it runs under hold dominion over the app. The facade
@@ -1494,47 +1491,26 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   // ─── The codegen turn ───────────────────────────────────────────────
 
   /**
-   * The held call of each waiting post: the call that brought the post's current snapshot, kept
-   * as the opaque handle Mesh returns, so the Galaxy can run work under that person's claims and
-   * can never compose claims of its own. In memory only, by design: a stored scope set is a
-   * security bug (ADR-013), so an eviction releases every one, and a waiting post can then be
-   * answered or asked about but never acted on. An entry goes when the turn that posted the
-   * post's answer ends. Held claims are not checked against their `exp`: the person held the
-   * permission when they posted, and the call is recorded as theirs.
-   */
-  #held = new Map<string, HeldCall>();
-
-  /**
    * The posts a running turn has taken up, each from the moment its turn takes it up until that
-   * turn's promise settles. Two things read it. An edit to such a post holds nothing and starts
-   * nothing ({@link #onChatCommitted}): the turn read the words its poster wrote, so its tools
-   * keep running under that poster's claims, and never under an editor's. And no decision
-   * offers such a post, which matters for a turn the generation deadline cut off and that is
-   * still running.
+   * turn's promise settles. It is read in the commit trigger and in the decision. An edit to such
+   * a post starts no turn, and no decision offers such a post. Both matter for a turn the
+   * generation deadline cut off and that is still running: its post is still unanswered, so
+   * without this a second turn would start on it every time the deadline passes.
    * TEMP → target=our own code ends a turn the deadline cuts off, with a post that answers the
-   * post it took up, and so releases its claims. Until how a failed turn recovers is decided
+   * post it took up. Until how a failed turn recovers is decided
    * (`tasks/nebula-pre-alpha-fast-follow.md` § *Item 15: The wake check*), such a turn starts no
-   * decision, and its post stays here while it runs: the post is still unanswered and its call
-   * still held, so without this a second turn would start on it, inside the same call, every
-   * time the deadline passes.
+   * decision, and its post stays here while it runs.
    */
   #takenUp = new Set<string>();
 
   /**
-   * Keep the running call as `postId`'s held call. Called from inside the call that brought the
-   * post's snapshot, so a person who edits a waiting post becomes the one whose claims its turn
-   * runs under: a `put` needs only `write` at the chat node, and the words the agent reads are
-   * then the editor's. That holds until a turn takes the post up, after which an edit changes
-   * nothing ({@link #takenUp}). A call Mesh will not hold, one that carries no claims, leaves the post
-   * waiting with nothing held. `protected` so a test probe can hold a post it never committed.
+   * Run `run` under the claims recorded on the post a turn took up, with the agent as actor: the
+   * one place the Galaxy acts for a person. It names the post and the snapshot the turn read, and
+   * the Resources plane reads that snapshot's record, so no claims pass through here. Throws
+   * `ResourceMovedOnError` before `run` when the post was edited or deleted since.
    */
-  protected holdPost(postId: string): void {
-    try {
-      this.#held.set(postId, this.lmz.holdCall());
-    } catch (e) {
-      this.#held.delete(postId);
-      debug('nebula.Galaxy.trigger').debug('post not held', { postId, error: e });
-    }
+  protected actUnder<T>(post: TookUp, run: () => T): T {
+    return this.#resources.actUnderClaimsOf(post.id, post.validFrom, NEBULA_SUB, run);
   }
 
   /**
@@ -1586,20 +1562,19 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * An agent reply is itself a committed `Message` and is never a waiting post, so the agent
    * does not answer itself forever.
    *
-   * It runs inside the poster's call, which is the one moment that call can be held
-   * ({@link holdPost}): a post that arrives while a turn runs waits with its call held, and the
-   * decision after that turn can take it up under its own poster's claims. An edit to a post an
-   * agent message has already answered holds nothing and starts nothing.
+   * A post that arrives while a turn runs waits in storage, with the claims its write recorded,
+   * and the decision after that turn can take it up under them. An edit to a post an agent
+   * message has already answered starts nothing, and neither does an edit to a post a running
+   * turn took up: that turn's next tool call finds the post moved on and stops.
    */
   #onChatCommitted(mutations: Map<string, Snapshot>): void {
     for (const [resourceId, snap] of mutations) {
       if (snap.meta.typeName !== 'Message' || snap.meta.nodeId !== CHAT_NODE_ID) continue;
       if (!this.waitingPostIds().includes(resourceId)) continue;
       if (this.#takenUp.has(resourceId)) {
-        debug('nebula.Galaxy.trigger').info('edited while its turn runs: the turn keeps its claims', { resourceId });
+        debug('nebula.Galaxy.trigger').info('edited while its turn runs: it starts no second turn', { resourceId });
         continue;
       }
-      this.holdPost(resourceId);
       if (this.#turnInFlight) {
         debug('nebula.Galaxy.trigger').info('waiting: a turn is in flight', { resourceId });
         continue;
@@ -1607,7 +1582,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       const content = (snap.value as { content?: string }).content ?? '';
       debug('nebula.Galaxy.trigger').debug('human Message committed — turn starts', { resourceId });
       // `waitUntil` holds the Galaxy for the detached turn — see RESIDENCY in runTriggeredTurn.
-      this.ctx.waitUntil(this.runTriggeredTurn(resourceId, content).catch((e) => {
+      this.ctx.waitUntil(this.runTriggeredTurn({ id: resourceId, validFrom: snap.meta.validFrom }, content).catch((e) => {
         debug('nebula.Galaxy.trigger').error('triggered turn threw', {
           resourceId, error: e,
         });
@@ -1623,11 +1598,11 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    *
    * Everything a turn does that is not a tool call is the agent's own: its reads of the thread
    * and its posts. So the turns run as the agent, whatever call this happened to start in, and
-   * each tool call steps into the held call of the post it acts for.
+   * each tool call runs under the claims recorded on the post the turn took up ({@link actUnder}).
    *
    * ⚠️ Run with `wrangler dev` — the turn calls `env.AI.run` (or the REST lane).
    */
-  protected async runTriggeredTurn(postId: string, content: string): Promise<void> {
+  protected async runTriggeredTurn(post: TookUp, content: string): Promise<void> {
     // SINGLE-FLIGHT: one turn at a time. The flag is in-memory BY DESIGN — a post-deadline or
     // evicted turn clears it (eviction wipes the isolate), so a fresh message always triggers a
     // NEW generation rather than wedging behind a hung one. It stays set from a turn's end
@@ -1638,8 +1613,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     try {
       await this.lmz.asLocalPrincipal(NEBULA_SUB, async () => {
         let turn: TurnBody | undefined = async (tookUp) => {
-          tookUp(postId);
-          await this.#chatTurn(postId, content);
+          tookUp(post.id);
+          await this.#chatTurn(post, content);
           return true;
         };
         while (turn) {
@@ -1706,8 +1681,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * The decision that follows a turn, or `undefined` when no post is waiting for one: a lone
    * post's turn ends here and nothing more runs. A decision is the first step of a turn the
    * agent starts itself. It reads the thread as the agent and is offered `take_up` and no loop
-   * tool, since nothing is taken up yet. A valid pick, a waiting post whose call is held, runs
-   * the rest of the turn on that post and answers `true`, so another decision may follow.
+   * tool, since nothing is taken up yet. A valid pick, one of the waiting posts it was offered,
+   * runs the rest of the turn on that post and answers `true`, so another decision may follow.
    * Anything else is the agent's message: it answers whichever waiting posts it names, and
    * answers `false`, so no further decision runs until a new post arrives and decisions cannot
    * run away.
@@ -1720,10 +1695,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       const { bundle: history, labelFor } = this.#historyBundle(thread);
       const posts = thread.filter(({ id }) => waiting.includes(id));
       const request = renderDecisionRequest(posts.map(({ id, snap }) => ({
-        postId: id, speaker: labelFor(snap.meta.recordedClaims.sub), held: this.#held.has(id),
+        postId: id, speaker: labelFor(snap.meta.recordedClaims.sub),
         content: (snap.value as { content?: string }).content ?? '',
       })));
-      const system = [...await this.#guidanceBundles(), ...(history ? [history] : []), this.#heldBlock(thread, labelFor)].join('\n\n');
+      const system = [...await this.#guidanceBundles(), ...(history ? [history] : [])].join('\n\n');
       let raw: unknown;
       try {
         raw = await this.callModel(
@@ -1738,11 +1713,13 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       const named = (name: string): Record<string, unknown> =>
         (parsed.toolCalls.find((tc) => tc.name === name)?.args ?? {}) as Record<string, unknown>;
       const picked = named('take_up').postId;
-      if (typeof picked === 'string' && waiting.includes(picked) && this.#held.has(picked)) {
+      // Only a post this decision was offered: `waiting` came from the same read of the thread
+      // that gives the snapshot's `validFrom`, so the id and the moment name one snapshot.
+      if (typeof picked === 'string' && waiting.includes(picked)) {
         debug('nebula.Galaxy.turn').info('decision', { instanceName: this.lmz.instanceName, step: 'decision', postId: picked });
         tookUp(picked);
         const post = posts.find(({ id }) => id === picked)!;
-        await this.#chatTurn(picked, (post.snap.value as { content?: string }).content ?? '');
+        await this.#chatTurn({ id: picked, validFrom: post.snap.meta.validFrom }, (post.snap.value as { content?: string }).content ?? '');
         return true;
       }
       const answers = (Array.isArray(named('mark_complete').answers) ? named('mark_complete').answers as unknown[] : [])
@@ -1754,7 +1731,6 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       const text = parsed.text.trim();
       if (text.length > 0) {
         await this.commitAgentMessage(DEFAULT_CHAT_ID, crypto.randomUUID(), text, CHAT_NODE_ID, undefined, { answers });
-        for (const id of answers) this.#held.delete(id);
       }
       return false;
     };
@@ -1762,13 +1738,14 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
 
   /** The turn body the trigger races against the generation deadline: ONE assembly with
    *  every layer and the full tool set, the model deciding whether to act. */
-  async #chatTurn(userMessageId: string, message: string): Promise<void> {
-    // Whose claims this turn's tools run under: the poster's, with the agent as actor. With
-    // nothing held the turn can read, answer and ask, and is offered no tool that acts.
-    const held = this.#held.get(userMessageId);
+  async #chatTurn(post: TookUp, message: string): Promise<void> {
+    const userMessageId = post.id;
+    // Whose claims this turn's tools run under: the poster's as recorded, with the agent as
+    // actor. A post that moved on before this line logs none, and the first tool call stops.
+    let claims: ActedUnder | null = null;
+    try { claims = this.actUnder(post, () => wireClaims(this.#claimsIfAny())) ?? null; } catch { /* moved on, or no person's record */ }
     debug('nebula.Galaxy.turn').info('took up', {
-      instanceName: this.lmz.instanceName, step: 'turn', postId: userMessageId,
-      claims: held ? this.lmz.actFor(held, NEBULA_SUB, () => wireClaims(this.#claimsIfAny())) : null,
+      instanceName: this.lmz.instanceName, step: 'turn', postId: userMessageId, claims,
     });
     // Mint the agent Message id up front (Galaxy-minted — the human message's id is
     // client-minted); stream progress transiently to chat subscribers; commit ONE
@@ -1785,7 +1762,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // races this body against, so a hung call still fails.
     const deadlineAt = Date.now() + this.generationDeadlineMs;
     await withHeartbeat(
-      () => this.#chatTurnBody(userMessageId, message, agentMessageId),
+      () => this.#chatTurnBody(post, message, agentMessageId),
       () => this.#chatProgress(agentMessageId, '', userMessageId),
       { intervalMs: TURN_HEARTBEAT_MS, deadlineAt },
     );
@@ -1813,10 +1790,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * invariant the ephemeral design rests on: a container never outlives its build.
    * Destroy is idempotent, so the common path (build ran, already torn down) pays a no-op.
    */
-  async #chatTurnBody(userMessageId: string, message: string, agentMessageId: string): Promise<void> {
+  async #chatTurnBody(post: TookUp, message: string, agentMessageId: string): Promise<void> {
     const warm = this.#turnWarmLatch();
     try {
-      await this.#codegenTurn(message, agentMessageId, userMessageId, warm);
+      await this.#codegenTurn(message, agentMessageId, post, warm);
     } finally {
       this.#destroyBuildContainer();
     }
@@ -1839,9 +1816,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   /** The turn's body — the loop, then the durable reply. `warm` is the turn's latch,
    *  fired by the first write. */
   async #codegenTurn(
-    message: string, agentMessageId: string, userMessageId: string,
+    message: string, agentMessageId: string, post: TookUp,
     warm: { fire(): void },
   ): Promise<void> {
+    const userMessageId = post.id;
     // The tree the turn READ — captured BEFORE the loop writes (the codegen record's
     // `sourceCommit`; git is local to this DO's VFS, so the ref recovers the bytes).
     const sourceCommit = (await this.headCommit())?.oid;
@@ -1850,8 +1828,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       (step) => this.#chatProgress(agentMessageId, step, userMessageId),
       {
         // The post the turn took up: excluded from the history bundle, since the request
-        // bundle carries it, once, and the post each tool call acts for unless it names another.
-        tookUp: userMessageId,
+        // bundle carries it, once, and the post every tool call acts for.
+        tookUp: post,
         // The structural warm: the first write of the turn.
         onFirstWrite: () => warm.fire(),
       },
@@ -1874,6 +1852,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         ? 'See the thought process.'
         : result.stop === 'build-unavailable'
           ? 'Your changes are saved, but the build box could not run just now, so the preview is unchanged. Ask me to build again in a moment.'
+          : result.stop === 'post-moved'
+            ? POST_MOVED_LINE
           : result.stop === 'error'
             ? `I couldn't finish — ${result.detail}. Try again in a moment.`
             : "I couldn't finish cleanly — see the thought process.";
@@ -1927,15 +1907,21 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // The client reconciles its ephemeral stream against it by id.
     // The other posts the model says its message answers, kept only where they are people's
     // posts in this thread: the model's word is the one source for what a message answers.
-    const posts = new Set(this.#thread().filter(({ snap }) => deriveKind(snap.meta.recordedClaims) === 'human').map(({ id }) => id));
-    const answers = (result.answers ?? []).filter((id) => posts.has(id));
-    await this.commitAgentMessage(DEFAULT_CHAT_ID, agentMessageId, reply, CHAT_NODE_ID, userMessageId, {
+    const now = this.#thread();
+    const posts = new Set(now.filter(({ snap }) => deriveKind(snap.meta.recordedClaims) === 'human').map(({ id }) => id));
+    // The post the turn took up may have been edited or deleted while it ran: a tool call found
+    // so and stopped the loop, or nothing looked since the last one. Either way this message was
+    // written for words that are no longer the post, so it answers no post of that id, whatever
+    // the model named. The post waits again, and the decision after this turn can take it up.
+    const moved = now.find(({ id }) => id === userMessageId)?.snap.meta.validFrom !== post.validFrom;
+    if (moved) debug('nebula.Galaxy.turn').info('the post moved on: this turn answers none of it', { instanceName: this.lmz.instanceName, postId: userMessageId });
+    const answers = (result.answers ?? []).filter((id) => posts.has(id) && !(moved && id === userMessageId));
+    const closing = moved && result.stop !== 'post-moved' ? `${reply}\n\n${POST_MOVED_LINE}` : reply;
+    await this.commitAgentMessage(DEFAULT_CHAT_ID, agentMessageId, closing, CHAT_NODE_ID, moved ? undefined : userMessageId, {
       thought,
       codegen,
       answers,
     });
-    // An answered post's claims are released as the turn that answered it ends.
-    for (const id of [userMessageId, ...answers]) this.#held.delete(id);
     // (No reload is asked for here: a turn's last build that landed recorded `.dev`'s newest
     // `ServedBuild`, which every Studio on the app hears, as a manual `buildNow()`'s does.)
   }
@@ -2099,7 +2085,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     offered: { tools?: OfferedTools; step?: 'turn' | 'decision' | 'closing'; postId?: string } = {},
   ): Promise<unknown> {
     const tools = offered.tools ?? CODEGEN_TOOLS;
-    // What this request offers the model: a step with nothing held is offered no tool that acts.
+    // What this request offers the model: a decision and a closing step are offered no tool that acts.
     debug('nebula.Galaxy.turn').debug('request', {
       instanceName: this.lmz.instanceName, step: offered.step ?? 'turn', postId: offered.postId ?? null,
       tools: tools.map((tool) => tool.function.name),
@@ -2251,30 +2237,27 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    */
   protected async runCodegenTurn(
     userRequest: string,
-    config: CodegenLoopConfig = DEFAULT_LOOP_CONFIG,
-    onProgress?: (step: string) => void,
+    config: CodegenLoopConfig,
+    onProgress: ((step: string) => void) | undefined,
     opts: {
-      /** The post this turn took up. The history bundle leaves it out, and each tool call runs
-       *  inside its held call unless the call names another held post. With no held call for
-       *  it, the turn is offered no tool that acts. */
-      tookUp?: string;
+      /** The post this turn took up, and the snapshot of it the turn read. The history bundle
+       *  leaves it out, and every tool call runs under its recorded claims. */
+      tookUp: TookUp;
       /** Called before the turn's FIRST write (`write_file` or `edit_file`) — the
        *  structural container warm (`#chatTurnBody`). */
       onFirstWrite?: () => void;
-    } = {},
+    },
   ): Promise<LoopResult> {
     let currentSource = '';
     try { currentSource = await (await this.#workspace()).fs.readFile(wsPath('src/App.vue'), 'utf8'); } catch { /* none yet */ }
     let ontologyDts: string | undefined;
     try { ontologyDts = await (await this.#workspace()).fs.readFile(wsPath(ONTOLOGY_PATH), 'utf8'); } catch { /* none yet */ }
     const thread = this.#thread();
-    const { bundle: history, labelFor } = this.#historyBundle(thread, opts.tookUp);
-    const tookUpBy = thread.find(({ id }) => id === opts.tookUp)?.snap.meta.recordedClaims.sub;
+    const { bundle: history, labelFor } = this.#historyBundle(thread, opts.tookUp.id);
+    const tookUpBy = thread.find(({ id }) => id === opts.tookUp.id)?.snap.meta.recordedClaims.sub;
 
     const initial = assembleCodegenPrompt({
-      // The held block goes last: it changes more often than the history, and the provider's
-      // cache keeps the longest unchanged prefix.
-      systemBundles: [...await this.#guidanceBundles(), ...(history ? [history] : []), this.#heldBlock(thread, labelFor)],
+      systemBundles: [...await this.#guidanceBundles(), ...(history ? [history] : [])],
       ontologyDts,
       userRequest,
       currentSource,
@@ -2286,40 +2269,42 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // either — so a round's thinking streams batch by batch instead of landing whole when the
     // model returns. `onDelta` on the deps tells the loop not to re-emit that thinking.
     const onDelta = onProgress ? (text: string) => onProgress(text) : undefined;
-    // Every tool call steps into the held call of the post it acts for, with the agent
-    // prepended as actor: the post the model named, or the one this turn took up. So the
-    // entry it reaches, and every record that entry's calls leave on any node, carries the
-    // person and the agent both. A post that is not held throws here, before anything runs,
-    // and reaches the model as that call's tool error.
+    // Every tool call runs under the claims recorded on the post this turn took up, with the
+    // agent as actor. So the entry it reaches, and every record that entry's calls leave on any
+    // node, carries the person and the agent both. A post that has moved on throws before
+    // anything runs, and the loop stops on it.
     const entries = this.loopToolDeps();
-    const under = <T>(postId: string | undefined, run: () => T): T =>
-      this.lmz.actFor(heldCallFor(this.#held, opts.tookUp, postId), NEBULA_SUB, run);
+    // What the latest call ran under, kept from inside the same block the tool ran in, so the
+    // record of a call and the call itself can never name two snapshots.
+    let acted: { post: string; claims: ActedUnder } | undefined;
+    const under = <T>(run: () => T): T => {
+      acted = undefined;
+      const post = opts.tookUp;
+      return this.actUnder(post, () => {
+        const claims = wireClaims(this.#claimsIfAny());
+        if (claims) acted = { post: post.id, claims };
+        return run();
+      });
+    };
+    // The chat floor, read as each source tool runs: the same check a direct call to the entry
+    // meets on its decorator, which an in-process call skips. A poster whose `write` on the chat
+    // node is gone is refused here, and the model reads why.
+    const atChatFloor = <T>(run: () => T): T => under(() => { requireChatWrite(this); return run(); });
     // The write deps fire the warm before they write — the latch makes the second and later
     // calls no-ops, so firing from both is what "the first write" means.
     const fire = opts.onFirstWrite ?? ((): void => {});
     const tools: LoopToolDeps = {
-      read_file: (path, postId) => under(postId, () => entries.read_file(path)),
-      write_file: (path, content, postId) => under(postId, () => { fire(); return entries.write_file(path, content); }),
-      edit_file: (path, anchor, replacement, postId) => under(postId, () => { fire(); return entries.edit_file(path, anchor, replacement); }),
-      build: (buildOpts, postId) => under(postId, () => entries.build(buildOpts)),
-      // No post to name: an invite changes who can do what, so it runs under the post the turn
-      // took up, and which claims it uses follows from that and from nothing the model sends.
-      invite: (email, scopeAdmin) => under(undefined, () => entries.invite(email, scopeAdmin)),
+      read_file: (path) => atChatFloor(() => entries.read_file(path)),
+      write_file: (path, content) => atChatFloor(() => { fire(); return entries.write_file(path, content); }),
+      edit_file: (path, anchor, replacement) => atChatFloor(() => { fire(); return entries.edit_file(path, anchor, replacement); }),
+      build: (buildOpts) => atChatFloor(() => entries.build(buildOpts)),
+      // An invite changes who can do what, and its own entry checks the poster's dominion.
+      invite: (email, scopeAdmin) => under(() => entries.invite(email, scopeAdmin)),
     };
-    // A turn with nothing held is offered no tool that acts: it reads, answers and asks.
-    const offered = {
-      tools: opts.tookUp !== undefined && this.#held.has(opts.tookUp) ? CODEGEN_TOOLS : MESSAGE_ONLY_TOOLS,
-      step: 'turn' as const,
-      ...(opts.tookUp !== undefined ? { postId: opts.tookUp } : {}),
-    };
+    const offered = { tools: CODEGEN_TOOLS, step: 'turn' as const, postId: opts.tookUp.id };
     const deps: CodegenLoopDeps = {
-      // What each call's record says it acted for: the same held call `under` steps into.
-      actsFor: (postId) => {
-        const post = postId ?? opts.tookUp;
-        const held = post === undefined ? undefined : this.#held.get(post);
-        const claims = held && this.lmz.actFor(held, NEBULA_SUB, () => wireClaims(this.#claimsIfAny()));
-        return post !== undefined && claims ? { post, claims } : undefined;
-      },
+      // What the latest tool call's record says it acted for, read after the call.
+      actsFor: () => acted,
       callModel: (m, p) => this.callModel(m, p, onDelta, offered),
       ...(onDelta ? { onDelta } : {}),
       tools,
@@ -2327,7 +2312,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       onProgress,
     };
     const result = await runCodegenLoop(initial, deps, config);
-    return this.#closingStep(result, thread, opts.tookUp, labelFor);
+    return this.#closingStep(result, thread, opts.tookUp.id, labelFor);
   }
 
   /**
@@ -2341,7 +2326,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * own: a turn a bound stopped mid-round has a transcript no further request can follow.
    */
   async #closingStep(
-    result: LoopResult, atStart: Array<{ id: string }>, tookUp: string | undefined, labelFor: (sub: string) => string,
+    result: LoopResult, atStart: Array<{ id: string }>, tookUp: string, labelFor: (sub: string) => string,
   ): Promise<LoopResult> {
     if (result.stop !== 'complete' && result.stop !== 'no-tool-calls') return result;
     const seen = new Set(atStart.map(({ id }) => id));
@@ -2351,7 +2336,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     if (arrived.length === 0) return result;
     const posts = arrived.map(({ id }) => id);
     debug('nebula.Galaxy.turn').info('closing step', {
-      instanceName: this.lmz.instanceName, step: 'closing', postId: tookUp ?? null, posts,
+      instanceName: this.lmz.instanceName, step: 'closing', postId: tookUp, posts,
     });
     const request = renderClosingRequest(arrived.map(({ id, snap }) => ({
       postId: id, speaker: labelFor(snap.meta.recordedClaims.sub), content: (snap.value as { content?: string }).content ?? '',
@@ -2360,7 +2345,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     try {
       raw = await this.callModel(
         [...result.messages, { role: 'user', content: request }], DEFAULT_LOOP_CONFIG.fixParams, undefined,
-        { tools: MESSAGE_ONLY_TOOLS, step: 'closing', ...(tookUp !== undefined ? { postId: tookUp } : {}) },
+        { tools: MESSAGE_ONLY_TOOLS, step: 'closing', postId: tookUp },
       );
     } catch (e) {
       // The turn's own reply stands, and the posts wait for a decision.
@@ -2391,8 +2376,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * against the table, so `via('build', 'writeSource')` does not compile. The loop's
    * `this.writeSource()` / `this.buildNow()` are the ordinary calls they look like, made
    * in-process, where a guard on the decorator does not run: `runCodegenTurn` runs each
-   * inside the held call of a post that already passed the chat floor at the door, and
-   * offers none of them to a step that holds no post. `protected` so a test probe can
+   * under the claims recorded on the post its turn took up, makes the chat floor's check itself
+   * for the source entries, and offers none of them to a turn that took up no post. `protected` so a test probe can
    * assert the keys are exactly the table's.
    */
   protected loopToolDeps(): LoopToolDeps {
@@ -2528,22 +2513,6 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     return { ...(entries.length > 0 ? { bundle: renderHistoryBundle(entries) } : {}), labelFor };
   }
 
-  /**
-   * The posts the Galaxy holds a call for and that still wait, as the prompt's last block: which
-   * post, whose claims, and whether those claims carry the admin bit, read by stepping into each
-   * held call. It names nothing the tree does not already show a member (ADR-008).
-   */
-  #heldBlock(thread: Array<{ id: string; snap: Snapshot }>, labelFor: (sub: string) => string): string {
-    const waiting = new Set(this.#waiting(thread));
-    const held: HeldEntry[] = [];
-    for (const { id } of thread) {
-      const call = this.#held.get(id);
-      if (!call || !waiting.has(id)) continue;
-      const claims = this.lmz.actFor(call, NEBULA_SUB, () => this.#claimsIfAny());
-      if (claims) held.push({ postId: id, speaker: labelFor(claims.sub), admin: claims.access?.scopeAdmin === true });
-    }
-    return renderHeldBlock(held);
-  }
 }
 
 /** Where the Galaxy layer of the guidance tree lives in the Workspace — the standard's
@@ -2558,6 +2527,12 @@ const GALAXY_LAYER_PREFACE = "The app's own AGENTS.md — the layer below the pl
  * and answers whether a decision may follow it.
  */
 type TurnBody = (tookUp: (postId: string) => void) => Promise<boolean>;
+
+/** The post a turn took up: its id, and the `validFrom` of the snapshot of it the turn read. */
+export interface TookUp { id: string; validFrom: string }
+
+/** What a turn's message says when the post it took up changed while it worked. */
+const POST_MOVED_LINE = 'The post I was working on was changed while I worked, so I stopped. I will take it up again as it reads now.';
 
 /**
  * Who a source commit names, from the claims it ran under. The author is the person whose

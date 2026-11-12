@@ -8,7 +8,7 @@
  *
  * The model is the real one. Whether its closing message answers Austen too, or leaves her post
  * for the decision that follows, is its own choice, so the scenario records which and gates on
- * neither. `held-posts.test.ts` gates both, with the model scripted. The scenario ends at the
+ * neither. `waiting-posts.test.ts` gates both, with the model scripted. The scenario ends at the
  * turn's message.
  *
  *  1. **The turn closes by reading Austen's post.** A `closing step` line names it, for the turn

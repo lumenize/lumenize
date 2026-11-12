@@ -11,7 +11,7 @@
  * The model is the real one, and whether it calls `invite` when asked is its choice. So no limb
  * waits on its wording. Each waits on what the invite leaves behind: the invitee's real email,
  * the memberships that email's link opens, or the post the Galaxy's handler writes.
- * `held-posts.test.ts` gates the refusals and the binding to the turn's own post, scripted.
+ * `waiting-posts.test.ts` gates the refusals and the binding to the turn's own post, scripted.
  *
  *  1. **Each kind of invite lands as its kind.** A collaborator's link opens a plain membership
  *     in the app and an admin one in its `.dev` workspace. An admin's opens an admin membership
