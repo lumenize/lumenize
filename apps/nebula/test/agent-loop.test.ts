@@ -135,6 +135,10 @@ describe('messageByline', () => {
     expect(messageByline(AGENT, [impersonated], nameOf)).toBe('Lumenize, re: Coach for Dana');
     // Two posts by one person name them once.
     expect(messageByline(AGENT, [jennifer, jennifer], nameOf)).toBe('Lumenize, re: Jennifer');
+    // Two people who share a display name are two people. Mutation: de-duplicate by the
+    // rendered name → this reads `Lumenize, re: Sam`.
+    const sam = (p: ParticipantRef): string => (p.sub === NEBULA_SUB ? 'Lumenize' : 'Sam');
+    expect(messageByline(AGENT, [jennifer, austen], sam)).toBe('Lumenize, re: Sam and Sam');
   });
 
   it('reads Lumenize alone on a message that answers nothing', () => {

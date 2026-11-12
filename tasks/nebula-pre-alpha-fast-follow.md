@@ -396,6 +396,8 @@ The experiment turned up two more things any design has to handle. `@swc/core` 1
 
 **Today:** Studio has no edit control, so an edit comes only from code calling the client API. A message already carries `replyTo`, which the agent's messages set.
 
+**Also fixes:** the original poster's page hanging on *Studio is thinking…* after such an edit. `postAnswered` turns false again when the answer's snapshot stops recording the agent, and `App.vue`'s watch handles only the change to true.
+
 **Open:** whether the affordance is a reply, which sets `replyTo` on the new post, or a quote, which copies the earlier message's text into it. Larry leaned toward the reply.
 
 **Not this item:** refusing the edit below Studio. `tasks/backlog.md` § *Nebula* has that row, *Only a message's author, or nobody, can change it*.

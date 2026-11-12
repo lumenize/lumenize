@@ -1,6 +1,6 @@
 # High levels of agent agency in the agent loop
 
-**Status:** Pass 1, settled 2026-11-10 (Larry), with both Stage 1 gates and Stage 2's applied; ready for `/build-task`. Everything in it but the wake check gates [nebula-testing-with-personas.md](nebula-testing-with-personas.md) (D13); the wake check follows the wipe, in fast-follow, once Q3 is decided (D19). Nothing gates it.
+**Status:** Built 2026-11-11 and handed off 2026-11-12, on `pre-alpha`; § *Build notes* has each phase's record and § *Phase Retro* what it taught. At the hand-off Larry chose to replace the held call with claims minted live for the poster of a post (D30), which is a task file of its own before the wipe. The wake check is fast-follow Item 15, after Q3 (D19).
 
 ## Objective
 
@@ -295,6 +295,8 @@ The post at the limit is the agent's own, and "keep going" is a new yes that bri
 | D26 | Held claims are not checked against their `exp`: a call under them, a DI5 call included, can land after its poster was demoted, until the post is answered or the Galaxy is evicted (Larry, 2026-11-11, Stage 2). They held the permission when they posted, the call is recorded as theirs, and a membership it creates can be removed. `security.md`'s revocation bullet states the wider bound. | **A DI5 call refusing claims past their `exp`**: it keeps today's 15-minute bound at the cost of an extra yes whenever a token lapses first. **Refusing a post held longer than the token's lifetime**: the same extra yes, for a bound of about 30 minutes. |
 | D27 | Mechanics that turn on the model's choices gate in the baseline lane, with the model scripted behind real clients and the real commit hook; every scene still runs in `/live`, gating only on what holds whatever the model chooses (Larry, 2026-11-11, Stage 2). A gate has to fail when the code is wrong, and the real model cannot be made to pick a post, leave one unanswered or call `invite` on demand. `live.md` gains the sentence that licenses it. | **A variable that points the stack's model call at a harness fake**: a test knob in production code, which `live-scenarios.md` rules out. **Gating in `/live` and retrying until the model cooperates**: `live.md` forbids reading a retry as a pass. |
 | D28 | A collaborator may invite into `.dev`, admin bit included (Larry, 2026-11-12, after the verifier panel). They are admin of `acme.crm.dev`, so from its host they hold dominion over it (ADR-015), and the person they invite gets no membership in `acme.crm`, no grant on `chat` and nothing in a tenant Star. `invite-facade.test.ts` asserts it beside the refusal of their invite into the app. | **Refuse a `.dev` invite from anyone without dominion over the app**: a special case for one Star, which stops a move down from a membership the inviter holds. **Give collaborators a plain `.dev` membership**: they could not work in the preview. |
+| D29 | A person's edit of an agent message stays as built: the message becomes the editor's post, the post it answered waits again, and the edit starts a turn under the editor's claims (Larry, 2026-11-12). Studio is to offer a reply and no edit control (fast-follow Item 16), and refusing the edit in Resources is a backlog row. | **An edit that starts nothing and leaves `answers` standing**: a person's edit would keep the agent's power to mark a post answered. **Refusing edits to agent messages now**: an ownership rule the orgTree lacks, as D25 found for people's posts. |
+| D30 | The held call is to be replaced: a turn reads the post from Resources, takes its recorded `sub`, and has the Registry mint that person's claims from their memberships as they stand, with the agent as `act` (Larry, 2026-11-12). The agent may then act for a person on the strength of a post they wrote, with no session of theirs open, which D8 had ruled out. It is a task file of its own, before the wipe. Whether each turn's `ctx.waitUntil` outlasts the first turn's 15 minutes was therefore left unmeasured. | **Keep the held call**: it is what needs `#held`, `#takenUp`, D25's edit rule, D26's claims past `exp`, and a wake check that can only ask. **Tools under the agent's own claims**: the agent would need grants in tenant Stars, and Austen's request would run on the agent's authority. |
 
 ## Phases
 
@@ -618,6 +620,39 @@ One thing to know rather than decide: a person who edits an agent message makes 
 - **A phase's handle grep finds nothing once the phase is committed,** since it reads the working tree's diff. Run it over the build's range: `git diff -U0 6acb3c9^..HEAD -- apps packages | grep '^+' | grep -nE '\b(DI|[SDQCB])(1[0-9]|[1-9])\b|\bPhase[ -][0-9]+\b'`. Over this build's 4,246 added lines it prints nothing, and it prints a planted `D12`.
 
 **Close-out:** `tasks/nebula-pre-alpha-fast-follow.md` § *Item 6* no longer says a mid-generation post sits in the thread, and § *Item 15* names `#takenUp` as the interim it replaces. `tasks/backlog.md`'s row on `callModel`'s missing timeout gives the deadline as 14 minutes. The two `dev-studio` test headers give `asCaller`'s present reason.
+
+### The hand-off (2026-11-12)
+
+Larry decided four things, and the rest of Phase 10's list was fixed or given a home.
+
+- **D25's narrowing stands.** Its row now says an edit to a post a running turn has taken up holds nothing.
+- **A collaborator's invite into `.dev` stands (D28).** The facade's comment says so, and `invite-facade.test.ts` asserts it beside the refusal of their invite into the app.
+- **An edited agent message stays as built (D29).** Fast-follow Item 16 removes the occasion, and a backlog row holds the Resources-level fix.
+- **Live mint replaces the held call (D30).** The `waitUntil` measurement was dropped with it. Three of Phase 10's items go to that task as context, since they describe what it deletes: Mesh's held-call marker lost across a result handler, a deleted post's claims staying usable, and a cut-off turn releasing a post another turn holds. `docs/vision/auth.md`'s callout on held claims is rewritten there too.
+- **Fixed at the hand-off:** a refused tool call records the post and the claims it ran under, so Studio marks it; and the byline counts the people an agent message answers by `sub`, so two who share a display name are both named. Each has a test and a mutation that reds it.
+- **Given a backlog row:** an impersonating admin's direct `writeSource` commit naming only the impersonated person; a decision's model call sending no heartbeat; the three `/live` limbs of this build that are weaker on the deployed target; the deployed capture keeping two copies of a line; and an address with about two dozen memberships answering 401 on Accept.
+
+## Phase Retro
+
+1. **What did we learn?**
+   - **Holding a person's call was the costly choice, and the build could not see it.** Five of the panel's ten majors and most of its minors were about the held call's lifetime: an edit swapping claims mid-turn, a wordless closing step releasing a post, a cut-off turn's post, a marker lost across a hop. Each was fixed with a guard. Larry's question at the hand-off, why hold anything now that the agent posts as itself, removes the mechanism (D30).
+   - **A seed that re-asserts itself on every wake undoes an admin's change.** `OrgTree` now writes a declared node's edge only when it creates the node.
+   - **A deployed log line arrives when its invocation ends,** so a scenario cannot time an action off a running turn's line, and a capture can hold one line twice. `live-scenarios.md` has both.
+2. **What did we struggle with?**
+   - **Scripting the model.** Which post a decision picks could not be asked of the real model, so those gates moved to a lane that scripts the model behind the real commit path (D27, `live.md`).
+   - **Two guards on one trigger hid each other from mutation,** in `#onChatCommitted`. One remains.
+   - **`tsx` wrapping a function passed to the page,** which made a `/live` watch never run. Its own control caught it.
+3. **Did any tests fail unexpectedly?**
+   - **`closing-step` and `held-post-answered` each failed twice deployed,** from how they read logs, with no product defect.
+   - **An address shared by every test in a file answered 401 on Accept from the thirteenth test on.** The cause is not established, and it has a backlog row.
+   - **`scope-isolation.test.ts`'s alarm test failed once in a full run** and passed alone and in the next run: a flake.
+4. **Impact on follow-on work?**
+   - **The live-mint task comes before the wipe** and deletes `lmz.holdCall`, `#held` and D25's and D26's rules. The wake check (Item 15) gets simpler under it, since a woken Galaxy can run the work.
+   - **Personas** is unblocked, and its `provision` tool should be written against the live mint.
+   - **Fast-follow Item 16** is new: Studio replies and never edits.
+5. **Process changes?**
+   - **A guard added to state with a lifetime should prompt the question of what the state is for.** `calibration.md` §2 says this, and `/build-task`'s second diff walk asks it per phase, yet five guards went onto the held call in this build. The walk asks what each touched thing is still for; it does not ask it of the thing the task file itself introduces. I propose one sentence in `/build-task` step 2: when a phase adds its second guard to something this task introduced, stop and tee the mechanism up for Larry.
+   - **Nothing else.** The per-phase build notes carried this hand-off across two compactions, as they were meant to.
 
 ## Non-goals
 

@@ -820,8 +820,9 @@ export async function runCodegenLoop(
 
     let sawError = false;
     /** Capture one call's failure: the record, the tool message, the fix-mode flag. */
-    const fail = (tc: ParsedToolCall, error: string, args: unknown = tc.args ?? tc.rawArgs): void => {
-      recorded.push({ name: tc.name, args, error });
+    const fail = (tc: ParsedToolCall, error: string, args: unknown = tc.args ?? tc.rawArgs, acted?: Pick<ToolCall, 'post' | 'claims'>): void => {
+      // A call that was refused still ran on someone's claims, so its record names them.
+      recorded.push({ name: tc.name, args, error, ...acted });
       messages.push(toolResultMessage(tc.id, { error }));
       sawError = true;
     };
@@ -926,7 +927,7 @@ export async function runCodegenLoop(
           recorded.push({ name: tc.name, args: tc.args, result, ...acted });
           messages.push(toolResultMessage(tc.id, result));
         } catch (e) {
-          fail(tc, e instanceof Error ? e.message : String(e), tc.args);
+          fail(tc, e instanceof Error ? e.message : String(e), tc.args, acted);
         }
         continue;
       }
@@ -943,7 +944,7 @@ export async function runCodegenLoop(
           recorded.push({ name: tc.name, args: tc.args, result: { path, bytes: new TextEncoder().encode(content).length }, ...acted });
           messages.push(toolResultMessage(tc.id, { path, content }));
         } catch (e) {
-          fail(tc, e instanceof Error ? e.message : String(e), tc.args);
+          fail(tc, e instanceof Error ? e.message : String(e), tc.args, acted);
         }
         continue;
       }
@@ -959,7 +960,7 @@ export async function runCodegenLoop(
           recorded.push({ name: tc.name, args: tc.args, result, ...acted });
           messages.push(toolResultMessage(tc.id, result));
         } catch (e) {
-          fail(tc, e instanceof Error ? e.message : String(e), tc.args);
+          fail(tc, e instanceof Error ? e.message : String(e), tc.args, acted);
         }
         continue;
       }
@@ -978,7 +979,7 @@ export async function runCodegenLoop(
         recorded.push({ name: tc.name, args: tc.args, result, ...acted });
         messages.push(toolResultMessage(tc.id, result));
       } catch (e) {
-        fail(tc, e instanceof Error ? e.message : String(e), tc.args);
+        fail(tc, e instanceof Error ? e.message : String(e), tc.args, acted);
       }
     }
 

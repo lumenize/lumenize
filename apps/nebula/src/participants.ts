@@ -161,7 +161,9 @@ export function messageByline(
   const chain = (claims: WireRecordedClaims): string => deriveParticipants(claims).map(nameOf).join(' for ');
   const own = chain(recordedClaims);
   if (recordedClaims.sub !== NEBULA_SUB) return own;
-  const authors = [...new Set(answered.map(chain))];
+  // One entry per person, by `sub`: two people who share a display name are both named.
+  const people = new Map(answered.map((claims) => [deriveParticipants(claims).map((p) => p.sub).join(' '), chain(claims)]));
+  const authors = [...people.values()];
   if (authors.length === 0) return own;
   const list = authors.length === 1 ? authors[0]! : `${authors.slice(0, -1).join(', ')} and ${authors[authors.length - 1]}`;
   return `${own}, re: ${list}`;

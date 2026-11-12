@@ -86,7 +86,7 @@ async function membershipsOf(email: string): Promise<Array<[scope: string, admin
 const someone = () => `friend-${crypto.randomUUID().slice(0, 8)}@example.com`;
 /** What the Galaxy's own check tells a turn working for someone who is not an admin of the app. */
 const NOT_AN_ADMIN = 'Inviting into this app needs one of its admins, and the person this turn is working for is not one. Say so, and ask an admin in the chat to ask for the invite.';
-type ToolCalls = { codegen: { toolCalls: Array<{ name: string; args?: Record<string, unknown>; result?: Record<string, unknown>; error?: string; claims?: { sub: string } }> } };
+type ToolCalls = { codegen: { toolCalls: Array<{ name: string; args?: Record<string, unknown>; result?: Record<string, unknown>; error?: string; post?: string; claims?: { sub: string } }> } };
 
 /** Post a Message at an id the test chose, so a script written beforehand can name it. */
 async function post(client: StudioClientTest, id: string, content: string, extra: Record<string, unknown> = {}): Promise<void> {
@@ -591,6 +591,10 @@ describe('the agent invites, under the claims of the post its turn took up', () 
 
     const reply = (await agentMessages(c.j, sub.resourceIds)).get('Austen, I cannot invite your friend: that needs an admin of the app.')!;
     expect((reply.value as ToolCalls).codegen.toolCalls[0]).toMatchObject({ name: 'invite', error: NOT_AN_ADMIN });
+    // The refused call still records whose claims it ran under. Mutation: record a failed
+    // call without them → `post` and `claims` are absent.
+    const refused = (reply.value as ToolCalls).codegen.toolCalls[0]!;
+    expect([refused.post, refused.claims?.sub]).toEqual([a1, c.aSub]);
     expect(await membershipsOf(friend)).toEqual([]);
     c.dispose();
   });
