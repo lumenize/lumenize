@@ -19,6 +19,15 @@ const ROOT = process.cwd()
 const ABSTRACT_SUBJECTS =
   /\b(?:the|its|that|this)\s+(reflex|shape|class|mechanism|property|invariant|asymmetry|inversion|framing|altitude|surface|posture|primitive|substrate|tell|move)\b/gi
 
+// A count of the items a document goes on to list: "Three things stand in the way", "Two
+// questions are open". The list gains an item and nothing updates the number, so Larry
+// rewrites each one by hand as "A few things…". Report-only on a full run, and in the
+// edit hook only a phrase the edit ADDED is reported. prose-voice.md § *The moves that
+// make the difference* has the rule.
+const COUNTED_LIST =
+  /\b(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|[2-9]|1[0-9])\s+(?:[a-z-]+\s+){0,2}?(?:things|questions|reasons|steps|items|points|consequences|cases|ways|options|alternatives|changes|costs|fixes|problems|facts|findings|decisions|sections|phases|parts|pieces|moves|kinds|bullets|rows|claims|goals|blockers|gaps|risks|limbs|defects|failures)\b/gi
+const countedLists = (t) => [...new Set((t.match(COUNTED_LIST) || []).map((m) => m.toLowerCase().replace(/\s+/g, ' ')))]
+
 const GOVERNED = [
   { dir: 'docs/adr', kind: 'adr', maxBytes: 13_000 },
   // 80KB, raised from 60KB 2026-09-24 (Larry). auth.md had grown past 60KB carrying real
@@ -246,6 +255,7 @@ function analyze(path, kind, maxBytes) {
     maxBullet: Math.max(...bul, 0),
     abstractRate,
     restated: backwardRestatements(t),
+    counted: countedLists(t),
     headerWords: header.trim() ? header.trim().split(/\s+/).length : 0,
     softBullets: bul.filter((n) => n > 100).length,
     failures: isRegister ? [] : failures,
@@ -289,7 +299,8 @@ if (argv[0] === '--regression') {
   }
 
   const after = analyze(file, g.kind, g.maxBytes)
-  if (!after.failures.length) process.exit(0)
+  const addedCounts = after.counted.filter((c) => !(before?.counted ?? []).includes(c))
+  if (!after.failures.length && !addedCounts.length) process.exit(0)
 
   const num = (msg) => { const m = msg.match(/[\d.]+/); return m ? parseFloat(m[0]) : Infinity }
   const worse = after.failures.filter((f) => {
@@ -298,9 +309,13 @@ if (argv[0] === '--regression') {
     if (!prior) return true          // this gate was passing before your edit
     return num(f) > num(prior)       // it was failing, and you made it worse
   })
-  if (!worse.length) process.exit(0)
+  if (!worse.length && !addedCounts.length) process.exit(0)
 
   console.error(`\nProse voice — ${rel} (see .claude/rules/prose-voice.md)\n`)
+  for (const c of addedCounts) {
+    console.error(`  · counts what it lists: "${c}". Write "a few", or name them with no count: the list will grow and the number will not.`)
+  }
+  if (!worse.length) process.exit(2)
   for (const w of worse) console.error(`  · ${w}`)
   console.error(
     before
@@ -369,6 +384,12 @@ if (restating.length) {
       '  scrolling up. Repeating the RATIONALE is the defect: cite the section by name instead.',
     )
   }
+}
+
+const counting = results.filter((r) => r.counted.length && !r.isRegister)
+if (counting.length && argv.length) {
+  console.log('\nCounts of what a document lists (report only; write "a few", or drop the count):\n')
+  for (const r of counting) console.log(`  ${r.path}\n    · ${r.counted.slice(0, 8).join(' · ')}`)
 }
 
 console.log(

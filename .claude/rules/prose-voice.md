@@ -22,7 +22,7 @@ both new files.
 
 ## Where the target comes from
 
-Three pieces of writing in this repo came from Larry's own hand. They are the reference,
+A few pieces of writing in this repo came from Larry's own hand. They are the reference,
 one per genre — read a section of the one matching what you are writing, and do not point
 a reader at them from inside another file, because loading them costs more context than a
 draft is worth.
@@ -80,9 +80,18 @@ trip. ADR-015 shows `u.g.s1` against `u.g.s10` and `acme` against
 section that defines something MUST carry one real example.
 
 **Walk the reader down a numbered path.** `auth.md` has M1–M7 and R1–R5. ADR-015 says
-*"These things follow:"* and lists the consequences. ADR-018 says *"Three consequences
-follow, in preference order."* `auth.md` even switches to second person for the walk:
-*"You enter by authenticating… You then open a connection by presenting one."*
+*"These things follow:"* and lists the consequences. `auth.md` even switches to second
+person for the walk: *"You enter by authenticating… You then open a connection by
+presenting one."*
+
+**Do not count what you list.** *"Three things stand in the way:"* is wrong the day the
+list gains a fourth, and nothing updates the number. Write *"A few things stand in the
+way:"*, or introduce the list with no number, as ADR-015's *"These things follow:"* does.
+A count MUST NOT introduce a list in the same document, or refer to one: *"two questions
+at the end"* goes stale the same way. A number that is itself the fact stays: *seven
+attempts, then nothing* is a measurement, and *exactly two capability levels* is the
+commitment. Larry replaces these by hand every day (2026-11-12). The checker lists each
+one it finds, and the edit hook reports any that an edit adds.
 
 **Information-outline a paragraph that answers more than one question.** One labeled
 bullet per concern — a bold claim, then only its own support — instead of a semicolon
