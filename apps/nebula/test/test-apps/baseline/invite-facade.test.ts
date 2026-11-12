@@ -291,6 +291,47 @@ describe('invite facade — tier coverage (membership at the named scope + the o
   });
 });
 
+describe('invite facade — a collaborator invites into `.dev`, never into the app', () => {
+  // A collaborator is a plain member of the app and the admin of its `.dev` workspace, so on the
+  // `.dev` host they hold dominion over it and may hand its admin bit on (ADR-015: dominion runs
+  // down from a membership). That reaches no app membership, which only the app's admins give.
+  // Mutations: refuse every invite into a `.dev` Star from a caller without dominion over its app
+  // → the first half reds; drop the app rule → the second half's invite lands.
+  it('their `.dev` invite lands with the admin bit, and their invite into the app is refused', async () => {
+    const star = uniqueStar();
+    const universe = universeOf(star);
+    const galaxy = star.split('.').slice(0, 2).join('.');
+    const dev = `${galaxy}.dev`;
+    const { client: admin, accessToken: adminToken } =
+      await universeAdminClient(NebulaClientTest, new Browser(), star, universe, em('adm'));
+    const collaboratorEmail = em('collab');
+    await createSubject(new Browser(), galaxy, adminToken, collaboratorEmail);
+    const onApp = await createInvitedClient(NebulaClientTest, new Browser(), galaxy, galaxy, collaboratorEmail);
+    const onDev = await createInvitedClient(NebulaClientTest, new Browser(), dev, dev, collaboratorEmail);
+    // Fixture guard: plain in the app, admin of `.dev` and of nothing above it.
+    expect(onApp.payload.access.scopeAdmin).toBeUndefined();
+    expect(hasDominionOver(onDev.payload, dev)).toBe(true);
+    expect(hasDominionOver(onDev.payload, galaxy)).toBe(false);
+
+    try {
+      const friend = em('friend');
+      const summary = await facadeInvite(onDev.client, dev, [{ email: friend, scopeAdmin: true }]);
+      const friendPayload = await acceptInvite(summary.links![friend]!, dev);
+      expect(friendPayload.access.authScope).toBe(dev);
+      expect(hasDominionOver(friendPayload, dev)).toBe(true);
+      expect(hasDominionOver(friendPayload, galaxy)).toBe(false);
+
+      await expect(facadeInvite(onApp.client, galaxy, [{ email: em('x') }])).rejects.toThrow(
+        `Inviting into the app "${galaxy}" needs dominion over it, which a member of it does not hold: ask one of its admins`);
+      // From the `.dev` host the same person is refused too, as an admin asked beyond their host.
+      await expect(facadeInvite(onDev.client, galaxy, [{ email: em('y') }])).rejects.toThrow(
+        `Inviting into "${galaxy}" needs dominion over it, and the calling host's scope is "${dev}"`);
+    } finally {
+      admin.disconnect(); onApp.client.disconnect(); onDev.client.disconnect();
+    }
+  });
+});
+
 describe('invite facade — ADR-016 records survive the reshape', () => {
   const sink: any[] = [];
   beforeEach(() => { sink.length = 0; setDebugSink((e) => sink.push(e)); });

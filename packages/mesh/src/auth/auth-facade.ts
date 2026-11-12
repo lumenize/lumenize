@@ -167,8 +167,10 @@ export abstract class AuthFacade extends MeshWorker {
     //
     // Only dominion invites into an app, a Galaxy. Every invite there also enrols the invitee in
     // the app's `.dev` workspace as its admin, since a collaborator who cannot work in the preview
-    // is no collaborator, and a plain member has no admin bit to hand anyone. Peers still invite
-    // each other into a Star, where an invite carries nothing the inviter lacks.
+    // is no collaborator, and a plain member of the app has no admin bit there to hand anyone.
+    // The collaborator does hold dominion over `.dev`, so from its host they may invite into
+    // `.dev`, admin bit included, which gives no membership in the app (Larry, 2026-11-12). Peers
+    // still invite each other into a Star, where an invite carries nothing the inviter lacks.
     const access = claims.access;
     const memberHere = claims.aud === targetScope;
     const dominionHere = hasDominionOver(claims, targetScope);
