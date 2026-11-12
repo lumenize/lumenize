@@ -1,6 +1,6 @@
 # The agent acts under the claims recorded on a post
 
-**Status:** Built on 2026-11-12, on `pre-alpha`, through its six phases; § *Build notes* has each phase's record. Waiting on the verifier panel and the hand-off. It comes before the wipe and before [nebula-testing-with-personas.md](nebula-testing-with-personas.md), whose `provision` tool should be written against it.
+**Status:** Built on 2026-11-12, on `pre-alpha`, through its six phases, verified and handed off; § *Build notes* has each phase's record and § *Close of the build* the final tree's results. It came before the wipe and before `nebula-testing-with-personas.md`, whose `provision` tool is written against it.
 
 ## Conventions
 
@@ -57,14 +57,14 @@ The rest of this file says what a turn reads in place of the held call, what tha
 
 ## Relationships
 
-- **Reworks** [archive/nebula-agent-posts-as-itself.md](archive/nebula-agent-posts-as-itself.md). Of that file's design intent:
+- **Reworks** [archive/nebula-agent-posts-as-itself.md](nebula-agent-posts-as-itself.md). Of that file's design intent:
   - **Its DI3, DI6 and DI7 stand:** the agent posts as itself, every turn ends with a message that answers its post, and a turn that ends with posts waiting starts a decision.
   - **Its DI1 stands,** the general tool that grows one named tool at a time.
   - **Its DI2 is replaced by D4 here.** It kept a participant's claims in memory only, and never stored.
   - **Its DI4 and DI5 are replaced by DI1 here.** The agent's judgment among held claims goes (D7), and what DI5 said of a tenant Star's data is now true of every tool.
   - **Among its decisions,** D4 here reverses its D8 and D30, D7 its D1, and D11 its D25, and D5 widens its D26.
-- **Gates** [nebula-testing-with-personas.md](nebula-testing-with-personas.md): `provision` is a loop tool, and it should be written once, against DI3. That file's rows that describe a held call, and its superseded row rejecting a replay of stored claims, are reworded in the first phase (D6).
-- **Changes** [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check*, whose turn can run the work where today it can only ask. Its goal line, its *Until then* line and its pointer at `#takenUp` are reworded in the first phase (D6). The wake check itself stays there.
+- **Gates** [nebula-testing-with-personas.md](../nebula-testing-with-personas.md): `provision` is a loop tool, and it should be written once, against DI3. That file's rows that describe a held call, and its superseded row rejecting a replay of stored claims, are reworded in the first phase (D6).
+- **Changes** [nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check*, whose turn can run the work where today it can only ask. Its goal line, its *Until then* line and its pointer at `#takenUp` are reworded in the first phase (D6). The wake check itself stays there.
 - **Supersedes** in `.claude/rules/security.md`: the bullet on the wider bound of the agent's work and the `lmz.actFor(held, …)` half of the two forms that write `originAuth`, each of which describes a held call, and the bullet on a turn's source writes, which D15 reverses. `.claude/rules/durable-objects.md` § *Wall-clock billing* says the fix is to mint the person's claims again, which D4 replaced.
 - **Re-derives** `tasks/backlog.md`'s row *Mesh has no public seam for running in-DO code under a call context*, whose stated reason is that a loop tool runs only inside a held call.
 - **Renames** the `/live` scenario `held-post-answered`, which `.claude/rules/live-scenarios.md` cites by name.
@@ -365,3 +365,16 @@ Every number here is from the tree at `be63ff1`, the commit after the last sourc
 - **Deployed pass:** `test-nebula` was redeployed and its self-check matched `be63ff1`. `post-edited-mid-turn`, `agent-invites`, `waiting-posts-answered` and `closing-step` passed there. An earlier deploy of this tree failed on a registry push, so the passes recorded before it were against the Phase 5 deploy.
 - **Workers Issues since that deploy:** nothing new. The standing `scope-deleted`, and a recurring `teardown failed` from objects the deploy itself reset.
 - **Not verified:** a post waiting across a real redeploy and answered after it, which `redeploy-strands-no-client` would be the place for; and the stored origin's value on a deployed `.dev` Star, where only the invite link's host was read.
+
+### Retro
+
+Walked through with Larry on 2026-11-12.
+
+- **The redesign deleted a class of guard.** Acting from the stored record removed the held call and each guard for how it could go stale. `durable-objects.md` § *Wall-clock billing* carries the lesson.
+- **Naming a snapshot by `validFrom` paid twice.** It gave the edit conflict with no new mechanism, and D16 is the same comparison applied to posts a message only answers.
+- **Mutation checks were the only evidence in the lane.** Twelve cases in Phase 2 and twenty in Phase 5 passed on first write. Mutating them found fixtures that would have passed for the wrong reason, such as a writer whose admin bit bypassed the grant under test.
+- **The panel found a defect every test missed.** The close's comparison and the commit were separate steps with an await between them. The case needed a gate that holds the commit open, which no test had until the panel named the window.
+- **A failed deploy read as a pass.** The registry push failed, the script chain went on, and the deployed scenarios passed against the old deploy. `live.md` § *Two venues, one registry* now says a deployed pass counts only once the self-check has matched `HEAD`.
+- **The dropped ADR sentence survived where a grep could not see it,** hyphenated in ADR-016's § *Consequences*. Larry read the reworded line and kept it.
+- **The Phase 6 commit took in Larry's uncommitted work on the personas file.** He knew the risk of a second session on the tree, and no guidance changes for it.
+- **`first-app-built`'s flake predates the build.** No other scenario reads an element it has just counted with no bound on the read, so `live-scenarios.md` gains nothing.

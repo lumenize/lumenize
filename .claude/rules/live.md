@@ -167,6 +167,8 @@ against 142 one at a time (2026-10-04). A local sweep refuses it. On a night wit
 `pre-alpha` head, from a checkout of its own, and leaves `$TMPDIR/lumenize-deployed-sweep-latest.log`
 for the morning's triage.
 
+**A deployed pass counts only once the deploy's self-check has matched `HEAD`.** `deploy-test.sh` ends by printing `Test worker live and matches HEAD`, and exits non-zero when the deploy fails. A scenario run after a failed deploy passes against the previous one, and nothing in its output says so. A script that chains the deploy and the drives MUST stop on the deploy's exit code. Bit 2026-11-12: a registry push failed, the chain went on, and four scenarios passed against a deploy two commits old.
+
 **A build whose change can only show deployed MUST end its close-out with a deployed pass of its own scenarios** (Larry, 2026-10-07). That covers a change to what a Client hears back, to teardown or `ctx.abort()`, to Workers KV or auth, to certificates or placement, or to a container. Deploy with `deploy-test.sh` and run the scenarios the build wrote or touched; each captures the Worker's logs as it runs (`live-scenarios.md` § *Reading the Worker's logs*). The full sweep stays at the wipe gate and milestones. No local tier can stand in, because no local Galaxy orders a certificate, a local abort delivers every frame, and local KV reads back its own writes. `tasks/archive/nebula-clients-connect-to-their-scope.md` § *Build notes* has what that build's deployed pass found.
 
 **A local sweep never runs the deployed-only paths, so a change to what a Client hears back MUST
