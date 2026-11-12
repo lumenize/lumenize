@@ -74,13 +74,13 @@ Claims this rests on, each to be checked before the phases are written:
 - **C1. A minted token's reach is what the person's own token on the Galaxy's host would have.** `mintImpersonationToken` mirrors the subject's `authScope` and `scopeAdmin` and takes `aud` from the caller, and dominion reads `aud`.
 - **C2. No client can make the facade take it for a local principal.** A client's claims come from a verified token, and no token is minted with `agent:lumenize` as its `sub`. A persona's `sub` is not a random id either, so the facade's test has to be more than the shape of the `sub`.
 - **C3. An invite link names the right host with no caller's request behind it.** Today the facade takes the host from `callContext.originRequest`, which a held call carried, and otherwise from `deploymentOrigin(env)`. On a local stack those differ.
-- **C5. The Registry read a mint makes is one per turn, or one per token lifetime on a long turn.** That is the rate ADR-018 has to accept (Q3).
+- **C5. The Registry read a mint makes is one per turn, or one per token lifetime on a long turn.** That is the rate ADR-018 has to accept (Q6).
 
 ## Constraints
 
 - **ADR-013:** authority resolves live, and a stored scope set is a security bug. The mint reads the membership each time.
 - **ADR-016:** the stored `access` and `aud` on a record are never an authorization input. Only the record's `sub` is used, as the name of whom to ask about. Whether the mint itself is recorded is Q2.
-- **ADR-018:** the Registry is a singleton. See C5 and Q3.
+- **ADR-018:** the Registry is a singleton. See C5 and Q6.
 - **ADR-023:** the Galaxy reaches the Registry through the auth facade, over `lmz.call`.
 - **ADR-025:** the agent stays a local principal with no membership. The mint gives it nothing of its own.
 - **`durable-objects.md` § *Wall-clock billing*:** no person's claims are kept by keeping the Galaxy awake. The turn's own hold only saves a restart.
@@ -100,8 +100,8 @@ Claims this rests on, each to be checked before the phases are written:
   - *A call back.* The Galaxy asks the facade to call it under the minted claims. Nothing enters as data, but a Worker starting a chain under claims it chose is itself a new Mesh power.
   - **Recommendation:** the signed token.
 - **Q2. Is each mint recorded under ADR-016?** An impersonation mint is recorded today, as establishing a session. Recording the agent's would be a Registry write per turn. The actions taken under the token are each recorded with both names already. **Recommendation:** no record at the mint, with ADR-016 saying why, which needs your wording.
-- **Q3. Is a Registry read per turn acceptable?** It is one read, at the pace of a person's requests, and the token it returns serves the whole turn. The alternative is a copy of each membership in Workers KV, kept current by the Registry. **Recommendation:** accept the read, and state its rate in the mint's JSDoc as ADR-018 asks.
-- **Q4. The names.** The facade entry and the Mesh form each need one, and a new term is yours to approve. Offered: `AuthFacade.actFor(sub)`, which says what the caller asks for, and `lmz.actUnder(token, fn)`. The freed name `actFor` would then mean the mint, where today it is the Mesh form being deleted.
+- **Q6. Is a Registry read per turn acceptable?** It is one read, at the pace of a person's requests, and the token it returns serves the whole turn. The alternative is a copy of each membership in Workers KV, kept current by the Registry. **Recommendation:** accept the read, and state its rate in the mint's JSDoc as ADR-018 asks.
+- **Q7. The names.** The facade entry and the Mesh form each need one, and a new term is yours to approve. Offered: `AuthFacade.actFor(sub)`, which says what the caller asks for, and `lmz.actUnder(token, fn)`. The freed name `actFor` would then mean the mint, where today it is the Mesh form being deleted.
 
 ## Decisions
 
