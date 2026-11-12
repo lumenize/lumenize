@@ -589,6 +589,35 @@ One thing to know rather than decide: a person who edits an agent message makes 
 
 **Close-out:** `TOOL_ARGS_BUNDLE_ID` is v6 and `validator-seeds.ts` is regenerated. The JSDoc of `AuthFacade.invite`, `issueInvites`, `Resources.invite`, `#onInviteResult` and `MeshClient.invite` state the app rule. `#onInviteResult`'s failure branch, which said nothing reaches it, names its producer.
 
+### Phase 10, guidance, the verifier panel and the closing passes (2026-11-11)
+
+**For the human:** the panel changed one thing you decided, and left six things I did not fix.
+
+- **D25 is narrower than you decided it.** D25 says an edit of a waiting post captures the editor's call. That now holds only until a turn takes the post up. The panel found that an edit landing while the post's turn ran swapped the claims under that turn: Austen could rewrite Jennifer's post mid-turn, and the tools of a turn that had read Jennifer's words then ran as Austen. An edit to a post a running turn has taken up now holds nothing and starts nothing.
+- **Each turn has its own `ctx.waitUntil`, as item 4 says, and what that buys is not measured.** A decision's turn used to run inside the first turn's promise. It now holds the Galaxy on its own, but the first promise is still pending around it, and I did not measure whether the later hold outlasts the first one's 15 minutes. Measuring it needs a deployed run of over 15 minutes.
+- **Not fixed, Mesh: a held call's marker does not survive a result handler on another node.** `lmz.holdCall()` refuses inside a chain Mesh built, by a marker no wire carries. A handler that runs after a cross-node answer has lost it, so a call held there could have the local principal prepended twice. Nothing in Nebula holds a call in a result handler.
+- **Not fixed: a tool call that fails records no post and no claims,** so Studio shows no mark for it. Only a call that ran is marked.
+- **Not fixed: a direct `writeSource` by an impersonating admin names only the impersonated person in its commit.** That is D15's wording, and the actor survives in the write's log line alone.
+- **Not fixed: a decision's model call sends no heartbeat,** so a slow decision shows nothing in Studio until it posts or takes a post up.
+- **Not fixed: the byline lists the people an agent message answers by name,** so two people with one display name read as one.
+- **Not fixed: `docs/vision/auth.md`'s callout on held claims is incomplete,** by the panel's reading. It is yours to edit.
+
+**Retro:**
+
+- **Nine verifiers ran, one per phase, and five answered that their phase did not conform.** They raised ten majors, all real. Seven were code or test defects, fixed in one commit after the guidance commit. Each fix has a test and a mutation that reds it.
+- **A seed that re-asserts itself on every wake undoes what an admin changed.** The first cut wrote each declared node's edge on every construction, so a chat node moved off the root got the root back as a second parent, with no check and no broadcast. The seed now writes a declared node's edge, and an unprotected grant on it, only when it creates the node.
+- **Two guards on one trigger hid each other from mutation.** `#onChatCommitted` checked the writer's kind and then that the post was waiting, and a waiting post is never the agent's. Removing either reddened nothing. One check remains, and the trigger test's mutation is now on `waitingPosts`.
+- **The set of posts a cut-off turn still holds became the set of posts any running turn has taken up.** That one set serves the mid-turn edit and the deadline's interim, and also covers a decision that picks after the deadline fired, which the first cut missed.
+- **A `/live` limb built from the records it checks passes when there are none.** `held-post-answered` filtered tool calls by whether they had claims, then asserted on the claims. It now lists every loop tool call that ran.
+- **A function passed to the page from a `tsx` scenario did not run at all.** `tsx` wraps a named inner function in a helper the page lacks, so the first watch on Austen's Studio never ran. The limb's own control, which asserts the watch reported, caught it. The script is a string now.
+- **One `/live` check could not fail, and is removed.** `agent-invites` asserted that no turn takes the agent's own post up. Every such post lands while a turn or a decision holds the latch, so the mutation that breaks the rule in the baseline lane, where `chat-trigger.test.ts` T3 reds, passed here.
+- **Suites on the final tree:** Resources 3 files and 23 tests, up by one. Nebula 130 files and 1,157 passed with 2 skipped, up by two. Mesh is unchanged since its 83 files and 1,027 tests.
+- **The `/live` sweep on the final tree (`drive.ts all --rerun`): 72 of 72 passed, with one parked,** in 37.0 minutes, with no flake.
+- **The deployed pass, on `test-nebula` at the fixes' commit: all seven of the build's scenarios passed, two of them on the third try.** `galaxy-seeds-its-chat`, `agent-invites`, `four-party-chat`, `build-reaches-every-studio` and `first-app-built` passed at once. `closing-step` and `held-post-answered` failed twice in how they read deployed logs, and no limb found a product defect: one timed Austen's post off a log line that arrives only when the turn's invocation ends, and the other compared counts in a capture that held one line twice. `live-scenarios.md` § *Reading the Worker's logs* has both as rules. Workers Issues since the pass began shows only issues that were recurring before it.
+- **A phase's handle grep finds nothing once the phase is committed,** since it reads the working tree's diff. Run it over the build's range: `git diff -U0 6acb3c9^..HEAD -- apps packages | grep '^+' | grep -nE '\b(DI|[SDQCB])(1[0-9]|[1-9])\b|\bPhase[ -][0-9]+\b'`. Over this build's 4,246 added lines it prints nothing, and it prints a planted `D12`.
+
+**Close-out:** `tasks/nebula-pre-alpha-fast-follow.md` § *Item 6* no longer says a mid-generation post sits in the thread, and § *Item 15* names `#takenUp` as the interim it replaces. `tasks/backlog.md`'s row on `callModel`'s missing timeout gives the deadline as 14 minutes. The two `dev-studio` test headers give `asCaller`'s present reason.
+
 ## Non-goals
 
 - **The wake check (item 6):** fast-follow Item 15, after Q3 (D19).

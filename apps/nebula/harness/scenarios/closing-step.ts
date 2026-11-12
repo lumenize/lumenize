@@ -24,7 +24,7 @@ import { DEFAULT_CHAT_ID } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
 import { chatCast } from '../lib/chat-cast';
-import { waitForDebugLines, type DebugLine } from '../lib/stdio';
+import { debugLines, settleForAbsence, waitForDebugLines, type DebugLine } from '../lib/stdio';
 import { testSlug } from '../lib/test-scopes';
 
 /** Chat and auth only: the requests ask for a plan in words, never for code. */
@@ -44,11 +44,20 @@ export async function run(stack: DevStack): Promise<void> {
     const turnLines = (all: DebugLine[], message: string): DebugLine[] =>
       all.filter((l) => l.namespace === 'nebula.Galaxy.turn' && l.message === message && l.data.instanceName === SCOPE);
 
-    const j1 = await jennifer.client.postUserMessage(
+    // The turn's first chunk, as Jennifer's own client receives it: the sign that the turn has
+    // read the thread and is at work. A log line cannot be that sign on a deployed target,
+    // where a turn's lines arrive when its invocation ends.
+    let j1: string | undefined;
+    let chunkFor: string | undefined;
+    const firstChunk = new Promise<void>((resolve) => {
+      jennifer.client.setOnStreamChunk((_messageId, _progress, replyTo) => { chunkFor ??= replyTo; resolve(); });
+    });
+    j1 = await jennifer.client.postUserMessage(
       'Plan only, no code yet: I want the wishlist sorted by when items were added. First read .platform/docs/coding-your-ui.md, then tell me your plan in two sentences.');
-    // Austen posts once the turn has read the thread and sent its first request, so her post
+    // Austen posts once the turn has read the thread and sent its first chunk, so her post
     // arrives while the turn runs and is not part of the history it started with.
-    await waitForDebugLines(stack, (all) => turnLines(all, 'request').some((l) => l.data.step === 'turn'), "the turn's first request");
+    await Promise.race([firstChunk, new Promise((_, reject) => setTimeout(() => reject(new Error("the turn on Jennifer's post sent no chunk in 90 s")), 90_000))]);
+    assert.equal(chunkFor, j1, "the first chunk must belong to the turn on Jennifer's post");
     const a1 = await austen.client.postUserMessage('I would rather it were sorted by name. No code yet; tell me in one sentence what you will do.');
 
     // The turn's message, replying to Jennifer's post.
@@ -62,8 +71,17 @@ export async function run(stack: DevStack): Promise<void> {
       assert.ok(reply || Date.now() < deadline, "the turn on Jennifer's post never posted its message");
       if (!reply) await new Promise((r) => setTimeout(r, 1000));
     }
-    const lines = await waitForDebugLines(stack, (all) => turnLines(all, 'closing step').length > 0 || turnLines(all, 'decision').length > 0,
+    let lines = await waitForDebugLines(stack, (all) => turnLines(all, 'closing step').length > 0 || turnLines(all, 'decision').length > 0,
       'the closing step, or the decision that would follow a turn without one');
+    // A decision's line can arrive ahead of the closing step logged before it: a deployed
+    // capture is not in logged order. So a capture with a decision and no closing step is
+    // given the settle before it is read as a turn that never closed.
+    if (turnLines(lines, 'closing step').length === 0) {
+      await settleForAbsence();
+      lines = debugLines(stack.logs());
+    } else {
+      lines = await waitForDebugLines(stack, (all) => turnLines(all, 'request').some((l) => l.data.step === 'closing'), "the closing step's request");
+    }
 
     // ── LIMB 1: the turn closed by reading Austen's post ──
     const closing = turnLines(lines, 'closing step');

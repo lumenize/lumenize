@@ -160,8 +160,7 @@ export async function run(stack: DevStack): Promise<void> {
       assert.ok(Date.now() < deadline, "neither a decision nor an answer to Austen's post followed Jennifer's turn");
       await new Promise((r) => setTimeout(r, 1000));
     }
-    const tookAustenUp = decision?.data.postId === a1;
-    if (tookAustenUp) {
+    if (decision?.data.postId === a1) {
       const deadline = Date.now() + TURN_TIMEOUT_MS;
       while (!(await messages()).some(({ snap }) => (snap.value as Value).replyTo === a1)) {
         assert.ok(Date.now() < deadline, "the turn that took Austen's post up never posted its message");
@@ -172,7 +171,23 @@ export async function run(stack: DevStack): Promise<void> {
       await new Promise((r) => setTimeout(r, 3000));
     }
     const all = await messages();
-    const lines = await waitForDebugLines(stack, () => true, 'the capture');
+    // The capture is read once it holds every line the messages imply. Deployed, a turn's
+    // lines arrive when its invocation ends, which can be after its message is in the thread:
+    // each turn's message needs its `took up` line, each decision's own message its `decision`
+    // line, and each decision request the decision it made.
+    const lines = await waitForDebugLines(stack, (capture) => {
+      const tookUpPosts = new Set(turnLines(capture, 'took up').map((l) => l.data.postId));
+      const logged = (some: DebugLine[]): number => new Set(some.map((l) => l.at)).size;
+      const decisions = logged(turnLines(capture, 'decision'));
+      const agents = all.filter(({ snap }) => snap.meta.recordedClaims.sub === NEBULA_SUB).map(({ snap }) => snap.value as Value);
+      return agents.every((v) => v.replyTo === undefined || tookUpPosts.has(v.replyTo))
+        && decisions >= agents.filter((v) => v.replyTo === undefined).length
+        // Counted by when each was logged: a deployed capture can hold one line twice, once
+        // from the tail and once from Workers Logs.
+        && logged(turnLines(capture, 'decision')) >= logged(turnLines(capture, 'request').filter((l) => l.data.step === 'decision'));
+    }, 'every turn and decision line the thread implies');
+    decision = turnLines(lines, 'decision')[0];
+    const tookAustenUp = decision?.data.postId === a1;
     const writerOf = (id: string): string | undefined => all.find((m) => m.id === id)?.snap.meta.recordedClaims.sub;
     const agentMessages = all.filter(({ snap }) => snap.meta.recordedClaims.sub === NEBULA_SUB);
     const answered = new Set(agentMessages.flatMap(({ snap }) => (snap.value as Value).answers ?? []));

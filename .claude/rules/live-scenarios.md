@@ -46,6 +46,14 @@ required: a scenario MUST NOT branch on the capture being absent.
 - **Lines MUST be compared by when they were logged, with `loggedAfter` (`harness/lib/stdio.ts`),
   never by position.** A deployed capture arrives one invocation at a time, when each ends, so a
   later request's lines can arrive ahead of an earlier one's.
+- **A scenario MUST NOT time an action off a log line of a turn still running.** Deployed, that
+  line arrives when the turn's invocation ends, so the action lands after the turn. Take the
+  sign from what a client receives: `closing-step` posts on the turn's first stream chunk
+  (`setOnStreamChunk`). Bit 2026-11-11, when it posted Austen's message after the turn it was
+  meant to interrupt.
+- **Lines MUST be counted by when they were logged, never by how many arrived.** A deployed
+  capture can hold one line twice, from the tail and from Workers Logs, and the two copies can
+  differ in a `null` field. `held-post-answered` counts distinct `at` values.
 - **A wait for a line MUST use `LOG_WAIT_MS`**: 20 s locally, eleven minutes deployed, where a line
   only Workers Logs holds can take that long. A wait returns as soon as its line is in.
 - **A check that a line is ABSENT MUST wait for a barrier and then call `settleForAbsence()`
