@@ -1,6 +1,8 @@
 # Personas
 
-**Status:** Pass 1, rewritten on 2026-10-09 and reshaped at two gates on 2026-10-10; Larry hand-reviewed § *Context*, § *Objective and goals* and § *Design intent*. Its sibling `archive/nebula-agent-posts-as-itself.md` was built 2026-11-11; the task that replaced that build's held call with the claims recorded on a post (`archive/nebula-agent-acts-on-a-posts-record.md`) was built 2026-11-12, and `provision` is written against it. On 2026-11-12 the third pass's findings and § *Current state* were checked against the tree and the author's edits applied (§ *Review progress*), and the setup identity became a local principal (Larry). The phrase "displayed as 'Setup'" was dropped the same day. Pass 2 wrote the phases on 2026-11-12, and Stage 2 ran the same day (§ *Review progress*). Its items are resolved, and the file is ready for `/build-task`.
+**Reverted, 2026-11-13.** The build ran on 2026-11-12 and 13 and passed its closing gates, and Larry then reverted it. A persona special to the `.dev` Star kept drifting from what a real user meets, so the design is being redone with personas as real members of the Star, whom the agent invites while acting as its founder. The branch was reset to `2aad67c`, the commit before the build, and the tag `personas-v1-built` keeps the build, Studio's tab strip included. § *Build notes* records what was built and what it found. Every section above it describes the reverted design until `/write-task` redoes it.
+
+**Status before the revert:** Pass 1, rewritten on 2026-10-09 and reshaped at two gates on 2026-10-10; Larry hand-reviewed § *Context*, § *Objective and goals* and § *Design intent*. Its sibling `archive/nebula-agent-posts-as-itself.md` was built 2026-11-11; the task that replaced that build's held call with the claims recorded on a post (`archive/nebula-agent-acts-on-a-posts-record.md`) was built 2026-11-12, and `provision` is written against it. On 2026-11-12 the third pass's findings and § *Current state* were checked against the tree and the author's edits applied (§ *Review progress*), and the setup identity became a local principal (Larry). The phrase "displayed as 'Setup'" was dropped the same day. Pass 2 wrote the phases on 2026-11-12, and Stage 2 ran the same day (§ *Review progress*). Its items are resolved, and the file is ready for `/build-task`.
 
 ## Conventions
 
@@ -262,7 +264,7 @@ A lane test is used where the model's choice is scripted, where two nodes of the
 ⚠️ **A mutation per limb, never per scenario,** since a scenario reddens on its first failing limb and hides every later limb's vacuity. Where a limb asserts a refusal, match the message: a boundary refusal and a dominion refusal are the same boolean.
 
 1. **Mesh builds a persona's claims, and says which Stars hold personas.** In `packages/mesh/src/auth/hosts.ts`, one exported persona-slug predicate, 3 to 30 characters that pass `isValidSlug`, which `parseHost` calls where it compares lengths today; and one exported persona-Star predicate, true today only for a Star whose slug is `dev`. In a module of its own in `packages/mesh/src/auth/`, `asPersona(node, slug, { admin }, fn)`, exported from `@lumenize/mesh/auth` (D4, D5, D19). It reads the Star from the node's stamped name, throws unless the persona-Star predicate holds, and runs `fn` under `sub` and `profileId` of `personaId(star, slug)`, `aud` and `authScope` of the Star, `scopeAdmin` only when `admin` is true, and no `act`.
-   - **The Registry's facade.** `AuthFacade` refuses a caller whose `sub` the Registry's `getIdentityScope` does not answer for, once, where every verb's call already passes its check for claims, or through one helper at the head of each verb if that read cannot be made there (D40). `security.md` records the rule. Its line that Mesh builds the only forms that write `originAuth` gains `asPersona`, with its proof stated by where a call may appear and not by a count: `grep -rn 'asPersona(' apps packages --include=*.ts` prints Mesh's own module and, once Phase 4 lands, `dev-star.ts`, and nothing else outside tests. Phases 4 and 10 run it again.
+   - **The Registry's facade.** `AuthFacade` refuses a caller whose `sub` the Registry's `getIdentityScope` does not answer for, once, where every verb's call already passes its check for claims, or through one helper at the head of each verb if that read cannot be made there (D40). `security.md` records the rule. Its line that Mesh builds the only forms that write `originAuth` gains `asPersona`, with its proof stated by where a call may appear and not by a count: `grep -rn 'asPersona(' apps packages --include='*.ts'` prints only call sites: today the test node's probe, and once Phase 4 lands `dev-star.ts` too, and nothing else outside tests. Phases 4 and 10 run it again.
    - **Success criteria,** in a new `packages/mesh/test/as-persona.test.ts`, beside `claims-forms.test.ts`, whose project's Worker has scoped nodes; the predicates' cases go in `packages/mesh/test/auth/hosts.test.ts`. Nothing in Nebula calls `asPersona` until Phase 4:
      - Inside a block as `mary` with `{ admin: true }` on a node named `acme.crm.dev`, the claims are the values above, and a call from the block to a node named `acme.crm.tenant1` is refused with the passage step's message. Mutation: build the claims at `acme.crm`, and the call passes.
      - Inside a block as plain `sally`, the same call's refusal names `acme.crm.dev` as the scope it came from. Mutation: build the claims at `acme.crm`, and the message names that.
@@ -364,7 +366,7 @@ A lane test is used where the model's choice is scripted, where two nodes of the
      - The `apps/nebula` vitest lanes that import `email-login.ts` pass with the count of tests they had.
      - `npx tsx apps/nebula/harness/drive.ts all` passes, since a shared login helper changed.
 
-9. **Each persona's test data is written as that persona** (D18, D21). The dev Star's `provision` runs each `create` step inside `asPersona` for the step's `as`, in procedure order, minting a fresh id for each `ref`, and the Phase 3 refusal goes. The Galaxy refuses a procedure with `create` steps while it holds no built row, before anything is wiped. If seeding is put off, as goal 2 allows, Phase 10 teaches `node`, `edge` and `grant` alone, its drift loop names no `create`, and the Phase 3 refusal stays. typia checks the step's envelope, and the Resources plane checks its value against the installed ontology.
+9. **Each persona's test data is written as that persona** (D18, D21). *Put off 2026-11-12, as goal 2 allows, since a procedure can write no resource an app can find: § *Build notes*, Phase 9.* The dev Star's `provision` runs each `create` step inside `asPersona` for the step's `as`, in procedure order, minting a fresh id for each `ref`, and the Phase 3 refusal goes. The Galaxy refuses a procedure with `create` steps while it holds no built row, before anything is wiped. If seeding is put off, as goal 2 allows, Phase 10 teaches `node`, `edge` and `grant` alone, its drift loop names no `create`, and the Phase 3 refusal stays. typia checks the step's envelope, and the Resources plane checks its value against the installed ontology.
    - **Success criteria:**
      - **`/live` `persona-tabs`, with data steps.** In Gerry's tab "Acme renewal" shows and "Globex pilot" does not, and Gerry's query answers with `deniedNodes` naming `deals`. Mutation: grant `gerry` `read` on `deals`, and "Globex pilot" shows.
      - **The same scenario, whose row it is.** A read of the seeded Deal shows its record's `sub` is `personaId('acme.crm.dev', 'sally')`, with no `act`. Mutation: write it inside the setup block.
@@ -399,6 +401,227 @@ A lane test is used where the model's choice is scripted, where two nodes of the
 - **A stored record of who wrote a tree's nodes and grants.** The setup principal's grant is visible; what it wrote is not recorded (D16).
 - **Telling someone a run never answered.** A dev Star reset mid-run posts no outcome, and the person asks again. Answering on wake is [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check*.
 - **Asking for access a persona lacks.** [on-hold/nebula-request-access.md](on-hold/nebula-request-access.md).
+
+## Build notes
+
+### For Larry, in the order to decide them
+
+Each item's context is in the phase note it names.
+
+1. **How a seeded resource is found** (Phase 9). Seeding is put off until a `create` can write under an id an app knows. A reserved `ref: '$sub'` covers per-person data alone; team data needs a way for an app to find what someone else made, which wider query subscriptions are to give it.
+2. **A persona's admin bit reaches nothing a membership would** (§ *Verification*). Built as a refusal at the Profile, D40's rule at a second door; confirm the rule, since it reads wider than D40's text.
+3. **Wording, yours to approve:** ADR-015 and `auth.md` on a Galaxy's chain (Phase 2); `auth.md` and ADR-025 on the setup principal (Phase 4); ADR-016's example of a wipe (Phase 5); ADR-022's "the token is plain" (Phase 6); and the `auth.md` lines on a node's chain that name no `.dev` exception (§ *Verification*).
+4. **Studio's strip** (Phase 7 and § *Verification*): the URL names closed personas rather than open ones; an invite's result reloads persona frames too; and `Me` is not reloaded after a wipe.
+5. **Costs:** one more Registry read per facade call (Phase 1), and a Galaxy wake per persona refresh (Phase 6).
+6. **Findings lines to paste** into `tasks/nebula-pre-alpha-fast-follow.md` § *Item 20* once that file's move lands (Phase 10).
+7. **What was left as found** (§ *Verification*).
+
+### Phase 1
+
+- **Built:** `isPersonaSlug`, `isPersonaStar` and `personaId`, exported from Mesh's root and `/client` beside `parseHost`, which now calls `isPersonaSlug`; `asPersona` in `packages/mesh/src/auth/as-persona.ts`, exported from `@lumenize/mesh/auth` only; and `AuthFacade.#member()` with its refusal `NOT_A_MEMBER`, from which every `@mesh()`-decorated verb takes its claims. `security.md` records `asPersona` beside the other forms that write `originAuth`, and the facade's rule.
+- **Evidence:** `packages/mesh` passes 85 files and 1058 tests, the 83 files it had plus the two new ones, and `apps/nebula`, whose lanes drive the facade, holds at 129 files and 1165 tests, the counts the last build closed on. Each new case reddened alone under its mutation: the slug floor dropped, `isValidSlug` dropped from the slug check and from the Star check, the Star check reading only its last label, the claims built at the Galaxy, the bit always set, the Star check dropped from `asPersona`, `asPersona` exported from `/client`, the facade's check dropped, and one verb reading `#claims()`.
+- **The hole is real:** with the facade's check dropped, the admin persona's `impersonate` of a real member of its `.dev` Star minted a token, so the walk's first assertion is no formality.
+- **Changed from the plan:**
+  - The facade's walk is `packages/mesh/test/facade-refuses-non-members.test.ts`, in the main project, since the auth project's Worker binds no facade and `impersonation-mint.test.ts` drives the mint beneath it.
+  - `expandScope` asks the Registry only after its own check that the caller has dominion over its page, so a plain member's tree read still costs no Registry hop.
+  - The proof grep in `security.md` matches call sites only, so it never prints `asPersona`'s own definition; its filter is quoted, since zsh refuses a bare `--include=*.ts`.
+  - `personaId` is exported now, since the dev Star's provisioning grants to it in Phase 4.
+- **For Larry:** the facade's check costs one more read of the Registry singleton on each facade call, beside the one each verb already makes. Facade calls are admin actions, invites, deletions, impersonation and an admin's tree read, so this is not a per-request path. The alternative that costs nothing, checking inside the Registry methods each verb already calls, puts the check in five places and the mint, and was not taken.
+
+### Phase 2
+
+- **Built:** `claimsForPassage` takes the callee's name, and a claimless chain whose starter is a Galaxy, calling that Galaxy's own `.dev` Star, derives as a plain member of the Star, with no admin bit. The starter counts as a Galaxy only under a binding the app's routes declare for the galaxy tier. `devStarOf` and `galaxyOfDevStar` in `hosts.ts`, exported beside the persona predicates, name a Galaxy's `.dev` Star both ways.
+- **Evidence:** six new cases in `passage-step.test.ts`, each reddened alone: the Star's claims derived for any callee below the starter, only the callee's last label compared, the callee built as the starter plus `.dev`, the rule applied before `originAuth`, the binding check skipped, and, for the no-dominion limb, the design before D41, the bit derived and `requireDominionHere` falling back to it.
+- **Suites:** `packages/mesh` 85 files and 1064 tests, six more; `apps/nebula` 129 files and 1165 tests, unchanged; `drive.ts all --fast` 62 of 62, `node-chain-passage` and `host-rule` among them, with `redeploy-strands-no-client` parked as always.
+- **Changed from the plan:** a sixth case, not in the criteria, pins the binding check. Every test node shares one binding, so no chain the probes start can tell it apart; the case sends the envelope straight to the Star's `__executeOperation`, starting at a binding the routes call unscoped. An admission refusal comes back as the call's answer, `{ $error }`, not as a rejection.
+- **For Larry:** the ADR-015 sentence and the two in `auth.md` § *`activeScope`* and § *A Galaxy's `.dev` Star* now say the chain is a plain member of the Star, following D41. Each is a few words; read them when convenient.
+
+### Phase 3
+
+- **Built:** the procedure's types in `apps/nebula/src/provision-types.ts`, as real TypeScript the Galaxy imports; `scripts/gen-validator-seeds.ts` reads that file's source and compiles it beside `TOOL_ARGS_TYPES`, so each type has one copy (ADR-001). `TOOL_ARGS_BUNDLE_ID` is `v8`. `checkProcedure` in `apps/nebula/src/provision-procedure.ts` returns every problem, each naming its cast entry or step.
+- **Evidence:** `test/provision-procedure.test.ts`, 18 cases, each rule reddened alone under its mutation: the slug check, the duplicate check, refs resolved from anywhere in the procedure, the persona check on a grant, the step and cast key checks, the tree's slug check, the `root` check, a resource counted as a node, the cycle check, an edge's child unchecked, the data-step refusal, and a ref made twice. `gen-validator-seeds.ts --check` passes, and `grep -c "tool-args-v8"` prints `1`. `apps/nebula` passes 130 files and 1183 tests, the new file and its 18 cases.
+- **Changed from the plan:** the test is in the `unit` project, the vitest-plugin lane that runs `apps/nebula/test/*.test.ts`; it needs no running system either way. The types live in a file of their own rather than inside `TOOL_ARGS_TYPES`'s string, since the Galaxy and the dev Star need them as TypeScript.
+
+### Phase 4
+
+- **Built:** `apps/nebula/src/dev-star.ts`, the `.dev` Star's capability: `SETUP_SUB`, the seed's protected `admin` grant on the root, the gate `requireOwnGalaxyChain`, and `DevStar.provision`, which computes every persona's id, then wipes, installs the row and builds the tree and grants as the setup principal in one synchronous stretch, then writes each persona's name as that persona. `Star` composes it in `onStart` for a `.dev` Star alone, behind `@mesh(requireOwnGalaxyChain) get dev()`. The Galaxy's `@mesh(requireChatWrite) provision` validates, checks, logs its ADR-016 record with an `operationId` and hands off on a new chain; `onProvisioned` rewrites the cast record and then posts the outcome; `@mesh(requireChatWrite) readCast` returns it. The `provision` tool joins the loop, and `Resources.wipe` takes the row to install and the `operationId`.
+- **Evidence:** `test/test-apps/baseline/provision.test.ts`, 11 cases, and `/live` `personas-provisioned`, six limbs, each reddened alone under its mutation. In the lane: the setup block dropped, the seed's grant dropped, an edge naming a fresh id, the seed on every Star, the grant unprotected, a second `operationId`, the in-flight refusal dropped, the wipe skipped, the gate guarded by dominion, the gate's chain check dropped, `newChain` dropped, and the post written before the record. In the scenario: the seed's grant, the name write, the facet, the wipe, the floor raised to dominion and the floor dropped, and the outcome replying to its operation.
+- **Suites:** `packages/resources` 4 files, `packages/mesh` 85, `apps/nebula` 131 files and 1194 tests, the 11 new ones added. `drive.ts all --fast` passed 63 of 63 with `personas-provisioned` among them, and **`host-rule` was a flake**: it failed once, its invite mail lost after Resend reported it delivered, and passed on `--rerun` with nothing changed.
+- **Tests that changed because the design did:** a `.dev` Star's tree now holds the setup principal's grant, so `org-tree.test.ts` asserts the co-minted admin holds no grant rather than that the tree holds none, and `plane-wipe.test.ts` expects that one grant after a wipe; the turn's tool list gains `provision` in `chat-trigger.test.ts` and `waiting-posts.test.ts`; and the chat floor gains `provision` and `readCast` in `scope-isolation.test.ts`.
+- **What the mutations showed:** without `protected`, the seed never writes the setup principal's grant at all, since the root is no node the seed made, which is why it is protected and not only why it cannot be revoked. Without `newChain`, Jennifer's own direct call is refused too, since the gate refuses any claims.
+- **Changed from the plan:**
+  - A step cannot fail after the wipe in this phase: the check refuses every procedure that would. So the criterion that a run whose later step fails still rewrites the cast waits for Phase 9, whose data steps the ontology can refuse; the handler already writes the record whenever the run reached the dev Star.
+  - The gate's refusal of a person on the dev Star's own host is driven as Jennifer, the universe admin, rather than Austen: both hold admin over the dev Star, which is what the mutation needs.
+  - A tenant Star's `dev` is refused by two checks, the guard finding no Galaxy whose Star it is and the getter holding no capability, so no single mutation reaches that case.
+  - `sendPersonaName` may return a promise the run awaits, so the lane can hold a run part way; the Star's own returns at once.
+  - No test pins the plane's public members, so the plane-surface criterion had nothing to extend.
+  - Both grep criteria also print a JSDoc line that names the symbol.
+- **For Larry:** `auth.md` § *How the claims travel*, § *A Galaxy's `.dev` Star* and § *When the agent acts* now name the setup principal where they named `_setup` or the cast, and ADR-025 names the setup principal's grant beside the agent's as protected, with its reason.
+
+### Phase 5
+
+- **Built:** `Star.resetDevData` is gone, and with it Studio's Wipe button and the harness driver's `wipe`. A wipe is now a provisioning run with an empty cast and no steps, asked of the Galaxy: the baseline lane's `wipeDev` helper does that and waits for the agent's post, and `dev-star-follows-the-build` does it through the owner's Studio client and waits for the run's `cast recorded` line. Every remaining sentence that named `resetDevData` is reworded: `mesh.md`, `security.md`, the JSDoc on `Resources.wipe` and in Mesh's auth types, a Mesh auth test's comment, ui-smoke's cleanup, and ADR-016's example of a wipe.
+- **Each limb the deleted callers held keeps a witness:**
+  - A non-admin's refused wipe is Phase 4's gate case: a person reaches no wipe directly.
+  - The plane's own refusal off a `.dev` Star, its only witness before, moves to `packages/resources/test/wipe.test.ts`, whose host can call the plane: refused on a host that is no `.dev` Star, with a positive control that the same probe wipes one. Mutation: drop the plane's check.
+  - The transactions and invites held across a wipe, the latest moment, and the reset effects run through `wipeDev`.
+  - plane-wipe's ADR-016 case now reads the Galaxy's record of who asked and the wipe's line sharing its `operationId`. Mutation: a second id.
+- **Suites:** `packages/resources` 5 files, `packages/mesh` 85, `apps/nebula` 132 files, one of them skipped, and 1193 tests, as the run printed. The full `drive.ts all`, Docker scenarios included, passed 74 of 74 after `--rerun`, with **three flakes**: `first-app-built`'s build turn ended `no-tool-calls` after three rounds with no build, the variance § *Data-bound generation* records on 2026-11-11, now with `provision` among the tools; and `mesh-entry-reach` and `resubscribe-when-lost` each lost an email after Resend reported it delivered. All three passed on the rerun with nothing changed.
+- **What changed in behaviour, by design:** a provisioning run installs the last landed build's row with its wipe, so plane-wipe's last case now asserts the row is installed at once and the next op needs no install, where it asserted an empty index. Mutation: install nothing with the wipe.
+- **Changed from the plan:**
+  - The harness driver's `wipe` is deleted, not turned into a provisioning call. Its two callers, `studio-codegen-rest` and `downward-dominion`, call it in a `finally` from a driver on a Galaxy's host, where it returned without wiping; its comment called the fresh boot the real reset. A real wipe there would post into each scenario's chat during cleanup.
+  - `dev-star-follows-the-build`'s limb 4 tested the Wipe button and goes with it; its number stays, and limb 5 now starts from a provisioning wipe.
+  - The criterion's `grep -rn '\.wipe()'` matches nothing now that the call passes options; `grep -rn '\.wipe('` prints the one call, in `dev-star.ts`.
+- **For Larry:** ADR-016's list of wipes names provisioning where it named `resetDevData`. After a provisioning run, Studio no longer moves the preview frame to the Star's root as the Wipe button did; Phase 7 reloads frames on an outcome.
+- **Not gated:** `vue-tsc` reports two errors in `App.vue`, at a `recordedClaims` cast and the logout button's handler, in code this phase does not touch. The repo's `type-check` skips `nebula-studio-ui`, so nothing gates them.
+
+### Phase 6
+
+- **Built:** the refresh's persona branch falls back to the membership at the Star like any other page, and asks `isPersonaStar` where it compared the label `dev`. `ScopeLifecycleHooks.personaIsAdmin(star, slug)` is handed to `handleRefreshToken` by the router. The refresh asks it only once it has picked an accepted opener cookie and the Star holds personas, mints `scopeAdmin` from the answer, and on a throw mints a plain token and warns `persona admin mark unread`. The platform's hook asks the Galaxy through `rawRpcStub('GALAXY', galaxyOfDevStar(star))`, and the Galaxy's `@rawRpc()`-decorated `personaIsAdmin` reads the cast record, warning `persona not in cast` when no run built the slug. `handleRefreshToken`'s JSDoc and `auth-flows.md` § *A persona's page* say who opens one and where the admin bit comes from; the platform embed is regenerated.
+- **Evidence:**
+  - `packages/mesh/test/auth/persona-refresh.test.ts`, in the auth project, each case reddened alone: the persona always plain, the bit for every persona, the throw let through (500), the warning dropped, and the ask made before the cookie is picked.
+  - `/live` `persona-host`, each limb reddened alone under its own mutation:
+    - limb 2 by the plain member skipped again, and by the persona-Star check dropped;
+    - limb 6 by the refresh ignoring the Galaxy's answer;
+    - limb 7 by the facade's check dropped, and by the invite's check alone;
+    - limb 8 by the new cast merged into the old record;
+    - limb 9 by the ask made before the cookie is picked, and by the Galaxy's warning logged at `debug`.
+- **Suites:** `packages/mesh` 86 files and 1067 tests, up by the new file and its cases; `apps/nebula` 132 files, one skipped, and 1193 tests, unchanged. `audit:do-http` and `gen-platform.mjs --check` pass. `drive.ts all --fast` passed 63 of 63 after `--rerun`, `refresh-reads-the-host`, `host-rule` and `persona-host` among them, with flakes: `studio-signed-out-landing`'s `wrangler dev` exited before it was ready, and `login-two-memberships` lost a send before Resend saw it. Both passed on the rerun with nothing changed.
+- **Changed from the plan:**
+  - Mary's plain token when the hook throws is held by the lane test, not `/live`: a running stack cannot make the hook throw.
+  - The staging half of limb 9 cannot red under the ask-early mutation, because the platform's hook names no Galaxy for a `staging` Star either; the lane test, which counts the hook's asks, holds the refresh's own check.
+  - Limb 7's check that no email went is reachable only on a tree that refuses after sending, which no one-line mutation builds. The invite's refusal itself reds under its own mutation.
+  - The scenario waits for a run until the cast record holds each of the run's marks, so a record that kept stale entries shows in the refresh, where limb 8 reads it, rather than at the wait.
+  - Phase 5's note gave `apps/nebula` as 1194 tests; its log printed 1193, now corrected there.
+- **Retro:** the first cut warned only when the ask threw, and the Galaxy logged a slug no run built at `debug`. Reading D37 against the diff at the phase's end found it, since D37 has all three misses warned.
+- **For Larry:**
+  - ADR-022 § *A persona's host* still opens its token sentence with "The token is plain:" and then says it carries `scopeAdmin` when the cast marks the persona. Dropping "plain" there would fix it; the ADR's wording is yours to approve.
+  - Each persona refresh now wakes the Galaxy once, by raw RPC, every 15 minutes per open persona tab. That is the Galaxy's load, never the Registry's.
+
+### Phase 7
+
+- **Built:**
+  - Studio's preview is a strip: `Me` on the dev Star's own host, and a tab per open persona on its own host, each with a close button; a closed persona shows as a button that reopens it.
+  - Each loaded tab has its own frame and its own `decidePreviewFrame` state. A frame first loads when its tab comes into view and stays loaded. A landed build asks the frame in view at once and each other loaded frame when it next comes into view.
+  - Studio reads the cast through `StudioClient.readCast()` as it connects, and again on each agent message that answers no post and arrived after the thread first answered. That re-read also reloads every loaded persona frame: the one in view at once, the others when each next comes into view.
+  - `onFrameMessage` matches a message to the frame Studio created whose window sent it, at that frame's own origin.
+  - The URL carries `tab`, the persona in view, and `closed`, the personas closed from the strip, through `view-state.ts`'s `withView` and `parsePreviewTabs`. A persona the cast drops loses its frame and leaves the URL.
+  - The tab in view shows a link that opens its persona's host and a button that copies it.
+  - `hostOrigin` spells a persona's host, and `personaUrl` in `view-state.ts` uses it.
+  - The scaffold's `nebula.ts` prefixes the title with the persona's slug on a persona's host, and `scaffold-seed.ts` is regenerated.
+  - `MeshClient.logout()` on a top-level page on a persona's host disposes the client and navigates nowhere. `security.md`'s rule on derived sessions and the API reference's `client.logout` name the persona page.
+- **Evidence:**
+  - `/live` `persona-tabs`, container, about 100 s; each limb reddened alone under its own mutation:
+    - limb 2 by every frame loaded as the strip renders, which opened three sockets on persona hosts;
+    - limb 1 by a persona frame pointed at the dev Star's own host;
+    - limb 3 by the strip reading no closed tabs from the URL;
+    - limb 4 by an outcome leaving loaded frames alone;
+    - limb 5 by the cast read once;
+    - limb 6 by `checkedReturnTo` refusing a persona's host, where the login page sends no link, and by the scaffold's title line dropped;
+    - limb 7 by the persona branch of `logout()` skipped, where the page left for `/auth/logout`.
+  - The lane: `hosts.test.ts` round-trips each kind of host through `hostOrigin` and `parseHost`, reddened by the persona label dropped; `view-state.test.ts` round-trips the tabs, reddened by an empty `closed` list kept in the URL.
+  - `/live` `build-reaches-every-studio` and `dev-tab-frame` pass with a state held for each frame.
+- **Suites:** `packages/mesh` 86 files and 1070 tests, up by the round-trip's rows; `apps/nebula` 132 files, one skipped, and 1194 tests, up by the tabs case. `audit:urls` and `audit:classes` pass in `apps/nebula-studio-ui`. Phase 8's sweep is the first after this phase and gates it.
+- **Changed from the plan:**
+  - The URL names the closed personas, not the open ones, so a persona a later run adds opens by default, as D26 asks; the open set is the cast less the closed.
+  - Studio cannot tell a provisioning outcome from an invite's result, both being agent messages that answer no post, so either one reloads the loaded persona frames. The cost is a reload of each persona frame someone has viewed, after an invite as well. D38 declined a marker on `Message` for this.
+  - `readCast` is a `StudioClient` method rather than a call `App.vue` builds, since a type import of `Galaxy` into `App.vue` drags the server's sources into Studio's type check.
+  - `requireDominionHere` refuses Mary's plain token as "Admin access required", its message for no admin bit, which limb 4 pins.
+  - The scenario's setup reloads Studio after the first run rather than waiting on the live strip, so only limb 5 leans on the re-read an outcome starts.
+- **Retro:** limb 4 first matched Mary's refusal against `/dominion/`, a message inferred from the guard's name. The guard refuses a token with no admin bit as "Admin access required", and only the first run showed it. A refused `return_to` first read as a lost email, since the server sends nothing for one; the limb now waits for the login page's "Check your email" first.
+- **For Larry:**
+  - An invite's result reloads every persona tab someone has viewed, since Studio cannot tell it from a provisioning outcome without the marker D38 declined. A tab not in view reloads only when it next comes into view, so the cost is one reload per viewed persona tab.
+  - Studio's URL carries `closed`, the personas closed from the strip, rather than the open ones D26 names, so a persona a later run adds opens by default.
+
+### Phase 8
+
+- **Built:** `acceptMembership` sends a nickname, `Harness` unless its caller names one. `loginViaEmail`, `provisionAndLogin` and `provisionStarAdmin` take a `nickname` option, the address's local part by default, and pass it to the accept; `null` posts the scope alone, which no consent screen does. The backlog's consent-modal prefill row has its helper half marked delivered.
+- **Evidence:**
+  - `/live` `invite-consent` limb 7: a login through `provisionAndLogin` leaves a Profile whose nickname is the address's local part. Mutation: post the scope alone, and the Profile has no nickname.
+  - `unwritten-profile-heals` keeps Bob's Profile unwritten by passing `nickname: null` to his signup; drop it, and his page and Alice's are answered with a written Profile.
+- **Suites:** `apps/nebula` 132 files, one skipped, and 1194 tests, unchanged. The full `drive.ts all`, Docker scenarios included, passed every scenario after `--rerun`, with `redeploy-strands-no-client` parked as always. This sweep also gates Phase 7.
+  - **One real failure, from this phase.** `client-routes` limb 7 watches the caller's first Profile write create a table, and the login's nickname had already created it. Its caller's signup now passes `nickname: null`, as `unwritten-profile-heals` does.
+  - **Flakes, each passing on the rerun with nothing changed.** Most met the email provider refusing sends in a burst, `claim-universe 502 email_send_failed`: `grant-reveals-denied`, `client-sender-passage`, `node-chain-passage`, `subscribe-refusal-arrives`, `unwritten-profile-heals`, `forged-continuation`, `late-answer-dropped`, `resubscribe-when-lost`, `push-survives-token-lapse`, `scope-hosts-its-clients`, `delete-from-its-own-page`, and `persona-tabs` at limb 6's login. `identity-convergence` and `logout-everywhere` timed out on the email-test socket, and `four-party-chat`'s model turn went silent.
+  - **The first Nebula suite run was a flake too:** ten tests across nine files failed, mostly on timeouts, with an import time of 871 s against 349 s on the clean rerun. Three `workerd` processes outlived the earlier runs. Killed and rerun with nothing changed, all passed.
+- **Changed from the plan:** `provisionStarAdmin` keeps the Star admin's `nickname` out of the options it hands the owner's login above, so `null` for Bob never reaches the owner.
+
+### Phase 9
+
+- **Put off, as goal 2 allows, and nothing built.** Phase 10 therefore teaches `node`, `edge` and `grant` alone, its drift loop names no `create`, and the Phase 3 refusal stays.
+- **Why, for Larry: a seeded resource is one no app can find.**
+  - *Context:* every run mints a fresh id for each `ref` (§ *The procedure, by example*), and the Phase 9 criteria count each seeded title "under an id the first run did not use". An app finds resources only through a `parentChild` query on a to-one relationship, or a read by id, so it needs one resource whose id it already knows. `coding-your-ui.md` teaches that resource as a container keyed by a known value: "The container is keyed per user — `('todoList', client.claims.sub)`".
+  - *Analysis:* a procedure has no way to write a resource under an id an app knows, so Gerry's tab has nothing to query from. The `persona-tabs` criterion, "Acme renewal" showing in his tab, cannot be met by a generated app, nor by the scenario's own app, except through a back channel such as reading the minted ids from the Worker's logs. The plane checks no reference exists, so a constant like `pipeline: 'main'` would also work, as a natural key ADR-010 forbids.
+  - *Alternatives:*
+    - a `create` whose id is the persona's own `sub`, the docs' per-user container, written perhaps as `ref: '$sub'`;
+    - a `create` that names an id the app derives, which needs a rule for deriving it;
+    - seeding only through resources an app reaches from the persona's `sub`, which every relationship must then hang from.
+  - *Recommendation, revised 2026-11-13:* none of the three yet. Walked through the example above, `$sub` keys Sally's Deal to Sally's own id, where Gerry's app never looks, so it serves per-person data alone. Gerry seeing a Deal Sally made needs a key every member's app knows, and the docs teach none: an app's only starting point is `client.claims.sub`. A real app with a real Sally and Gerry has the same gap, so the pattern comes first and seeding writes where it says to look. Larry's answer, the same day: widen query subscriptions past `parentChild`, so Gerry's app asks for the Deals he can read, and the plane's check on each resource returns "Acme renewal" and not "Globex pilot". `tasks/on-hold/nebula-orm-and-queries.md` § *Part C: Multi-Resource `query()`* holds the related plan.
+- **Close-out:** the Phase 9 criteria stay as written for whoever builds it, and `persona-tabs` already builds an app with an ontology, so a data-steps limb is an addition there.
+
+### Phase 10
+
+- **Built, with seeding put off:** `docs/personas.md`'s template and `define-the-cast` teach the cast with its admin marked, and a procedure of `node`, `edge` and `grant` with local refs and `root`; that every run starts from a wiped dev Star; and that a run seeds no data yet. The skill's last step points at the `provision` tool's description for when to call it, and restates none of it (D39). Its *What not to do* says `setup:lumenize` is the dev Star's local principal, for an app to leave out or label. `define-ontology`'s step 6 asks to provision where it asked for a reset. Both embeds are regenerated. `scaffold-seed-drift.test.ts`'s verb loop names `node`, `edge` and `grant`, and asserts the seed says no `mint`.
+- **Evidence:** the criterion's grep prints nothing over both files, and three lines in each at `HEAD`. A source edit left un-regenerated reds `gen-scaffold.mjs --check`, and `mint` put back in the seed reds the drift test. Both drift tests pass.
+- **`studio-guidance-loop` limb (g), reported and never gated:** run once with one further turn instead of ten, it passed. Asked to provision the cast `docs/personas.md` names, the first reply said the run would wipe the preview's test data and asked; the turn the yes started called `provision`. Limb (d) failed in the same run: the wishlist turn read `wire-a-view` and not `define-ontology`. No mutation was run on limb (g), since its failing branch needs the model to call `provision` unasked.
+- **Changed from the plan:**
+  - The skill's slug rule drops the 11-character cap, which came from the retired persona address; `isPersonaSlug` takes 3 to 30.
+  - `studio-guidance-loop` gains limb (g). That file carries another session's uncommitted edit, so only this limb's hunk is committed.
+- **For Larry:** the run's findings belong in `tasks/nebula-pre-alpha-fast-follow.md` § *Item 20: Data-bound generation*, where `studio-guidance.md` now sends them. That section exists only in that file's uncommitted edit, which is not this build's, so the lines are here to paste once it lands:
+  - `2026-11-13 · (g) · pass · the first reply asked ("Provisioning the test personas will **wipe any existing test data** in the preview…"); the yes's turn called provision`
+  - `2026-11-13 · (d) · fail · read_file calls this turn: .platform/docs/resources.md, .platform/docs/coding-your-ui.md, .platform/docs/ontology.md, .platform/skills/wire-a-view/SKILL.md, AGENTS.md, src/style.css, src/nebula.ts`
+  - The run's other limbs, (a), (b1), (b2), (c) and (f), passed; (b2) after one further turn.
+
+### Phase 11
+
+- **Built:**
+  - `mesh.md` § *Passing data to the callee* says `originAuth` is verified from a JWT on a Client's call, or built by Mesh under `lmz.actFor`, `lmz.asLocalPrincipal` or `asPersona`.
+  - The Profile's header JSDoc and its owner branch state that a persona's token owns the persona's Profile and no person's, since a version-5 persona id can never equal a person's version-4 one. The Registry mints a person's `profileId` with `crypto.randomUUID()`, checked.
+  - `requireDominionHere`'s JSDoc says a chain a node started carries no admin bit, a Galaxy's chain into its own `.dev` Star included.
+  - The backlog's breaking-ontology-change row says provisioning rebuilds the cast and seeds no data yet.
+- **Checked and left as they are:**
+  - `#queueBuild`, `getCurrentOntology`, `isDevStarCall`, `LOOP_TOOL_ENTRIES`, the codegen loop's header, `handleRefreshToken` and `Resources.wipe` already describe provisioning as built. The Galaxy's file header did not, though this note first said it did; § *Verification* has the fix.
+  - `docs/vision/auth.md` § *A Galaxy's `.dev` Star* matches the setup principal and the cast; its "wiped and seeded" is the target, in a vision doc's present tense, so no edit is proposed.
+  - The backlog's clear-app-source row is true about provisioning; it still names DevStudio and the shell `Workspace`, which predate this build.
+- **Criteria:**
+  - No export the build added names the procedure a plan.
+  - The handle grep, which printed both handles of a known line, prints nothing over the lines the build added.
+  - `npm run type-check`, `audit:mesh-vocab`, `audit:dep-direction`, `audit:do-http` and `audit:urls` pass, and so does the prose gate on each prose file touched.
+  - `security.md`'s instruments print what their sentences claim: one `.actFor(` call, the plane's; `asPersona(` at the dev Star's provisioning and a test probe alone. The build added no reader of `.act`.
+  - No deployed-only branch of the harness turns on what this build changed: the stale-account sweep deletes as the superuser, who holds an accepted membership.
+  - No changed file holds a NUL or an NBSP.
+  - The handle grep, run as the criterion writes it, prints lines in files the build touched that predate the build, such as `harness.ts`'s "Phase 3 security boundary"; over the lines the build added it prints nothing.
+
+### Verification, 2026-11-13
+
+One verifier per phase read the tree, with Phase 3 folded into 4 and 9 into 10. Phases 1, 2, 3 and 4, and 9 and 10 conformed; 5, 6, 7, 8 and 11 did not. The closing suites and sweep ran beside the panel, under its load, and are run again after the fixes below.
+
+- **Fixed, security:**
+  - **The admin persona could write real people's Profiles.** The Profile's scoped-admin branch counted Mary's bit over every accepted `.dev` membership, Austen's co-minted one included: her private fields and the global names every scope shows. D40 closed the facade and not this door. The branch now refuses a persona's version-5 id with `PERSONA_IS_NO_ADMIN` before its Registry read (`isPersonaId` in `hosts.ts`). `persona-host` limb 7 has Mary refused at P's Profile, with her own write admitted as the positive control. `security.md` records the rule at both doors, and `auth-flows.md`'s claim that her bit reaches only the dev Star is corrected.
+  - **A crafted Studio URL framed any origin.** `?tab=evil.example%2Fx%23` reached `personaUrl` unchecked and framed `https://evil.example`. `parsePreviewTabs` now admits persona slugs alone, `hostOrigin` refuses to spell a persona's host from anything else, and a tab the URL also names as closed is not in view. Each check reds its own case under mutation.
+- **Fixed, harness fidelity:** the login helpers accepted every membership on each login, so a re-login reset a person's nickname to their address's local part, which production never does. A claim's consume now carries the nickname, as the consent screen sends it, and `acceptIfPending` accepts on Home only while the card says pending, pre-filling the card's nickname. `invite-consent` limb 7 checks that a later login leaves the nickname as it was.
+- **Fixed, coverage and prose:**
+  - `wipe.test.ts` refuses on a tenant Star, so each operand of the plane's `.dev` check reds a case of its own.
+  - `dev-star-follows-the-build` limb 7 says what a wipe that installs leaves to witness.
+  - `isPersonaStar` gains a case per label check.
+  - The Galaxy's file header names the cast record and `provision`, `readCast` and `personaIsAdmin`.
+  - JSDoc made true: `requireDominionHere`, which reads `originAuth` alone; `claimsForPassage`, `requirePassage` and `ScopedMeshDO`, which now name the `.dev` exception; `routes.ts`, whose galaxy-tier binding now confers that passage; the scope hooks; `onProvisioned`; and `Star.dev`.
+  - Guidance made true: `define-ontology`, `define-the-cast` (exactly one admin; slugs up to 30 characters), `ontology.md`'s breaking-change line, and `AGENTS.md`'s line on `docs/personas.md`.
+  - The backlog's `resetDevData` mentions are gone, and `tasks/reference/nebula-dev-flows.md` carries a dated note that the call is.
+- **Evidence for the fixes,** each mutation reddening the assertion aimed at it: the Profile counting a persona, in `persona-host` limb 7; a claim's consume sent with no names, and an accept sent whatever the card says, in `invite-consent` limb 7; each URL filter in `view-state.test.ts`; `hostOrigin`'s persona check and each label check of `isPersonaStar` in `hosts.test.ts`; each operand of the wipe's check in `wipe.test.ts`. `persona-host`, `invite-consent`, `unwritten-profile-heals` and `client-routes` pass; the first three failed once on the email-test socket or a lost email and passed on the rerun with nothing changed, so they are flakes.
+- **Suites after the fixes:** `packages/mesh` 86 files and 1074 tests, `packages/resources` 5 files and 32, `apps/nebula` 132 files, one skipped, and 1195. The Nebula suite failed twelve tests on its first run, with imports taking 1221 s while the user's own browser held several cores busy; with `--maxWorkers=4` and nothing changed it passed whole, so those are load flakes. `npm run type-check` passes.
+- **The deployed pass,** on `856f488`: `deploy-test.sh` ended `Test worker live and matches HEAD`, and `persona-host`, `personas-provisioned`, `persona-tabs`, `dev-star-follows-the-build`, `message-roundtrip` and `invite-consent` each passed against `https://platform.lumenize-test.dev` on the first run. `issues.mjs --worker test-nebula --since 2026-11-13T07:14:07Z` shows no new issue: `scope-deleted` is a standing one, and "teardown failed: Durable Object reset because its code was updated" has recurred since 2026-10-14, its latest when this deploy replaced the code under a teardown in flight.
+- **The closing sweep,** `drive.ts all` on `856f488`, Docker scenarios included: 69 of 75 passed, with `redeploy-strands-no-client` parked as always. After `--rerun` every scenario passed.
+  - **Real failures, from the harness-fidelity fix above.** `galaxy-cap` limb 4 and `certificate-wake` limb 5 each counted the Home Accept `provisionAndLogin` used to make after a claim's link had accepted, which `acceptIfPending` no longer makes. `galaxy-cap` now makes that Accept itself, as the retry an already-accepted answer orders certificates for; `certificate-wake` reads its re-accepts after the link's acceptance alone. Both assertions are unchanged.
+  - **Flakes, each passing on the rerun with nothing changed:** `four-party-chat` and `post-edited-mid-turn`, whose model turns went silent; `push-survives-token-lapse`, whose login mail was lost after Resend reported it delivered; and `resubscribe-when-lost`, which never saw the paused page's reap.
+  - **Retro:** the helper change passed every scenario the fix was aimed at, and only the whole sweep found the two that leaned on the old behaviour. That is the case `live.md`'s sweep rule names: a change to something scenarios you did not write depend on.
+- **Left as found, for Larry:**
+  - A throw inside a run after its wipe leaves the Galaxy's cast record stale, since the handler rewrites it only for an outcome. Only `#install` throwing reaches it today; `onProvisioned`'s JSDoc now says so.
+  - A provisioning outcome reloads persona frames and not `Me`, so after a plain wipe the `Me` frame can show data the wipe removed until it is reloaded. Phase 5 removed the Wipe button's reset of that frame.
+  - An edge step restating a node's existing parent is counted in the outcome though it changes nothing.
+  - `asPersona` takes any object with a stamped name; reading the node's own `ctx.id.name` would let the code enforce what D18 says, rather than its callers.
+  - In Studio, a tab change made while an overlay's history entry is open is lost when the overlay closes; and a persona frame reloaded for a stale token is not then asked about the newest build.
+  - `studio-guidance-loop` limb (g) counts any first reply that does not call `provision` as asking, without checking for a question.
+  - `docs/vision/auth.md` lines that describe a node's chain as acting only from its own name do not name the `.dev` exception; the edit is Larry's.
 
 ## Review progress
 
