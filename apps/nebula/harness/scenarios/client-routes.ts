@@ -120,7 +120,9 @@ export async function run(stack: DevStack): Promise<void> {
   const starB = `${app.galaxy}.${testSlug('routes-b')}`;
   const uncreated = `${app.galaxy}.${testSlug('routes-none')}`;
 
-  const caller = await provisionStarAdmin({ baseUrl: origin, scope: starA, testToken, ownerEmail: app.ownerEmail });
+  // No nickname on the caller's accept, so its Profile stays unwritten until limb 7's own first
+  // write, which is the table that limb's positive control watches appear.
+  const caller = await provisionStarAdmin({ baseUrl: origin, scope: starA, testToken, ownerEmail: app.ownerEmail, nickname: null });
   const founderB = await foundTenantStar({ baseUrl: origin, star: starB, testToken });
   assert.ok(founderB, `${starB} could not be founded`);
   const profileId = jwtPayload(caller.accessToken).profileId as string;

@@ -254,11 +254,6 @@ export interface Driver<C extends NebulaClient = NebulaClient> {
    * second tab of the same signed-in person.
    */
   browser: Browser;
-  /**
-   * Fire the `.dev` sandbox wipe (`Star.resetDevData`, one-way — mirrors the Studio's Wipe
-   * button). Best-effort; the deterministic local reset is {@link bootDevStack}'s fresh boot.
-   */
-  wipe: () => void;
   dispose: () => void;
 }
 
@@ -400,18 +395,6 @@ export async function connectDriver<C extends NebulaClient = NebulaClient>(
     sub,
     scope,
     browser,
-    wipe: () => {
-      // `resetDevData` lives on the `.dev` Star and throws off it, so only a star-tier driver
-      // has a wipe target; elsewhere the deterministic reset is the fresh boot.
-      if (scope.split('.').length < 3) return;
-      try {
-        // One-way under the continuation-only model (mirrors nebula-studio-ui App.vue).
-        client.lmz.call('STAR', scope, (client.ctn() as any).resetDevData(),
-          client.ctn().logRefusal('resetDevData'), { onErrorOnly: true });
-      } catch {
-        /* best-effort — the deterministic local reset is the fresh boot */
-      }
-    },
     dispose: () => {
       try {
         client[Symbol.dispose]();

@@ -35,7 +35,7 @@ import { testSlug } from '../lib/test-scopes';
 import { waitForDebugLines, type DebugLine } from '../lib/stdio';
 import {
   provisionAndLogin, refreshAccessToken, requestUniverseClaim, requestMagicLink, refreshTokenForScope,
-  setCookieHeaders, acceptMembership, consumeLink, refreshCookie,
+  setCookieHeaders, acceptMembership, consumeLink, refreshCookie, nicknameFor,
 } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -71,8 +71,11 @@ export async function run(stack: DevStack): Promise<void> {
   const drivers: Driver[] = [];
 
   try {
-    // The owner's claim writes `crm`, its first app; the facade writes the rest.
+    // The owner's claim writes `crm`, its first app; the facade writes the rest. The claim's link
+    // accepts as it is consumed. Accepting again on Home answers already-accepted and orders again,
+    // as a retry does after a Worker died before its wake; limb 4 counts both sites' wakes.
     const provisioned = await provisionAndLogin({ baseUrl: origin, scope: `${universe}.crm`, email: owner, testToken });
+    await acceptMembership(origin, provisioned.session.refreshToken, universe, fetch, nicknameFor(owner));
     const atUniverse = await refreshAccessToken(origin, provisioned.session, universe);
     const driver = await connectDriver(stack, { scope: universe, session: atUniverse });
     drivers.push(driver);

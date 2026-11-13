@@ -71,6 +71,17 @@ export interface EmailLoginOptions {
   bypassToken?: string;
   /** Email-wait ceiling. Default 60 s (the loop is ~1.4 s; this is slack, not an expectation). */
   timeout?: number;
+  /**
+   * The nickname the accept sends, as the consent screen collects one on every accept. Defaults
+   * to the address's local part, `test-1a2b…` for `test-1a2b…@lumenize-test.dev`. `null` posts the
+   * scope alone, which no consent screen does, for a scenario that needs a Profile nobody wrote.
+   */
+  nickname?: string | null;
+}
+
+/** The nickname a login sends for `email`: `nickname` as given, `null` included, else the address's local part. */
+export function nicknameFor(email: string, nickname?: string | null): string | null {
+  return nickname === undefined ? email.split('@')[0]! : nickname;
 }
 
 export interface EmailSession {
@@ -180,23 +191,51 @@ export async function consumeLink(
   });
 }
 
+/** The nickname a caller of {@link acceptMembership} sends when it names none. */
+const HARNESS_NICKNAME = 'Harness';
+
 /**
- * Take up a membership on Home — `accept-membership`, naming the scope whose cookie it presents.
+ * Take up a membership on Home — `accept-membership`, naming the scope whose cookie it presents,
+ * with the nickname Home's consent card collects, which the accept writes to the Profile.
  *
  * A plain login link places a pending membership's cookie without accepting it, which is what this
  * is for; a claim's or an invite's own link accepts as it is consumed. An already-accepted
- * membership answers 200 and changes nothing.
+ * membership changes nothing but the names it carries. `null` sends the scope alone, which no
+ * consent screen does.
  */
 export async function acceptMembership(
   baseUrl: string, refreshToken: string, scope: string, fetchImpl: FetchLike = fetch,
+  nickname: string | null = HARNESS_NICKNAME,
 ): Promise<void> {
   const origin = baseUrl.replace(/\/$/, '');
   const res = await fetchImpl(`${origin}/auth/accept-membership`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', Cookie: refreshCookie(scope, refreshToken) },
-    body: JSON.stringify({ scope }),
+    body: JSON.stringify({ scope, ...(nickname === null ? {} : { nickname }) }),
   });
   if (!res.ok) throw new Error(`accept-membership ${res.status}: ${(await res.text()).slice(0, 200)}`);
+}
+
+/**
+ * Take a membership up on Home only while it is pending, since Home offers its Accept for a pending
+ * row alone. The card's own nickname pre-fills the consent, as the modal does, and `nickname` stands
+ * in when the card has none. An accepted membership is left as it is, so a login that finds one
+ * changes none of the person's names.
+ */
+export async function acceptIfPending(
+  baseUrl: string, refreshToken: string, scope: string, fetchImpl: FetchLike = fetch,
+  nickname: string | null = HARNESS_NICKNAME,
+): Promise<void> {
+  const origin = baseUrl.replace(/\/$/, '');
+  const res = await fetchImpl(`${origin}/auth/pending-membership`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', Cookie: refreshCookie(scope, refreshToken) },
+    body: JSON.stringify({ scope }),
+  });
+  if (!res.ok) throw new Error(`pending-membership ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const card = await res.json() as { accepted: boolean; nickname?: string };
+  if (card.accepted) return;
+  await acceptMembership(origin, refreshToken, scope, fetchImpl, card.nickname ?? nickname);
 }
 
 /**
@@ -400,7 +439,8 @@ export async function provisionStarAdmin(
     ownerEmail?: string;
   },
 ): Promise<{ accessToken: string; sub: string; session: EmailSession }> {
-  const { scope, baseUrl, testToken, fetchImpl = fetch, bypassToken, timeout, ownerEmail, ...rest } = options;
+  // `nickname` is the Star's admin's, never the owner's above it, so it stays out of `rest`.
+  const { scope, baseUrl, testToken, fetchImpl = fetch, bypassToken, timeout, ownerEmail, nickname: _starAdminNickname, ...rest } = options;
   const email = options.email ?? uniqueTestEmail();
   const origin = baseUrl.replace(/\/$/, '');
   const parts = scope.split('.');
@@ -453,9 +493,11 @@ export async function provisionStarAdmin(
       }
       link = rawLink;
     }
-    // The claim's page is its consent screen, so its Accept consumes and accepts; the plain-login
-    // fallback places the cookie and Home's Accept takes it up (an already-accepted one is a no-op).
-    const linkRes = await consumeLink(link, fetchImpl);
+    // The claim's page is its consent screen, so its Accept consumes and accepts, with the nickname
+    // the screen collects; the plain-login fallback places the cookie, and Home offers its Accept
+    // only while the membership is pending.
+    const nickname = nicknameFor(email, options.nickname);
+    const linkRes = await consumeLink(link, fetchImpl, nickname === null ? {} : { nickname });
     const refreshToken = refreshTokenForScope(setCookieHeaders(linkRes), scope);
     if (!refreshToken) {
       throw new Error(
@@ -463,7 +505,7 @@ export async function provisionStarAdmin(
         `${(await linkRes.clone().text().catch(() => '')).slice(0, 200)}`,
       );
     }
-    await acceptMembership(origin, refreshToken, scope, fetchImpl);
+    await acceptIfPending(origin, refreshToken, scope, fetchImpl, nickname);
     return { refreshToken, authScope: scope, email, savedAt: new Date().toISOString() };
   } finally {
     waiter?.cleanup();
@@ -516,8 +558,8 @@ export async function loginViaEmail(options: EmailLoginOptions): Promise<EmailSe
     }
 
     // A plain link accepts nothing, so a pending membership is taken up on Home, as its holder
-    // would; an accepted one answers 200 and changes nothing.
-    await acceptMembership(origin, refreshToken, authScope, fetchImpl);
+    // would; an accepted one is left as it is.
+    await acceptIfPending(origin, refreshToken, authScope, fetchImpl, nicknameFor(email, options.nickname));
 
     return { refreshToken, authScope, email, savedAt: new Date().toISOString() };
   } finally {
@@ -617,9 +659,11 @@ export async function provisionAndLogin(
       }
       link = rawLink;
     }
-    // The claim's page is its consent screen, so its Accept consumes and accepts; the plain-login
-    // fallback places the cookie and Home's Accept takes it up (an already-accepted one is a no-op).
-    const linkRes = await consumeLink(link, fetchImpl);
+    // The claim's page is its consent screen, so its Accept consumes and accepts, with the nickname
+    // the screen collects; the plain-login fallback places the cookie, and Home offers its Accept
+    // only while the membership is pending.
+    const nickname = nicknameFor(email, options.nickname);
+    const linkRes = await consumeLink(link, fetchImpl, nickname === null ? {} : { nickname });
     const refreshToken = refreshTokenForScope(setCookieHeaders(linkRes), universe);
     if (!refreshToken) {
       throw new Error(
@@ -627,7 +671,7 @@ export async function provisionAndLogin(
         `${(await linkRes.clone().text().catch(() => '')).slice(0, 200)}`,
       );
     }
-    await acceptMembership(origin, refreshToken, universe, fetchImpl);
+    await acceptIfPending(origin, refreshToken, universe, fetchImpl, nickname);
     const session: EmailSession = { refreshToken, authScope: universe, email, savedAt: new Date().toISOString() };
     return { session, usedLink: link, claimedFresh };
   } finally {

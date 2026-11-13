@@ -31,16 +31,24 @@
  *  6. **Reading the card reads the invitee's names from a Profile nobody has written, without
  *     failing.** No card read logs `display-name read failed` before its own `card answered`.
  *     *Reds against `readDisplayNames` reading a table a never-written Profile does not have.*
+ *  7. **The harness accepts with a nickname, as the consent screen does, and only once.** A claim
+ *     through `provisionAndLogin` leaves a Profile whose nickname is the one its consent sent, and a
+ *     later login naming another nickname leaves it as it was. *Reds when the claim's consume sends
+ *     no names: the Profile has no nickname; and when a login accepts a membership already taken up:
+ *     the second nickname replaces the first.*
  *
  * `needsContainer = false` — auth + the invite facade, never a build.
  */
 import assert from 'node:assert/strict';
 import { waitForEmail, uniqueTestEmail, extractMagicLink } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
-import { readDevVar, inviteViaMesh } from '../lib/harness';
+import { readDevVar, inviteViaMesh, connectDriver } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
+import { parseJwtUnsafe } from '@lumenize/crypto';
+import type { Profile } from '@lumenize/mesh/auth/profile';
 import {
   provisionAndLogin, refreshTokenForScope, setCookieHeaders, acceptMembership, consumeLink,
-  refreshCookie, refreshFromPage, homeSummary, requestMagicLink,
+  refreshCookie, refreshFromPage, homeSummary, requestMagicLink, nicknameFor, loginViaEmail,
 } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
 import { debugLines, waitForDebugLines, type DebugLine } from '../lib/stdio';
@@ -187,6 +195,25 @@ export async function run(stack: DevStack): Promise<void> {
     'the invitation must carry the inviter stamp the card renders as "(supplied by the sender)" — ' +
     'without it the invitee meets the SELF flavour for something a third party initiated');
   console.error('  ✓ limb 5 — the inviter stamp survives to the summary Home renders from');
+
+  // ── LIMB 7: the harness accepts with a nickname, as the consent screen does ─────────────────────
+  {
+    const email = uniqueTestEmail();
+    const universe = testSlug('nick');
+    const login = await provisionAndLogin({ baseUrl: origin, scope: universe, email, testToken });
+    const profileId = (parseJwtUnsafe(login.accessToken)!.payload as unknown as { profileId: string }).profileId;
+    const reader = await connectDriver(stack, { scope: universe, session: { accessToken: login.accessToken, sub: login.sub } });
+    try {
+      const nicknameNow = async () => (await reader.client.lmz.callAsync('PROFILE', profileId, reader.client.ctn<Profile>().read()) as { value: { nickname?: string } }).value.nickname;
+      assert.equal(await nicknameNow(), nicknameFor(email), 'a claim through provisionAndLogin must leave the nickname its consent sent');
+      // A person's re-login meets no consent, so it changes none of their names.
+      await loginViaEmail({ baseUrl: origin, authScope: universe, email, testToken, nickname: 'Someone Else' });
+      assert.equal(await nicknameNow(), nicknameFor(email), 'a later login must leave the nickname as it was');
+    } finally {
+      reader.dispose();
+    }
+    console.error('  ✓ limb 7 — the claim left the nickname its consent sent, and a later login left it as it was');
+  }
 
   console.error('  ── an invitation is an offer: a page that changes nothing, then consent');
 }

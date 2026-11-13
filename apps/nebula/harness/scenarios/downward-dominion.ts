@@ -105,7 +105,6 @@ export async function run(stack: DevStack): Promise<void> {
       `is the dominion bypass, not an open scope), got kind=${controlOut.kind}`,
     );
   } finally {
-    admin.wipe();
     admin.dispose();
     control.dispose();
   }

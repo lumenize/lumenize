@@ -7,8 +7,8 @@
  * Client remembers each profile whose last answer was never-written, and sends that subscribe again
  * after its own successful `updateMyProfile` and on every new socket. Two pages show it:
  *
- *  1. **Bob's own page.** Bob signs in through the real signup, whose empty consent body leaves his
- *     Profile unwritten. His page subscribes to his own profile and is answered never-written; he
+ *  1. **Bob's own page.** Bob founds his Star through the real signup's links, with an Accept that
+ *     carries no nickname, which no consent screen sends, so his Profile stays unwritten. His page subscribes to his own profile and is answered never-written; he
  *     sets his nickname, and his page hears it within a few seconds, far inside his token's life, so
  *     no new socket can have healed it. Mutation: drop the re-send after `updateMyProfile`.
  *  2. **Alice's page.** An admin impersonates Bob with a 45-second token, and that child subscribes
@@ -79,9 +79,11 @@ export async function run(stack: DevStack): Promise<void> {
     if (!ok) failures.push(`${name}: ${detail}`);
   };
 
-  // Bob founds a Star of his own through the real signup, which writes nothing to his Profile.
+  // Bob founds a Star of his own through the real signup, with his accept carrying no nickname.
+  // The consent screen always sends a nickname; the route also takes an accept without one, and
+  // this scenario sends that to keep a person's Profile that nobody has written.
   const bob = await provisionStarAdmin({
-    baseUrl: stack.baseUrl, scope: star, ownerEmail: app.ownerEmail, testToken, fetchImpl: browser.fetch,
+    baseUrl: stack.baseUrl, scope: star, ownerEmail: app.ownerEmail, testToken, fetchImpl: browser.fetch, nickname: null,
   });
   const bobCtx = new Browser().context(scopeUrlOf(stack, star));
   const bobClient = new NebulaClient({

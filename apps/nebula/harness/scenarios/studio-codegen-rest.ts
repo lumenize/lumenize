@@ -139,7 +139,6 @@ export async function run(stack: DevStack): Promise<void> {
         `checked=${JSON.stringify(cg.build?.checked ?? [])} findings=${(cg.build?.findings ?? []).length}`);
     }
   } finally {
-    driver.wipe();
     driver.dispose();
   }
 }

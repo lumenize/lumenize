@@ -180,10 +180,9 @@ export async function run(stack: DevStack): Promise<void> {
     // ── 5. A re-accept wakes a standing galaxy, and nothing once it is deleted ──────────────────
     const lone = testSlug('cwl');
     const loner = await provisionAndLogin({ baseUrl: origin, scope: `${lone}.crm`, email: uniqueTestEmail(), testToken });
-    // `provisionAndLogin` accepts on the link's page and then again on Home, so the re-accepts here
-    // are read after that second acceptance's line.
-    let previous: DebugLine | undefined;
-    previous = (await acceptance(stack, lone, 'already-accepted', (await acceptance(stack, lone, 'accepted')).line)).line;
+    // `provisionAndLogin` accepts on the link's page alone, so the re-accepts here are read after
+    // that acceptance's line.
+    let previous = (await acceptance(stack, lone, 'accepted')).line;
     const reaccept = async () => {
       const res = await fetch(`${origin}/auth/accept-membership`, {
         method: 'POST',
