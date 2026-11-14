@@ -1,6 +1,6 @@
 # The query and index engine
 
-**Status:** the engine is built and tested, 2026-11-14, as pure functions, and [nebula-query-subscriptions-take-a-filter.md](nebula-query-subscriptions-take-a-filter.md) wired it into query subscriptions the same day. It gates [nebula-personas-are-real-members.md](nebula-personas-are-real-members.md), whose personas need data one member makes and another finds.
+**Status:** the engine is built and tested, 2026-11-14, as pure functions, and [nebula-query-subscriptions-take-a-filter.md](nebula-query-subscriptions-take-a-filter.md) wired it into query subscriptions the same day. It gates [nebula-personas-are-real-members.md](../nebula-personas-are-real-members.md), whose personas need data one member makes and another finds.
 
 ## Conventions
 
@@ -40,7 +40,7 @@ The ontology they take is `fields`, a new part of what `extractTypeMetadata` ret
 | D5 | `$ne`, `$nin`, `$not` and `$nor` also match a resource whose field holds no value, as MongoDB's do. | SQL's own rule, where a comparison with NULL drops the row: a filter written for one store would mean something else here. |
 | D6 | An ordering operator matches only a field that holds a value, by a type guard in the clause. | No guard: SQLite sorts a wrapped `null` above every number, so `amount > 1000` would match it. |
 | D7 | `Infinity`, `-Infinity`, `NaN` and `-0` in a number field are refused at the write, by `assertQueryable`, with an invalid `Date` and an object stored twice. Larry: fail loudly, as an implied constraint of the ontology. | Storing them and never matching: quiet, and D6 already keeps them out of every comparison. `-0` is included because it is stored wrapped like the others. |
-| D8 | An ordering comparison on a union of string literals is refused, and the extractor keeps the values in declared order. | Comparing them as strings: Larry will design the comparison by declared order, and a string sort is what would have to be unlearned. |
+| D8 | The extractor keeps a union of string literals' values in declared order. The engine at first refused an ordering comparison on one; D16 replaced the refusal. | Comparing them as strings: a string sort is what would have had to be unlearned. |
 | D9 | Arrays, `Set`, `Map` and bigint cannot be filtered or indexed, and a filter naming one is refused by what it is. | A partial "array contains": it cannot use an index in SQLite, and its shape is Larry's to choose. The way in later is `json_each`. |
 | D10 | A filter's value is checked against the field's kind and bound. A `Date` field takes a `Date`, an enum one of its values. | Passing values through: a typo'd stage would select nothing and say nothing. |
 | D11 | A string compares by its UTF-8 bytes, so `"Zeta" < "alpha"`. `$startsWith` is a key range, which an index serves. | `LIKE`: case-insensitive for ASCII, and a Durable Object caps its pattern at 50 bytes. |
@@ -48,6 +48,8 @@ The ontology they take is `fields`, a new part of what `extractTypeMetadata` ret
 | D13 | One query binds at most 100 values, the limit SQLite enforces here. | No check: the statement would fail in SQLite with its own message, after the compile. |
 | D15 | A query must give an index something to look up: equality, `$in`, a range or `$startsWith` on the first field of one of the type's indexes, at the filter's top level or inside a top-level `$and`. `compileQuery` refuses any other filter, and `{}` is the one exception, as the request for every resource of the type. A caller may pass `allowScan: true`, for a type that will only ever hold a few resources, and the answer's `scans` says which queries read them all. (Larry, 2026-11-14: fail loudly where a query would otherwise scan, with an override, since an index costs a row on every write.) | Letting an unindexed filter scan, as D3 first allowed: `$ne`, `$exists: false` and `null` can never be looked up, so alone each reads every current resource of the type. Beside a lookup they test only the rows it found. |
 | D14 | An index's name is `idx_Snapshots_q_Deal:stage,amount`, its type and fields in order. | A hash: the same specification must name the same index, and a reader should see what it covers. |
+| D16 | An ordering comparison on a union of string literals becomes the list of values on that side of the operand, in declared order: with `'lead' \| 'open' \| 'won'`, `{ stage: { $gt: 'lead' } }` compiles to `stage IN ('open', 'won')`. A side with no values compiles to `0 = 1`. (Larry, 2026-11-14, after his Rally lookback API.) | A `CASE` expression giving each value its rank: no index could serve it, where `IN` on an indexed field is a lookup each. |
+| D17 | `@deprecatedValues qualified, stalled` on a field names the values no longer offered for a new choice. They stay in the union at their place in the order, valid to store and to query, and the field's info gains `deprecated`. (Larry, 2026-11-14.) | `@deprecated` on the field: TypeScript reads it as the whole field. A comment on the union member: TypeScript attaches it to nothing. A wrapper type `Deprecated<'qualified'>`: a global type the model must know. |
 
 ## What the tests found
 
@@ -62,5 +64,6 @@ The ontology they take is `fields`, a new part of what `extractTypeMetadata` ret
 
 - **Wiring, index declarations and the per-write test** were built by the file the status line names.
 - **Ordering and paging a result.**
+- **Anything that reads `deprecated`.** A generated app writes its dropdown options by hand, so `website/docs/nebula/ontology.md` § *A field with a fixed list of values* tells the model to leave deprecated values out, and no client call returns the list.
 - **A deployed run of the engine alone.** The wiring's deployed pass ran its SQL on a deployed Durable Object.
 - **`sql-from-mongo`'s licence** reads "free for evaluation and non-commercial use". The engine is a fresh implementation that follows its operators, so it copies no code, and the header of `where.ts` credits it. Larry owns both.

@@ -46,7 +46,7 @@ The rest of this file says how a persona becomes a member, how its tab gets a to
 
 - **[nebula-pre-alpha.md](nebula-pre-alpha.md)** lists this as item ②. Its uncommitted edit still describes the reverted design in a few lines, and links the archived file at its old path.
 - **[nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md)** has an item on the model's first move when the preview is blank. The tool in DI5 lets the agent read a tab, so the two are to be lined up before either is built.
-- **[nebula-query-subscriptions-take-a-filter.md](nebula-query-subscriptions-take-a-filter.md)** was built on 2026-11-14, so an app can now find what a teammate made. Q1 was written before it and is to be reopened in that light.
+- **[nebula-query-subscriptions-take-a-filter.md](archive/nebula-query-subscriptions-take-a-filter.md)** was built on 2026-11-14, so an app can now find what a teammate made. Gerry's page subscribes to `{ typeName: 'Deal', filter: { stage: 'open' } }` and holds the open Deals he may read, Sally's among them, with the nodes he may not read named. A field the ontology marks `@index` can be filtered on, and a stage declared `'lead' | 'open' | 'won'` compares in that order, so `{ stage: { $gte: 'open' } }` is `open` and `won`. Q1 is rewritten on that footing.
 
 ## Current state
 
@@ -127,15 +127,15 @@ The rest of this file says how a persona becomes a member, how its tab gets a to
 
 ## Beyond this task
 
-- **Seeding data a teammate finds** waits on wider query subscriptions. ⚠️ Design consideration: the same tool, asked of Sally's tab, creates Sally's deal as Sally, so seeding needs no new mechanism when queries arrive.
+- **Seeding at scale,** hundreds of Deals to try a list's paging or a slow query. ⚠️ Design consideration: the tool creates data one transaction at a time from a tab, which suits a cast's few records. A bulk path is its own design.
 - **The agent reading a tab** reaches past personas: it can see what a page rendered and logged. ⚠️ Design consideration: keep the tool's result general enough for that.
 - **Personas in other environment Stars,** `test` or `staging`. ⚠️ Design consideration: DI2 and DI7 name "an environment Star", not `dev`.
 
 ## Open questions
 
-- **Q1. Does this task teach seeding at all?** The tool can create a resource from a persona's tab today. An app can find it only by an id it knows or as a child of one, so data one person makes for another to find has nowhere to go yet.
-  - *Options:* teach none; teach per-person data only, such as each persona's own list; teach both and accept that team data is not found.
-  - *Recommendation:* per-person data only, with a sentence in the guidance saying team data waits.
+- **Q1. Does this task teach seeding at all?** The tool can create a resource from a persona's tab, and since the query work an app can find it: asked of Sally's tab, the tool creates Sally's Deal as Sally, and Gerry's page finds it by a filter. So seeding needs no mechanism beyond DI5's tool. What is open is whether this task's guidance teaches it.
+  - *Options:* teach none, and leave seeding to a later task; teach per-person data only, such as each persona's own list; teach team data too, each record made from the tab of the persona who would have made it.
+  - *Recommendation:* teach team data too. A cast with nothing to find in each other's work shows little of a shared app, and each record then carries the right author. It costs a section of guidance and one limb of a scenario: Sally's tab makes a Deal, and Gerry's page lists it.
 - **Q2. How does a stack other than production receive a persona's mail?** `personas.lumenize.io` routes to one Worker. The test deploy and a local `wrangler dev` each send invites of their own, whose links point at their own hosts.
   - *Options:* a persona mail domain for each deployment, with a local stack's mail arriving at the test mailbox and the harness passing the raw message to the local Worker's mail handler; or persona scenarios that run deployed only.
   - *Recommendation:* a domain for each deployment, and the relay for local runs. The handler's own code runs in every venue, and only the delivery differs. `live-scenarios.md` forbids a helper that makes up for the environment, so this needs Larry's yes.

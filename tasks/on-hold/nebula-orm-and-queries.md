@@ -162,7 +162,7 @@ Configurable queries expose a **projection / filter / sort field list** as API i
 
 ### Open Questions
 
-- **Query language — direction (Larry, 2026-11-13), with its engine built 2026-11-14.** A MongoDB-style filter object, `{ stage: 'open', amount: { $gt: 1000 } }`, compiled to SQL after Larry's [sql-from-mongo](https://github.com/lmaccherone/sql-from-mongo), targeting SQLite's dialect. [nebula-query-engine.md](../nebula-query-engine.md) has what is built and what is not.
+- **Query language — direction (Larry, 2026-11-13), with its engine built 2026-11-14.** A MongoDB-style filter object, `{ stage: 'open', amount: { $gt: 1000 } }`, compiled to SQL after Larry's [sql-from-mongo](https://github.com/lmaccherone/sql-from-mongo), targeting SQLite's dialect. [nebula-query-engine.md](../archive/nebula-query-engine.md) has what is built and what is not.
   - **A clause reads the field where it is stored,** with `json_extract` over the snapshot's `value`, so no field is pulled out into a column. An index is an index on that same expression.
   - **A field with no index still filters in SQLite,** by a scan of the type's current rows, so nothing is filtered afterwards in JavaScript.
   - **It is what a live query widens into.** `subscribeQuery` answers `parentChild` alone today, so a generated app can find only a resource whose id it already knows or a child of one. With a filter, Gerry's app asks for the Deals he can read, and the check on each resource answers "Acme renewal" and not "Globex pilot". [nebula-personas-are-real-members.md](../nebula-personas-are-real-members.md) is the persona work that needs it.

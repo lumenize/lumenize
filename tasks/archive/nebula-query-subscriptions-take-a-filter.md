@@ -1,6 +1,6 @@
 # Query subscriptions take a filter
 
-**Status:** built and closed on 2026-11-14, in `358dfa4` and the commit after it. Larry read Pass 1, answered its open questions and asked for the build to run to completion. § *Build notes* has what he should know, and § *Closing evidence* what was run. It wires the engine of [nebula-query-engine.md](nebula-query-engine.md) into the Resources plane, and it gates [nebula-personas-are-real-members.md](nebula-personas-are-real-members.md).
+**Status:** built and closed on 2026-11-14, in `358dfa4` and the commit after it. Larry read Pass 1, answered its open questions and asked for the build to run to completion. § *Build notes* has what he should know, and § *Closing evidence* what was run. It wires the engine of [nebula-query-engine.md](nebula-query-engine.md) into the Resources plane, and it gates [nebula-personas-are-real-members.md](../nebula-personas-are-real-members.md).
 
 ## Conventions
 
@@ -49,9 +49,9 @@ The rest of this file says what a query is, where its indexes come from, what a 
 ## Relationships
 
 - **[nebula-query-engine.md](nebula-query-engine.md)** is what this wires in. Its decisions on what a filter means are settled there.
-- **[nebula-personas-are-real-members.md](nebula-personas-are-real-members.md)** waits on this. Its open question on seeding closes when this lands.
-- **[nebula-pre-alpha.md](nebula-pre-alpha.md)** does not list this work. It belongs ahead of item ②, and that file is another session's to edit.
-- **[nebula-orm-and-queries.md](on-hold/nebula-orm-and-queries.md) § *Part C*** keeps what this leaves out: nested reads across relationships, join tables and aggregates.
+- **[nebula-personas-are-real-members.md](../nebula-personas-are-real-members.md)** waits on this. Its open question on seeding closes when this lands.
+- **[nebula-pre-alpha.md](../nebula-pre-alpha.md)** does not list this work. It belongs ahead of item ②, and that file is another session's to edit.
+- **[nebula-orm-and-queries.md](../on-hold/nebula-orm-and-queries.md) § *Part C*** keeps what this leaves out: nested reads across relationships, join tables and aggregates.
 
 ## Current state
 
@@ -128,18 +128,18 @@ The rest of this file says what a query is, where its indexes come from, what a 
 
 ## Constraints
 
-- **[ADR-001](../docs/adr/001-typescript-as-schema.md).** An index is declared in the TypeScript types, by a JSDoc tag, and nowhere else.
-- **[ADR-002](../docs/adr/002-structured-clone-everywhere.md).** A filter crosses the wire whole, a `Date` in it included.
-- **[ADR-003](../docs/adr/003-continuation-messaging.md).** `subscribeQuery` stays void, and its results arrive as pushes.
-- **[ADR-004](../docs/adr/004-snodgrass-temporal-resources.md).** A query reads current snapshots. DI10 reads the one a write replaced, which history keeps.
-- **[ADR-008](../docs/adr/008-full-org-tree-visibility.md).** A subscriber is told which nodes hold results they may not read.
-- **[ADR-024](../docs/adr/024-two-versions-keep-an-app-in-step.md).** Indexes belong to an ontology version and change when the installed version does.
+- **[ADR-001](../../docs/adr/001-typescript-as-schema.md).** An index is declared in the TypeScript types, by a JSDoc tag, and nowhere else.
+- **[ADR-002](../../docs/adr/002-structured-clone-everywhere.md).** A filter crosses the wire whole, a `Date` in it included.
+- **[ADR-003](../../docs/adr/003-continuation-messaging.md).** `subscribeQuery` stays void, and its results arrive as pushes.
+- **[ADR-004](../../docs/adr/004-snodgrass-temporal-resources.md).** A query reads current snapshots. DI10 reads the one a write replaced, which history keeps.
+- **[ADR-008](../../docs/adr/008-full-org-tree-visibility.md).** A subscriber is told which nodes hold results they may not read.
+- **[ADR-024](../../docs/adr/024-two-versions-keep-an-app-in-step.md).** Indexes belong to an ontology version and change when the installed version does.
 - **`durable-objects.md` § *SQLite write-cost optimization*.** It is why DI8 creates no index unasked.
 - **`live.md`.** The behaviour is covered by a `/live` scenario with real members, and ends with a deployed pass, since C3 and C5 can only show there.
 
 ## Beyond this task
 
-- **Comparing a union of string literals by its declared order.** ⚠️ Design consideration: Larry designs it. The extractor already keeps the order, and the engine refuses the comparison until then.
+- **Comparing a union of string literals by its declared order.** Built the same day, after this file closed: [nebula-query-engine.md](nebula-query-engine.md) § *Decisions*, D16 and D17 there.
 - **Ordering a result by a field, and paging it.** ⚠️ Design consideration: the SQL is another pure function in the engine, since an `ORDER BY` must use an index's own expressions to be served by it.
 - **"Array contains", a lookup inside `$or`, and a filter as an index's own WHERE.**
 - **Rebuilding indexes on a tenant Star that holds real data.** ⚠️ Design consideration: after pre-alpha, a migration (C5).
@@ -205,8 +205,8 @@ Each phase ends with its package's suite green and its mutations caught. The who
 ## Non-goals
 
 - **Ordering by a field and paging.** § *Beyond this task*.
-- **Comparing a union of string literals by declared order.** Larry's to design.
-- **Reads across relationships, join tables and aggregates.** [nebula-orm-and-queries.md](on-hold/nebula-orm-and-queries.md) § *Part C*.
+- **Comparing a union of string literals by declared order.** Outside these phases, and built straight after them (§ *Beyond this task*).
+- **Reads across relationships, join tables and aggregates.** [nebula-orm-and-queries.md](../on-hold/nebula-orm-and-queries.md) § *Part C*.
 - **Rebuilding indexes on a tenant Star with real data.** After pre-alpha.
 
 ## Build notes
@@ -219,7 +219,7 @@ Each phase ends with its package's suite green and its mutations caught. The who
 - **A roster's place in the store exists only for a one-equality filter.** `store.lmz.querySubscribers.<type>.<field>[value]` spells one field and one value. A roster for any other filter reaches its own handle and nothing in the store.
 - **The chat's ontology is `chat-message-v4`,** since its types gained their index declarations.
 - **`studio-guidance-loop.ts` has one line of this build in it,** its chat query. That file carries the other session's uncommitted edits, so only that line was committed.
-- **[nebula-pre-alpha.md](nebula-pre-alpha.md) does not list this work,** and is the other session's to edit.
+- **[nebula-pre-alpha.md](../nebula-pre-alpha.md) does not list this work,** and is the other session's to edit.
 
 ### What was built, by phase
 
