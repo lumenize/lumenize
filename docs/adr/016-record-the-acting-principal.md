@@ -35,6 +35,21 @@ A record that doubles as a **same-actor comparison key** keys on identity only, 
 
 `snapshots.ts`'s recognition of a repeat is the live instance (ADR-005). The column stores the full record through the projection, and `identityKey` decides whether a resend is the same writer's. An access token lives 15 minutes, so a resend can carry a re-minted token, and a key built from the whole record would refuse a person's own resend after a refresh. `profileId`, `access` and `aud` stay out of the key: `profileId` is derived from `sub`, and a resend must not become another writer's because someone's admin bit or page changed. A wire allow-list, `WireRecordedClaims`, keeps the asserted `access` and `aud` in the column, so a snapshot delivered to a client carries identity and display `profileId`s only.
 
+### `act` is recorded, and never decides what a call may do
+
+**No check reads the `act` chain to decide what a call may do.** Authorization reads the subject: `sub`, its `access`, and the token's `aud`. So the token an admin mints for Gerry is authorized exactly as Gerry's own would be, and the record is the only place the two differ.
+
+These depend on it:
+
+- **Impersonation shows an admin what that person sees.** A check that treated the admin's token differently would show them something else.
+- **A persona's tab tests the app as a real member.** Studio opens `gerry--dev.crm.acme.lumenize.dev` with a token for the member Gerry, minted for whoever opened the tab, who rides in `act`. A check reading `act` would make that tab behave unlike Gerry's own page.
+
+**One exception is allowed, and it is refused until someone argues it.** A check may read whether `act` is present, never whom it names, and only where impersonation would otherwise give the actor something they could not do as themselves. No code uses it today. Whoever invokes it also says what it does to a persona's tab. `security.md` § *Delegation* holds the test, and the grep that finds every reader of `act`.
+
+**One difference is accepted.** The mint issues only to a token with no `act`, so an admin persona's tab cannot impersonate, where the real admin's own page can (Larry, 2026-11-14).
+
+> **Today's code differs.** A persona's host still mints a token with no `act`, for an id computed from the host ([ADR-022](022-every-session-lives-on-the-platform-host.md) § *A persona's host*). That section is rewritten when personas become real members.
+
 ### In scope today
 
 Scope deletion (`executeScopeDeletion`) · identity-authority changes (`setIdentityAdmin`) · scope and data wipes (`resetDevData` and any teardown) · scope creation and claim (`claimUniverse`, `claimStar`, `createGalaxy`) · establishing a session. Creation is an authority event: a claim mints an admin identity, and an admin-gated create hands its caller a scope they administer. A login moves no authority, but it is the first thing a post-incident reader asks about, and the moment a principal starts acting. Anything later that **deletes, wipes, moves authority, or establishes a session** joins by construction.
