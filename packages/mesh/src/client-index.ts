@@ -106,7 +106,7 @@ export {
   noPassageMessage,
 } from './auth/parse-id';
 export type { VerdictClaims } from './auth/parse-id';
-export { parseHost, platformOrigin, deploymentOrigin, hostOrigin, checkedReturnTo, personaAddress, personaSlugOfAddress, PERSONA_STAR_SLUGS } from './auth/hosts';
+export { parseHost, platformOrigin, deploymentOrigin, hostOrigin, checkedReturnTo, personaAddress, personaMailDomain, personaSlugOfAddress, PERSONA_STAR_SLUGS } from './auth/hosts';
 export type { HostTarget } from './auth/hosts';
 export { toRecordedClaims } from './auth/access-claims';
 export type { RecordedClaims } from './auth/access-claims';

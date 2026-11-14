@@ -829,17 +829,22 @@ function defaultOnShouldRefreshUI(_info: OntologyStaleInfo | BuildStaleInfo): vo
   if (typeof window !== 'undefined') window.location.reload();
 }
 
-/** A string field of the `nebula-scope` meta the serving layer put in a built app, if any. */
-function scopeMetaField(field: 'parentOrigin' | 'buildVersion'): string | undefined {
-  if (typeof document === 'undefined') return undefined;
+/** The `nebula-scope` meta the serving layer put in a built app, or nothing where it put none. */
+function scopeMeta(): Record<string, unknown> {
+  if (typeof document === 'undefined') return {};
   const content = document.querySelector('meta[name="nebula-scope"]')?.getAttribute('content');
-  if (!content) return undefined;
+  if (!content) return {};
   try {
-    const value = (JSON.parse(content) as Record<string, unknown>)[field];
-    return typeof value === 'string' ? value : undefined;
+    return JSON.parse(content) as Record<string, unknown>;
   } catch {
-    return undefined;
+    return {};
   }
+}
+
+/** A string field of the `nebula-scope` meta, if any. */
+function scopeMetaField(field: 'parentOrigin' | 'buildVersion' | 'personaMailDomain'): string | undefined {
+  const value = scopeMeta()[field];
+  return typeof value === 'string' ? value : undefined;
 }
 
 function inFrame(): boolean {
@@ -863,6 +868,10 @@ export function resolveNebulaClientConfig(config: CreateNebulaClientConfig): {
   parentOrigin?: string;
   /** In a frame only: the build this page was served, from its `nebula-scope` meta. */
   buildVersion?: string;
+  /** Whether the serving layer said this is a dev Star's page, the one kind Studio may ask to run code. */
+  dev: boolean;
+  /** Where this deployment's personas receive mail, which only a dev Star's page is told. */
+  personaMailDomain?: string;
   ontologyVersion?: string;
   onShouldRefreshUI: (info: OntologyStaleInfo | BuildStaleInfo) => void;
 } {
@@ -883,7 +892,12 @@ export function resolveNebulaClientConfig(config: CreateNebulaClientConfig): {
   // `?? ` coalesces both `undefined` and `null` to the default reload (by design —
   // there is no "disable" sentinel; opt out with an explicit `() => {}`).
   const onShouldRefreshUI = config.onShouldRefreshUI ?? defaultOnShouldRefreshUI;
-  return { baseUrl, platformOrigin, parentOrigin, buildVersion, ontologyVersion: config.ontologyVersion, onShouldRefreshUI };
+  return {
+    baseUrl, platformOrigin, parentOrigin, buildVersion,
+    dev: scopeMeta().dev === true,
+    personaMailDomain: config.personaMailDomain ?? scopeMetaField('personaMailDomain'),
+    ontologyVersion: config.ontologyVersion, onShouldRefreshUI,
+  };
 }
 
 /**
@@ -960,6 +974,62 @@ export function answerReloadRequests(opts: {
   return () => window.removeEventListener('message', listener);
 }
 
+/** What a framed page answers Studio's `lumenize:run` with: the code's value, or why there is none. */
+export type RunAnswer = { ok: true; value: unknown } | { ok: false; error: string };
+
+/**
+ * How a dev Star's page, framed in Studio, runs code Studio hands it: Studio posts
+ * `{ type: 'lumenize:run', id, code }`, the page runs `code` as the body of an async function with
+ * the app's own `client` and `store` in scope, and posts back `{ type: 'lumenize:ran', id, … }`
+ * with a {@link RunAnswer}. It is how Studio's agent does work as the page's member: building a
+ * cast from a person's own tab, or making what a persona would make from that persona's.
+ *
+ * ⚠️ **It runs arbitrary code with the page's session, so where it listens is the whole of its
+ * safety.** The caller starts it only on a page the serving layer marked as a dev Star's, in a
+ * frame; and it obeys only a message from `window.parent` at `parentOrigin`, the galaxy's Studio,
+ * which is the one origin `frame-ancestors` lets frame the page. A tenant Star's page never has it.
+ * Nothing asks the person: the code can do what they can do on this page, in a Star whose data can
+ * be wiped, and its record names them (`docs/vision/_ai-security.md`).
+ *
+ * The code waits for the client's `ready` first, so it runs connected. A value the browser cannot
+ * copy across windows, a Vue proxy say, comes back as an error that says to return plain data.
+ * Returns the listener's removal.
+ */
+export function answerRunRequests(opts: {
+  parentOrigin: string;
+  client: unknown;
+  store: unknown;
+  ready: Promise<void>;
+}): () => void {
+  const { parentOrigin, client, store, ready } = opts;
+  const AsyncFunction = Object.getPrototypeOf(async function () { /* its constructor is all that is wanted */ }).constructor as
+    new (...args: string[]) => (...args: unknown[]) => Promise<unknown>;
+  const describe = (err: unknown) => err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  const listener = (e: MessageEvent) => {
+    if (e.source !== window.parent || e.origin !== parentOrigin) return;
+    const data = e.data as { type?: unknown; id?: unknown; code?: unknown } | null;
+    if (data?.type !== 'lumenize:run' || typeof data.code !== 'string') return;
+    const { id, code } = data;
+    const answer = (body: RunAnswer) => window.parent.postMessage({ type: 'lumenize:ran', id, ...body }, parentOrigin);
+    void (async () => {
+      let body: RunAnswer;
+      try {
+        await ready;
+        body = { ok: true, value: await new AsyncFunction('client', 'store', code)(client, store) };
+      } catch (err) {
+        body = { ok: false, error: describe(err) };
+      }
+      try {
+        answer(body);
+      } catch (err) {
+        answer({ ok: false, error: `the code's value could not be sent back (${describe(err)}). Return plain data, such as JSON.parse(JSON.stringify(value))` });
+      }
+    })();
+  };
+  window.addEventListener('message', listener);
+  return () => window.removeEventListener('message', listener);
+}
+
 /**
  * What a page does when its scope is deleted, unless the app supplies `onHostDeleted`. A top-level
  * page goes to Home on the platform host, since the scope it showed is gone and its client has
@@ -1026,6 +1096,7 @@ export function createNebulaClient<K extends NebulaClientClass = typeof NebulaCl
     baseUrl: resolved.baseUrl,
     platformOrigin: resolved.platformOrigin,
     parentOrigin: resolved.parentOrigin,
+    personaMailDomain: resolved.personaMailDomain,
     ontologyVersion: resolved.ontologyVersion,
     onShouldRefreshUI: resolved.onShouldRefreshUI,
     onHostDeleted: clientConfig.onHostDeleted ?? defaultOnHostDeleted(resolved.platformOrigin),
@@ -1049,6 +1120,12 @@ export function createNebulaClient<K extends NebulaClientClass = typeof NebulaCl
 
   const storeResult = createNebulaStore(client, { unsubscribeGraceMs: clientConfig.unsubscribeGraceMs });
 
+  // Only a dev Star's page, framed by Studio, runs code Studio hands it (`answerRunRequests`). A
+  // parent origin is resolved only in a frame, so it stands for both: framed, and by whom.
+  const stopRunning = resolved.parentOrigin && resolved.dev
+    ? answerRunRequests({ parentOrigin: resolved.parentOrigin, client, store: storeResult.store, ready })
+    : undefined;
+
   return {
     client,
     store: storeResult.store,
@@ -1057,6 +1134,7 @@ export function createNebulaClient<K extends NebulaClientClass = typeof NebulaCl
     flush: storeResult.flush,
     dispose: async () => {
       stopAnswering?.();
+      stopRunning?.();
       await storeResult.dispose();
     },
   };

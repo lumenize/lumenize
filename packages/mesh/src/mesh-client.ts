@@ -989,8 +989,10 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
    * Sessions live on the platform host (ADR-022), so a page cannot end them itself: a top-level
    * page is sent to the platform host's logout page, which says what is about to end and posts the
    * logout there, `everywhere` preselected when asked. A framed page, the dev tab inside Studio,
-   * holds its parent's session, so it disconnects and tells its parent instead. An impersonated
-   * child holds no cookie at all and only tears down. Without a window (a script, the `/live`
+   * holds its parent's session, so it disconnects and tells its parent instead. A derived session
+   * holds no cookie of its own and only tears down, so that it never ends the session it came
+   * from: an impersonated child, and a page whose own token carries `act`, as a persona's tab's
+   * does (`security.md`, the derived-session rule). Without a window (a script, the `/live`
    * harness) it disconnects only; the caller ends the session itself.
    *
    * @see https://lumenize.com/docs/nebula/api-reference#clientlogout
@@ -1003,6 +1005,9 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
       await this.dispose();
       return;
     }
+    // Read before the token goes. A token carrying `act` was minted for someone else's session,
+    // so the page that holds it has no session of its own to end.
+    const derived = this.claims?.act !== undefined;
     this.clearAccessToken();
     this.disconnect();
     this.#tearDownImpersonation();
@@ -1013,6 +1018,7 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
       if (this.#config.parentOrigin) window.parent.postMessage({ type: 'lumenize:logout' }, this.#config.parentOrigin);
       return;
     }
+    if (derived) return;
     const page = new URL(`${this.#config.platformOrigin ?? ''}/auth/logout`, window.location.href);
     if (options.everywhere) page.searchParams.set('everywhere', '1');
     window.location.assign(page.href);

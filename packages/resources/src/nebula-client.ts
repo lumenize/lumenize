@@ -13,7 +13,7 @@
 // Imports use the Node-safe /client subpath so this file can be imported from Node test harnesses
 // (e.g. apps/nebula/test/browser/) — the main `@lumenize/mesh` entry pulls in `cloudflare:workers`
 // and fails outside Workers. The same applies to types.
-import { MeshClient, mesh } from '@lumenize/mesh/client';
+import { MeshClient, mesh, personaAddress, personaSlugOfAddress } from '@lumenize/mesh/client';
 import type { AuthClaims, ConnectionState, MeshClientConfig } from '@lumenize/mesh/client';
 import { ClientResources } from './client-resources';
 import type {
@@ -71,6 +71,12 @@ export interface NebulaClientConfig extends Omit<MeshClientConfig, 'refresh' | '
    * tree the same way. Studio's posts route by `StudioClient`'s chat pair, never this field.
    */
   resourceHostBinding?: string;
+  /**
+   * Where this deployment's personas receive mail, which {@link NebulaClient.personaAddress}
+   * spells an address at. `createNebulaClient` reads it from the meta a dev Star's page is served
+   * with, so only such a page has one.
+   */
+  personaMailDomain?: string;
 }
 
 /**
@@ -79,6 +85,7 @@ export interface NebulaClientConfig extends Omit<MeshClientConfig, 'refresh' | '
  */
 export class NebulaClient extends MeshClient<AuthClaims> {
   readonly #resources: ClientResources;
+  readonly #personaMailDomain?: string;
 
   /**
    * Decoded JWT payload — **non-null on NebulaClient**.
@@ -103,6 +110,7 @@ export class NebulaClient extends MeshClient<AuthClaims> {
       onShouldRefreshUI,
       resourceHostBinding,
       onConnectionStateChange: userOnConnectionStateChange,
+      personaMailDomain,
       ...meshConfig
     } = config;
     // `refresh` is left out of the config type, and dropped here too, so a cast cannot supply one:
@@ -120,6 +128,7 @@ export class NebulaClient extends MeshClient<AuthClaims> {
       },
     });
 
+    this.#personaMailDomain = personaMailDomain;
     this.#resources = new ClientResources(this, {
       ontologyVersion,
       resourceHostBinding,
@@ -246,6 +255,30 @@ export class NebulaClient extends MeshClient<AuthClaims> {
   /** A new token: Resources compares its admin verdict. */
   override onClaimsChange(): void {
     this.#resources.onClaimsChange();
+  }
+
+  /**
+   * The address a persona of this page's Star receives mail at: what to invite `gerry` at, so that
+   * the Worker accepts the invite and Gerry's own tab opens. It is spelled from the Star this
+   * page's token is for, so no file holds an address and none is typed.
+   *
+   * @throws when the page is not a dev Star's, which alone has personas, or `slug` is no persona's:
+   *   3 to 30 characters of lowercase letters, digits and single hyphens.
+   * @see https://lumenize.com/docs/nebula/api-reference#clientpersonaaddress
+   */
+  async personaAddress(slug: string): Promise<string> {
+    const scope = this.activeScope;
+    if (this.#personaMailDomain === undefined || scope === undefined) {
+      throw new Error('personaAddress: only a dev Star\'s own page has personas, and this page is not one');
+    }
+    const address = await personaAddress({ persona: slug, scope }, this.#personaMailDomain);
+    if (personaSlugOfAddress(address, this.#personaMailDomain) !== slug) {
+      throw new Error(
+        `personaAddress: "${slug}" on "${scope}" is no persona. A persona's slug is 3 to 30 characters of lowercase ` +
+        'letters, digits and single hyphens, and personas live only in a dev Star',
+      );
+    }
+    return address;
   }
 
   // ─── The host's pushes, each `@mesh()`-decorated and forwarded ─────────────

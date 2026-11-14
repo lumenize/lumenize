@@ -60,7 +60,7 @@ import { afterCall, cloudflareCertificateApi, isFinalStatus, nextCall, onWake, p
 import type { CertificateApi, CertificateState } from './certificate';
 import { PUBLIC_PREFIX, PUBLIC_SCOPE_HEADER } from './page-forward';
 import { LUMENIZE_ORIGIN_META } from '@lumenize/mesh/client';
-import { deploymentOrigin, hostOrigin } from '@lumenize/mesh/client';
+import { deploymentOrigin, hostOrigin, personaMailDomain } from '@lumenize/mesh/client';
 import { deriveKind, waitingPosts } from './participants';
 import { SCAFFOLD_FILES } from './scaffold-seed';
 import { PLATFORM_FILES, PLATFORM_AGENTS_MD } from './platform-embed';
@@ -782,6 +782,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         // same digest the build job reported as `bundle.indexSha256`. Computed from the file
         // rather than stored, so it names exactly what the page received.
         buildVersion: indexBytes ? await sha256Hex(indexBytes) : undefined,
+        // Where this deployment's personas receive mail, so the page can spell a persona's
+        // address from its own host (`client.personaAddress`). Absent where it names none.
+        personaMailDomain: personaMailDomain(this.env),
       }).replace(/'/g, '&#39;'); // the meta rides a single-quoted attribute
       return new HTMLRewriter()
         .on('head', {

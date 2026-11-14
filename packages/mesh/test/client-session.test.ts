@@ -17,6 +17,7 @@ import { mesh } from '../src/mesh-decorator';
 import { isTornDown } from '../src/impersonation';
 import type { NodeIdentity } from '../src/types';
 import type { ClientHostDO } from './test-worker-and-dos';
+import type { AuthFacade } from '../src/auth/auth-facade';
 import { NEVER_WRITTEN_ETAG } from '../src/auth/types';
 import { PLATFORM } from './auth/test-helpers';
 import { connectClient, loginAt, loginOf, uniqueScope, type Login } from './support/login';
@@ -139,6 +140,34 @@ describe('logout', { timeout: 30000 }, () => {
     expect(admin.connectionState).toBe('connected');
     expect(admin.claims?.sub).toBeDefined();
     expect(isTornDown(admin)).toBe(false);
+  });
+
+  // A page whose own token carries `act`, as a persona's tab's does: the refresh minted it for
+  // someone else's session, so the page has no session of its own to end. MUTATION: drop the
+  // `derived` return in `logout()`, and this page is sent to the platform host's logout page, which
+  // would end its opener's sessions.
+  it('a top-level page whose own token carries act disconnects and sends the page nowhere', async () => {
+    const universe = uniqueScope('s');
+    using admin = await connectClient(SessionClient, universe);
+    const member = await loginAt(universe);
+    // The token a persona's host would be handed: the member's own, with the admin in `act`.
+    const minted = await admin.lmz.callAsync('AUTH_FACADE', undefined,
+      admin.ctn<AuthFacade>().impersonate(member.sub)) as { access_token: string };
+    const browser = new Browser();
+    const page = new SessionClient({
+      instanceName: `${member.sub}.persona-tab`, baseUrl: member.baseUrl, platformOrigin: PLATFORM,
+      refresh: async () => ({ access_token: minted.access_token, sub: member.sub }),
+      fetch: browser.fetch, WebSocket: browser.WebSocket,
+    });
+    await vi.waitFor(() => expect(page.connectionState).toBe('connected'), { timeout: 10000 });
+    expect(page.claims?.act?.sub).toBe(admin.claims?.sub);
+
+    const { assign } = stubWindow();
+    await page.logout({ everywhere: true });
+    expect(assign).not.toHaveBeenCalled();
+    expect(page.claims).toBeNull();
+    expect(page.connectionState).toBe('disconnected');
+    expect(admin.connectionState).toBe('connected');
   });
 
   // MUTATIONS: drop `clearAccessToken()` and the claims survive; drop the impersonation teardown and

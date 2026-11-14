@@ -282,3 +282,11 @@ Each phase ends with its tests mutation-checked and its notes in § *Build notes
 - **Left for the closing pass.** `auth.md` § *When the agent acts* still says in its *Today's code differs* note that an invite is the one thing the agent does that changes who can do what. Phase 6's tool makes that false, so the note is rewritten there.
 - **Routing by config.** Wrangler's own command cannot point a catch-all rule at a Worker, so the rule is declared: `addresses` in `wrangler.jsonc`, which a deploy applies. The test deploy's was applied on 2026-11-14, and `persona-host` then passed against the deployed Worker with mail routed by Cloudflare, in 169 s.
 
+### Phase 4: a page can be asked to run code
+
+- **For Larry.** The frame condition in DI7 is carried by one fact, where the page learns Studio's origin: the factory reads it from the page's meta only in a frame. A mutation showed a second frame check beside it changed nothing, so there is one.
+- **For Larry.** A value the browser cannot copy to another window, a Vue proxy from the store say, comes back as an error telling the agent to return plain data. The channel does not convert for it.
+- **Retro.** The listener waits for the client's `ready`, so code handed to a page with no session answers with the login's own reason, and a test uses that answer to show a page is listening at all.
+- **Not covered here.** `client.personaAddress` and the meta that feeds it are first exercised by phase 5's scenario, on a real page. Its refusals have no test yet.
+- **Close-out.** `security.md`'s derived-session rule now names both places `logout()` enforces it.
+
