@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { deriveTestDeployConfig, parseJsonc, TEST_DEBUG_ADDED, TEST_ORIGIN } from './test-deploy-config.mjs';
+import { deriveTestDeployConfig, parseJsonc, TEST_DEBUG_ADDED, TEST_ORIGIN, TEST_PERSONA_MAIL_DOMAIN } from './test-deploy-config.mjs';
 
 const NEBULA_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
 const prod = parseJsonc(readFileSync(resolve(NEBULA_DIR, 'wrangler.jsonc'), 'utf8'));
@@ -39,6 +39,10 @@ assert.ok(!cfg.r2_buckets.some((b) => b.bucket_name === 'nebula-blobs'), "the bl
 // Its own certificate zone, never production's.
 assert.equal(cfg.vars.CERTIFICATE_ZONE_ID, ZONE_ID, "CERTIFICATE_ZONE_ID must be the test zone's");
 assert.notEqual(cfg.vars.CERTIFICATE_ZONE_ID, prod.vars.CERTIFICATE_ZONE_ID, "CERTIFICATE_ZONE_ID must never be production's");
+
+// Its own persona mail domain, never production's.
+assert.equal(cfg.vars.PERSONA_MAIL_DOMAIN, TEST_PERSONA_MAIL_DOMAIN, "PERSONA_MAIL_DOMAIN must be the test target's");
+assert.notEqual(cfg.vars.PERSONA_MAIL_DOMAIN, prod.vars.PERSONA_MAIL_DOMAIN, "PERSONA_MAIL_DOMAIN must never be production's");
 
 // Its own container application, never one named like production's.
 assert.ok(cfg.containers.length > 0, 'the instrument needs a container to check');

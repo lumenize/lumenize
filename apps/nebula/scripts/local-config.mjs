@@ -20,6 +20,8 @@
  * against it. A local stack answers on `*.lumenize.localhost`, which Chromium treats as a secure
  * context and Node resolves to loopback, so its origin is {@link LOCAL_ORIGIN}.
  *
+ * Why `PERSONA_MAIL_DOMAIN` is rewritten: {@link LOCAL_PERSONA_MAIL_DOMAIN} says.
+ *
  * Why `containers` is optional: it is the ONLY thing in the stack that needs Docker. A scenario
  * that declares `needsContainer = false` boots without the image build (~13 s instead of ~110 s).
  *
@@ -46,16 +48,23 @@ const SOURCE = 'wrangler.jsonc';
 /** A local stack's origin, with the port taken from each request. The harness imports it too. */
 export const LOCAL_ORIGIN = 'http://lumenize.localhost';
 
-/** Rewrite the one `"LUMENIZE_ORIGIN": "…"` line's value, in place. */
-function setOrigin(lines, origin) {
-  const at = lines.findIndex((l) => /^\s*"LUMENIZE_ORIGIN"\s*:\s*"[^"]*",?\s*$/.test(l));
+/**
+ * Where a local stack's personas receive mail: the test mailbox's zone, whose catch-all goes to the
+ * `email-test` Worker. No mail can reach a local Worker, so the harness reads a persona's message
+ * there and hands it to the local stack's `email` handler as it arrived (`harness/lib/persona-mail.ts`).
+ */
+export const LOCAL_PERSONA_MAIL_DOMAIN = 'lumenize-test.dev';
+
+/** Rewrite the one `"NAME": "…"` var line's value, in place. */
+function setVar(lines, name, value) {
+  const at = lines.findIndex((l) => new RegExp(`^\\s*"${name}"\\s*:\\s*"[^"]*",?\\s*$`).test(l));
   if (at === -1) {
     throw new Error(
-      `local-config: no \`"LUMENIZE_ORIGIN": "…"\` line in apps/nebula/${SOURCE}. The config shape changed — `
+      `local-config: no \`"${name}": "…"\` line in apps/nebula/${SOURCE}. The config shape changed — `
       + 'update this derivation instead of letting it emit a config nobody reviewed.',
     );
   }
-  lines[at] = lines[at].replace(/"LUMENIZE_ORIGIN"\s*:\s*"[^"]*"/, `"LUMENIZE_ORIGIN": "${origin}"`);
+  lines[at] = lines[at].replace(new RegExp(`"${name}"\\s*:\\s*"[^"]*"`), `"${name}": "${value}"`);
 }
 
 /** Comment out one top-level `"key": [ … ]` array block, in place, tagged with `why`. */
@@ -82,7 +91,8 @@ function commentOutArray(lines, key, why) {
 export function deriveLocalConfig({ containers = true } = {}) {
   const lines = readFileSync(resolve(NEBULA_DIR, SOURCE), 'utf8').split('\n');
   commentOutArray(lines, 'routes', 'routes stripped so the Worker sees the real inbound Host');
-  setOrigin(lines, LOCAL_ORIGIN);
+  setVar(lines, 'LUMENIZE_ORIGIN', LOCAL_ORIGIN);
+  setVar(lines, 'PERSONA_MAIL_DOMAIN', LOCAL_PERSONA_MAIL_DOMAIN);
   if (!containers) commentOutArray(lines, 'containers', 'container build disabled');
   const out = containers ? 'wrangler.local.jsonc' : 'wrangler.local-no-container.jsonc';
   writeFileSync(resolve(NEBULA_DIR, out), lines.join('\n'));

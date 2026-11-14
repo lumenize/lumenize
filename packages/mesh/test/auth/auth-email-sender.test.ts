@@ -1,5 +1,6 @@
 /**
- * AuthEmailSender — the `X-Lumenize-Auth-Instance` routing tag it stamps on outbound mail.
+ * AuthEmailSender — the headers it stamps on outbound mail: the `X-Lumenize-Auth-Instance` routing
+ * tag on every message, and `X-Lumenize-Auth-Link` on each message that carries a link to follow.
  *
  * Driven through the real `send()` rather than by calling the hook directly, because the bug this
  * covers lived in the WIRING, not the derivation: headers used to be resolved inside a per-type
@@ -40,16 +41,16 @@ async function headersFor(message: EmailMessage): Promise<Record<string, string>
 
 const SCOPE = 'acme.app.tenant-a';
 const TAG = { 'X-Lumenize-Auth-Instance': SCOPE };
+const MAGIC = `http://localhost/auth/${SCOPE}/magic-link?one_time_token=abc`;
+const INVITE = `http://localhost/auth/${SCOPE}/accept-invite?invite_token=abc`;
 
 describe('the instance tag is stamped from the field, for every message variant', () => {
   // ⚠️ ALL THREE variants. That totality is the point: `instanceName` is required, so no variant
   // can be missed and no per-type decision exists to get wrong. If a new variant is ever added
   // without a tag, it will not compile.
   it.each([
-    ['magic-link', { type: 'magic-link', to: 'a@lumenize-test.dev', instanceName: SCOPE,
-      magicLinkUrl: `http://localhost/auth/${SCOPE}/magic-link?one_time_token=abc` }],
-    ['invite-new', { type: 'invite-new', to: 'a@lumenize-test.dev', instanceName: SCOPE,
-      inviteUrl: `http://localhost/auth/${SCOPE}/accept-invite?invite_token=abc` }],
+    ['magic-link', { type: 'magic-link', to: 'a@lumenize-test.dev', instanceName: SCOPE, magicLinkUrl: MAGIC }],
+    ['invite-new', { type: 'invite-new', to: 'a@lumenize-test.dev', instanceName: SCOPE, inviteUrl: INVITE }],
     // ⚠️ THE CASE THE CHANGE EXISTS FOR. Its URL (`/app`) carries no instance segment, so under
     // URL derivation this shipped UNTAGGED even though its instance was known — and
     // `invite-existing`, sent to an invitee who already accepted a membership, is exactly that
@@ -59,7 +60,22 @@ describe('the instance tag is stamped from the field, for every message variant'
     ['invite-existing', { type: 'invite-existing', to: 'a@lumenize-test.dev', instanceName: SCOPE,
       redirectUrl: 'http://localhost/app' }],
   ] as const)('tags %s', async (_label, message) => {
-    expect(await headersFor(message as EmailMessage)).toEqual(TAG);
+    expect(await headersFor(message as EmailMessage)).toMatchObject(TAG);
+  });
+});
+
+describe('the link a message asks its reader to follow rides a header', () => {
+  // The Worker's mail handler reads a persona's invite from this header, so it parses no body.
+  it('carries a login link and an invite link, each beside the instance tag', async () => {
+    expect(await headersFor({ type: 'magic-link', to: 'a@lumenize-test.dev', instanceName: SCOPE, magicLinkUrl: MAGIC }))
+      .toEqual({ ...TAG, 'X-Lumenize-Auth-Link': MAGIC });
+    expect(await headersFor({ type: 'invite-new', to: 'a@lumenize-test.dev', instanceName: SCOPE, inviteUrl: INVITE }))
+      .toEqual({ ...TAG, 'X-Lumenize-Auth-Link': INVITE });
+  });
+
+  it('is absent from a message with no link to follow', async () => {
+    expect(await headersFor({ type: 'invite-existing', to: 'a@lumenize-test.dev', instanceName: SCOPE, redirectUrl: 'http://localhost/app' }))
+      .toEqual(TAG);
   });
 });
 
@@ -75,7 +91,7 @@ describe('the correctness gap this closed', () => {
       to: 'a@lumenize-test.dev',
       instanceName: SCOPE,
       magicLinkUrl: 'http://localhost/auth/some.other.scope/magic-link?one_time_token=abc',
-    })).toEqual(TAG);
+    })).toMatchObject(TAG);
   });
 });
 

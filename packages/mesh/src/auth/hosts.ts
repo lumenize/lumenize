@@ -11,10 +11,17 @@
  * through Mesh's `/client` subpath.
  */
 import { isValidSlug } from './parse-id';
-import { RESERVED_STAR_SLUGS, RESERVED_UNIVERSE_SLUGS } from './types';
+import { RESERVED_UNIVERSE_SLUGS } from './types';
 
 /** The shortest persona slug: a label with `--` as its third and fourth characters is punycode's. */
 const MIN_PERSONA_SLUG_LENGTH = 3;
+
+/**
+ * The Stars a persona may live in: ones with no real users, so a test user is never beside a real
+ * one. Only `dev` today. This is the one place that says which, and {@link parseHost} reads it, so a
+ * persona's labels under any other Star are no host, and so no address, page or token.
+ */
+export const PERSONA_STAR_SLUGS: ReadonlySet<string> = new Set(['dev']);
 
 /**
  * What a host is. `platform` is the host that serves the session lifecycle, `platform.lumenize.dev`,
@@ -31,7 +38,7 @@ export type HostTarget =
 /**
  * Parse `host`, with or without a port, against `origin`. `null` for anything the grammar refuses:
  * a host outside the origin, a label the slug grammar refuses, more labels than a Star, a universe
- * label the platform keeps, a persona under a Star that is no environment, or a first label with
+ * label the platform keeps, a persona under a Star outside {@link PERSONA_STAR_SLUGS}, or a first label with
  * more than one `--`.
  *
  * @example parseHost('manny--dev.crm.acme.lumenize.dev', 'https://lumenize.dev')
@@ -52,8 +59,8 @@ export function parseHost(host: string, origin: string): HostTarget | null {
   let persona: string | undefined;
   let leftmost = first;
   if (parts.length === 2) {
-    // A persona joins its Star's label, and that Star is always an environment, never a tenant.
-    if (labels.length !== 3 || !RESERVED_STAR_SLUGS.has(parts[1])) return null;
+    // A persona joins its Star's label, and that Star is one with no real users.
+    if (labels.length !== 3 || !PERSONA_STAR_SLUGS.has(parts[1])) return null;
     if (parts[0].length < MIN_PERSONA_SLUG_LENGTH || !isValidSlug(parts[0])) return null;
     [persona, leftmost] = parts;
   }
@@ -118,26 +125,44 @@ export function deploymentOrigin(env: object): string {
   return origin;
 }
 
+/** The longest mailbox name a mail provider will send to (RFC 5321's local part). */
+const MAX_MAILBOX_NAME = 64;
+
 /**
  * The address a persona receives mail at: its host's own labels at the deployment's persona mail
  * domain, so nothing stores the pairing. `manny` in `acme.crm.dev` at `lumenize.dev` is
  * `manny--dev.crm.acme@lumenize.dev`, as its host is `manny--dev.crm.acme.lumenize.dev`.
+ *
+ * A mailbox name holds at most {@link MAX_MAILBOX_NAME} characters, which two long slugs pass, and
+ * the provider refuses to send to a longer one. There the app's two labels are replaced by 16 hex
+ * characters of their SHA-256, `manny--dev.5f0c2a9be1d47c33@lumenize.dev`. So an address is always
+ * spelled FORWARD, from a persona and its Star, and compared; nothing reads a Star back out of one.
  */
-export function personaAddress(target: { persona: string; scope: string }, mailDomain: string): string {
+export async function personaAddress(target: { persona: string; scope: string }, mailDomain: string): Promise<string> {
   const [universe, galaxy, star] = target.scope.split('.');
-  return `${target.persona}--${star}.${galaxy}.${universe}@${mailDomain}`.toLowerCase();
+  const head = `${target.persona}--${star}`;
+  const app = `${galaxy}.${universe}`;
+  let name = `${head}.${app}`;
+  if (name.length > MAX_MAILBOX_NAME) {
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(app)));
+    name = `${head}.${Array.from(digest.subarray(0, 8), (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  }
+  return `${name}@${mailDomain}`.toLowerCase();
 }
 
 /**
- * The persona and Star an address spells, or `null` for an address at another domain or one whose
- * local part is no persona's host labels. The labels are read by {@link parseHost}, so an address
- * names a persona exactly when the same labels would be a persona's host.
+ * The persona slug an address's mailbox name opens with, or `null` for an address at another domain
+ * or one that is not shaped as a persona's: `{persona}--{star}.` and then the app, with the Star in
+ * {@link PERSONA_STAR_SLUGS}. It says an address is a persona's by its SHAPE. Whose persona it is
+ * comes from spelling {@link personaAddress} forward for a Star something trusted names.
  */
-export function personaOfAddress(address: string, mailDomain: string): { persona: string; scope: string } | null {
+export function personaSlugOfAddress(address: string, mailDomain: string): string | null {
   const at = address.lastIndexOf('@');
   if (at < 1 || address.slice(at + 1).toLowerCase() !== mailDomain.toLowerCase()) return null;
-  const target = parseHost(`${address.slice(0, at)}.host.invalid`, 'https://host.invalid');
-  return target?.kind === 'persona' ? { persona: target.persona, scope: target.scope } : null;
+  const match = /^([^.]+)--([^.]+)\.(.+)$/.exec(address.slice(0, at).toLowerCase());
+  if (!match || !PERSONA_STAR_SLUGS.has(match[2]!)) return null;
+  const persona = match[1]!;
+  return persona.length >= MIN_PERSONA_SLUG_LENGTH && isValidSlug(persona) ? persona : null;
 }
 
 /**

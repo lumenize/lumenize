@@ -16,10 +16,14 @@
  * Every page answer carries `Content-Security-Policy: frame-ancestors`: `'none'` on the platform
  * host, a universe page and Studio, and the galaxy's Studio origin on a Star's or persona's host,
  * so no page can be framed to trick a click out of Home or Studio.
+ *
+ * Beside `fetch` it answers mail: the zone the deployment names in `PERSONA_MAIL_DOMAIN` sends every
+ * message to its `email` handler, which accepts a persona's invite and turns the rest away.
  */
 
 import { env } from 'cloudflare:workers';
-import { parseId, hostedUpgrade } from '@lumenize/mesh/auth';
+import { parseId, hostedUpgrade, acceptPersonaInvite, AUTH_LINK_HEADER } from '@lumenize/mesh/auth';
+import { scopeLifecycleHooks } from './scope-lifecycle-hooks';
 import { defineRoutes } from '@lumenize/mesh';
 import { createRouter } from './route-pipeline';
 import { deploymentOrigin, hostOrigin, parseHost, type HostTarget } from '@lumenize/mesh/client';
@@ -179,5 +183,19 @@ export default {
       return env.PLATFORM_HOST.fetch(forwarded);
     }
     return (await router(request)) ?? await servePage(request, url, target, deployment);
+  },
+
+  /**
+   * A message to the persona mail domain, whose catch-all rule names this Worker. A persona is a
+   * member of an environment Star with nobody behind its address, so its invite is accepted here,
+   * from the link the sender put in the message's header (`acceptPersonaInvite` decides, and says
+   * what it trusts). Mail for any other address at the domain is rejected, so its sender hears that
+   * no such mailbox exists; mail for a persona that carries nothing to accept is dropped.
+   */
+  async email(message: ForwardableEmailMessage) {
+    const outcome = await acceptPersonaInvite(env, scopeLifecycleHooks, {
+      to: message.to, link: message.headers.get(AUTH_LINK_HEADER),
+    });
+    if (outcome.outcome === 'not-a-persona') message.setReject('No such address');
   },
 };

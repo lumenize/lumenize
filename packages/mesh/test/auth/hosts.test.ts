@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { importPrivateKey, signJwt } from '@lumenize/crypto';
-import { parseHost, personaAddress, personaOfAddress, platformOrigin } from '../../src/auth/hosts';
+import { parseHost, personaAddress, personaSlugOfAddress, platformOrigin } from '../../src/auth/hosts';
 import { buildAuthClaims } from '../../src/auth/access-claims';
 import { verifyAccessToken } from '../../src/auth/verify';
 
@@ -32,7 +32,9 @@ describe('parseHost reads ADR-021\'s grammar against the deployment\'s origin', 
     ['x.tenant1.crm.acme.lumenize.dev', 'four labels deep'],
     [`${'a'.repeat(31)}.crm.acme.lumenize.dev`, 'a 31-character label'],
     ['a--b--c.crm.acme.lumenize.dev', 'two persona joins in one label'],
-    ['manny--tenant1.crm.acme.lumenize.dev', 'a persona under a Star that is no environment'],
+    ['manny--tenant1.crm.acme.lumenize.dev', 'a persona under a tenant Star'],
+    ['manny--staging.crm.acme.lumenize.dev', 'a persona under a reserved Star other than dev'],
+    ['manny--prod.crm.acme.lumenize.dev', 'a persona under a Star that may hold real users'],
     ['ed--dev.crm.acme.lumenize.dev', 'a persona slug shorter than three characters'],
     ['manny--dev.acme.lumenize.dev', 'a persona above the Star level'],
     ['_platform.lumenize.dev', 'the platform SCOPE as a label'],
@@ -84,11 +86,32 @@ describe("a plain membership's token is built only for its own scope's host", ()
 describe("a persona's address is its host's labels at the persona mail domain", () => {
   const manny = { persona: 'manny', scope: 'acme.crm.dev' };
 
-  it('spells the address the host spells, and reads it back', () => {
-    expect(personaAddress(manny, 'lumenize.dev')).toBe('manny--dev.crm.acme@lumenize.dev');
+  it('spells the address the host spells', async () => {
+    expect(await personaAddress(manny, 'lumenize.dev')).toBe('manny--dev.crm.acme@lumenize.dev');
     expect(parseHost('manny--dev.crm.acme.lumenize.dev', PROD)).toEqual({ kind: 'persona', ...manny });
-    expect(personaOfAddress('manny--dev.crm.acme@lumenize.dev', 'lumenize.dev')).toEqual(manny);
-    expect(personaOfAddress('Manny--Dev.CRM.Acme@Lumenize.dev', 'lumenize.dev')).toEqual(manny);
+  });
+
+  // A mail provider refuses a mailbox name past 64 characters, which two long slugs reach.
+  it('keeps the labels at 64 characters, and past that replaces the app with a digest of it', async () => {
+    const at64 = { persona: 'manny', scope: `${'u'.repeat(26)}.${'g'.repeat(26)}.dev` };
+    expect(await personaAddress(at64, 'lumenize.dev')).toBe(`manny--dev.${'g'.repeat(26)}.${'u'.repeat(26)}@lumenize.dev`);
+    const past = { persona: 'manny', scope: `${'u'.repeat(27)}.${'g'.repeat(26)}.dev` };
+    const address = await personaAddress(past, 'lumenize.dev');
+    expect(address).toMatch(/^manny--dev\.[0-9a-f]{16}@lumenize\.dev$/);
+    // The digest is of the app, so another persona of the same app shares it and another app does not.
+    expect((await personaAddress({ ...past, persona: 'sally' }, 'lumenize.dev')).split('.')[1]).toBe(address.split('.')[1]);
+    const other = await personaAddress({ persona: 'manny', scope: `${'u'.repeat(27)}.${'h'.repeat(26)}.dev` }, 'lumenize.dev');
+    expect(other).toMatch(/^manny--dev\.[0-9a-f]{16}@lumenize\.dev$/);
+    expect(other).not.toBe(address);
+    // The longest slugs the grammar allows still fit.
+    const longest = await personaAddress({ persona: 'p'.repeat(30), scope: `${'u'.repeat(30)}.${'g'.repeat(30)}.dev` }, 'lumenize.dev');
+    expect(longest.split('@')[0]!.length).toBeLessThanOrEqual(64);
+  });
+
+  it('reads the persona slug an address opens with, whatever its case', () => {
+    expect(personaSlugOfAddress('manny--dev.crm.acme@lumenize.dev', 'lumenize.dev')).toBe('manny');
+    expect(personaSlugOfAddress('Manny--Dev.CRM.Acme@Lumenize.dev', 'lumenize.dev')).toBe('manny');
+    expect(personaSlugOfAddress('manny--dev.5f0c2a9be1d47c33@lumenize.dev', 'lumenize.dev')).toBe('manny');
   });
 
   it.each([
@@ -97,12 +120,13 @@ describe("a persona's address is its host's labels at the persona mail domain", 
     ['a person\'s address', 'larry@lumenize.dev'],
     ['a Star\'s labels with no persona', 'dev.crm.acme@lumenize.dev'],
     ['a persona under a tenant Star', 'manny--tenant1.crm.acme@lumenize.dev'],
+    ['a persona under a Star that may hold real users', 'manny--prod.crm.acme@lumenize.dev'],
     ['a persona slug too short', 'ed--dev.crm.acme@lumenize.dev'],
-    ['labels four deep', 'manny--dev.x.crm.acme@lumenize.dev'],
+    ['a persona slug the grammar refuses', 'man_ny--dev.crm.acme@lumenize.dev'],
+    ['a persona and Star with no app', 'manny--dev@lumenize.dev'],
     ['no local part', '@lumenize.dev'],
     ['no domain', 'manny--dev.crm.acme'],
   ])('reads %s as no persona', (_name, address) => {
-    expect(personaOfAddress(address, 'lumenize.dev')).toBeNull();
+    expect(personaSlugOfAddress(address, 'lumenize.dev')).toBeNull();
   });
 });
-

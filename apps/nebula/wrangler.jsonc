@@ -199,6 +199,13 @@
     // the auth layer's code default, so a lane that drops this var still sends.
     "AUTH_EMAIL_FROM": "noreply@lumenize.io",
     // Every lane sends through Resend; the comment above `services` says why.
-    "EMAIL_PROVIDER": "resend"
+    "EMAIL_PROVIDER": "resend",
+    // Where personas receive mail: `gerry` in `acme.crm.dev` is `gerry--dev.crm.acme@lumenize.dev`,
+    // its host's labels at this domain (`hosts.ts`, `personaAddress`). The domain is a zone whose
+    // CATCH-ALL rule sends mail to this Worker's `email` handler (`src/entrypoint.ts`), and Cloudflare
+    // gives a catch-all only to a zone's own name, never a subdomain. `scripts/deploy.sh` sets the
+    // rule. `scripts/test-deploy-config.mjs` names the test target's zone and
+    // `scripts/local-config.mjs` a local stack's.
+    "PERSONA_MAIL_DOMAIN": "lumenize.dev"
   }
 }

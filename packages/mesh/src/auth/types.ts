@@ -500,8 +500,11 @@ export const MAX_GALAXIES_PER_OWNER = 20;
 export const GALAXY_CAP_MESSAGE =
   `One account owner may hold at most ${MAX_GALAXIES_PER_OWNER} apps. Ask us and we will raise it.`;
 
-/** What proved the mailbox behind an acceptance, named in its record. */
-export type AcceptanceCredential = 'link' | 'refresh-cookie';
+/**
+ * What proved the mailbox behind an acceptance, named in its record. `mail` is a persona's invite,
+ * accepted by the Worker's mail handler from the link in the message it received.
+ */
+export type AcceptanceCredential = 'link' | 'refresh-cookie' | 'mail';
 
 /**
  * What one Accept did, as a value rather than a throw, so the Worker can tell an order still owed

@@ -25,6 +25,22 @@ describe('EmailTestDO', () => {
       expect(stored.receivedAt).toBeDefined();
     });
 
+    it('keeps the message as it arrived, byte for byte', async () => {
+      const stub = env.EMAIL_TEST_DO.getByName('raw-1');
+      // A header a parser does not surface, and bytes outside ASCII, both of which must survive.
+      const raw = createMimeMessage()
+        .setSender({ addr: 'auth@lumenize.com' })
+        .setRecipient('gerry--dev.crm.acme@lumenize-test.dev')
+        .setSubject('Invite')
+        .addMessage({ contentType: 'text/plain', data: 'café' })
+        .asRaw().replace('Subject:', 'X-Lumenize-Auth-Link: https://platform.example/auth/magic-link?token=abc\r\nSubject:');
+      const bytes = new TextEncoder().encode(raw);
+      const stored = await stub.receiveEmail(bytes.buffer);
+      const back = Uint8Array.from(atob(stored.raw), (ch) => ch.charCodeAt(0));
+      expect([...back]).toEqual([...bytes]);
+      expect(new TextDecoder().decode(back)).toContain('X-Lumenize-Auth-Link: https://platform.example/auth/magic-link?token=abc');
+    });
+
     it('parses an HTML email and stores it', async () => {
       const stub = env.EMAIL_TEST_DO.getByName('parse-html-1');
 

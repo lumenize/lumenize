@@ -1400,7 +1400,8 @@ export class AuthRegistry extends DurableObject {
     // The link that proved the address is spent once its sessions are indexed, whatever acceptance
     // later answers: a failure before this point leaves the link live, so a retry signs in.
     if (spendTokenHash) this.#spendLink(spendTokenHash);
-    debug('nebula-auth.Registry.login.established').info('Sessions established', {
+    // A persona's invite is spent with no session at all, and then nothing was established.
+    if (records.length > 0) debug('nebula-auth.Registry.login.established').info('Sessions established', {
       email: records.length > 0 ? this.#emailForSub(records[0].sub) : null,
       operationId,
       sessions: established,

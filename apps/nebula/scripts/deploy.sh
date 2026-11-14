@@ -80,6 +80,19 @@ wrangler r2 bucket list 2>/dev/null | grep -qE 'nebula-blobs(\s|$)' || wrangler 
 echo "▸ wrangler deploy (worker bundle + DevContainer image)"
 wrangler deploy "${WRANGLER_DEFINE_ARGS[@]}"
 
+# Persona mail: `vars.PERSONA_MAIL_DOMAIN` is the zone whose catch-all rule sends mail to this
+# worker's `email` handler, which accepts a persona's invite. The zone needs Email Routing on, which
+# adds MX and SPF records at its own name; turning it on again changes nothing. Set after the
+# deploy, so the worker the rule names has the handler.
+PERSONA_MAIL_DOMAIN="$(grep -E '^\s*"PERSONA_MAIL_DOMAIN"' wrangler.jsonc | sed -E 's/.*:\s*"([^"]*)".*/\1/')"
+if [ -z "$PERSONA_MAIL_DOMAIN" ]; then
+  echo "❌ No PERSONA_MAIL_DOMAIN in wrangler.jsonc: no persona could receive its invite." >&2
+  exit 1
+fi
+echo "▸ Email Routing: ${PERSONA_MAIL_DOMAIN}'s catch-all → worker nebula"
+wrangler email routing enable "$PERSONA_MAIL_DOMAIN"
+wrangler email routing rules update "$PERSONA_MAIL_DOMAIN" catch-all --enabled --action-type worker --action-value nebula
+
 # 5. Self-check the freshly-built worker is live AND serving the bytes we just built — the public
 #    compare endpoint `/_version`. It discloses nothing, needs no admin token; a reply at all =
 #    serving, and `match:true` = the bytes we just deployed (catches a stale cache / failed deploy).

@@ -34,7 +34,7 @@ import type {
   AuthClaims, RefreshPut, RefreshTokenKV, ScopeLifecycleHooks,
 } from './types';
 import type { AuthRegistry, TicketClaimResult } from './auth-registry';
-import { checkedReturnTo, deploymentOrigin, parseHost, personaAddress, personaMailDomain, platformOrigin } from './hosts';
+import { checkedReturnTo, deploymentOrigin, parseHost, personaAddress, personaMailDomain, personaSlugOfAddress, platformOrigin } from './hosts';
 import type { HostTarget } from './hosts';
 import { rawRpcStub } from '../raw-rpc';
 
@@ -613,6 +613,69 @@ async function settleAcceptance(
   return result;
 }
 
+/** What {@link acceptPersonaInvite} did with one message. */
+export type PersonaMailOutcome =
+  /** The address is no persona's, so the caller rejects the message. */
+  | { outcome: 'not-a-persona' }
+  /** A persona's address, and nothing to accept: `reason` says why, for the log alone. */
+  | { outcome: 'dropped'; reason: string }
+  | { outcome: 'accepted' | 'already-accepted'; scope: string; sub: string };
+
+/**
+ * Accept the invite a message to a persona's address carries: the third acceptance writer, beside
+ * the link page's `POST` and Home's Accept, and through the same helper. A persona is a member
+ * nobody sits behind, so the Worker's mail handler presses its Accept (`docs/vision/auth.md`
+ * § *A Galaxy's `.dev` Star*).
+ *
+ * `to` is the envelope recipient and `link` what the sender put in `X-Lumenize-Auth-Link`. Both are
+ * a stranger's to write, so neither is trusted: the link's token is looked up in the Registry, and
+ * it is accepted only when the Registry says it is an unspent invite, issued to this very address,
+ * into the Star the address spells. A login link has no pending membership at a scope, so it is
+ * dropped unspent and nobody signs in as a persona. An invite into any other scope is dropped too.
+ *
+ * It records no session, so no cookie exists for the persona: its page gets its token from an
+ * admin's own session, through the impersonation mint. The persona's slug becomes its nickname.
+ */
+export async function acceptPersonaInvite(
+  env: Env, hooks: ScopeLifecycleHooks, mail: { to: string; link: string | null },
+): Promise<PersonaMailOutcome> {
+  const log = debug('nebula-auth.worker.personaMail');
+  const mailDomain = personaMailDomain(env);
+  const persona = mailDomain === undefined ? null : personaSlugOfAddress(mail.to, mailDomain);
+  if (!persona || mailDomain === undefined) return { outcome: 'not-a-persona' };
+  const to = mail.to.trim().toLowerCase();
+  const dropped = (reason: string): PersonaMailOutcome => {
+    log.info('dropped', { to, reason });
+    return { outcome: 'dropped', reason };
+  };
+  let token: string | null = null;
+  try { token = mail.link ? new URL(mail.link).searchParams.get('token') : null; } catch { /* not a URL */ }
+  if (!token) return dropped('the message carries no link');
+  const tokenHash = await hashString(token);
+  const lookup = await registry(env).lookupLink(tokenHash) as LinkLookup | null;
+  if (!lookup) return dropped('the link is unknown or has expired');
+  if (lookup.spent) return dropped('the link was already used');
+  if (lookup.email !== to) return dropped('the link was issued to another address');
+  // The address is this persona's exactly when spelling it forward from the Star the Registry names
+  // gives it back. A login link names no scope, so it has no pending membership to spell from; an
+  // invite into an app or a tenant Star spells some other address, or none.
+  const scope = lookup.pending?.scope;
+  if (!scope || await personaAddress({ persona, scope }, mailDomain) !== to) {
+    return dropped('the link is no invite into this persona\'s Star');
+  }
+  // Proves the mailbox, as the link page's consume does, and spends the link with no session. A
+  // second delivery racing this one finds the membership accepted, which the helper answers.
+  await registry(env).consumeLink(tokenHash);
+  const operationId = crypto.randomUUID();
+  await registry(env).recordSessions([], new Date().toISOString(), operationId, tokenHash);
+  const result = await settleAcceptance(env, hooks, lookup.pending!.sub, 'mail', { nickname: persona });
+  if (result.outcome !== 'accepted' && result.outcome !== 'already-accepted') {
+    return dropped(`the acceptance answered ${result.outcome}`);
+  }
+  log.info('accepted', { to, scope, sub: lookup.pending!.sub, outcome: result.outcome });
+  return { outcome: result.outcome, scope, sub: lookup.pending!.sub };
+}
+
 /** The refresh cookie a body's `scope` names, resolved to its record and checked against the name. */
 async function membershipCookie(
   request: Request, env: Env, scope: unknown,
@@ -920,7 +983,7 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
     // The host spells an address, and its accepted member at this Star is the persona.
     const mailDomain = personaMailDomain(env);
     const member = mailDomain === undefined ? null
-      : await identityReads(env).getAcceptedSubAt(personaAddress({ persona, scope: hostScope }, mailDomain), hostScope);
+      : await identityReads(env).getAcceptedSubAt(await personaAddress({ persona, scope: hostScope }, mailDomain), hostScope);
     if (!member) {
       return withExpiries(errorResponse(401, 'invalid_token', 'No member of this Star holds this persona\'s address yet'));
     }

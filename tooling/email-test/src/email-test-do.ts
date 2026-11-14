@@ -18,6 +18,11 @@ export interface StoredEmail {
    * Empty string if the header was absent.
    */
   instance: string;
+  /**
+   * The message as it arrived, every byte, in base64. A harness hands it to a local Worker's
+   * `email` handler, which no routed mail can reach, so that handler reads what production's would.
+   */
+  raw: string;
 }
 
 /**
@@ -82,6 +87,14 @@ interface WsAttachment {
   events?: boolean;
 }
 
+/** `bytes` in base64, built in chunks so a large message does not overflow the argument list. */
+function base64Of(bytes: ArrayBuffer): string {
+  const view = new Uint8Array(bytes);
+  let binary = '';
+  for (let i = 0; i < view.length; i += 0x8000) binary += String.fromCharCode(...view.subarray(i, i + 0x8000));
+  return btoa(binary);
+}
+
 export class EmailTestDO extends DurableObject {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -144,6 +157,7 @@ export class EmailTestDO extends DurableObject {
       date: parsed.date,
       receivedAt: new Date().toISOString(),
       instance,
+      raw: base64Of(raw),
     };
 
     this.#insertEmail(stored, instance);

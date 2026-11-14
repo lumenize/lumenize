@@ -38,6 +38,14 @@ type InviteNewMessage = Extract<EmailMessage, { type: 'invite-new' }>;
  */
 const INSTANCE_HEADER = 'X-Lumenize-Auth-Instance';
 
+/**
+ * The link a message asks its reader to follow, as a header: a login link or an invite's. The
+ * Worker's mail handler reads a persona's invite from it (`acceptPersonaInvite`), so it needs no
+ * MIME parser and does not depend on how a provider encodes the HTML. It holds what the body's
+ * button holds, so it is as private as the message. A message with no link to follow carries none.
+ */
+export const AUTH_LINK_HEADER = 'X-Lumenize-Auth-Link';
+
 // ============================================
 // Default templates (exported for composability)
 // ============================================
@@ -204,6 +212,8 @@ export class AuthEmailSender extends WorkerEntrypoint {
    * never matches and the caller dies on its timeout with nothing pointing at the sender.
    */
   headers(message: EmailMessage): Record<string, string> {
-    return { [INSTANCE_HEADER]: message.instanceName };
+    // Read by which field the message holds, so a new variant carrying either is covered here.
+    const link = 'magicLinkUrl' in message ? message.magicLinkUrl : 'inviteUrl' in message ? message.inviteUrl : undefined;
+    return { [INSTANCE_HEADER]: message.instanceName, ...(link ? { [AUTH_LINK_HEADER]: link } : {}) };
   }
 }

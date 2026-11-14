@@ -5,7 +5,7 @@
  *
  * `scripts/deploy-test.sh` writes it beside `wrangler.jsonc` and deploys from it; `local-config.mjs`
  * is the local twin. Derived from the real config on every run, never a second committed file, so
- * nothing else can drift. Seven swaps, each one a way the test target used to reach production:
+ * nothing else can drift. Each swap is a way the test target would otherwise reach production:
  *
  * 1. **`routes`** — production's hosts under `lumenize.dev` become the test target's under
  *    {@link TEST_ORIGIN}. A deploy under any name claims every route in its config, and custom
@@ -24,6 +24,9 @@
  *    so both targets would claim production's name. Under the `durable_object` scheduling policy an
  *    application is keyed by its Durable Object namespace and must keep its name, so production's
  *    first deploy would collide with the test target's.
+ * 8. **`PERSONA_MAIL_DOMAIN`** — {@link TEST_PERSONA_MAIL_DOMAIN}, whose catch-all rule
+ *    `deploy-test.sh` points at the test worker. Left as production's, the test target's personas
+ *    would be invited at production's domain and their mail would reach production's Worker.
  *
  * Two additions are not swaps. **`DEBUG`** gains {@link TEST_DEBUG_ADDED}: a deployed run cannot
  * set a scenario's `bootVars`, and its harness reads the Worker's lines through `wrangler tail` and
@@ -46,6 +49,13 @@ const NEBULA_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/neb
 /** The `DEBUG` namespaces the test target logs beyond production's: the ones scenarios' `bootVars`
  *  turn on that production's patterns do not match. */
 export const TEST_DEBUG_ADDED = 'lmz.mesh';
+
+/**
+ * The zone the test target's personas receive mail at. Not the test origin's own zone: that one's
+ * catch-all already goes to the `email-test` Worker, which every test's login mail arrives at, and
+ * a zone has one catch-all. `lumenize.io` routes no other mail but one literal address.
+ */
+export const TEST_PERSONA_MAIL_DOMAIN = 'lumenize.io';
 
 /** The deployed test target's origin, which the harness also reads for a deployed run. */
 export const TEST_ORIGIN = 'https://lumenize-test.dev';
@@ -101,6 +111,10 @@ export function deriveTestDeployConfig({ workerName, kvNamespaceId, zoneId, sour
     throw new Error('test-deploy-config: wrangler.jsonc has no vars.CERTIFICATE_ZONE_ID to swap');
   }
   cfg.vars.CERTIFICATE_ZONE_ID = zoneId;
+  if (!('PERSONA_MAIL_DOMAIN' in cfg.vars)) {
+    throw new Error('test-deploy-config: wrangler.jsonc has no vars.PERSONA_MAIL_DOMAIN to swap');
+  }
+  cfg.vars.PERSONA_MAIL_DOMAIN = TEST_PERSONA_MAIL_DOMAIN;
   if (typeof cfg.vars.DEBUG !== 'string') {
     throw new Error('test-deploy-config: wrangler.jsonc has no vars.DEBUG to extend');
   }

@@ -33,8 +33,12 @@ export type { ScopeLifecycleHooks, ScopeTarget } from './types';
 // The impersonation mint's typed refusal, detected by name across a mesh hop.
 export { ImpersonationRefusedError, isImpersonationRefused } from './types';
 
-// Email sender (WorkerEntrypoint for service binding)
-export { AuthEmailSender } from './auth-email-sender';
+// Email sender (WorkerEntrypoint for service binding), and the header its links ride
+export { AuthEmailSender, AUTH_LINK_HEADER } from './auth-email-sender';
+
+// A persona's invite, accepted from the mail it arrived in: what a Worker's `email()` handler calls.
+export { acceptPersonaInvite } from './worker-token';
+export type { PersonaMailOutcome } from './worker-token';
 
 // Router entry point — the primary export for composing into a parent Worker
 export { routeAuthRequest } from './router';
