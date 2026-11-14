@@ -46,6 +46,11 @@
     { "pattern": "lumenize.dev", "custom_domain": true },
     { "pattern": "*.lumenize.dev/*", "zone_name": "lumenize.dev" }
   ],
+  // The mail this Worker receives: every message to `vars.PERSONA_MAIL_DOMAIN`, by that zone's
+  // catch-all rule, which `wrangler deploy` sets from this entry. The `email` handler accepts a
+  // persona's invite and rejects the rest (`src/entrypoint.ts`). The two must name one domain,
+  // which `scripts/test-deploy-config.selftest.mjs` checks.
+  "addresses": ["*@lumenize.dev"],
   // No `workers.dev` host: it sits outside `lumenize.dev`, so no scope can be read from it, and
   // every host the Worker answers must be one `parseHost` knows.
   "workers_dev": false,
@@ -203,7 +208,7 @@
     // Where personas receive mail: `gerry` in `acme.crm.dev` is `gerry--dev.crm.acme@lumenize.dev`,
     // its host's labels at this domain (`hosts.ts`, `personaAddress`). The domain is a zone whose
     // CATCH-ALL rule sends mail to this Worker's `email` handler (`src/entrypoint.ts`), and Cloudflare
-    // gives a catch-all only to a zone's own name, never a subdomain. `scripts/deploy.sh` sets the
+    // gives a catch-all only to a zone's own name, never a subdomain. `addresses` above sets the
     // rule. `scripts/test-deploy-config.mjs` names the test target's zone and
     // `scripts/local-config.mjs` a local stack's.
     "PERSONA_MAIL_DOMAIN": "lumenize.dev"

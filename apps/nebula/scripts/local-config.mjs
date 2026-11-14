@@ -84,6 +84,18 @@ function commentOutArray(lines, key, why) {
   for (let i = start; i <= end; i++) lines[i] = `// [local: ${why}] ${lines[i]}`;
 }
 
+/** Comment out the one top-level `"key": …` line, in place, tagged with `why`. */
+function commentOutLine(lines, key, why) {
+  const at = lines.findIndex((l) => new RegExp(`^\\s*"${key}"\\s*:.*,\\s*$`).test(l));
+  if (at === -1) {
+    throw new Error(
+      `local-config: no single-line \`"${key}": …\` in apps/nebula/${SOURCE}. The config shape changed — `
+      + 'update this derivation instead of letting it emit a config nobody reviewed.',
+    );
+  }
+  lines[at] = `// [local: ${why}] ${lines[at]}`;
+}
+
 /**
  * @param {{ containers?: boolean }} [opts] — `containers: false` also drops the image build.
  * @returns {string} the derived config's filename, relative to apps/nebula
@@ -91,6 +103,7 @@ function commentOutArray(lines, key, why) {
 export function deriveLocalConfig({ containers = true } = {}) {
   const lines = readFileSync(resolve(NEBULA_DIR, SOURCE), 'utf8').split('\n');
   commentOutArray(lines, 'routes', 'routes stripped so the Worker sees the real inbound Host');
+  commentOutLine(lines, 'addresses', 'no mail is routed to a local Worker; the relay hands it its personas\' mail');
   setVar(lines, 'LUMENIZE_ORIGIN', LOCAL_ORIGIN);
   setVar(lines, 'PERSONA_MAIL_DOMAIN', LOCAL_PERSONA_MAIL_DOMAIN);
   if (!containers) commentOutArray(lines, 'containers', 'container build disabled');

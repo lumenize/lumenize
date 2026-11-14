@@ -77,21 +77,18 @@ echo "▸ AUTH_EMAIL_FROM resolves to: ${EMAIL_FROM:-<UNSET — falls back to th
 #    IS the validation path.
 echo "▸ R2: the platform blob bucket must exist before the binding does (create-if-missing)"
 wrangler r2 bucket list 2>/dev/null | grep -qE 'nebula-blobs(\s|$)' || wrangler r2 bucket create nebula-blobs
-echo "▸ wrangler deploy (worker bundle + DevContainer image)"
-wrangler deploy "${WRANGLER_DEFINE_ARGS[@]}"
-
-# Persona mail: `vars.PERSONA_MAIL_DOMAIN` is the zone whose catch-all rule sends mail to this
-# worker's `email` handler, which accepts a persona's invite. The zone needs Email Routing on, which
-# adds MX and SPF records at its own name; turning it on again changes nothing. Set after the
-# deploy, so the worker the rule names has the handler.
+# Persona mail: `addresses` in wrangler.jsonc has the deploy point the persona mail zone's catch-all
+# rule at this worker, which needs Email Routing on for that zone first. Turning it on adds MX and
+# SPF records at the zone's own name, and turning it on again changes nothing.
 PERSONA_MAIL_DOMAIN="$(grep -E '^\s*"PERSONA_MAIL_DOMAIN"' wrangler.jsonc | sed -E 's/.*:\s*"([^"]*)".*/\1/')"
 if [ -z "$PERSONA_MAIL_DOMAIN" ]; then
   echo "❌ No PERSONA_MAIL_DOMAIN in wrangler.jsonc: no persona could receive its invite." >&2
   exit 1
 fi
-echo "▸ Email Routing: ${PERSONA_MAIL_DOMAIN}'s catch-all → worker nebula"
+echo "▸ Email Routing: on for ${PERSONA_MAIL_DOMAIN}, whose catch-all the deploy points at this worker"
 wrangler email routing enable "$PERSONA_MAIL_DOMAIN"
-wrangler email routing rules update "$PERSONA_MAIL_DOMAIN" catch-all --enabled --action-type worker --action-value nebula
+echo "▸ wrangler deploy (worker bundle + DevContainer image)"
+wrangler deploy "${WRANGLER_DEFINE_ARGS[@]}"
 
 # 5. Self-check the freshly-built worker is live AND serving the bytes we just built — the public
 #    compare endpoint `/_version`. It discloses nothing, needs no admin token; a reply at all =

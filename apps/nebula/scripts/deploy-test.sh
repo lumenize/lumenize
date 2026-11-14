@@ -115,13 +115,6 @@ wrangler r2 bucket list 2>/dev/null | grep -qE 'nebula-blobs-test(\s|$)' || wran
 echo "▸ wrangler deploy --config .wrangler-deploy-test.jsonc --name ${WORKER_NAME} (worker bundle + build-box image; lumenize-test.dev routes)"
 wrangler deploy --config "$TEST_CONFIG" --name "$WORKER_NAME" "${WRANGLER_DEFINE_ARGS[@]}"
 
-# Persona mail: the catch-all rule of the test target's persona mail zone sends every message to
-# this worker's `email` handler. Set after the deploy, so the worker it names has the handler, and
-# on every deploy, since setting it again changes nothing.
-PERSONA_MAIL_DOMAIN="$(node -e "import('$SCRIPT_DIR/test-deploy-config.mjs').then((m) => console.log(m.TEST_PERSONA_MAIL_DOMAIN))")"
-echo "▸ Email Routing: ${PERSONA_MAIL_DOMAIN}'s catch-all → worker ${WORKER_NAME}"
-wrangler email routing rules update "$PERSONA_MAIL_DOMAIN" catch-all --enabled --action-type worker --action-value "$WORKER_NAME"
-
 # The self-check reads the platform host, the one host every deployment has.
 TEST_URL="https://platform.lumenize-test.dev"
 

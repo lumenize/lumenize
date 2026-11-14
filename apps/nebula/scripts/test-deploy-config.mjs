@@ -24,9 +24,9 @@
  *    so both targets would claim production's name. Under the `durable_object` scheduling policy an
  *    application is keyed by its Durable Object namespace and must keep its name, so production's
  *    first deploy would collide with the test target's.
- * 8. **`PERSONA_MAIL_DOMAIN`** — {@link TEST_PERSONA_MAIL_DOMAIN}, whose catch-all rule
- *    `deploy-test.sh` points at the test worker. Left as production's, the test target's personas
- *    would be invited at production's domain and their mail would reach production's Worker.
+ * 8. **`PERSONA_MAIL_DOMAIN` and `addresses`** — {@link TEST_PERSONA_MAIL_DOMAIN} and its catch-all.
+ *    Left as production's, the test target's personas would be invited at production's domain, and
+ *    the deploy would take production's catch-all rule for the test worker.
  *
  * Two additions are not swaps. **`DEBUG`** gains {@link TEST_DEBUG_ADDED}: a deployed run cannot
  * set a scenario's `bootVars`, and its harness reads the Worker's lines through `wrangler tail` and
@@ -115,6 +115,10 @@ export function deriveTestDeployConfig({ workerName, kvNamespaceId, zoneId, sour
     throw new Error('test-deploy-config: wrangler.jsonc has no vars.PERSONA_MAIL_DOMAIN to swap');
   }
   cfg.vars.PERSONA_MAIL_DOMAIN = TEST_PERSONA_MAIL_DOMAIN;
+  if (!Array.isArray(cfg.addresses)) {
+    throw new Error('test-deploy-config: wrangler.jsonc has no addresses to swap');
+  }
+  cfg.addresses = [`*@${TEST_PERSONA_MAIL_DOMAIN}`];
   if (typeof cfg.vars.DEBUG !== 'string') {
     throw new Error('test-deploy-config: wrangler.jsonc has no vars.DEBUG to extend');
   }

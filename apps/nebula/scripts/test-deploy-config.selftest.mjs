@@ -43,6 +43,9 @@ assert.notEqual(cfg.vars.CERTIFICATE_ZONE_ID, prod.vars.CERTIFICATE_ZONE_ID, "CE
 // Its own persona mail domain, never production's.
 assert.equal(cfg.vars.PERSONA_MAIL_DOMAIN, TEST_PERSONA_MAIL_DOMAIN, "PERSONA_MAIL_DOMAIN must be the test target's");
 assert.notEqual(cfg.vars.PERSONA_MAIL_DOMAIN, prod.vars.PERSONA_MAIL_DOMAIN, "PERSONA_MAIL_DOMAIN must never be production's");
+// The mail it receives is its own domain's alone, so a test deploy never takes production's catch-all.
+assert.deepEqual(cfg.addresses, [`*@${TEST_PERSONA_MAIL_DOMAIN}`], "addresses must be the test target's catch-all alone");
+assert.deepEqual(prod.addresses, [`*@${prod.vars.PERSONA_MAIL_DOMAIN}`], "production's addresses must be its persona mail domain's catch-all");
 
 // Its own container application, never one named like production's.
 assert.ok(cfg.containers.length > 0, 'the instrument needs a container to check');
