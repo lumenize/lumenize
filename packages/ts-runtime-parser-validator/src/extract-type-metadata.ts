@@ -129,6 +129,16 @@ export type FieldShape = { nullable?: true } & (
 /** `typeName -> fieldName -> FieldInfo`, for every top-level interface. */
 export type FieldsMap = Record<string, Record<string, FieldInfo>>;
 
+/**
+ * One index a type declares with `@index`: its fields in order, as dotted paths. A field's own
+ * `@index` declares an index on that field; `@index stage, amount` on the interface declares one
+ * over several, the leftmost serving a query on it alone.
+ */
+export interface IndexDeclaration {
+  type: string;
+  fields: string[];
+}
+
 export interface TypeMetadata {
   /** Top-level interface names in declaration order. */
   interfaceNames: string[];
@@ -154,6 +164,8 @@ export interface TypeMetadata {
   inlineSubtypes: Record<string, Record<string, InlineSubtype>>;
   /** `typeName -> fieldName -> FieldInfo`: what a query may filter and index on. */
   fields: FieldsMap;
+  /** Every `@index` the types declare, each checked against `fields`. */
+  indexes: IndexDeclaration[];
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +278,74 @@ function fieldsOfMembers(
     } as FieldInfo;
   }
   return out;
+}
+
+/** The `{ ... }` a property's type holds directly, or behind `| null` / `| undefined`. */
+function inlineLiteralOf(typeNode: any): any | null {
+  const kinds = (ts as any).SyntaxKind;
+  if (typeNode.kind === kinds.ParenthesizedType) return inlineLiteralOf(typeNode.type);
+  if (tsApi.isTypeLiteralNode(typeNode)) return typeNode;
+  if (tsApi.isUnionTypeNode(typeNode)) {
+    const literals = typeNode.types.filter((t: any) => tsApi.isTypeLiteralNode(t));
+    return literals.length === 1 ? literals[0] : null;
+  }
+  return null;
+}
+
+/**
+ * Every index one interface declares, each checked against the type's own fields so a
+ * declaration a query could not use is refused here, by a message naming the type.
+ */
+function indexesOfInterface(stmt: any, typeFields: Record<string, FieldInfo>): IndexDeclaration[] {
+  const typeName: string = stmt.name.text;
+  const refuse = (what: string): never => {
+    throw new Error(`@lumenize/ts-runtime-parser-validator: @index on ${typeName} ${what}`);
+  };
+  const lists: string[][] = [];
+  for (const tag of tsApi.getJSDocTags(stmt) ?? []) {
+    if (tag.tagName?.text !== 'index') continue;
+    const paths = getTagText(tag).split(',').map((part: string) => part.trim()).filter((part: string) => part !== '');
+    if (paths.length === 0) refuse('names no fields. On an interface, write @index followed by its fields, such as "@index stage, amount"');
+    lists.push(paths);
+  }
+  const walk = (members: any, prefix: string): void => {
+    for (const member of members) {
+      if (!tsApi.isPropertySignature(member) || !member.type || !tsApi.isIdentifier(member.name)) continue;
+      const path = prefix ? `${prefix}.${member.name.text}` : member.name.text;
+      for (const tag of tsApi.getJSDocTags(member) ?? []) {
+        if (tag.tagName?.text !== 'index') continue;
+        if (getTagText(tag).trim() !== '') {
+          refuse(`field "${path}" takes no text. To index several fields together, put @index on the interface`);
+        }
+        lists.push([path]);
+      }
+      const literal = inlineLiteralOf(member.type);
+      if (literal) walk(literal.members, path);
+    }
+  };
+  walk(stmt.members, '');
+
+  const seen = new Set<string>();
+  return lists.map((paths) => {
+    const within = new Set<string>();
+    for (const path of paths) {
+      if (within.has(path)) refuse(`names "${path}" twice`);
+      within.add(path);
+      let level: Record<string, FieldInfo> | undefined = typeFields;
+      let info: FieldInfo | undefined;
+      for (const part of path.split('.')) {
+        info = level && Object.hasOwn(level, part) ? level[part] : undefined;
+        if (!info) refuse(`names "${path}", and ${typeName} has no such field`);
+        level = info!.kind === 'object' ? info!.fields : undefined;
+      }
+      if (info!.kind === 'object') refuse(`names "${path}", which holds an object. Index one of its fields, such as "${path}.name"`);
+      if (info!.kind === 'unsupported') refuse(`names "${path}", which a query cannot compare: it is ${(info as { reason: string }).reason}`);
+    }
+    const key = paths.join(',');
+    if (seen.has(key)) refuse(`declares the index on ${paths.map((path) => `"${path}"`).join(', ')} twice`);
+    seen.add(key);
+    return { type: typeName, fields: paths };
+  });
 }
 
 function collectInterfaceNamesArray(sourceFile: any): string[] {
@@ -750,10 +830,21 @@ export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
     if (tsApi.isTypeAliasDeclaration(stmt) && tsApi.isIdentifier(stmt.name)) aliasNodes.set(stmt.name.text, stmt.type);
   }
   const fields: FieldsMap = {};
+  const indexes: IndexDeclaration[] = [];
   for (const stmt of sourceFile.statements) {
     if (!tsApi.isInterfaceDeclaration(stmt)) continue;
     walkMembers(stmt.members, stmt.name.text, /* isTopLevel */ true);
     fields[stmt.name.text] = fieldsOfMembers(stmt.members, ontologyTypes, aliasNodes);
+    indexes.push(...indexesOfInterface(stmt, fields[stmt.name.text]!));
+  }
+  // TypeScript attaches a JSDoc block to a member only when the block starts on a line of its
+  // own, so `{ /** @index */ a: string }` on one line declares nothing. Refuse it here, where the
+  // author can see why, since an index that silently does not exist shows only as a refused query.
+  const written = typeDefinitions.match(/@index\b/g)?.length ?? 0;
+  if (written !== indexes.length) {
+    throw new Error(
+      `@lumenize/ts-runtime-parser-validator: ${written} @index tags are written and ${indexes.length} were read. ` +
+      'Put each /** @index */ comment on a line of its own, directly above the field or interface it belongs to');
   }
 
   // Register top-level `type X = Y` / `type X = Y<...>` aliases. typia's
@@ -786,5 +877,6 @@ export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
     defaults,
     inlineSubtypes,
     fields,
+    indexes,
   };
 }
