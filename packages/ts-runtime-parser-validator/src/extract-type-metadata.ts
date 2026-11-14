@@ -109,7 +109,9 @@ export interface InlineSubtype {
  *
  * A query filters and indexes on what the stored form of a value keeps as a plain scalar: a
  * string, a finite number, a boolean, a `Date` and a to-one relationship's id. `enum` is a union of
- * string literals, with `values` in declared order, which is the order a comparison is to follow.
+ * string literals, with `values` in declared order, which is the order a comparison follows.
+ * `deprecated` holds the values a `@deprecatedValues` tag names: still valid to store and to query,
+ * and in `values` at their place in the order, but not to be offered for a new choice.
  * `object` is an inline `{ ... }`, whose own fields a dotted path reaches. Everything else is
  * `unsupported`, with `reason` saying what it is, so a query naming it is refused in those words.
  *
@@ -121,7 +123,7 @@ export type FieldInfo = { optional: boolean } & FieldShape;
 export type FieldShape = { nullable?: true } & (
   | { kind: 'string' | 'number' | 'boolean' | 'date' }
   | { kind: 'id'; target: string }
-  | { kind: 'enum'; values: string[] }
+  | { kind: 'enum'; values: string[]; deprecated?: string[] }
   | { kind: 'object'; fields: Record<string, FieldInfo> }
   | { kind: 'unsupported'; reason: string }
 );
@@ -346,6 +348,51 @@ function indexesOfInterface(stmt: any, typeFields: Record<string, FieldInfo>): I
     seen.add(key);
     return { type: typeName, fields: paths };
   });
+}
+
+/**
+ * Record each `@deprecatedValues` tag one interface's fields carry on the field's own
+ * {@link FieldInfo}, and answer how many tags were read. A tag on a field that is not a union of
+ * string literals, or naming a value the union does not hold, is refused by a message naming the type.
+ */
+function applyDeprecatedValues(stmt: any, typeFields: Record<string, FieldInfo>): number {
+  const typeName: string = stmt.name.text;
+  let read = 0;
+  const walk = (members: any, level: Record<string, FieldInfo>, prefix: string): void => {
+    for (const member of members) {
+      if (!tsApi.isPropertySignature(member) || !member.type || !tsApi.isIdentifier(member.name)) continue;
+      const path = prefix ? `${prefix}.${member.name.text}` : member.name.text;
+      const info = level[member.name.text]!;
+      const refuse = (what: string): never => {
+        throw new Error(`@lumenize/ts-runtime-parser-validator: @deprecatedValues on ${typeName}.${path} ${what}`);
+      };
+      const tags = (tsApi.getJSDocTags(member) ?? []).filter((tag: any) => tag.tagName?.text === 'deprecatedValues');
+      if (tags.length > 1) refuse('is written twice. List every deprecated value in one tag, separated by commas');
+      if (tags.length === 1) {
+        read++;
+        if (info.kind !== 'enum') {
+          refuse(`needs a field whose type is a list of string values, such as 'lead' | 'open' | 'won'`);
+        }
+        const values = (info as { values: string[] }).values;
+        const named = getTagText(tags[0]).split(',').map((part: string) => part.trim()).filter((part: string) => part !== '');
+        if (named.length === 0) refuse('names no values. Write the values after it, such as "@deprecatedValues qualified, stalled"');
+        const within = new Set<string>();
+        for (const value of named) {
+          if (!values.includes(value)) {
+            refuse(`names "${value}", and the field's values are ${values.map((v) => JSON.stringify(v)).join(', ')}`);
+          }
+          if (within.has(value)) refuse(`names "${value}" twice`);
+          within.add(value);
+        }
+        // Kept in declared order, whatever order the tag lists them in.
+        (info as { deprecated?: string[] }).deprecated = values.filter((value) => within.has(value));
+      }
+      const literal = inlineLiteralOf(member.type);
+      if (literal && info.kind === 'object') walk(literal.members, info.fields, path);
+    }
+  };
+  walk(stmt.members, typeFields, '');
+  return read;
 }
 
 function collectInterfaceNamesArray(sourceFile: any): string[] {
@@ -831,11 +878,13 @@ export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
   }
   const fields: FieldsMap = {};
   const indexes: IndexDeclaration[] = [];
+  let deprecatedRead = 0;
   for (const stmt of sourceFile.statements) {
     if (!tsApi.isInterfaceDeclaration(stmt)) continue;
     walkMembers(stmt.members, stmt.name.text, /* isTopLevel */ true);
     fields[stmt.name.text] = fieldsOfMembers(stmt.members, ontologyTypes, aliasNodes);
     indexes.push(...indexesOfInterface(stmt, fields[stmt.name.text]!));
+    deprecatedRead += applyDeprecatedValues(stmt, fields[stmt.name.text]!);
   }
   // TypeScript attaches a JSDoc block to a member only when the block starts on a line of its
   // own, so `{ /** @index */ a: string }` on one line declares nothing. Refuse it here, where the
@@ -845,6 +894,12 @@ export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
     throw new Error(
       `@lumenize/ts-runtime-parser-validator: ${written} @index tags are written and ${indexes.length} were read. ` +
       'Put each /** @index */ comment on a line of its own, directly above the field or interface it belongs to');
+  }
+  const deprecatedWritten = typeDefinitions.match(/@deprecatedValues\b/g)?.length ?? 0;
+  if (deprecatedWritten !== deprecatedRead) {
+    throw new Error(
+      `@lumenize/ts-runtime-parser-validator: ${deprecatedWritten} @deprecatedValues tags are written and ${deprecatedRead} were read. ` +
+      'Put each JSDoc comment on a line of its own, directly above the field it belongs to');
   }
 
   // Register top-level `type X = Y` / `type X = Y<...>` aliases. typia's

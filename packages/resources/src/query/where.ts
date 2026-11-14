@@ -165,9 +165,17 @@ class Compilation {
     }
     if (operator in ORDERING) {
       if (kind === 'enum') {
-        throw new QueryError(
-          `${operator} on ${named}: its values are a fixed list, and comparing them by the order they are declared in is not built yet. Use $in with the values you mean`,
-          field.path);
+        // A fixed list of values is ordered as it is declared, which the stored strings are not.
+        // So the comparison becomes the list of values on that side of the operand, and an index
+        // looks each one up.
+        const values = this.enumValues(field, operator, operand);
+        const at = values.indexOf(operand as string);
+        const side = operator === '$gt' ? values.slice(at + 1)
+          : operator === '$gte' ? values.slice(at)
+          : operator === '$lt' ? values.slice(0, at)
+          : values.slice(0, at + 1);
+        if (side.length === 0) return '0 = 1';
+        return `${field.sql} IN (${side.map((each) => this.push(each)).join(', ')})`;
       }
       if (kind === 'boolean' || kind === 'id') {
         throw new QueryError(`${operator} on ${named}: ${kind === 'id' ? 'an id' : 'a boolean'} has no order to compare by`, field.path);
@@ -202,11 +210,9 @@ class Compilation {
       case 'id':
         if (typeof value !== 'string') throw wrong(kind === 'id' ? "a resource's id" : 'a string');
         return this.push(value);
-      case 'enum': {
-        const values = (field.info as { values: string[] }).values;
-        if (typeof value !== 'string' || !values.includes(value)) throw wrong(`one of ${values.map((v) => JSON.stringify(v)).join(', ')}`);
-        return this.push(value);
-      }
+      case 'enum':
+        this.enumValues(field, operator, value);
+        return this.push(value as string);
       case 'number':
         if (typeof value !== 'number' || !Number.isFinite(value)) throw wrong('a finite number');
         return this.push(value);
@@ -217,6 +223,17 @@ class Compilation {
         if (!(value instanceof Date) || Number.isNaN(value.getTime())) throw wrong('a valid Date');
         return this.push(value.toISOString());
     }
+  }
+
+  /** The field's values in declared order, once `value` is checked to be one of them. */
+  enumValues(field: ResolvedField, operator: string, value: unknown): string[] {
+    const values = (field.info as { values: string[] }).values;
+    if (typeof value !== 'string' || !values.includes(value)) {
+      throw new QueryError(
+        `${operator} on ${this.typeName}.${field.path} takes one of ${values.map((v) => JSON.stringify(v)).join(', ')}, and got ${show(value)}`,
+        field.path);
+    }
+    return values;
   }
 
   push(value: SqlParam): string {

@@ -17,10 +17,10 @@ import { fields } from './fixture';
 
 const shared = { city: 'Cary' };
 const DEALS: Record<string, Record<string, unknown>> = {
-  acme: { title: 'Acme renewal', stage: 'open', amount: 1500, budget: 2000, won: false, due: new Date('2026-12-01T00:00:00Z'), owner: 'p1', address: { city: 'Raleigh', geo: { lat: 35.8 } } },
-  globex: { title: 'Globex pilot', stage: 'lead', amount: 500, budget: null, won: false, owner: 'p2', address: { city: 'Durham' }, note: 'call back' },
-  upsell: { title: 'acme upsell', stage: 'won', amount: 1000, won: true, due: new Date('2026-06-01T00:00:00Z'), owner: 'p1', note: undefined },
-  initech: { title: 'Initech', stage: 'open', won: false, owner: 'p2', note: 'Ünïcode 😀 tail' },
+  acme: { title: 'Acme renewal', stage: 'open', priority: 'urgent', amount: 1500, budget: 2000, won: false, due: new Date('2026-12-01T00:00:00Z'), owner: 'p1', address: { city: 'Raleigh', geo: { lat: 35.8 } } },
+  globex: { title: 'Globex pilot', stage: 'lead', priority: 'low', amount: 500, budget: null, won: false, owner: 'p2', address: { city: 'Durham' }, note: 'call back' },
+  upsell: { title: 'acme upsell', stage: 'won', priority: 'high', amount: 1000, won: true, due: new Date('2026-06-01T00:00:00Z'), owner: 'p1', note: undefined },
+  initech: { title: 'Initech', stage: 'open', priority: 'blocker', won: false, owner: 'p2', note: 'Ünïcode 😀 tail' },
   infinite: { title: 'Infinite', stage: 'lead', amount: Infinity, budget: -Infinity, won: false, owner: 'p3' },
 };
 
@@ -97,6 +97,11 @@ describe('a compiled filter selects the resources it means', () => {
     ['$ne also matches a Deal whose field holds no value', { amount: { $ne: 1500 } }, ['globex', 'infinite', 'initech', 'upsell']],
     ['$in', { stage: { $in: ['lead', 'won'] } }, ['globex', 'infinite', 'upsell']],
     ['$in with no values matches nothing', { stage: { $in: [] } }, []],
+    ['$gt on a fixed list follows declared order, not the alphabet', { priority: { $gt: 'low' } }, ['acme', 'initech', 'upsell']],
+    ['$gte on a fixed list', { priority: { $gte: 'urgent' } }, ['acme', 'initech']],
+    ['$lt on a fixed list', { priority: { $lt: 'urgent' } }, ['globex', 'upsell']],
+    ['$lte on a fixed list skips a Deal with no value', { priority: { $lte: 'blocker' } }, ['acme', 'globex', 'initech', 'upsell']],
+    ['$lt on the first value matches nothing', { priority: { $lt: 'low' } }, []],
     ['$nin also matches a Deal whose field holds no value', { amount: { $nin: [500, 1000] } }, ['acme', 'infinite', 'initech']],
     ['$nin with no values matches everything', { amount: { $nin: [] } }, ALL],
     ['$exists true: a value of the declared type', { amount: { $exists: true } }, ['acme', 'globex', 'upsell']],
@@ -209,6 +214,7 @@ describe('every filter compileQuery accepts is looked up in an index', () => {
   it.each<[string, Filter, string[]]>([
     ['equality', { stage: 'open' }, ['acme', 'initech']],
     ['$in', { stage: { $in: ['lead', 'won'] } }, ['globex', 'infinite', 'upsell']],
+    ['ordering on a fixed list of values', { stage: { $gt: 'lead' } }, ['acme', 'initech', 'upsell']],
     ['a prefix', { title: { $startsWith: 'Acme' } }, ['acme']],
     ['a range on a string', { title: { $gte: 'Globex' } }, ['globex', 'infinite', 'initech', 'upsell']],
     ['equality beside $ne', { stage: 'open', amount: { $ne: 1500 } }, ['initech']],

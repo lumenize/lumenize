@@ -86,6 +86,49 @@ describe('extractTypeMetadata().fields', () => {
   });
 });
 
+describe('extractTypeMetadata().fields: @deprecatedValues', () => {
+  const types = (tag: string, type = `'lead' | 'qualified' | 'open' | 'stalled' | 'won'`) => `
+interface Deal {
+  /**
+   * ${tag}
+   */
+  stage: ${type};
+  address: {
+    /**
+     * @deprecatedValues po-box
+     */
+    kind: 'street' | 'po-box';
+  };
+  plain: 'a' | 'b';
+}`;
+
+  it('records the deprecated values in declared order, keeps every value, and reaches a nested field', () => {
+    const { fields } = extractTypeMetadata(types('@deprecatedValues stalled, qualified'));
+    expect(fields.Deal!.stage).toEqual({
+      kind: 'enum', values: ['lead', 'qualified', 'open', 'stalled', 'won'], deprecated: ['qualified', 'stalled'], optional: false,
+    });
+    expect((fields.Deal!.address as any).fields.kind).toEqual({ kind: 'enum', values: ['street', 'po-box'], deprecated: ['po-box'], optional: false });
+    expect(fields.Deal!.plain).toEqual({ kind: 'enum', values: ['a', 'b'], optional: false });
+  });
+
+  it.each<[string, string, string | undefined, string]>([
+    ['a value the field does not hold', '@deprecatedValues closed', undefined,
+      '@deprecatedValues on Deal.stage names "closed", and the field\'s values are "lead", "qualified", "open", "stalled", "won"'],
+    ['a value named twice', '@deprecatedValues stalled, stalled', undefined, '@deprecatedValues on Deal.stage names "stalled" twice'],
+    ['no values', '@deprecatedValues', undefined, '@deprecatedValues on Deal.stage names no values'],
+    ['two tags on one field', '@deprecatedValues stalled\n   * @deprecatedValues qualified', undefined, '@deprecatedValues on Deal.stage is written twice'],
+    ['a field that is not a list of string values', '@deprecatedValues stalled', 'string',
+      '@deprecatedValues on Deal.stage needs a field whose type is a list of string values'],
+  ])('refuses %s', (_name, tag, type, message) => {
+    expect(() => extractTypeMetadata(types(tag, type))).toThrow(message);
+  });
+
+  it('refuses a tag TypeScript attached to nothing, by the count written against the count read', () => {
+    expect(() => extractTypeMetadata(`interface Deal { /** @deprecatedValues a */ stage: 'a' | 'b'; }`))
+      .toThrow('1 @deprecatedValues tags are written and 0 were read');
+  });
+});
+
 describe('extractTypeMetadata().indexes', () => {
   const declared = (types: string) => extractTypeMetadata(types).indexes;
   const refusal = (types: string): string => {

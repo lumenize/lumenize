@@ -21,6 +21,12 @@ interface Deal {
   tags?: string[];
   scores?: Map<string, number>;
   big?: bigint;
+  /**
+   * Declared in an order the alphabet does not give, so a comparison by declared order and one
+   * by the stored string disagree.
+   * @deprecatedValues high
+   */
+  priority?: 'low' | 'high' | 'urgent' | 'blocker';
 }
 interface Task { title: string; stage: Stage; }
 `;

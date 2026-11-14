@@ -242,6 +242,7 @@ interface QueryDescriptor {
 |---|---|
 | `{ stage: 'open' }` | equals. A relationship field compares to the related resource's id: `{ owner: personId }`. |
 | `{ amount: { $gt: 1000, $lte: 5000 } }` | `$gt`, `$gte`, `$lt`, `$lte` on a number, a string or a `Date`. |
+| `{ stage: { $gte: 'open' } }` | the same four on a union of string literals, by the order the ontology declares its values in. With `stage: 'lead' \| 'open' \| 'won'` this selects `open` and `won`. |
 | `{ stage: { $in: ['open', 'won'] } }` | any of a list; `$nin` is none of it. |
 | `{ stage: { $ne: 'won' } }` | not equal. |
 | `{ due: { $exists: true } }` | the field holds a value. `{ due: null }` and `$exists: false` select resources where it does not. |
@@ -251,7 +252,7 @@ interface QueryDescriptor {
 
 - A `Date` field compares to a `Date`, a boolean to `true` or `false`, and a union of string literals to one of its values. A value of the wrong type is refused, by a message naming the field.
 - `$ne`, `$nin`, `$not` and `$nor` also match a resource whose field holds no value.
-- An array, `Set`, `Map` or bigint field cannot be filtered on, and neither can a union of string literals with `$gt` or `$lt`. Filter those in the page.
+- An array, `Set`, `Map` or bigint field cannot be filtered on. Filter those in the page.
 - A refused query rejects `handle.ready` with the reason. Read it: it says what to change.
 
 **A query needs an index.** A filter must give one of the type's indexes something to look up: equality, `$in`, a range or `$startsWith` on a field the ontology declares with [`@index`](./ontology.md#indexes), at the filter's top level or inside a top-level `$and`. The rest of the filter then tests only what that lookup found, so `$ne`, `$exists` and the others are fine beside it. A filter with no such condition is refused, because it would read every resource of the type, and the refusal lists the fields the type's indexes start with.

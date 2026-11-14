@@ -16,6 +16,10 @@
  *     allows the scan.** `title` has no index. *Reds if the lookup rule goes.*
  *  4. **A Deal holding `Infinity` is refused, and Gerry's list does not gain it.** *Reds if a
  *     write is no longer checked for what a query would read wrongly.*
+ *  5. **`$gt` on the stage follows the order the ontology declares, not the alphabet.** `lost` is
+ *     declared last and sorts before `open`, so `{ stage: { $gt: 'open' } }` must hold the lost
+ *     Deal beside the won one. *Reds if the comparison is by the stored string.* The build also
+ *     accepts the `@deprecatedValues` tag on the field, which a refused tag would fail.
  *
  * `needsContainer = true` — the Deal type and its index reach the Star only through a build's
  * compiled row. The in-lane twins, one mutation each, are in
@@ -43,8 +47,9 @@ export interface Deal {
   /**
    * @title Stage
    * @index
+   * @deprecatedValues lost
    */
-  stage: 'lead' | 'open' | 'won';
+  stage: 'lead' | 'open' | 'won' | 'lost';
   /** @title Amount */
   amount?: number;
 }
@@ -182,7 +187,17 @@ export async function run(stack: DevStack): Promise<void> {
     assert.deepEqual(everyOpen.resourceIds, [...before, landed], 'the refused Deal must not be in the list');
     console.error('  ✓ limb 4 — the Deal holding Infinity was refused by name and reached no list');
 
-    for (const handle of [open, scanning, everyOpen]) handle[Symbol.dispose]();
+    // ── LIMB 5: ordering by the declared order of a fixed list of values ──────────────────────
+    const lost = crypto.randomUUID();
+    const lostWrite = await write({ [lost]: { op: 'create', typeName: 'Deal', nodeId: acmeTeam, value: { title: 'Lost one', stage: 'lost' } } });
+    assert.equal(lostWrite.ok, true, `the lost Deal was not written: ${JSON.stringify(lostWrite)}`);
+    const pastOpen = gerry.client.resources.subscribeQuery({ typeName: 'Deal', filter: { stage: { $gt: 'open' } } });
+    await pastOpen.ready;
+    assert.deepEqual([...pastOpen.resourceIds].sort(), [acme, lost].sort(),
+      'past `open` in declared order are `won` and `lost`: the Deal Sally closed, and the lost one');
+    console.error('  ✓ limb 5 — $gt on the stage held the won Deal and the lost one, by declared order');
+
+    for (const handle of [open, scanning, everyOpen, pastOpen]) handle[Symbol.dispose]();
   } finally {
     waiter?.cleanup();
     try { await gerry?.dispose(); } catch { /* already disposed */ }

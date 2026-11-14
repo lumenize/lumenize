@@ -272,6 +272,27 @@ export interface TypeMetadata {
   writeShapeTypeDefinitions: string;
   defaults: DefaultsMap;
   inlineSubtypes: Record<string, Record<string, InlineSubtype>>;
+  fields: FieldsMap;
+  indexes: IndexDeclaration[];
+}
+```
+
+```typescript @check-example('packages/ts-runtime-parser-validator/src/extract-type-metadata.ts')
+export type FieldInfo = { optional: boolean } & FieldShape;
+
+export type FieldShape = { nullable?: true } & (
+  | { kind: 'string' | 'number' | 'boolean' | 'date' }
+  | { kind: 'id'; target: string }
+  | { kind: 'enum'; values: string[]; deprecated?: string[] }
+  | { kind: 'object'; fields: Record<string, FieldInfo> }
+  | { kind: 'unsupported'; reason: string }
+);
+
+export type FieldsMap = Record<string, Record<string, FieldInfo>>;
+
+export interface IndexDeclaration {
+  type: string;
+  fields: string[];
 }
 ```
 
@@ -304,8 +325,10 @@ export interface Relationship {
 - `writeShapeTypeDefinitions` — the input source with every relationship field narrowed to `string` / `string[]` / `Set<string>` / `Map<K, string>` (etc., container preserved). Useful for ORM-style callers that want validators to expect IDs instead of nested objects.
 - `defaults` — `typeName → fieldName → JSON-literal value` from `@default` JSDoc tags on optional fields. Keys include synthesized path-based sub-type names for anonymous inline type literals (e.g. `"Config/server/retries"`), which the filler uses to recurse into inline shapes.
 - `inlineSubtypes` — `parentTypeName → fieldName → InlineSubtype`. Populated when a field's type contains an anonymous inline type literal, directly or via `Array<{...}>` / `T[]` / `Set<{...}>` / `Map<K, {...}>` (plus the `Readonly` variants) or a nullable union (`{...} | null`). Lets the filler recurse into inline shapes — including container element types — the same way it recurses into named interfaces, so nested `@default` tags apply through both.
+- `fields` — `typeName → fieldName → FieldInfo`: each field's kind, read from its declared type, for a caller that builds queries. A union of string literals is `enum`, with `values` in declared order and `deprecated` holding the values a `@deprecatedValues` tag on the field names. A to-one relationship is `id`, an inline `{ ... }` is `object` with its own `fields`, and anything a query cannot compare is `unsupported` with the `reason`.
+- `indexes` — every `@index` tag: one on a field declares an index on that field, and `@index stage, amount` on an interface declares one over several fields in order.
 
-**Throws:** `SyntaxError` on unparseable types; `Error` if `@default` appears on a required field or the value isn't a valid JSON literal.
+**Throws:** `SyntaxError` on unparseable types; `Error` if `@default` appears on a required field or the value isn't a valid JSON literal; `Error` if an `@index` or `@deprecatedValues` tag names something its type does not hold, or sits in a JSDoc block TypeScript attached to nothing.
 
 ### Composer pattern: validate string-ID references
 

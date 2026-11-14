@@ -20,6 +20,7 @@ const refusal = (filter: unknown, typeName = 'Deal'): string => {
 };
 
 const STAGE = `json_extract(value, '$.stage')`;
+const PRIORITY = `json_extract(value, '$.priority')`;
 const AMOUNT = `json_extract(value, '$.amount')`;
 const AMOUNT_HOLDS = `json_type(value, '$.amount') IN ('integer', 'real')`;
 const TITLE = `json_extract(value, '$.title')`;
@@ -42,6 +43,13 @@ describe('compileWhere: the SQL and the bound values', () => {
       `((${AMOUNT} >= ? AND ${AMOUNT_HOLDS}) AND (${AMOUNT} < ? AND ${AMOUNT_HOLDS}))`, [1, 9]],
     ['two fields are ANDed, in the order written', { stage: 'open', amount: 5 }, `(${STAGE} = ? AND ${AMOUNT} = ?)`, ['open', 5]],
     ['$in', { stage: { $in: ['lead', 'won'] } }, `${STAGE} IN (?, ?)`, ['lead', 'won']],
+    ['$gt on a fixed list of values is the values declared after it', { priority: { $gt: 'low' } }, `${PRIORITY} IN (?, ?, ?)`, ['high', 'urgent', 'blocker']],
+    ['$gte includes the value named', { priority: { $gte: 'urgent' } }, `${PRIORITY} IN (?, ?)`, ['urgent', 'blocker']],
+    ['$lt is the values declared before it', { priority: { $lt: 'urgent' } }, `${PRIORITY} IN (?, ?)`, ['low', 'high']],
+    ['$lte includes the value named, a deprecated one too', { priority: { $lte: 'high' } }, `${PRIORITY} IN (?, ?)`, ['low', 'high']],
+    ['$gt on the last value matches nothing', { priority: { $gt: 'blocker' } }, '0 = 1', []],
+    ['$lt on the first value matches nothing', { priority: { $lt: 'low' } }, '0 = 1', []],
+    ['a range on a fixed list of values', { priority: { $gt: 'low', $lt: 'blocker' } }, `(${PRIORITY} IN (?, ?, ?) AND ${PRIORITY} IN (?, ?, ?))`, ['high', 'urgent', 'blocker', 'low', 'high', 'urgent']],
     ['$in with no values', { stage: { $in: [] } }, '0 = 1', []],
     ['$nin', { amount: { $nin: [1, 2] } }, `(${AMOUNT} IS NULL OR ${AMOUNT} NOT IN (?, ?))`, [1, 2]],
     ['$nin with no values', { amount: { $nin: [] } }, '1 = 1', []],
@@ -171,7 +179,8 @@ describe('compileWhere: what it refuses, by message', () => {
     ['a number for an id', { owner: 7 }, "$eq on Deal.owner takes a resource's id, and got 7"],
     ['a value outside an enum', { stage: 'closed' }, '$eq on Deal.stage takes one of "lead", "open", "won", and got "closed"'],
     ['a value outside an enum, in a list', { stage: { $in: ['open', 'x'] } }, '$in on Deal.stage takes one of "lead", "open", "won", and got "x"'],
-    ['ordering on an enum', { stage: { $gt: 'lead' } }, '$gt on Deal.stage: its values are a fixed list'],
+    ['ordering on an enum by a value outside it', { stage: { $gt: 'closed' } }, '$gt on Deal.stage takes one of "lead", "open", "won", and got "closed"'],
+    ['ordering on an enum by a number', { stage: { $lte: 2 } }, '$lte on Deal.stage takes one of "lead", "open", "won", and got 2'],
     ['ordering on a boolean', { won: { $gt: false } }, '$gt on Deal.won: a boolean has no order to compare by'],
     ['ordering on an id', { owner: { $lt: 'p2' } }, '$lt on Deal.owner: an id has no order to compare by'],
     ['$in without a list', { stage: { $in: 'open' } }, '$in on Deal.stage takes a list of values, and got "open"'],

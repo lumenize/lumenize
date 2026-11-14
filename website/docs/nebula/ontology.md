@@ -86,6 +86,7 @@ The asymmetry is intentional. Config-named annotations are unambiguous about sco
 | `@description` | metadata | Human/LLM explanation; Studio consults when reasoning about the type. |
 | `@inverse` | reference | Back-reference declaration for relationships. |
 | `@index` | query | Declares an index, so a query can filter on the field. See [Indexes](#indexes). |
+| `@deprecatedValues` | query, UI | Names the values of a union of string literals that are no longer offered for a new choice. See [A field with a fixed list of values](#fixed-values). |
 | `@debounce(q?, m?)` | config | Debounce timing for writes to this field. `@debounce(0)` makes the field commit immediately (no debounce) — used for booleans, enums, anything click-to-commit. |
 | `@longform` | semantic | This field is long-form text. Effects: a longer maximum wait than the framework default (default `quietMs: 1000`, `maxWaitMs: 5000`), auto-register a text-merge conflict resolver, Studio renders as `<textarea>` in generated UI. |
 | typia validation tags (`@minimum`, `@maximum`, `@pattern`, `@format`, etc.) | validation | Standard typia constraints; see [@lumenize/ts-runtime-parser-validator](../ts-runtime-parser-validator/index.md). |
@@ -115,6 +116,28 @@ export interface Deal {
 - **What can be indexed:** a string, a number, a boolean, a `Date`, a relationship to one resource, and a union of string literals. An array, `Set`, `Map`, bigint or inline object cannot, and declaring one is refused at build.
 
 **Index what the app filters by, and nothing else.** Every index adds one stored row to each write of its type, and a write costs about a thousand times what a read does. Declare `@index` on each relationship a query filters by, and on the other fields a filter really uses. For a type that will only ever hold a few resources, skip the index and pass `allowScan: true` in the query.
+
+### A field with a fixed list of values {#fixed-values}
+
+A union of string literals is a field with a fixed list of values, and the order they are written in is their order:
+
+```typescript @skip-check
+export interface Deal {
+  /**
+   * @title Stage
+   * @index
+   * @deprecatedValues qualified, stalled
+   */
+  stage: 'lead' | 'qualified' | 'open' | 'stalled' | 'won';
+}
+```
+
+- **A query compares by that order.** `{ stage: { $gt: 'open' } }` selects `stalled` and `won`, and `{ stage: { $lt: 'open' } }` selects `lead` and `qualified`. An index on the field serves it.
+- **Never remove a value that a resource has held.** History keeps every value ever written, and a removed value fails validation when an old resource is next saved. Add new values where they belong in the order.
+- **Mark a value nobody should pick any more with `@deprecatedValues`.** It stays valid to store and to query, and keeps its place in the order.
+- **A dropdown offers the values that are not deprecated, plus the one the resource holds now.** A Deal still at `stalled` shows `stalled` selected, and a Deal at `open` is not offered it.
+- **Moving a value changes what every comparison on the field means**, from the build that moves it.
+- A value named in `@deprecatedValues` that the union does not hold is refused at build, and so is the tag on any other kind of field. A value with a comma in it cannot be named.
 
 **A number field holds a finite number.** A write holding `Infinity`, `-Infinity`, `NaN` or `-0` in a `number` field is refused, as is an invalid `Date`, because no query could compare it. Leave the field out when there is no value.
 
