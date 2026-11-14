@@ -104,6 +104,31 @@ export interface InlineSubtype {
   };
 }
 
+/**
+ * What a query may do with one field, read from its declared type.
+ *
+ * A query filters and indexes on what the stored form of a value keeps as a plain scalar: a
+ * string, a finite number, a boolean, a `Date` and a to-one relationship's id. `enum` is a union of
+ * string literals, with `values` in declared order, which is the order a comparison is to follow.
+ * `object` is an inline `{ ... }`, whose own fields a dotted path reaches. Everything else is
+ * `unsupported`, with `reason` saying what it is, so a query naming it is refused in those words.
+ *
+ * `optional` is a `?` property; `nullable` is a `| null` or `| undefined` in the type.
+ */
+export type FieldInfo = { optional: boolean } & FieldShape;
+
+/** A field's kind and what goes with it, before the property's own `?` is known. */
+export type FieldShape = { nullable?: true } & (
+  | { kind: 'string' | 'number' | 'boolean' | 'date' }
+  | { kind: 'id'; target: string }
+  | { kind: 'enum'; values: string[] }
+  | { kind: 'object'; fields: Record<string, FieldInfo> }
+  | { kind: 'unsupported'; reason: string }
+);
+
+/** `typeName -> fieldName -> FieldInfo`, for every top-level interface. */
+export type FieldsMap = Record<string, Record<string, FieldInfo>>;
+
 export interface TypeMetadata {
   /** Top-level interface names in declaration order. */
   interfaceNames: string[];
@@ -127,6 +152,8 @@ export interface TypeMetadata {
    * "just use TypeScript" ergonomics.
    */
   inlineSubtypes: Record<string, Record<string, InlineSubtype>>;
+  /** `typeName -> fieldName -> FieldInfo`: what a query may filter and index on. */
+  fields: FieldsMap;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +176,97 @@ const tsApi = ts as {
   flattenDiagnosticMessageText: Function;
   SyntaxKind: { NullKeyword: number; UndefinedKeyword: number; TrueKeyword: number; FalseKeyword: number };
 };
+
+/** The containers whose contents a query cannot reach, by the name a refusal gives them. */
+const CONTAINER_REASONS: Record<string, string> = {
+  Array: 'an array', ReadonlyArray: 'an array', Set: 'a Set', ReadonlySet: 'a Set',
+  Map: 'a Map', ReadonlyMap: 'a Map',
+};
+
+/** How deep an alias may point at another alias before the walk gives up on it. */
+const MAX_ALIAS_DEPTH = 8;
+
+/**
+ * Classify one property's type for {@link FieldInfo}. `aliases` holds every top-level `type X = …`
+ * by name, so `stage: Stage` reads through to the union `Stage` names.
+ */
+function classifyField(
+  typeNode: any,
+  ontologyTypes: Set<string>,
+  aliases: Map<string, any>,
+  depth = 0,
+): FieldShape {
+  const kinds = (ts as any).SyntaxKind;
+  const unsupported = (reason: string): FieldShape => ({ kind: 'unsupported', reason });
+  if (typeNode.kind === kinds.ParenthesizedType) {
+    return classifyField(typeNode.type, ontologyTypes, aliases, depth);
+  }
+  if (typeNode.kind === kinds.StringKeyword) return { kind: 'string' };
+  if (typeNode.kind === kinds.NumberKeyword) return { kind: 'number' };
+  if (typeNode.kind === kinds.BooleanKeyword) return { kind: 'boolean' };
+  if (typeNode.kind === kinds.BigIntKeyword) return unsupported('a bigint');
+  if (tsApi.isLiteralTypeNode(typeNode)) {
+    const literal = typeNode.literal;
+    if (literal.kind === kinds.StringLiteral || literal.kind === kinds.NoSubstitutionTemplateLiteral) {
+      return { kind: 'enum', values: [literal.text] };
+    }
+    if (literal.kind === kinds.TrueKeyword || literal.kind === kinds.FalseKeyword) return { kind: 'boolean' };
+    if (literal.kind === kinds.NumericLiteral) return { kind: 'number' };
+    return unsupported('a literal type a query does not compare');
+  }
+  if (tsApi.isArrayTypeNode(typeNode)) return unsupported('an array');
+  if (tsApi.isTypeLiteralNode(typeNode)) {
+    return { kind: 'object', fields: fieldsOfMembers(typeNode.members, ontologyTypes, aliases, depth) };
+  }
+  if (tsApi.isTypeReferenceNode(typeNode) && tsApi.isIdentifier(typeNode.typeName)) {
+    const name = typeNode.typeName.text;
+    if (name === 'Date') return { kind: 'date' };
+    if (ontologyTypes.has(name)) return { kind: 'id', target: name };
+    if (CONTAINER_REASONS[name]) return unsupported(CONTAINER_REASONS[name]);
+    const alias = aliases.get(name);
+    if (alias && depth < MAX_ALIAS_DEPTH) return classifyField(alias, ontologyTypes, aliases, depth + 1);
+    return unsupported(`the type ${name}`);
+  }
+  if (tsApi.isUnionTypeNode(typeNode)) {
+    const isNullish = (t: any): boolean =>
+      t.kind === kinds.NullKeyword || t.kind === kinds.UndefinedKeyword ||
+      (tsApi.isLiteralTypeNode(t) && t.literal.kind === kinds.NullKeyword);
+    const members = typeNode.types.filter((t: any) => !isNullish(t));
+    const nullable = members.length < typeNode.types.length;
+    const withNull = (info: FieldShape): FieldShape =>
+      nullable ? { ...info, nullable: true } : info;
+    if (members.length === 1) return withNull(classifyField(members[0], ontologyTypes, aliases, depth));
+    const parts = members.map((t: any) => classifyField(t, ontologyTypes, aliases, depth));
+    if (parts.length > 0 && parts.every((part: FieldShape) => part.kind === 'enum')) {
+      const values = parts.flatMap((part: any) => part.values as string[]);
+      return withNull({ kind: 'enum', values: [...new Set<string>(values)] });
+    }
+    if (parts.length > 0 && parts.every((part: FieldShape) => part.kind === 'boolean')) {
+      return withNull({ kind: 'boolean' });
+    }
+    return withNull(unsupported('a union of different types'));
+  }
+  return unsupported('a type a query does not compare');
+}
+
+/** {@link FieldInfo} for each named property of an interface body or an inline `{ ... }`. */
+function fieldsOfMembers(
+  members: any,
+  ontologyTypes: Set<string>,
+  aliases: Map<string, any>,
+  depth = 0,
+): Record<string, FieldInfo> {
+  const out: Record<string, FieldInfo> = {};
+  for (const member of members) {
+    if (!tsApi.isPropertySignature(member) || !member.type) continue;
+    if (!tsApi.isIdentifier(member.name)) continue;
+    out[member.name.text] = {
+      ...classifyField(member.type, ontologyTypes, aliases, depth),
+      optional: member.questionToken !== undefined,
+    } as FieldInfo;
+  }
+  return out;
+}
 
 function collectInterfaceNamesArray(sourceFile: any): string[] {
   const names: string[] = [];
@@ -627,9 +745,15 @@ export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
     }
   }
 
+  const aliasNodes = new Map<string, any>();
+  for (const stmt of sourceFile.statements) {
+    if (tsApi.isTypeAliasDeclaration(stmt) && tsApi.isIdentifier(stmt.name)) aliasNodes.set(stmt.name.text, stmt.type);
+  }
+  const fields: FieldsMap = {};
   for (const stmt of sourceFile.statements) {
     if (!tsApi.isInterfaceDeclaration(stmt)) continue;
     walkMembers(stmt.members, stmt.name.text, /* isTopLevel */ true);
+    fields[stmt.name.text] = fieldsOfMembers(stmt.members, ontologyTypes, aliasNodes);
   }
 
   // Register top-level `type X = Y` / `type X = Y<...>` aliases. typia's
@@ -644,6 +768,7 @@ export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
       if (defaults[targetInterface]) defaults[aliasName] = defaults[targetInterface];
       if (relationships[targetInterface]) relationships[aliasName] = relationships[targetInterface];
       if (inlineSubtypes[targetInterface]) inlineSubtypes[aliasName] = inlineSubtypes[targetInterface];
+      if (fields[targetInterface]) fields[aliasName] = fields[targetInterface];
     }
   }
 
@@ -660,5 +785,6 @@ export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
     writeShapeTypeDefinitions: writeShape,
     defaults,
     inlineSubtypes,
+    fields,
   };
 }

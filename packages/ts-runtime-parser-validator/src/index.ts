@@ -18,6 +18,8 @@ export type {
   TypeMetadata,
   Relationship,
   DefaultsMap,
+  FieldInfo,
+  FieldsMap,
 } from './extract-type-metadata';
 // The facet half (getParserValidatorFacet + its types) is deliberately NOT here: it
 // imports `cloudflare:workers`, and this entry must stay loadable/type-checkable in

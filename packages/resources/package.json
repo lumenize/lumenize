@@ -10,7 +10,8 @@
     ".": "./src/index.ts",
     "./client": "./src/client-index.ts",
     "./frontend": "./src/frontend-index.ts",
-    "./ontology-version": "./src/ontology-version.ts"
+    "./ontology-version": "./src/ontology-version.ts",
+    "./query": "./src/query/index.ts"
   },
   "files": [
     "src/**/*"

@@ -460,11 +460,11 @@ export class Snapshots {
    * (the per-target `evaluatePermissions` in the membership-delivery routine);
    * each resource's CONTENT still requires a per-resource read on subscribe.
    *
-   * The FK is extracted in **JS from the structured-clone value at scan time**,
-   * never `json_extract` over the blob — the query layer keys off the ontology
-   * semantic model, not the storage serialization. This is a full scan of the
-   * type's current snapshots (a deferred index would swap the WHERE/source here,
-   * same signature); deleted + superseded rows are excluded.
+   * The FK is extracted in **JS from the structured-clone value at scan time**:
+   * a full scan of the type's current snapshots, with deleted and superseded
+   * rows excluded. `src/query` is where SQL reads the stored form, through the
+   * one file that knows its shapes, and its `compileQuery` is what replaces
+   * this scan when the query engine is wired in.
    */
   enumerateCurrentByField(
     typeName: string,

@@ -162,11 +162,10 @@ Configurable queries expose a **projection / filter / sort field list** as API i
 
 ### Open Questions
 
-- **Query language — direction (Larry, 2026-11-13).** A MongoDB-style filter object, `{ stage: 'open', amount: { $gt: 1000 } }`, compiled to SQL by Larry's [sql-from-mongo](https://github.com/lmaccherone/sql-from-mongo):
-  - **It targets SQLite's dialect**, where sql-from-mongo was written for Azure CosmosDB's (DocumentDB) SQL.
-  - **A field that is indexed is pulled out of the resource's JSON into a column of its own**, so a clause on it runs in SQLite.
-  - **A clause on a field with no index runs afterwards, in JavaScript, over the rows SQLite returned.** `SCRATCHPAD.md` § *MongoDB-like Query* lists the packages that could do it; `protobi/query` was the favorite.
-  - **It is what a live query widens into.** `subscribeQuery` answers `parentChild` alone today, so a generated app can find only a resource whose id it already knows or a child of one. With a filter, Gerry's app asks for the Deals he can read, and the check on each resource answers "Acme renewal" and not "Globex pilot". `tasks/archive/nebula-testing-with-personas.md` is the persona work that needs it.
+- **Query language — direction (Larry, 2026-11-13), with its engine built 2026-11-14.** A MongoDB-style filter object, `{ stage: 'open', amount: { $gt: 1000 } }`, compiled to SQL after Larry's [sql-from-mongo](https://github.com/lmaccherone/sql-from-mongo), targeting SQLite's dialect. [nebula-query-engine.md](../nebula-query-engine.md) has what is built and what is not.
+  - **A clause reads the field where it is stored,** with `json_extract` over the snapshot's `value`, so no field is pulled out into a column. An index is an index on that same expression.
+  - **A field with no index still filters in SQLite,** by a scan of the type's current rows, so nothing is filtered afterwards in JavaScript.
+  - **It is what a live query widens into.** `subscribeQuery` answers `parentChild` alone today, so a generated app can find only a resource whose id it already knows or a child of one. With a filter, Gerry's app asks for the Deals he can read, and the check on each resource answers "Acme renewal" and not "Globex pilot". [nebula-personas-are-real-members.md](../nebula-personas-are-real-members.md) is the persona work that needs it.
 - **Depth limits**: Prevent runaway traversals. Default max depth of 3? Configurable per query?
 - **Permission checking**: Per-resource or per-query-root? Per-resource is correct (DAG permissions are per-node) but potentially expensive for large result sets. Could cache permission checks within a single query.
 - **Pagination within relationships**: A `one-to-many` relationship could return thousands of items. Support `limit`/`offset` per relationship? Or cursor-based?
