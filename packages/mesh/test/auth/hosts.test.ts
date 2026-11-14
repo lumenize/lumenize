@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { importPrivateKey, signJwt } from '@lumenize/crypto';
-import { parseHost, platformOrigin } from '../../src/auth/hosts';
+import { parseHost, personaAddress, personaOfAddress, platformOrigin } from '../../src/auth/hosts';
 import { buildAuthClaims } from '../../src/auth/access-claims';
 import { verifyAccessToken } from '../../src/auth/verify';
 
@@ -80,3 +80,29 @@ describe("a plain membership's token is built only for its own scope's host", ()
     expect(build('acme.crm', false)).not.toThrow(); // the positive control: its own scope
   });
 });
+
+describe("a persona's address is its host's labels at the persona mail domain", () => {
+  const manny = { persona: 'manny', scope: 'acme.crm.dev' };
+
+  it('spells the address the host spells, and reads it back', () => {
+    expect(personaAddress(manny, 'lumenize.dev')).toBe('manny--dev.crm.acme@lumenize.dev');
+    expect(parseHost('manny--dev.crm.acme.lumenize.dev', PROD)).toEqual({ kind: 'persona', ...manny });
+    expect(personaOfAddress('manny--dev.crm.acme@lumenize.dev', 'lumenize.dev')).toEqual(manny);
+    expect(personaOfAddress('Manny--Dev.CRM.Acme@Lumenize.dev', 'lumenize.dev')).toEqual(manny);
+  });
+
+  it.each([
+    ['an address at another domain', 'manny--dev.crm.acme@example.com'],
+    ['the domain as a suffix of another', 'manny--dev.crm.acme@evil-lumenize.dev'],
+    ['a person\'s address', 'larry@lumenize.dev'],
+    ['a Star\'s labels with no persona', 'dev.crm.acme@lumenize.dev'],
+    ['a persona under a tenant Star', 'manny--tenant1.crm.acme@lumenize.dev'],
+    ['a persona slug too short', 'ed--dev.crm.acme@lumenize.dev'],
+    ['labels four deep', 'manny--dev.x.crm.acme@lumenize.dev'],
+    ['no local part', '@lumenize.dev'],
+    ['no domain', 'manny--dev.crm.acme'],
+  ])('reads %s as no persona', (_name, address) => {
+    expect(personaOfAddress(address, 'lumenize.dev')).toBeNull();
+  });
+});
+

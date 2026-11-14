@@ -58,6 +58,8 @@
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
     // The deployment's origin, which every host and the JWT issuer derive from (`src/hosts.ts`).
-    "LUMENIZE_ORIGIN": "http://lumenize.localhost"
+    "LUMENIZE_ORIGIN": "http://lumenize.localhost",
+    // Where this lane's personas receive mail (`personaMailDomain`); nothing is sent to it.
+    "PERSONA_MAIL_DOMAIN": "personas.example"
   }
 }

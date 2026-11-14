@@ -34,7 +34,7 @@ import type {
   AuthClaims, RefreshPut, RefreshTokenKV, ScopeLifecycleHooks,
 } from './types';
 import type { AuthRegistry, TicketClaimResult } from './auth-registry';
-import { checkedReturnTo, deploymentOrigin, parseHost, personaId, platformOrigin } from './hosts';
+import { checkedReturnTo, deploymentOrigin, parseHost, personaAddress, personaMailDomain, platformOrigin } from './hosts';
 import type { HostTarget } from './hosts';
 import { rawRpcStub } from '../raw-rpc';
 
@@ -69,7 +69,7 @@ function registry(env: Env): any {
  * synchronous on the class and arrive as promises over RPC, which `await` resolves either way.
  */
 function identityReads(env: Env):
-  Pick<AuthRegistry, 'getIdentityScope' | 'getIdentityScopeIncludingPending'> {
+  Pick<AuthRegistry, 'getIdentityScope' | 'getIdentityScopeIncludingPending' | 'getAcceptedSubAt'> {
   return registry(env);
 }
 
@@ -823,10 +823,12 @@ export async function handleComingSoon(request: Request, _env: Env): Promise<Res
  *    record still pending asks the Registry too, since KV can serve a copy an accept has replaced:
  *    staleness may permit for KV's window, but never refuses.
  * 5. **It answers CORS for that origin alone**, with credentials; no other route answers CORS.
- * 6. **A persona's host mints the persona's own plain token**, `manny--dev.crm.acme` answering as
- *    Manny, for a browser whose ACCEPTED admin cookie at or above the Star holds dominion over it —
- *    never a plain one, and only in the `dev` Star (ADR-022 § *A persona's host*). The token carries
- *    no `act`; the opener is recorded instead, from its cookie's record (ADR-016).
+ * 6. **A persona's host mints for the member its address names**, through the impersonation mint
+ *    (ADR-022 § *A persona's host*). `manny--dev.crm.acme` spells an address, and whoever holds an
+ *    accepted membership under it at that Star is Manny. The opener is the browser's ACCEPTED admin
+ *    cookie at or above the Star, never a plain one, and the mint is handed the claims this refresh
+ *    would have minted for that opener on this host. So the token is Manny's own, with the opener in
+ *    `act`, and the mint's checks and its ADR-016 record are the ones every impersonation gets.
  */
 export async function handleRefreshToken(request: Request, env: Env): Promise<Response> {
   const log = debug('nebula-auth.worker.refresh');
@@ -901,8 +903,9 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
     if (record.scopeAdmin) { picked = record; break; }
     if (record.universeGalaxyStarId === hostScope) exact = record;
   }
-  // A persona's page opens only for dominion over its Star: a plain member of the Star is no opener.
-  if (!persona) picked ??= exact;
+  // On a persona's host this is the opener, and the impersonation mint below decides whether a
+  // plain member may open it: it may not, since the mint asks dominion over the persona's Star.
+  picked ??= exact;
 
   const withExpiries = (response: Response): Response => {
     for (const scope of expired) response.headers.append('Set-Cookie', expiredRefreshCookie(scope));
@@ -914,23 +917,25 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
       : errorResponse(401, 'invalid_token', 'No refresh cookie covers this host'));
   }
   if (persona) {
-    // Only the `dev` Star has personas a page may open: an environment beside it, `staging` say,
-    // parses as a persona's host and is refused here.
-    if (hostScope.split('.')[2] !== 'dev') {
-      return withExpiries(errorResponse(401, 'invalid_token', 'A persona page opens only in a dev Star'));
+    // The host spells an address, and its accepted member at this Star is the persona.
+    const mailDomain = personaMailDomain(env);
+    const member = mailDomain === undefined ? null
+      : await identityReads(env).getAcceptedSubAt(personaAddress({ persona, scope: hostScope }, mailDomain), hostScope);
+    if (!member) {
+      return withExpiries(errorResponse(401, 'invalid_token', 'No member of this Star holds this persona\'s address yet'));
     }
-    const id = await personaId(hostScope, persona);
-    const minted = await mintAccessToken(env, {
-      sub: id, universeGalaxyStarId: hostScope, scopeAdmin: false, profileId: id, activeScope: hostScope,
+    // The claims this refresh would have minted for the opener on this host, which is what the
+    // opener's own page here would have called `impersonate` under.
+    const opener = buildAuthClaims({
+      issuer: platformOrigin(deploymentOrigin(env)), sub: picked.sub, instanceName: picked.universeGalaxyStarId,
+      activeScope: hostScope, scopeAdmin: picked.scopeAdmin, profileId: picked.profileId,
+      ttlSeconds: accessTokenCeiling(env as Env & { AUTH_ACCESS_TOKEN_TTL?: string }),
     });
-    // ADR-016: this establishes a session, so it records the opener from its cookie's record. The
-    // persona's token carries no `act`, so the record is the only place the opener is named.
-    debug('nebula-auth.worker.refresh.persona').info('persona minted', {
-      operationId, sub: id, star: hostScope, aud: hostScope,
-      opener: { sub: picked.sub, profileId: picked.profileId, scope: picked.universeGalaxyStarId, scopeAdmin: picked.scopeAdmin },
-    });
+    const minted = await mintImpersonationToken(env, opener as AuthClaims, member, undefined, operationId);
+    if (!minted.ok) return withExpiries(errorResponse(401, 'invalid_token', minted.message));
+    log.debug('minted', { operationId, host: hostScope, sub: member, persona });
     return withExpiries(Response.json({
-      access_token: minted.accessToken, token_type: 'Bearer', expires_in: minted.effectiveTtlSeconds, sub: id,
+      access_token: minted.accessToken, token_type: 'Bearer', expires_in: minted.expiresIn, sub: member,
     }));
   }
   const { accessToken, effectiveTtlSeconds } = await mintAccessToken(env, {

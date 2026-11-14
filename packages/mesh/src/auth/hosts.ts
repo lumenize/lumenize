@@ -119,26 +119,32 @@ export function deploymentOrigin(env: object): string {
 }
 
 /**
- * The fixed namespace every persona's id is computed in (RFC 9562 § 5.5). Changing it changes every
- * persona's `sub` and `profileId` at once, orphaning their grants and Profiles.
+ * The address a persona receives mail at: its host's own labels at the deployment's persona mail
+ * domain, so nothing stores the pairing. `manny` in `acme.crm.dev` at `lumenize.dev` is
+ * `manny--dev.crm.acme@lumenize.dev`, as its host is `manny--dev.crm.acme.lumenize.dev`.
  */
-export const PERSONA_NAMESPACE = '68acba14-ab9b-4cdc-9340-fd6d0b976a4f';
+export function personaAddress(target: { persona: string; scope: string }, mailDomain: string): string {
+  const [universe, galaxy, star] = target.scope.split('.');
+  return `${target.persona}--${star}.${galaxy}.${universe}@${mailDomain}`.toLowerCase();
+}
 
 /**
- * A persona's `sub` and `profileId`: one version-5 UUID of its name in its Star,
- * `acme.crm.dev/manny`. Deterministic, so the refresh derives it from the host and nothing stores
- * it; and a person's ids come from `crypto.randomUUID()`, which always writes version 4, so no
- * persona's id can equal a person's — by construction, not by odds.
+ * The persona and Star an address spells, or `null` for an address at another domain or one whose
+ * local part is no persona's host labels. The labels are read by {@link parseHost}, so an address
+ * names a persona exactly when the same labels would be a persona's host.
  */
-export async function personaId(star: string, persona: string): Promise<string> {
-  const ns = PERSONA_NAMESPACE.replace(/-/g, '');
-  const name = new TextEncoder().encode(`${star}/${persona}`);
-  const input = new Uint8Array(16 + name.length);
-  for (let i = 0; i < 16; i++) input[i] = parseInt(ns.slice(i * 2, i * 2 + 2), 16);
-  input.set(name, 16);
-  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-1', input)).slice(0, 16);
-  bytes[6] = (bytes[6]! & 0x0f) | 0x50; // version 5
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80; // the RFC variant
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+export function personaOfAddress(address: string, mailDomain: string): { persona: string; scope: string } | null {
+  const at = address.lastIndexOf('@');
+  if (at < 1 || address.slice(at + 1).toLowerCase() !== mailDomain.toLowerCase()) return null;
+  const target = parseHost(`${address.slice(0, at)}.host.invalid`, 'https://host.invalid');
+  return target?.kind === 'persona' ? { persona: target.persona, scope: target.scope } : null;
+}
+
+/**
+ * The domain a deployment's personas receive mail at, from its `PERSONA_MAIL_DOMAIN` var: a zone
+ * whose catch-all rule sends mail to this Worker. `undefined` where the deployment names none, and
+ * then no persona's host opens and no mail is accepted.
+ */
+export function personaMailDomain(env: object): string | undefined {
+  return (env as { PERSONA_MAIL_DOMAIN?: string }).PERSONA_MAIL_DOMAIN || undefined;
 }

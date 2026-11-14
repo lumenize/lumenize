@@ -204,3 +204,13 @@ Each phase ends with its tests mutation-checked and its notes in § *Build notes
 - **Personas outside environment Stars, and pages for an environment Star other than `dev`.** The Galaxy serves only `dev`.
 - **Production's mail routing.** Email Routing on `lumenize.dev` is turned on at the production deploy; § *Build notes* has the steps.
 
+## Build notes
+
+### Phase 1: a persona's host mints for the member its address names
+
+- **For Larry.** The refresh no longer has a rule of its own that only an admin opens a persona's page. It picks the opener as it picks any page's member, and the impersonation mint refuses a plain one, by its own message. A mutation showed the old rule changed no outcome once the mint was behind it.
+- **For Larry.** The `dev`-only check on a persona's host is gone too. `parseHost` already confines a persona to an environment Star, and a host with no member behind its address answers 401.
+- **Retro.** `getAcceptedSubAt` asks for the membership at the host's own Star. That is for picking the right row when an address holds several, not for safety: the mint refuses a subject whose scope is not the host's.
+- **Retro.** Each persona refresh costs the Registry two reads, the address's member and the mint's own read of that member. A tab refreshes every 15 minutes, and only dev tabs do this.
+- **Close-out.** `personaId` and `PERSONA_NAMESPACE` are deleted. The `/live` scenario `persona-host` still describes the old token and is rewritten with phase 2, where the mail handler gives it a real member.
+

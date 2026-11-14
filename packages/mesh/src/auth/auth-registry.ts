@@ -408,6 +408,18 @@ export class AuthRegistry extends DurableObject {
   }
 
   /**
+   * The `sub` of the ACCEPTED membership `email` holds at exactly `scope`, or `null`: how a
+   * persona's host finds its member from the address the host spells. Accepted-only, as
+   * {@link getIdentityScope} is, so a persona whose invite nobody has accepted has no page.
+   */
+  getAcceptedSubAt(email: string, scope: string): string | null {
+    const rows = this.#sql`
+      SELECT m.sub AS sub FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+      WHERE e.email = ${normalizeEmail(email)} AND m.universeGalaxyStarId = ${scope} AND m.acceptedAt IS NOT NULL`;
+    return rows.length === 0 ? null : rows[0].sub as string;
+  }
+
+  /**
    * The same row **including a membership still pending**, plus whether it was accepted — the read the
    * session lifecycle wants, and the one read behind every `accepted` copy, so the flag has one source
    * and a stale copy can never outvote the row.
