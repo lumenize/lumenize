@@ -46,7 +46,7 @@ The rest of this file says how a persona becomes a member, how its tab gets a to
 
 - **[nebula-pre-alpha.md](nebula-pre-alpha.md)** lists this as item ②. Its uncommitted edit still describes the reverted design in a few lines, and links the archived file at its old path.
 - **[nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md)** has an item on the model's first move when the preview is blank. The tool in DI5 lets the agent read a tab, so the two are to be lined up before either is built.
-- **[nebula-orm-and-queries.md](on-hold/nebula-orm-and-queries.md) § *Part C*** gates seeding data a teammate must find. Q1 says what this file does until then.
+- **[nebula-query-subscriptions-take-a-filter.md](nebula-query-subscriptions-take-a-filter.md)** was built on 2026-11-14, so an app can now find what a teammate made. Q1 was written before it and is to be reopened in that light.
 
 ## Current state
 

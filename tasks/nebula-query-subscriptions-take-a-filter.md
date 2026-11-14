@@ -1,6 +1,6 @@
 # Query subscriptions take a filter
 
-**Status:** Pass 1 read by Larry on 2026-11-14, who answered its open questions and asked for the build to run to completion from there. Pass 2 is below. It wires the engine of [nebula-query-engine.md](nebula-query-engine.md) into the Resources plane, and it gates [nebula-personas-are-real-members.md](nebula-personas-are-real-members.md).
+**Status:** built and closed on 2026-11-14, in `358dfa4` and the commit after it. Larry read Pass 1, answered its open questions and asked for the build to run to completion. § *Build notes* has what he should know, and § *Closing evidence* what was run. It wires the engine of [nebula-query-engine.md](nebula-query-engine.md) into the Resources plane, and it gates [nebula-personas-are-real-members.md](nebula-personas-are-real-members.md).
 
 ## Conventions
 
@@ -122,9 +122,9 @@ The rest of this file says what a query is, where its indexes come from, what a 
 
 - **C1. Every caller of today's query is on the list in § *Current state*.** Checked 2026-11-14 by a grep for `subscribeQuery(` and `queryType:` over the source trees.
 - **C2. `#install` is the one place a version becomes a Star's installed one.** Read, not proven: two call sites reach it.
-- **C3. SQLite here creates an index on an expression, uses it, and drops it.** Checked in the vitest-plugin lane. Not run deployed.
-- **C4. Testing one snapshot against a clause by its key costs tens of microseconds.** `durable-objects.md` gives 9 to 20 µs for a point read. Not measured for this statement.
-- **C5. Creating an index on a Star that already holds resources finishes inside one request.** Not measured. A `.dev` Star holds little; a tenant's may not.
+- **C3. SQLite here creates an index on an expression, uses it, and drops it.** Checked in the vitest-plugin lane, and deployed: § *Closing evidence*.
+- **C4. Testing one snapshot against a clause by its key costs tens of microseconds.** `durable-objects.md` gives 9 to 20 µs for a point read. Deployed, each test read one row; its CPU time is not measured, since a trace span for a Durable Object's SQL reads 0 ms.
+- **C5. Creating an index on a Star that already holds resources finishes inside one request.** It did deployed, on Stars holding a handful of resources. Not measured on a large one.
 
 ## Constraints
 
@@ -210,3 +210,49 @@ Each phase ends with its package's suite green and its mutations caught. The who
 - **Rebuilding indexes on a tenant Star with real data.** After pre-alpha.
 
 ## Build notes
+
+### For Larry
+
+- **The new doc examples are `@skip-check`.** The filter table, the `@index` example and the shared-data section in `website/docs/nebula` sit beside older `@skip-check` blocks for the same API. `documentation.md` wants each converted to a checked example or approved by you before the docs are published.
+- **A JSDoc block on the same line as its field declares nothing,** because TypeScript attaches it to nothing: `{ /** @index */ owner: Person }`. The extractor now refuses a file whose written `@index` tags outnumber the ones it read, and the docs say to put each block on a line of its own. `@default` has the same blind spot and is not checked.
+- **The result cap is applied before the permission check.** A push carries the first 1,000 matches, then each subscriber's readable ones among those. A member who may read few of them sees fewer than 1,000 and `more: true`, and may be missing readable results past the cap. Paging is where that is fixed.
+- **A roster's place in the store exists only for a one-equality filter.** `store.lmz.querySubscribers.<type>.<field>[value]` spells one field and one value. A roster for any other filter reaches its own handle and nothing in the store.
+- **The chat's ontology is `chat-message-v4`,** since its types gained their index declarations.
+- **`studio-guidance-loop.ts` has one line of this build in it,** its chat query. That file carries the other session's uncommitted edits, so only that line was committed.
+- **[nebula-pre-alpha.md](nebula-pre-alpha.md) does not list this work,** and is the other session's to edit.
+
+### What was built, by phase
+
+- **Phase 1.** `extractTypeMetadata().indexes`, from `@index` on a field, a nested field and an interface. Eleven mutations, each caught.
+- **Phase 2.** `OntologyVersionRow` carries `fields` and `indexes`; `compileOntologyVersion` fills them; `_InviteStatus.node`, `Message.chat` and `ServedBuild.chat` declare theirs; the seeds are regenerated.
+- **Phase 3.** `Resources.#matchIndexes`, run by every install. A wipe needed no code: it drops the `Snapshots` table, and a table's indexes go with it. `plane-wipe.test.ts` reads the catalogue before the wipe, after it, and after the next install.
+- **Phase 4.** `QueryDescriptor` is `{ typeName, filter, allowScan? }`. `#compile` and `#evaluateQuery` replace `#validateQuery` and the scan. `findCurrent(typeName, filter)` replaces `findCurrentByField` for host code. 74 query literals in 42 test and scenario files were rewritten, and 15 test ontologies declare their index.
+- **Phase 5.** `Snapshots.transaction` runs `findUnqueryable` on each value after defaults are filled, when it is handed the ontology's fields.
+- **Phase 6.** `#rerunQueriesForCommit` and `#touches`: one statement by the resource's key reads the new snapshot and the one it replaced.
+- **Phase 7.** `MAX_LIVE_QUERIES_PER_TYPE`, `QUERY_RESULT_CAP` with `more`, and the `query scans` log line.
+- **Phase 8.** `/live` `query-by-filter`.
+- **Phase 9.** `api-reference.md` § *`client.resources.subscribeQuery`*, `ontology.md` § *Indexes*, and `coding-your-ui.md` § *Data several people share: query it*; the platform embed is regenerated.
+
+### Retro
+
+- **Planning a mutation showed a condition nothing needed.** The per-write test first excluded tombstones with `deleted = 0`. No mutation of it could fail a test: a delete's tombstone holds the value it replaced, so it answers as that row does. The condition was removed before the mutations ran.
+- **`EXPLAIN` is no witness to a dropped index** (see the engine's file), so every index assertion reads the catalogue.
+- **A scripted rewrite mangled one template literal.** The pattern stopped at the `}` of `${pipelineId}`. The harness type-check caught it, and a grep for the shape found no other.
+
+### Closing evidence
+
+All of it is from the tree at `358dfa4`, after the last source edit.
+
+- **Suites:** `packages/ts-runtime-parser-validator` 21 files and 232 tests; `packages/resources` 9 files and 234; `apps/nebula` 129 files, one skipped, and 1,165 tests with 2 skipped. `npm run type-check` passes, with `audit:mesh-vocab`, `audit:dep-direction`, `audit:test-assertions`, `audit:do-http` and `audit:email-isolation`, the three generator checks and the doc example checker. Nebula's first full run after the migration had 3 failures, each a test that named the old SQL, the old row's keys or the old one-line chat types; all three were conformed.
+- **Mutations:** 11 on the extractor's index declarations and 24 on the plane, each caught by a named test.
+- **`/live` `query-by-filter`,** local, then under one mutation for each limb: the filter ignored and nobody denied both reddened limb 1; a write tested against its new snapshot alone reddened limb 2 with limb 1 green; the lookup rule dropped reddened limb 3; the write check dropped reddened limb 4.
+- **The whole registry,** `drive.ts all`, Docker scenarios included: 74 of 74 on the first run, no flakes, with `redeploy-strands-no-client` parked as always.
+- **The deployed pass:** `deploy-test.sh` ended `Test worker live and matches HEAD`, and `query-by-filter`, `node-invite-roundtrip`, `message-roundtrip` and `dev-star-follows-the-build` each passed against `https://platform.lumenize-test.dev` on the first run. `issues.mjs --worker test-nebula --since 2026-11-14T17:01:17Z` shows only `scope-deleted`, a standing one.
+- **What the deployed traces show** (`scripts/do-queries.mjs`): each `CREATE INDEX` ran and wrote one row on an empty type, and eight across three runs where Deals existed; a query's statement read 2 to 11 rows where it looked up an index; and the per-write test read exactly one row on each of its 11 runs.
+
+### Left for later
+
+- **The bound of 200 live queries per type rests on rows, not time.** Each test reads one row, so 200 queries add 200 row reads to a write, about a fifth of what one written row costs. Its CPU time is unmeasured.
+- **A deployed check of the bound and the cap themselves.** Both are held by lane tests alone.
+- **`@check-example` for the new doc blocks.**
+

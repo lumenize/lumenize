@@ -1,6 +1,6 @@
 # The query and index engine
 
-**Status:** the engine is built and tested, 2026-11-14, as pure functions nothing calls yet. Wiring it into query subscriptions is the next piece of work and has no task file. It gates [nebula-personas-are-real-members.md](nebula-personas-are-real-members.md), whose personas need data one member makes and another finds.
+**Status:** the engine is built and tested, 2026-11-14, as pure functions, and [nebula-query-subscriptions-take-a-filter.md](nebula-query-subscriptions-take-a-filter.md) wired it into query subscriptions the same day. It gates [nebula-personas-are-real-members.md](nebula-personas-are-real-members.md), whose personas need data one member makes and another finds.
 
 ## Conventions
 
@@ -60,9 +60,7 @@ The ontology they take is `fields`, a new part of what `extractTypeMetadata` ret
 
 ## Not built
 
-- **Wiring.** No host runs `assertQueryable` at a write, creates an index, or answers a query subscription with `compileQuery`. `OntologyVersionRow` does not carry `fields` yet.
-- **Where an index specification comes from.** A JSDoc tag in the ontology is the likely home, read by the same extractor.
-- **Marking subscriptions stale.** The clause from `compileWhere` is written to test one written snapshot against each live query, the old version and the new. Nothing does that yet, and Larry wants constraints on how many queries a write tests.
+- **Wiring, index declarations and the per-write test** were built by the file the status line names.
 - **Ordering and paging a result.**
-- **A deployed run.** The lane's SQLite and a deployed Durable Object's may differ in version.
+- **A deployed run of the engine alone.** The wiring's deployed pass ran its SQL on a deployed Durable Object.
 - **`sql-from-mongo`'s licence** reads "free for evaluation and non-commercial use". The engine is a fresh implementation that follows its operators, so it copies no code, and the header of `where.ts` credits it. Larry owns both.
