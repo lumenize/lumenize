@@ -18,7 +18,7 @@ Read `.platform/docs/access-control.md` — *Worked example: sharing in a todo-l
 2. **Find the relationships.** For every pair of personas that touch the same data, name the data: the organizer and a participant's wishlist; two co-organizers and the event.
 3. **Ask, per relationship: co-owner or limited share?** Put the question in their terms: "Can the organizer edit a participant's wishes, or only see them?" A limited share is a grant — one party owns the node, the other holds `read` or `write` on it. Co-ownership is a second parent — the resource sits under both, and either may act on it. One question per relationship, in order.
 4. **Record each decision.** In `docs/permissions.md`, one row per relationship in the Decisions table: the relationship, the shape chosen, the alternative rejected and why. For example: *the organizer and a participant's wishlist — a grant, participant `write` on their own list and organizer `read`; co-ownership rejected, because the organizer must never edit a wish.* Add the prose that explains the model above the table.
-5. **Write the cast and its steps.** In `docs/personas.md`, with `edit_file`:
+5. **Write the cast and its steps.** In `docs/personas.md`, with `edit_file`. A data wipe keeps the cast's memberships and drops their grants and data, and these steps are what give both back:
    - Under *The cast*, one list line for each persona, opening with its slug in backticks: `` - `ollie` — Ollie Organizer. Runs the exchange and sees every list. `` Studio shows a tab for each such line.
    - Under *Building the cast*, numbered steps in plain words: the nodes to create, and which persona is invited onto which node at which tier.
    - Under *Sample data*, numbered steps in plain words, each naming the persona whose tab makes the record.
@@ -44,8 +44,8 @@ The preview has a tab for the person you are working for, `me`, and a tab for ea
 
    An invite makes the persona a member of the workspace and grants the tier on that node. Inviting a persona who is already a member onto another node adds that grant. To find a node made in an earlier run, read the tree: `[...store.lmz.orgTree.value.nodes].find(([, node]) => node.slug === 'lists')[0]`.
    - **A persona who administers the whole workspace**, as the app's owner does, is invited into the workspace itself with the admin bit: `await client.invite(client.claims.aud, [{ email: await client.personaAddress('manny'), scopeAdmin: true }])`.
-2. **From each persona's own tab, set their name.** `await client.updateMyProfile({ name: 'Ollie Organizer' }); return client.claims.sub;`, run with tab `ollie`. A persona's tab opens a few seconds after its invite. If the run says the persona is not a member yet, run it again.
-3. **Make each record from the tab of the persona who would have made it.** The record then names that persona, so what the others see of it is what the app's real users would see. A node is named by its id, never its slug, so find it in the tree first. A transaction does not throw when it is refused, so return its outcome and check that its `kind` is `'committed'`:
+2. **From each persona's own tab, set their name.** `await client.updateMyProfile({ nickname: 'ollie', name: 'Ollie Organizer' }); return client.claims.sub;`, run with tab `ollie`. The write replaces every profile field, so pass the nickname, which is the slug, beside the name. If the run says the persona is not a member yet, run it again.
+3. **Make each record from the tab of the persona who would have made it.** The record then names that persona, so what the others see of it is what the app's real users would see. A node is named by its id, never its slug, so find it in the tree first, and return the transaction's outcome:
 
    ```js
    // run_in_tab tab: "pat"
@@ -68,7 +68,7 @@ The preview has a tab for the person you are working for, `me`, and a tab for ea
    return wishes;
    ```
 
-The code is plain JavaScript, with no TypeScript. A run's result is `{ ok: true, value }`, or `{ ok: false, error }` when the code threw. The value comes back as JSON, with a `Map` as an array of its entries: the tree's `nodes` arrive as `[[id, { slug, label }], …]`. `.platform/docs/api-reference.md` has every call the code may make.
+The tool's own description says what a run returns and how to read it. `.platform/docs/api-reference.md` has every call the code may make.
 
 ## What not to do
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { viewState, navigate, leaveTo, pageScope, scopeUrl, personaUrl, platformUrl } from "./view-state";
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
-import { Send, RotateCw, Loader2, User, UserRound, LogOut, Home, Mail, Settings, X, Plus, ExternalLink, Copy, Check } from "lucide-vue-next";
+import { Send, RotateCw, Eraser, Loader2, User, UserRound, LogOut, Home, Mail, Settings, X, Plus, ExternalLink, Copy, Check } from "lucide-vue-next";
 import UniverseView from "./UniverseView.vue";
 import AppSettings from "./AppSettings.vue";
 import ConfirmDelete from "./ConfirmDelete.vue";
@@ -12,6 +12,7 @@ import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, derivePar
 import type { StoredMessage } from "@lumenize/nebula/client";
 import type { FactoryResult } from "@lumenize/resources/frontend";
 import type { TurnLiveness, PreviewFrameState, PreviewFrameEvent, PreviewFrameAction, CastEntry, TabMessage } from "@lumenize/nebula/client";
+import type { Star } from "@lumenize/nebula";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 
 // The scope this Studio works in is its HOST's: `crm.acme.lumenize.dev` is the galaxy `acme.crm`,
@@ -511,6 +512,7 @@ function setFrameAddress(tab: string) {
   const frame = loadedFrames.value[tab];
   if (!frame) return;
   frameStates.set(tab, { ...(frameStates.get(tab) ?? {}), pending: undefined }); // the navigation answers any request in flight
+  tabRunner.forget(tab); // the page it replaces had a client, and this one has yet to say so
   loadedFrames.value = { ...loadedFrames.value, [tab]: { url: tabUrl(tab), key: frame.key + 1 } };
 }
 function unloadFrame(tab: string) {
@@ -718,6 +720,25 @@ async function send() {
   }
 }
 
+async function wipe() {
+  if (!nebula.value || busy.value || !isWorkspace(activeScope)) return;
+  busy.value = true;
+  try {
+    const client = nebula.value.client;
+    // Awaited, so the log says what the Star answered: a collaborator with no passage into
+    // `.dev`, or no dominion over it, is refused, and saying it worked would be false.
+    await client.lmz.callAsync("STAR", previewStar(activeScope!), client.ctn<Star>().resetDevData());
+    log("studio", "Wiped the development test data.");
+    // Set each address rather than asking: the URL a frame was on may name data the wipe deleted.
+    // The cast's memberships outlive a wipe, so every persona's tab comes back as its member.
+    for (const tab of Object.keys(loadedFrames.value)) setFrameAddress(tab);
+  } catch (e) {
+    log("error", `Wipe refused: ${(e as Error).message}`);
+  } finally {
+    busy.value = false;
+  }
+}
+
 // ── The Universe page (UniverseView) — create an app, or open an existing one ──────────────────
 const createError = ref<string | undefined>();
 
@@ -920,6 +941,15 @@ const confirmingAccount = ref(false);
     <section v-if="connected && isWorkspace(activeScope)" class="w-112 shrink-0 flex flex-col border-r border-base-300 bg-base-200">
       <header class="p-4 border-b border-base-300 flex items-center justify-between">
         <h1 class="text-lg font-bold">Lumenize Studio</h1>
+        <button
+          v-if="isWorkspace(activeScope)"
+          class="btn btn-sm btn-ghost"
+          :disabled="busy || !connected"
+          title="Wipe the development test data"
+          @click="wipe"
+        >
+          <Eraser class="size-4" /> Wipe
+        </button>
       </header>
 
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-3">

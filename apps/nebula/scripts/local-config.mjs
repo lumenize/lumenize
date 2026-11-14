@@ -50,8 +50,8 @@ export const LOCAL_ORIGIN = 'http://lumenize.localhost';
 
 /**
  * Where a local stack's personas receive mail: the test mailbox's zone, whose catch-all goes to the
- * `email-test` Worker. No mail can reach a local Worker, so the harness reads a persona's message
- * there and hands it to the local stack's `email` handler as it arrived (`harness/lib/persona-mail.ts`).
+ * `email-test` Worker. No mail can reach a local Worker, so the stack's relay reads a persona's
+ * message there and hands it to the local `email` handler as it arrived (`persona-mail-relay.mjs`).
  */
 export const LOCAL_PERSONA_MAIL_DOMAIN = 'lumenize-test.dev';
 

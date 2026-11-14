@@ -56,6 +56,7 @@ import type { QueryDescriptor } from '@lumenize/resources';
 import { chatOntologySeedRow } from './chat-ontology';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID, GALAXY_TREE_SEED } from './chat-constants';
 import { parseCast, type CastEntry } from './cast';
+import { NO_PREVIEW_ERROR } from './studio-client';
 import type { StudioClient } from './studio-client';
 import type { RunAnswer } from '@lumenize/resources/frontend';
 import { serveApp } from './serve';
@@ -422,6 +423,12 @@ function noSuchFile(path: string, e: unknown): Error {
 /** What `run_in_tab` tells the model when the person its turn works for has no Studio tab to ask. */
 export const NO_STUDIO_TAB = 'The person this turn is working for has no Studio tab open, so there is no tab to run code in. Say so, and ask them to open Studio and ask again.';
 
+/** What `run_in_tab` tells the model when the post its turn took up was written while impersonating. */
+export const NO_TAB_WHEN_IMPERSONATING = 'This turn is working for a post written while impersonating someone, and code runs only in the tab of a person acting as themself. Say so, and ask them to post as themself.';
+
+/** What `run_in_tab` tells the model when a Studio tab held its connection and did not answer. */
+export const TAB_STAYED_SILENT = 'The Studio tab did not answer in 30 s. The code may still run there, so look at what it left before running it again.';
+
 /** A Studio tab's answer as a {@link RunAnswer}, or a throw: the tab is the person's own browser,
  *  so its answer is read as data and checked for the two forms the page gives. */
 function runAnswerOf(answer: unknown): RunAnswer {
@@ -699,8 +706,11 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     let text: string;
     try {
       text = await (await this.#workspace()).fs.readFile(wsPath(CAST_FILE), 'utf8');
-    } catch {
-      return [];
+    } catch (e) {
+      // Only a missing file is an empty cast. Studio takes an empty answer as the cast, and drops
+      // the tabs it holds, so any other failure is thrown for it to log.
+      if (noSuchFile(CAST_FILE, e).message === `no such file: ${CAST_FILE}`) return [];
+      throw e;
     }
     return parseCast(text);
   }
@@ -1543,29 +1553,44 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * took up, where its call is recorded on the turn's message. Decorated, it would be a second way
    * for a person to run code in their own tabs, and one that leaves no such record.
    *
-   * The preview's frames live in Studio, so the request goes to a Studio tab, and only to one
-   * whose chat subscription was made under that person's own `sub`: the code then runs with
-   * their session, or a persona's they opened, and never in another collaborator's browser. Of
-   * several such tabs it asks the first by address, and passes over one its host reports gone
-   * for the next. Each call to a tab is bounded by the 30 s every call to a Client has.
+   * The preview's frames live in Studio, so the request goes to a Studio tab: one this Galaxy
+   * hosts, whose chat subscription was made under that person's own `sub`. The code then runs
+   * with their session, or a persona's they opened. Of several such tabs it asks the first by
+   * address, and passes over one that ran nothing for the next: one its host reports gone, or
+   * one that shows no preview.
    *
-   * It answers with what the page said. It throws when nothing ran the code: the person has no
-   * Studio tab open, or Studio said why its tab could not run it.
+   * A post written while impersonating is refused. Its recorded claims name the person acted as,
+   * whose own Studio the subscriber rows would find, and the code would run in that person's
+   * browser at the impersonator's asking. This reads whether an actor stands behind the agent
+   * and never who, the one reading of `act` ADR-016 allows: impersonation would otherwise give
+   * the actor something they could not do as themself.
+   *
+   * It waits on no bound of its own. A tab it asks is a Client this Galaxy hosts, so the call and
+   * its answer never leave this isolate, and the Gateway's own timer answers a silent tab in 30 s.
+   * A tab that stayed silent may still run the code, so it is not passed over for another.
+   *
+   * It answers with what the page said. It throws when nothing is known to have run the code:
+   * the person has no Studio tab open, a tab stayed silent, or Studio said why its tab could not.
    */
   async runInTab(tab: string, code: string): Promise<RunAnswer> {
     const claims = this.#claimsIfAny();
     if (!claims) throw new Error('run_in_tab runs in a tab of the person a turn is working for, and this call names nobody');
+    if (claims.act?.act !== undefined) throw new Error(NO_TAB_WHEN_IMPERSONATING);
     const chat: QueryDescriptor = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
+    const hosted = `${this.lmz.bindingName}/${this.lmz.instanceName}/`;
+    const log = debug('nebula.Galaxy.runInTab');
     for (const address of this.#resources.subscriberAddresses(chat, claims.sub)) {
+      if (!address.startsWith(hosted)) continue;
       const answer = await this.#askStudioTab(address, tab, code);
-      if (answer instanceof Error) {
-        if (answer.name === 'ClientDisconnectedError') {
-          debug('nebula.Galaxy.runInTab').debug('passed over a tab its host reported gone', { instanceName: this.lmz.instanceName, address });
-          continue;
-        }
-        throw new Error(answer.message);
+      if (!(answer instanceof Error)) return runAnswerOf(answer);
+      if (answer.name === 'ClientDisconnectedError' && (answer as { unanswered?: boolean }).unanswered) {
+        throw new Error(TAB_STAYED_SILENT);
       }
-      return runAnswerOf(answer);
+      if (answer.name === 'ClientDisconnectedError' || answer.name === NO_PREVIEW_ERROR) {
+        log.debug('passed over a tab that ran nothing', { instanceName: this.lmz.instanceName, address, why: answer.name });
+        continue;
+      }
+      throw new Error(answer.message);
     }
     throw new Error(NO_STUDIO_TAB);
   }
@@ -1590,13 +1615,14 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   /**
    * A Studio tab's answer to {@link runInTab}'s call, as the result handler that call named: the
    * page's answer, or the Error the tab or its host gave. It has no `@mesh()`: it runs at the
-   * fire-back door, and wakes the turn waiting on `requestId`. An answer nobody is waiting for
-   * is one whose turn was lost with its Galaxy, and is dropped.
+   * fire-back door, and wakes the turn waiting on `requestId`. The waiters and the Gateway's
+   * record of the call share this isolate's memory, so an eviction loses both and no answer
+   * outlives its waiter; one with no waiter is logged and dropped all the same.
    */
   onTabAnswer(requestId: string, answer?: unknown): void {
     const waiting = this.#tabAnswers.get(requestId);
     if (!waiting) {
-      debug('nebula.Galaxy.runInTab').warn('a tab answered a turn that is gone', { instanceName: this.lmz.instanceName, requestId });
+      debug('nebula.Galaxy.runInTab').warn('a tab answered with no turn waiting', { instanceName: this.lmz.instanceName, requestId });
       return;
     }
     this.#tabAnswers.delete(requestId);

@@ -170,7 +170,6 @@ describe('parseId', () => {
     const uuid = '6f1d9c2e-4b7a-4c1e-9a3f-2d8b5e7c1a90';
     it.each([
       ['a profileId', uuid],
-      ["a persona's version-5 id", '0c3e9a57-1f2b-5d84-8a6e-3b9f2c7d4e15'],
       ["a Gateway's {sub}.{tabId}", `${uuid}.k2f9x7`],
     ])('%s does not parse', (_label, name) => {
       expect(() => parseId(name)).toThrow('Invalid slug at position 1');

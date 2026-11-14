@@ -10,7 +10,9 @@
  *    the cookies at or above it are read broadest first, and the JWT is minted here.
  *  - `home-summary`, `pending-membership`, `accept-membership` → Home, by cookie.
  *  - `logout` → expires every refresh cookie the request carries and revokes the records behind them.
- *  - impersonation → {@link mintImpersonationToken}, reached from `AuthFacade.impersonate`.
+ *  - impersonation → {@link mintImpersonationToken}, reached from `AuthFacade.impersonate` and from
+ *    the refresh on a persona's host.
+ *  - a persona's invite → {@link acceptPersonaInvite}, reached from the Worker's `email` handler.
  *
  * Invites are NOT here: every invite enters mesh-side through `AuthFacade`
  * (`@lumenize/mesh/auth/facade`); the invite's link is a magic link like any other.
@@ -447,7 +449,7 @@ const LINK_USED = 'This link was already used. Sign in again for a new one.';
  * forwarded mail can be posted without the page. An Accept the cap refuses still sets the cookies a
  * consume sets and answers 403 with the cap's message, leaving the membership pending.
  *
- * Placement: this request is the person's own, from the page their browser rendered, so the first
+ * Placement: for a person this request is their own, from the page their browser rendered, so the first
  * touch of anything it reaches — the Profile behind a display-name write, the scopes a claim's first
  * acceptance wipes — comes from them rather than from a scanner that fetched the link.
  */
@@ -573,9 +575,10 @@ export async function wakeCertificates(
  * writer calls: the link page's `POST`, Home's `accept-membership`, and the mail handler's
  * {@link acceptPersonaInvite}. On `accepted` it re-puts every
  * session's KV record with the reap, then wipes the scopes a claim's first acceptance names through
- * `hooks.teardown` before it returns: the request is the person's own, so that teardown is the first
+ * `hooks.teardown` before it returns: a person's request is their own, so that teardown is the first
  * call to reach those Durable Objects and places them near them, which is why it must never move into
- * the Registry or anything placed beside it. Then it wakes the certificate order of every galaxy the
+ * the Registry or anything placed beside it. A persona's acceptance claims no scope, and its Profile
+ * is placed wherever the invocation handling its mail runs, which matters to nobody. Then it wakes the certificate order of every galaxy the
  * Registry names, accepted or already ({@link wakeCertificates}). Display names are written on any
  * acceptance that landed.
  * The completion line is logged last, so a reader counts what this acceptance caused by its id.
@@ -1031,7 +1034,8 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
  *
  * ⚠️ **A DERIVED session never reaches here.** An impersonated client holds no refresh cookie of its
  * own, so this call would spend the ORIGINATOR's — `security.md`'s derived-session rule. The client's
- * guard is `MeshClient.logout()`'s `#mintedFrom` branch, which ends an impersonation by teardown.
+ * guards are in `MeshClient.logout()`: its `#mintedFrom` branch, which ends an impersonation by
+ * teardown, and its return for a page whose own token carries `act`, as a persona's does.
  */
 export async function handleLogout(request: Request, env: Env): Promise<Response> {
   const operationId = crypto.randomUUID();
@@ -1091,7 +1095,8 @@ export type ImpersonationMint =
 
 /**
  * Mint a token that acts as another person: `sub` = the subject, `act` = the caller. Reached from
- * `AuthFacade.impersonate`, which turns a refusal into its typed terminal error.
+ * `AuthFacade.impersonate`, which turns a refusal into its typed terminal error, and from the
+ * refresh on a persona's host, which answers a refusal's message as a 401.
  *
  * **The authorization is ONE question plus one validation:**
  *

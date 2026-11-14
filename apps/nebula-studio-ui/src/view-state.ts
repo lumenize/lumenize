@@ -35,8 +35,8 @@ export interface Overlay {
 
 /**
  * The preview's tabs: which one is in view, and which personas the person closed from the strip.
- * Every persona the cast holds is open unless it is named in `closed`, so a persona a later
- * provisioning run adds opens by default. The URL names slugs and never a token (ADR-017).
+ * Every persona the cast holds is open unless it is named in `closed`, so a persona added to
+ * `docs/personas.md` later opens by default. The URL names slugs and never a token (ADR-017).
  */
 export interface PreviewTabs {
   /** The persona slug in view; absent is `Me`, the person's own session. */

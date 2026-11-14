@@ -16,6 +16,7 @@
  * - **Worker token layer (raw RPC)**: requestMagicLink / lookupLink / consumeLink / recordSessions /
  *   acceptMembership / currentRefreshRecords / getScopeSummary / logoutSessions / setIdentityAdmin /
  *   getIdentityScope (the mint's authorization read, accepted-only) /
+ *   getAcceptedSubAt (who holds a persona's address at its Star, accepted-only) /
  *   getIdentityScopeIncludingPending (the consent screen's name prefill) — the login channel and the
  *   refresh-token lifecycle. The Worker generates the raw refresh token (cookie) and passes only its
  *   hash; this DO writes the index.
@@ -1513,7 +1514,8 @@ export class AuthRegistry extends DurableObject {
 
     // ADR-016: acceptance moves authority — it is what `getScopesForProfile` counts. Written before
     // the Worker tears down, so it names what was ordered. There is no acting token: the credential
-    // is a link or the membership's own cookie, which prove a mailbox and verify no claims.
+    // is a link, the membership's own cookie, or a persona's mail, which prove a mailbox and verify
+    // no claims.
     debug('nebula-auth.Registry.identity.membershipAccepted').info('Membership accepted', {
       operationId: options.operationId, credential: options.credential, email: rows[0].email,
       subjectSub: sub, accepted: flipped, teardown: teardown.map((t) => t.instanceName),

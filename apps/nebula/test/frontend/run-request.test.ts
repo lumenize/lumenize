@@ -98,12 +98,14 @@ describe('answerRunRequests', () => {
     const { ran } = answers();
     const remove = answerRunRequests({ parentOrigin: STUDIO, client, store, ready: Promise.resolve() });
     try {
-      post(STUDIO, { type: 'lumenize:run', id: 'c1', code: 'return { tree: store.lmz.orgTree.value, big: 10n, when: new Date(0), nothing: undefined }' });
+      post(STUDIO, { type: 'lumenize:run', id: 'c1', code: 'return { tree: store.lmz.orgTree.value, big: 10n, when: new Date(0), nothing: undefined, failed: Object.assign(new TypeError("no such deal"), { retryable: true }) }' });
       post(STUDIO, { type: 'lumenize:run', id: 'c2', code: 'const a = {}; a.self = a; return a' });
       post(STUDIO, { type: 'lumenize:run', id: 'c3', code: 'return' });
       await vi.waitFor(() => expect(ran).toHaveLength(3));
       expect(ran.find((a) => a.id === 'c1')).toMatchObject({ ok: true, value: {
         tree: { nodes: [['n1', { slug: 'deals', label: 'Deals' }]], edges: ['root:n1'] }, big: '10', when: '1970-01-01T00:00:00.000Z',
+        // An Error left to JSON is `{}`: a transaction's `infrastructure-error` outcome carries one.
+        failed: { name: 'TypeError', message: 'no such deal', retryable: true },
       } });
       const cyclic = ran.find((a) => a.id === 'c2')!;
       expect(cyclic.ok).toBe(false);
@@ -176,7 +178,7 @@ describe('createNebulaClient answers a run request only on a framed dev Star pag
     document.head.querySelectorAll('meta').forEach((m) => m.remove());
   });
 
-  const page = (meta: Record<string, unknown>, framed: boolean) => {
+  const page = (meta: Record<string, unknown>, framed: boolean, config: { parentOrigin?: string } = {}) => {
     document.head.querySelectorAll('meta').forEach((m) => m.remove());
     const m = document.createElement('meta');
     m.name = 'nebula-scope';
@@ -192,18 +194,22 @@ describe('createNebulaClient answers a run request only on a framed dev Star pag
       sessionStorage: undefined,
       // A top-level page with no session would otherwise be sent to log in, which jsdom cannot do.
       onLoginRequired: () => {},
+      ...config,
     });
   };
 
-  // Mutation: drop the factory's `dev` condition, its frame condition or its parent-origin
-  // condition → that row's page answers `n` too → red.
+  // Mutation: drop the factory's `dev` condition or its frame condition → that row's page answers
+  // `n` too → red. The second row is the frame condition's own: its config names a parent origin
+  // on a page nobody frames, which the meta alone never does, and a top-level window is its own
+  // parent, so a listener there would obey the post. A page that names no parent origin has no
+  // row: its listener would obey nothing whatever the factory decided.
   it.each([
-    ['is not framed', { dev: true, parentOrigin: STUDIO }, false],
-    ['the serving layer did not mark as a dev Star\'s', { parentOrigin: STUDIO }, true],
-    ['names no parent origin', { dev: true }, true],
-  ])('a page that %s runs nothing, and a framed dev page beside it does', async (_name, meta, framed) => {
+    ['is not framed', { dev: true, parentOrigin: STUDIO }, false, {}],
+    ['is not framed, though its config names a parent origin', { dev: true }, false, { parentOrigin: STUDIO }],
+    ['the serving layer did not mark as a dev Star\'s', { parentOrigin: STUDIO }, true, {}],
+  ])('a page that %s runs nothing, and a framed dev page beside it does', async (_name, meta, framed, config) => {
     const { ran } = answers();
-    const refusing = page(meta, framed);
+    const refusing = page(meta, framed, config);
     await refusing.ready.catch(() => { /* no session, by construction */ });
     post(STUDIO, { type: 'lumenize:run', id: 'n', code: 'return 1' });
     const listening = page({ dev: true, parentOrigin: STUDIO }, true);

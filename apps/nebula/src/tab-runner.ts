@@ -6,11 +6,16 @@
  * decides, with the frames behind a {@link TabPort}, so every arm is a test's to pin and App.vue
  * only posts, loads and listens (`calibration.md` §12).
  *
- * A run goes like this. The frame is loaded if it is not, and reloaded while its page has no
- * session, which is how a persona's tab is until its invite's mail has been accepted. Once the
- * page says it has a client (`lumenize:loaded`), the request is posted, and the page's answer
- * (`lumenize:ran`) ends the run. A run that is not answered inside its bound fails, and the failure
- * says which of those it was waiting for.
+ * A run goes like this. The frame is loaded if it is not, and loaded again while its page has no
+ * session, which is how a persona's tab is until its invite's mail has been accepted: at the
+ * run's start if the page last said so, and every {@link NO_SESSION_RETRY_MS} while it goes on
+ * saying so. Once the page says it has a client (`lumenize:loaded`), the request is posted, and
+ * the page's answer (`lumenize:ran`) ends the run. A run that is not answered inside its bound
+ * fails, and the failure says which of those it was waiting for.
+ *
+ * A page that loads afresh while its run is posted took the request with it. Whether the code
+ * finished is not known, so the run fails at once and says so, and is not posted again: code
+ * that makes a record would make it twice.
  */
 import type { RunAnswer } from '@lumenize/resources/frontend';
 
@@ -100,6 +105,10 @@ export class TabRunner {
         this.#port.load(tab);
       } else if (this.#ready.has(tab)) {
         this.#post(id);
+      } else if (this.#noSession.has(tab) && !this.#retries.has(tab)) {
+        // Its page last said it has no session, and nothing is set to load it again: an earlier
+        // run gave up on it, or the person opened it before its invite. It may have one by now.
+        this.#port.reload(tab);
       }
     });
   }
@@ -109,7 +118,16 @@ export class TabRunner {
     if (message.type === 'lumenize:loaded') {
       // A fresh load's, or an echo of a reload request: either way a client is there to ask.
       this.#ready.add(tab);
-      for (const [id, run] of this.#pending) if (run.tab === tab) this.#post(id);
+      this.#noSession.delete(tab);
+      for (const [id, run] of [...this.#pending]) {
+        if (run.tab !== tab) continue;
+        // A fresh load carries no id. The page a posted request went to is gone, with the request.
+        if (run.posted && message.id === undefined) {
+          run.settle(new Error(`The tab "${tab}" loaded afresh while the code was running, so whether it finished is not known. Look at what it left before running it again.`));
+        } else {
+          this.#post(id);
+        }
+      }
       return;
     }
     if (message.type === 'lumenize:login-required') {

@@ -248,7 +248,8 @@ export class Profile extends UnscopedMeshDO<Env> {
    * Worker proved. No `@mesh()`, which would let any caller with a token write anyone's names.
    *
    * ⚠️ **Deliberately narrow: the two display NAMES, never `picture` and never the private set.**
-   * The consent screen is the one caller and these are all it collects, so a mistake at this seam
+   * Acceptance is the one caller, from the consent screen, which collects only these, or from the
+   * mail handler, which passes a persona's slug as its nickname. So a mistake at this seam
    * cannot widen into a disclosure or a takeover. `picture` is excluded because nothing writes one
    * yet — the consent screen's avatar is a coming-soon affordance — and adding it here would be a
    * security decision rather than a refactor.

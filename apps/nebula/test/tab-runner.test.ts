@@ -111,6 +111,55 @@ describe('TabRunner', () => {
     expect(await run).toEqual({ ok: true, value: 1 });
   });
 
+  it('a later run loads a frame again whose page last had no session', async () => {
+    // The first run gave up on Gerry before he was a member, and nothing is left to load his page
+    // again. Mutation: drop the reload at a run's start → the second run asks nothing → red.
+    const h = harness();
+    const first = h.runner.run('gerry', 'return 1');
+    h.runner.onMessage('gerry', { type: 'lumenize:loaded' });
+    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: false, noSession: true, error: 'LoginRequiredError: no member yet' });
+    h.advance(TAB_RUN_BOUND_MS);
+    await expect(first).rejects.toThrow('is not a member of the dev Star yet');
+    const asked = h.asked.length;
+
+    const second = h.runner.run('gerry', 'return 2');
+    expect(h.asked.slice(asked)).toEqual(['reload gerry']);
+    h.runner.onMessage('gerry', { type: 'lumenize:loaded' });
+    expect(h.posts.at(-1)).toMatchObject({ tab: 'gerry', id: 'r2', code: 'return 2' });
+    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r2', ok: true, value: 2 });
+    expect(await second).toEqual({ ok: true, value: 2 });
+  });
+
+  it('a page that had no session and then has a client is a silent page, not a missing member', async () => {
+    // Mutation: keep the page's old word once it says it has a client → the failure blames a
+    // missing membership and sends the agent to invite a member again → red.
+    const h = harness();
+    const run = h.runner.run('gerry', 'await forever');
+    h.runner.onMessage('gerry', { type: 'lumenize:loaded' });
+    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: false, noSession: true, error: 'LoginRequiredError: no member yet' });
+    h.advance(NO_SESSION_RETRY_MS);
+    h.runner.onMessage('gerry', { type: 'lumenize:loaded' });
+    expect(h.posts.map((p) => p.id)).toEqual(['r1', 'r1']);
+    h.advance(TAB_RUN_BOUND_MS);
+    await expect(run).rejects.toThrow('The tab "gerry" did not answer in 20 s. The code may still be running there.');
+  });
+
+  it('fails a posted run at once when its page loads afresh, and leaves it alone on an echo', async () => {
+    // A landing or the Reload button can load a page afresh under a run. The request went with
+    // the old page, and code that makes a record must not be posted twice. Mutation: treat a
+    // fresh load as an echo → the run waits out its bound and says the code may still be running.
+    const h = harness();
+    const run = h.runner.run(ME_TAB, 'return 1');
+    h.runner.onMessage(ME_TAB, { type: 'lumenize:loaded' });
+    expect(h.posts).toHaveLength(1);
+    // An echo names the reload request it answers: the page stayed, and so did the request.
+    h.runner.onMessage(ME_TAB, { type: 'lumenize:loaded', id: 'reload-7' });
+    expect(await settled(run)).toBe('pending');
+    h.runner.onMessage(ME_TAB, { type: 'lumenize:loaded' });
+    await expect(run).rejects.toThrow('The tab "me" loaded afresh while the code was running, so whether it finished is not known. Look at what it left before running it again.');
+    expect(h.posts).toHaveLength(1);
+  });
+
   it('says a persona is not a member yet when its page never gets a session inside the bound', async () => {
     const h = harness();
     const run = h.runner.run('gerry', 'return 1');

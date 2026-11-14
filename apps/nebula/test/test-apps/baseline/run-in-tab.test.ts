@@ -22,8 +22,8 @@ import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@l
 import type { Galaxy } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
 import type { RunAnswer } from '@lumenize/resources/frontend';
-import { NO_STUDIO_TAB } from '../../../src/galaxy';
-import { RUN_RESULT_MAX_CHARS } from '../../../src/codegen-loop';
+import { NO_STUDIO_TAB, NO_TAB_WHEN_IMPERSONATING, TAB_STAYED_SILENT } from '../../../src/galaxy';
+import { RUN_RESULT_MAX_CHARS, RUN_ERROR_MAX_CHARS } from '../../../src/codegen-loop';
 import { universeAdminClient, createSubject, createInvitedClient, addressOfClient, pageOf, ORIGIN } from '../../test-helpers';
 import { StudioClientTest } from './index';
 import type { GalaxyTest } from './index';
@@ -91,7 +91,7 @@ async function cast(scope: string) {
 }
 
 /** The tool calls on the agent message whose content is `content`, once it has landed. */
-async function toolCallsOf(client: StudioClientTest, ids: () => readonly string[], content: string): Promise<ToolCall[]> {
+async function toolCallsOf(client: StudioClientTest, ids: () => readonly string[], content: string, timeout = 20_000): Promise<ToolCall[]> {
   let found: Snapshot | undefined;
   await vi.waitFor(async () => {
     for (const id of ids()) {
@@ -99,7 +99,7 @@ async function toolCallsOf(client: StudioClientTest, ids: () => readonly string[
       if (snap && snap.meta.recordedClaims.sub === NEBULA_SUB && (snap.value as { content: string }).content === content) found = snap;
     }
     expect(found).toBeDefined();
-  }, { timeout: 20_000 });
+  }, { timeout, interval: 250 });
   return (found!.value as { codegen: { toolCalls: ToolCall[] } }).codegen.toolCalls;
 }
 
@@ -135,7 +135,8 @@ describe('run_in_tab runs in a Studio tab of the person the turn is working for'
 
   // Mutations: have `runAnswerOf` throw on `{ ok: false }` → that call carries `error` and no
   // `result`; have it pass any answer through → the malformed one is recorded as a result; drop
-  // `clipRunResult` → the long value arrives whole.
+  // `clipRunResult` → the long value arrives whole; pass an error's text through uncut → the long
+  // error arrives whole; keep the value as sent → the Map is recorded as a Map.
   it('code that throws is a result the model reads, Studio\'s own failure is a tool error, and a long value is clipped', async () => {
     const scope = uniqueScope();
     const c = await cast(scope);
@@ -148,6 +149,9 @@ describe('run_in_tab runs in a Studio tab of the person the turn is working for'
       // A Studio is a person's own browser, so its answer is read as data: one in neither form
       // the page gives is refused, where passed on it would skip the clip.
       async () => ({ ok: 'yes', value: long }) as unknown as RunAnswer,
+      // A thrown error's text is cut too, and a value is kept as its JSON has it.
+      async () => ({ ok: false, error: 'E'.repeat(RUN_ERROR_MAX_CHARS + 300) }),
+      async () => ({ ok: true, value: { tree: new Map([['n1', 'deals']]) } }),
     ];
     c.answers(c.j, 'jennifer', () => replies.shift()!());
     await c.seed([
@@ -155,16 +159,22 @@ describe('run_in_tab runs in a Studio tab of the person the turn is working for'
       call('run_in_tab', { tab: 'gerry', code: 'return 1' }),
       call('run_in_tab', { tab: 'me', code: 'return long' }),
       call('run_in_tab', { tab: 'me', code: 'return odd' }),
-      call('mark_complete', {}, 'Four runs.'),
+      call('run_in_tab', { tab: 'me', code: 'throw long' }),
+      call('run_in_tab', { tab: 'me', code: 'return map' }),
+      call('mark_complete', {}, 'Six runs.'),
     ]);
-    await c.j.postUserMessage('Try four things.');
-    const [threw, silent, clipped, odd] = await toolCallsOf(c.j, () => js.resourceIds, 'Four runs.');
+    await c.j.postUserMessage('Try six things.');
+    const [threw, silent, clipped, odd, longError, map] = await toolCallsOf(c.j, () => js.resourceIds, 'Six runs.');
     expect([threw!.result, threw!.error]).toEqual([{ ok: false, error: 'ReferenceError: nope is not defined' }, undefined]);
     expect([silent!.result, silent!.error]).toEqual([undefined, 'the tab "gerry" did not answer in 20 s']);
     expect(clipped!.result).toMatchObject({ ok: true, clipped: true });
     expect((clipped!.result!.json as string).length).toBe(RUN_RESULT_MAX_CHARS);
     expect(clipped!.result!.note).toContain(`${long.length + 2} characters`);
     expect([odd!.result, odd!.error]).toEqual([undefined, 'the Studio tab answered in a form run_in_tab does not read']);
+    expect(longError!.result).toEqual({ ok: false, error: `${'E'.repeat(RUN_ERROR_MAX_CHARS)}… (${RUN_ERROR_MAX_CHARS + 300} characters in all)` });
+    // The honest page sends a Map as its entries. One sent as a Map is kept as JSON has it, so
+    // the record holds what the clip measured.
+    expect(map!.result).toEqual({ ok: true, value: { tree: {} } });
     c.j[Symbol.dispose](); c.a[Symbol.dispose]();
   });
 
@@ -211,8 +221,102 @@ describe('run_in_tab runs in a Studio tab of the person the turn is working for'
     const [run] = await toolCallsOf(c.j, () => js.resourceIds, 'Ran in the open window.');
     expect(run).toMatchObject({ name: 'run_in_tab', result: { ok: true, value: { from: nameOf(second!) } } });
     expect(c.ran).toEqual([[nameOf(second!), 'me', 'return 1']]);
-    expect(entries.filter((e) => e.namespace === 'nebula.Galaxy.runInTab' && e.message === 'passed over a tab its host reported gone')
-      .map((e) => e.data?.address)).toEqual([addressOfClient(first!)]);
+    expect(entries.filter((e) => e.namespace === 'nebula.Galaxy.runInTab' && e.message === 'passed over a tab that ran nothing')
+      .map((e) => [e.data?.address, e.data?.why])).toEqual([[addressOfClient(first!), 'ClientDisconnectedError']]);
     c.j[Symbol.dispose](); second![Symbol.dispose]();
   });
+
+  // Austen has two clients on the chat. The one whose address sorts first shows no preview, as a
+  // script's client does, or one `impersonate()` made. It ran nothing, so his Studio is asked.
+  // Mutation: throw on the no-preview answer where the entry passes over → the tool errors.
+  it('a client that shows no preview is passed over for the person\'s Studio', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    const [first, second] = [await studioTab(c.austenBrowser, scope), await studioTab(c.austenBrowser, scope)]
+      .sort((x, y) => addressOfClient(x) < addressOfClient(y) ? -1 : 1);
+    c.answers(second!, 'austen-studio'); // `first` is given no handler: it shows no preview
+    using js = c.j.resources.subscribeQuery(chatQuery); await js.ready;
+    const s1 = first!.resources.subscribeQuery(chatQuery); await s1.ready;
+    const s2 = second!.resources.subscribeQuery(chatQuery); await s2.ready;
+    await c.seed([call('run_in_tab', { tab: 'me', code: 'return 1' }), call('mark_complete', {}, 'Ran in his Studio.')]);
+    await second!.postUserMessage('Make my sample data.');
+    const [run] = await toolCallsOf(c.j, () => js.resourceIds, 'Ran in his Studio.');
+    expect(run).toMatchObject({ name: 'run_in_tab', result: { ok: true, value: { from: 'austen-studio' } } });
+    expect(c.ran).toEqual([['austen-studio', 'me', 'return 1']]);
+    expect(entries.filter((e) => e.namespace === 'nebula.Galaxy.runInTab' && e.message === 'passed over a tab that ran nothing')
+      .map((e) => [e.data?.address, e.data?.why])).toEqual([[addressOfClient(first!), 'NoPreviewError']]);
+    c.j[Symbol.dispose](); c.a[Symbol.dispose](); first![Symbol.dispose](); second![Symbol.dispose]();
+  });
+
+  // A subscriber row under Austen's `sub` whose Client another node hosts. No client of this
+  // lane can make one, since a collaborator's `sub` on the dev Star's page is another membership's,
+  // so the row is copied in storage. A Studio tab is a Client this Galaxy hosts, and only such a
+  // one is asked: the call and its answer then never leave the isolate.
+  // Mutation: ask every row under the `sub` → the Galaxy calls across to the other node, hears
+  // that no such Client is there, and the pass-over line names the foreign address.
+  it('only a tab this Galaxy hosts is asked', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    using js = c.j.resources.subscribeQuery(chatQuery); await js.ready;
+    const foreign = `STAR/${scope}.dev/${c.aSub}.elsewhere`;
+    expect(await c.j.lmz.callAsync('GALAXY', scope,
+      c.j.ctn<GalaxyTest>().copyQuerySubscriberForTest(addressOfClient(c.j), foreign, c.aSub))).toBe(1);
+    expect(await c.chatRows()).toContain(foreign);
+    await c.seed([call('run_in_tab', { tab: 'me', code: 'return 1' }), call('mark_complete', {}, 'Nothing hosted here.')]);
+    await c.a.postUserMessage('Make my sample data.');
+    const [run] = await toolCallsOf(c.j, () => js.resourceIds, 'Nothing hosted here.');
+    expect([run!.name, run!.error]).toEqual(['run_in_tab', NO_STUDIO_TAB]);
+    expect(entries.filter((e) => e.namespace === 'nebula.Galaxy.runInTab' && e.data?.address === foreign)).toEqual([]);
+    c.j[Symbol.dispose](); c.a[Symbol.dispose]();
+  });
+
+  // Jennifer, an admin, impersonates Austen and posts as him, with Austen's own Studio open. The
+  // post's record names Austen, and the subscriber rows under his `sub` are his own browser's.
+  // Mutation: drop the entry's check for an actor behind the agent → the code runs in Austen's
+  // Studio, at Jennifer's asking.
+  it('a post written while impersonating runs no code, in the impersonated person\'s Studio or anywhere', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    using js = c.j.resources.subscribeQuery(chatQuery); await js.ready;
+    using as = c.a.resources.subscribeQuery(chatQuery); await as.ready;
+    const asAusten = await c.j.impersonate(c.aSub);
+    expect([asAusten.claims?.sub, asAusten.claims?.act?.sub]).toEqual([c.aSub, c.jSub]);
+    await c.seed([call('run_in_tab', { tab: 'me', code: 'return document.cookie' }), call('mark_complete', {}, 'Could not run it for an impersonated post.')]);
+    await asAusten.postUserMessage('Make my sample data.');
+    const [run] = await toolCallsOf(c.j, () => js.resourceIds, 'Could not run it for an impersonated post.');
+    expect([run!.name, run!.result, run!.error]).toEqual(['run_in_tab', undefined, NO_TAB_WHEN_IMPERSONATING]);
+    expect(c.ran).toEqual([]);
+    // The positive control: Austen's own post, in the same scene, does run in his Studio.
+    await c.seed([call('run_in_tab', { tab: 'me', code: 'return 1' }), call('mark_complete', {}, 'Ran for Austen himself.')]);
+    await c.a.postUserMessage('Now for me.');
+    await toolCallsOf(c.j, () => js.resourceIds, 'Ran for Austen himself.');
+    expect(c.ran).toEqual([['austen', 'me', 'return 1']]);
+    asAusten[Symbol.dispose](); c.j[Symbol.dispose](); c.a[Symbol.dispose]();
+  });
+
+  // Austen has Studio open in two windows, and the one whose address sorts first holds its socket
+  // and never answers, as a frozen background tab does. This waits out the Gateway's real 30 s:
+  // only a real lapse shows the silent tab is told apart from a gone one.
+  // Mutation: pass a silent tab over like a gone one → the second window runs the code, which the
+  // first may run too when it wakes.
+  it('a tab that holds its socket and stays silent is not passed over, and the tool says the code may still run', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    const a2 = await studioTab(c.austenBrowser, scope);
+    using js = c.j.resources.subscribeQuery(chatQuery); await js.ready;
+    const s1 = c.a.resources.subscribeQuery(chatQuery); await s1.ready;
+    const s2 = a2.resources.subscribeQuery(chatQuery); await s2.ready;
+    const [first, second] = [c.a, a2].sort((x, y) => addressOfClient(x) < addressOfClient(y) ? -1 : 1);
+    c.answers(first!, 'silent', () => new Promise<RunAnswer>(() => { /* never answers */ }));
+    c.answers(second!, 'awake');
+    await c.seed([call('run_in_tab', { tab: 'me', code: 'return 1' }), call('mark_complete', {}, 'The tab stayed silent.')]);
+    const started = Date.now();
+    await second!.postUserMessage('Make my sample data.');
+    const found = await toolCallsOf(c.j, () => js.resourceIds, 'The tab stayed silent.', 60_000);
+    expect([found[0]!.name, found[0]!.result, found[0]!.error]).toEqual(['run_in_tab', undefined, TAB_STAYED_SILENT]);
+    expect(c.ran).toEqual([['silent', 'me', 'return 1']]);
+    // The fixture did wait out the Gateway's bound.
+    expect(Date.now() - started).toBeGreaterThan(25_000);
+    c.j[Symbol.dispose](); first![Symbol.dispose](); second![Symbol.dispose]();
+  }, 90_000);
 });

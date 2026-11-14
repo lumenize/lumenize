@@ -50,7 +50,7 @@ The rest of this ADR covers where sessions live, how a page gets and uses an acc
 - **Every cookie we set is named `__Host-…`.** A browser keeps one only if it is `Secure`, has `Path=/` and no `Domain`, so no other host can plant or overwrite it. Generated code can plant a `refresh-token` cookie across all of `lumenize.dev`, never a `__Host-refresh-token.acme.crm`, and the server reads only prefixed names. Nor can it load someone's emailed link to have one set: the link opens a page, and only that page's same-origin `POST` signs in.
 - **Refresh cookies are `SameSite=Lax`**, so a person arriving at Home from an email or another site is recognised.
 - **Every `POST` to `/auth/` requires `Sec-Fetch-Site: same-origin`, except the refresh.** The refresh serves every page on the site, so it also accepts `same-site`, and requires an `Origin` the lookup turns into a scope. A request without `Sec-Fetch-*` headers is allowed, unless it is a `POST` whose `Origin` the route would refuse.
-- **Each refresh cookie is backed by a Workers KV record.** On a KV hit a refresh reads nothing else from the Registry, so refreshes run on the edge and put no load on the singleton Registry Durable Object ([ADR-018](018-singleton-is-the-scarce-resource.md)).
+- **Each refresh cookie is backed by a Workers KV record.** On a KV hit a refresh reads nothing else from the Registry, so refreshes run on the edge and put no load on the singleton Registry Durable Object ([ADR-018](018-singleton-is-the-scarce-resource.md)). A persona's host is the exception, below.
 - **No cookie reaches a Durable Object.** A request forwarded to one carries the access token as `Authorization: Bearer`, as the WebSocket upgrade already does.
 
 ### What an access token carries
@@ -64,9 +64,9 @@ The rest of this ADR covers where sessions live, how a page gets and uses an acc
 
 ### A persona's host
 
-**A page on a persona's host gets an access token as that persona, and nothing else can.** Studio frames `manny--dev.crm.acme.lumenize.dev` to show the app exactly as Manny sees it. Manny is a member of `acme.crm.dev` like any other. What sets him apart is his address, `manny--dev.crm.acme@lumenize.dev`, his host's own labels. Nobody sits behind that mailbox, so the Worker's mail handler accepts his invite ([auth.md](../vision/auth.md) § *A Galaxy's `.dev` Star*).
+**A page on a persona's host gets an access token as that persona.** Studio frames `manny--dev.crm.acme.lumenize.dev` to show the app exactly as Manny sees it. Manny is a member of `acme.crm.dev` like any other. What sets him apart is his address, `manny--dev.crm.acme@lumenize.dev`, his host's own labels. Nobody sits behind that mailbox, so the Worker's mail handler accepts his invite ([auth.md](../vision/auth.md) § *A Galaxy's `.dev` Star*).
 
-Manny holds no cookie, so his tab refreshes off its opener's. The refresh finds the accepted member under the address the host spells, and mints through the impersonation mint: Manny's own `sub`, `profileId`, `authScope` and admin bit, his Star as `aud`, and the opener in `act`. It answers 401 unless all of these hold:
+Manny holds no cookie, so his tab refreshes off its opener's. The refresh finds the accepted member under the address the host spells, and mints through the impersonation mint: Manny's own `sub`, `profileId`, `authScope` and admin bit, his Star as `aud`, and the opener in `act`. Both steps read the Registry on every refresh. It answers 401, or 403 for the first, unless all of these hold:
 
 1. **The host names a persona in a Star with no real users**, today only `dev`: `manny--dev.crm.acme` names `manny` in `acme.crm.dev`.
 2. **An accepted member of that Star holds the address the host spells.**
@@ -74,7 +74,7 @@ Manny holds no cookie, so his tab refreshes off its opener's. The refresh finds 
 
 **No check reads `act`** ([ADR-016](016-record-the-acting-principal.md)), so Manny's tab behaves as his own page would, except that an admin persona's tab cannot impersonate in turn.
 
-**Only the address is particular to a persona.** His ids are random, like any member's. A login link mailed to his address is dropped, so this refresh is the only way to his token. A real address invited in a persona's place signs in as its owner, and no persona's host opens as them.
+**Only the address is particular to a persona.** His ids are random, like any member's. A login link mailed to his address is dropped, so nobody signs in as him. An admin of the Star can impersonate him too. A real address invited in a persona's place signs in as its owner, and no persona's host opens as them.
 
 ### A customer's own domain
 

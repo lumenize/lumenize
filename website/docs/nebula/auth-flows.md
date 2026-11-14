@@ -9,7 +9,7 @@ Nebula's authentication is passwordless, through Mesh's auth layer, `@lumenize/m
 
 :::info[Where the pieces live]
 
-There is **no per-scope auth DO**. Identity and all durable auth state live in one **singleton Registry DO** (the identity authority + single writer). The session routes run in the **default Worker** (`routeAuthRequest`) on the platform host: `email-magic-link`, the link page's `magic-link/lookup` and `magic-link`, `refresh-token`, `home-summary`, `pending-membership`, `accept-membership` and `logout`. What a session does — inviting, creating and deleting scopes, impersonating — is a mesh call to **`NebulaAuthFacade`**. The refresh record lives in **Workers KV** (`refresh:{tokenHash}`), read at the edge on refresh, with **one Registry read only when KV's answer would refuse**: a miss, or a membership still pending. Identity is keyed by a registry-minted surrogate **`sub`** (never the email). Diagrams reference `NebulaClient`, the client-side class that manages connections.
+There is **no per-scope auth DO**. Identity and all durable auth state live in one **singleton Registry DO** (the identity authority + single writer). The session routes run in the **default Worker** (`routeAuthRequest`) on the platform host: `email-magic-link`, the link page's `magic-link/lookup` and `magic-link`, `refresh-token`, `home-summary`, `pending-membership`, `accept-membership` and `logout`. What a session does — inviting, creating and deleting scopes, impersonating — is a mesh call to **`NebulaAuthFacade`**. The refresh record lives in **Workers KV** (`refresh:{tokenHash}`), read at the edge on refresh, with **one Registry read only when KV's answer would refuse**: a miss, or a membership still pending. A persona's host is the exception, with two reads on every refresh (§ *A persona's page*). Identity is keyed by a registry-minted surrogate **`sub`** (never the email). Diagrams reference `NebulaClient`, the client-side class that manages connections.
 
 :::
 
@@ -194,6 +194,7 @@ Studio shows the app as Gerry sees it by framing his page, `https://gerry--dev.c
 - **Whoever may impersonate Gerry may open it.** The refresh hands the impersonation mint the claims it would have minted for the visitor on that host, so the mint's own rule decides. The browser must hold a cookie whose accepted membership has dominion over `acme.crm.dev`: a Galaxy or Universe admin's, or the `.dev` admin membership an app's invite co-mints. Anyone else gets 401.
 - **Gerry's token is his membership's, with the opener in `act`.** `sub` and `profileId` are Gerry's own, `aud` and `authScope` are `acme.crm.dev`, and `scopeAdmin` is there only if his membership carries it. Every record his tab leaves names Gerry and the person who opened it.
 - **Until his invite is accepted the refresh answers 401**, which is how Studio knows to say he is not a member yet.
+- **Each refresh reads the Registry twice:** for who holds the address, and for the mint's own check. Every other host's refresh is a KV read.
 - **Only the `dev` Star has personas.** `gerry--staging.crm.acme.lumenize.dev` is not a host the platform serves, and a refresh from it is refused.
 - **His tab logs out by disconnecting.** It holds no cookie of its own, so its logout ends that tab and leaves the opener's sessions alone.
 

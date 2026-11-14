@@ -982,14 +982,18 @@ export const TREE_WAIT_MS = 5_000;
 
 /**
  * `value` as the JSON a run answers with: a `Map` as an array of its entries, a `Set` as an array
- * of its members, a `bigint` as its digits, and everything else as `JSON.stringify` has it. Left
- * to itself JSON turns a `Map` into `{}`, which reads as an empty one.
+ * of its members, a `bigint` as its digits, an `Error` as its name, message and own fields, and
+ * everything else as `JSON.stringify` has it. Left to itself JSON turns a `Map` or an `Error` into
+ * `{}`, which reads as an empty one.
  *
  * @throws what `JSON.stringify` throws, for a value with a cycle.
  */
 export function plainData(value: unknown): unknown {
   const json = JSON.stringify(value, (_key, v: unknown) =>
-    v instanceof Map || v instanceof Set ? [...v] : typeof v === 'bigint' ? v.toString() : v);
+    v instanceof Map || v instanceof Set ? [...v]
+      : typeof v === 'bigint' ? v.toString()
+      : v instanceof Error ? { ...v, name: v.name, message: v.message }
+      : v);
   return json === undefined ? undefined : JSON.parse(json);
 }
 
@@ -1156,9 +1160,9 @@ export function createNebulaClient<K extends NebulaClientClass = typeof NebulaCl
 
   const storeResult = createNebulaStore(client, { unsubscribeGraceMs: clientConfig.unsubscribeGraceMs });
 
-  // Only a dev Star's page, framed by Studio, runs code Studio hands it (`answerRunRequests`). A
-  // parent origin is resolved only in a frame, so it stands for both: framed, and by whom.
-  const stopRunning = resolved.parentOrigin && resolved.dev
+  // Only a dev Star's page, framed by Studio, runs code Studio hands it (`answerRunRequests`). The
+  // frame is asked for by name: a config may name a parent origin on a page nobody frames.
+  const stopRunning = inFrame() && resolved.parentOrigin && resolved.dev
     ? answerRunRequests({ parentOrigin: resolved.parentOrigin, client, store: storeResult.store, ready })
     : undefined;
 

@@ -207,21 +207,19 @@ export const CODEGEN_TOOLS = [
         'with no TypeScript, with the app\'s own `client` and `store` in scope. It can do what ' +
         'that tab\'s person can do in the app, and nothing more. Use "me" to build the cast, ' +
         'and a persona\'s tab to make what that persona would make or to see what they see. ' +
-        'Before the first run of a turn, read .platform/skills/define-the-cast/SKILL.md: it has ' +
-        'the calls to copy for finding a node, inviting a persona, writing a record and reading ' +
-        'what a tab sees. The result is { ok: true, value }, with the value as JSON, or ' +
-        '{ ok: false, error } when the code threw. ok: true says only that the code returned: ' +
-        'client.resources.transaction does not throw when a write is refused, so return its ' +
-        'outcome and check its kind is "committed". The tool needs the person\'s Studio open ' +
-        'and an app that has been built, and a persona\'s tab opens a few seconds after its ' +
-        'invite.',
+        'Before the first run of a turn, read .platform/skills/define-the-cast/SKILL.md, which ' +
+        'has the calls to copy. The result is { ok: true, value }, with the value as JSON and a ' +
+        'Map as an array of its entries, or { ok: false, error } when the code threw. ok: true ' +
+        'says only that the code returned, not that what it tried worked, so return what tells ' +
+        'you, such as a transaction\'s outcome. The tool needs the person\'s Studio open and an ' +
+        'app that has been built, and a persona\'s tab opens a few seconds after its invite.',
       parameters: {
         type: 'object',
         additionalProperties: false,
         required: ['tab', 'code'],
         properties: {
           tab: { type: 'string', description: '"me", or a persona\'s slug from docs/personas.md.' },
-          code: { type: 'string', description: 'The body of an async function, in plain JavaScript. `client` and `store` are in scope. Return what you want to read.' },
+          code: { type: 'string', description: 'The body of an async function. `client` and `store` are in scope. Return what you want to read.' },
         },
       },
     },
@@ -326,18 +324,27 @@ export function unknownToolArgKeys(toolName: string, args: unknown): string[] {
 
 /** The most a `run_in_tab` value may add to the transcript, in characters of its JSON. */
 export const RUN_RESULT_MAX_CHARS = 20_000;
+/** The most of a thrown error's text a `run_in_tab` result keeps. */
+export const RUN_ERROR_MAX_CHARS = 2_000;
 
 /**
- * A `run_in_tab` result as the model and the record get it. A value whose JSON runs past
- * {@link RUN_RESULT_MAX_CHARS} is replaced by its first characters and a note, since it goes into
- * every later round's request and into a record every chat subscriber receives.
+ * A `run_in_tab` result as the model and the record get it. A value is kept as its JSON has it,
+ * and one whose JSON runs past {@link RUN_RESULT_MAX_CHARS} is replaced by its first characters
+ * and a note; an error's text is cut at {@link RUN_ERROR_MAX_CHARS}. Either goes into every later
+ * round's request and into a record every chat subscriber receives.
  */
-export function clipRunResult<R extends { ok: boolean }>(result: R): R | { ok: true; clipped: true; json: string; note: string } {
-  if (!result.ok) return result;
+export function clipRunResult(
+  result: { ok: true; value: unknown } | { ok: false; error: string },
+): { ok: true; value: unknown } | { ok: false; error: string } | { ok: true; clipped: true; json: string; note: string } {
+  if (!result.ok) {
+    return result.error.length <= RUN_ERROR_MAX_CHARS ? result
+      : { ok: false, error: `${result.error.slice(0, RUN_ERROR_MAX_CHARS)}… (${result.error.length} characters in all)` };
+  }
   let json: string | undefined;
-  try { json = JSON.stringify((result as unknown as { value: unknown }).value); } catch { json = undefined; }
-  if (json === undefined) return { ...result, value: undefined } as R;
-  if (json.length <= RUN_RESULT_MAX_CHARS) return result;
+  try { json = JSON.stringify(result.value); } catch { json = undefined; }
+  if (json === undefined) return { ok: true, value: undefined };
+  // What is kept is what was measured: the value as its JSON has it.
+  if (json.length <= RUN_RESULT_MAX_CHARS) return { ok: true, value: JSON.parse(json) };
   return {
     ok: true, clipped: true, json: json.slice(0, RUN_RESULT_MAX_CHARS),
     note: `The value was ${json.length} characters of JSON and only the first ${RUN_RESULT_MAX_CHARS} are here. Return less.`,

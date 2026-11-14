@@ -34,6 +34,12 @@ into `callContext.originRequest` so a mesh-borne facade mints from it rather tha
 **Every emailed link is now followed AS SENT in every lane**, which is the property to defend: a new
 host-rewriting helper is a regression of this rule, whatever its JSDoc says.
 
+**One exception stands, which Larry approved on 2026-11-14: the local persona mail relay.**
+`apps/nebula/scripts/persona-mail-relay.mjs` hands a persona's mail to `wrangler dev`'s `email`
+handler as it arrived. Cloudflare delivers mail only to a deployed Worker, so nothing in the
+environment or the code could be fixed instead. The stack starts it, in the harness and under
+`npm run dev` alike, and no scenario calls it, so a scenario stays the same in both venues.
+
 ## Reading the Worker's logs
 
 **`DevStack.logs` holds the Worker's own lines in both venues: a local stack's stdio, or on a

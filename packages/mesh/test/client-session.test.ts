@@ -145,7 +145,8 @@ describe('logout', { timeout: 30000 }, () => {
   // A page whose own token carries `act`, as a persona's tab's does: the refresh minted it for
   // someone else's session, so the page has no session of its own to end. MUTATION: drop the
   // `derived` return in `logout()`, and this page is sent to the platform host's logout page, which
-  // would end its opener's sessions.
+  // would end its opener's sessions. MUTATION: read `act` afresh on each call, and the second
+  // call, made after the first dropped the token, navigates there.
   it('a top-level page whose own token carries act disconnects and sends the page nowhere', async () => {
     const universe = uniqueScope('s');
     using admin = await connectClient(SessionClient, universe);
@@ -168,6 +169,10 @@ describe('logout', { timeout: 30000 }, () => {
     expect(page.claims).toBeNull();
     expect(page.connectionState).toBe('disconnected');
     expect(admin.connectionState).toBe('connected');
+    // A second click, since the first showed nothing: the token is gone, and the page still
+    // goes nowhere.
+    await page.logout();
+    expect(assign).not.toHaveBeenCalled();
   });
 
   // MUTATIONS: drop `clearAccessToken()` and the claims survive; drop the impersonation teardown and

@@ -22,9 +22,11 @@ so that there is one way.
 - **`leaveTo(url)`** — the only cross-document move (into an app, to login, to Home). A full load on
   purpose: a different scope is a different socket and token, and the auth screens are a different
   bundle. It exists so those moves stay visible and countable.
-- **`scopeUrl(scope, path)` and `platformUrl(path)`** — spell another page's URL. The host is the
-  scope (ADR-021), so on `lumenize.dev`, `scopeUrl('acme.crm')` is `https://crm.acme.lumenize.dev/`;
-  `pageScope` is the scope this page's own host spells.
+- **`scopeUrl(scope, path)`, `personaUrl(scope, persona, path)` and `platformUrl(path)`** — spell
+  another page's URL. The host is the scope (ADR-021), so on `lumenize.dev`, `scopeUrl('acme.crm')`
+  is `https://crm.acme.lumenize.dev/`, and `personaUrl('acme.crm.dev', 'mary')` is the host of the
+  persona's own tab, `https://mary--dev.crm.acme.lumenize.dev/`; `pageScope` is the scope this
+  page's own host spells.
 
 **The module stores nothing.** Where a person was when they left for a login rides the login's
 `return_to`: the page names itself, the login page hands it to `email-magic-link`, which checks it and

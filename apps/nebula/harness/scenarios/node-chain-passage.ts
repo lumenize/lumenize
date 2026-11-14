@@ -4,8 +4,8 @@
  * Passage reads a claimless chain's `activeScope` from the name of the node that started it, which
  * is sound only if every object under a scope-shaped name checks passage into that scope. A
  * Profile checks none, so its base, `UnscopedMeshDO`, refuses to run under a name that parses as a
- * scope, and a Client's Gateway refuses to send it one. Every profile id passes: a UUID, a
- * persona's version-5 UUID, and `NEBULA_SUB`, which is no UUID at all. `client-routes` drives the
+ * scope, and a Client's Gateway refuses to send it one. Every profile id passes: a UUID, which
+ * a persona's is too, and `NEBULA_SUB`, which is no UUID at all. `client-routes` drives the
  * refusal of a Star's name; this scenario holds the other side, that a name which is no UUID still
  * answers.
  *

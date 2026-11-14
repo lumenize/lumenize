@@ -1,12 +1,12 @@
 # Personas
 
-The cast: each kind of person who uses this app, as a test member of the workspace with a tab of their own beside "Me" in Studio's preview. A data wipe keeps the cast's memberships and drops their grants and data, so this file holds, in plain words, the steps that give both back. Key everything on a persona's slug. Write no id and no email address: the page spells a persona's address when it is asked to.
+The cast: each kind of person who uses this app, and the steps in plain words that rebuild their grants and sample data. The `define-the-cast` skill says how to write this file and how to build from it.
 
 Write this when: the `define-the-cast` skill has settled the cast, or a new kind of user appears in the conversation.
 
 ## The cast
 
-Write this when: the personas are named. One list line for each, which Studio reads for its tabs: the slug in backticks, then the full name and what they do, as in "`ollie` — Ollie Organizer. Runs the exchange and sees every list." Names are alliterative and say the role; the slug is the first name alone, lowercase.
+Write this when: the personas are named. One list line for each, which Studio reads for its tabs: the slug in backticks, then the full name and what they do, as in "`ollie` — Ollie Organizer. Runs the exchange and sees every list."
 
 ## Building the cast
 

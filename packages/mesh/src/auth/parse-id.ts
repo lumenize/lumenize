@@ -82,8 +82,8 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
  * The longest slug, so a persona and its Star fit one 63-character host label as
  * `{persona}--{star}`, 30 + 2 + 30 (ADR-021). `warehouse-management-system` is 27.
  *
- * It also keeps an id from parsing as a scope: a `profileId`, a persona's version-5 id and a
- * Client's `{sub}.{tabId}` id each carry a 36-character UUID, which the slug grammar alone accepts.
+ * It also keeps an id from parsing as a scope: a `profileId`, a `sub` and a Client's
+ * `{sub}.{tabId}` id each carry a 36-character UUID, which the slug grammar alone accepts.
  */
 export const MAX_SLUG_LENGTH = 30;
 

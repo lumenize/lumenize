@@ -660,6 +660,8 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
    * since a `refresh` can run during `super()`, before this field exists.
    */
   #mintedFrom?: MeshClient<AuthClaims>;
+  /** Whether this Client has held a token carrying `act`. {@link logout} sets it and nothing clears it. */
+  #heldActToken = false;
 
   // ── The Profile channel ───────────────────────────────────────────────────────────────────────
   //
@@ -1005,9 +1007,11 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
       await this.dispose();
       return;
     }
-    // Read before the token goes. A token carrying `act` was minted for someone else's session,
-    // so the page that holds it has no session of its own to end.
-    const derived = this.claims?.act !== undefined;
+    // A token carrying `act` was minted for someone else's session, so the page that holds it has
+    // no session of its own to end. Kept once seen: this call drops the token, and a second
+    // click, which is likely when the first shows nothing, must not go on to end the opener's.
+    if (this.claims?.act !== undefined) this.#heldActToken = true;
+    const derived = this.#heldActToken;
     this.clearAccessToken();
     this.disconnect();
     this.#tearDownImpersonation();

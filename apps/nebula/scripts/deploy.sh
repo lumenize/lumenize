@@ -80,7 +80,12 @@ wrangler r2 bucket list 2>/dev/null | grep -qE 'nebula-blobs(\s|$)' || wrangler 
 # Persona mail: `addresses` in wrangler.jsonc has the deploy point the persona mail zone's catch-all
 # rule at this worker, which needs Email Routing on for that zone first. Turning it on adds MX and
 # SPF records at the zone's own name, and turning it on again changes nothing.
-PERSONA_MAIL_DOMAIN="$(grep -E '^\s*"PERSONA_MAIL_DOMAIN"' wrangler.jsonc | sed -E 's/.*:\s*"([^"]*)".*/\1/')"
+# `[[:space:]]`, never `\s`: macOS sed leaves `\s` unmatched and hands the whole line back.
+PERSONA_MAIL_DOMAIN="$(grep -oE '"PERSONA_MAIL_DOMAIN"[[:space:]]*:[[:space:]]*"[^"]*"' wrangler.jsonc \
+  | sed -E 's/.*:[[:space:]]*"([^"]*)".*/\1/' | head -1)"
+case "$PERSONA_MAIL_DOMAIN" in
+  *[!a-z0-9.-]*|"") PERSONA_MAIL_DOMAIN="" ;;
+esac
 if [ -z "$PERSONA_MAIL_DOMAIN" ]; then
   echo "❌ No PERSONA_MAIL_DOMAIN in wrangler.jsonc: no persona could receive its invite." >&2
   exit 1

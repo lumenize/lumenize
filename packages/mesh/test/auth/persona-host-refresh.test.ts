@@ -84,6 +84,30 @@ describe("a persona's host mints for the member its address names", () => {
     expect(body.error_description).toBe(`The calling host's scope "${c.dev}" does not administer this subject`);
   });
 
+  // A collaborator: invited into the app as a plain member, which co-mints an admin membership of
+  // its dev Star. Their browser holds both cookies, and the plain one covers nothing below the app.
+  // Mutation, of the fixture: send the app's cookie alone → 401, which shows the dev Star's
+  // membership is what opens the page.
+  it('opens for a collaborator, on the dev Star membership their app invite co-minted', async () => {
+    const c = await cast();
+    const gerry = await c.invite(c.address('gerry'));
+    const atUniverse = await refreshAndParse(SELF, c.u, c.admin.refreshToken, c.u);
+    const app = `${c.u}.first`;
+    const mint = await issueInvitesAs(atUniverse.access_token, app, [{ email: `collab-${c.u}@example.com` }]);
+    expect(mint.errors).toEqual([]);
+    const collab = await clickLink(SELF, mint.results[0]!.inviteUrl);
+    const both = `${refreshCookie(app, collab.tokenFor(app))}; ${refreshCookie(c.dev, collab.tokenFor(c.dev))}`;
+    const resp = await c.refreshOn(c.host('gerry'), both);
+    expect(resp.status).toBe(200);
+    const claims = payloadOf((await resp.json() as { access_token: string }).access_token);
+    expect(claims.sub).toBe(gerry.sub);
+    // The opener in `act` is the collaborator's dev Star membership, a `sub` of its own.
+    expect(claims.act.sub).not.toBe(mint.results[0]!.sub);
+    expect(claims.act.sub).not.toBe(payloadOf(c.adminAtDev.access_token).sub);
+    // The app's own cookie opens nothing here: a plain member of the app has no dominion below it.
+    expect((await c.refreshOn(c.host('gerry'), refreshCookie(app, collab.tokenFor(app)))).status).toBe(401);
+  });
+
   it('refuses a persona whose invite nobody has accepted, and opens once it is', async () => {
     const c = await cast();
     const mint = await issueInvitesAs(c.adminAtDev.access_token, c.dev, [{ email: c.address('gerry') }]);

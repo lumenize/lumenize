@@ -246,9 +246,17 @@ export type GatewayMessage =
  */
 export class ClientDisconnectedError extends Error {
   name = 'ClientDisconnectedError';
+  /**
+   * Set when the Client held a socket and did not answer in time, so the call was delivered and
+   * may still run there. Absent when the Client had no socket, where nothing was delivered. A
+   * caller that would try the call elsewhere reads it first: a call that is not idempotent must
+   * not be sent twice.
+   */
+  unanswered?: true;
 
-  constructor(message: string = 'Client is not connected') {
+  constructor(message: string = 'Client is not connected', opts: { unanswered?: boolean } = {}) {
     super(message);
+    if (opts.unanswered) this.unanswered = true;
   }
 }
 

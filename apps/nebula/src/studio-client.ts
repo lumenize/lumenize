@@ -35,6 +35,9 @@ export interface StudioClientConfig extends NebulaClientConfig {
  * may not import (`mesh.md` § *Package dependency direction*). Studio gets one from the same
  * factory a generated app calls, by passing the class: `createNebulaClient({ Client: StudioClient, … })`.
  */
+/** The `name` of the Error a {@link StudioClient} answers `runInTab` with when it shows no preview. */
+export const NO_PREVIEW_ERROR = 'NoPreviewError';
+
 export class StudioClient extends NebulaClient {
   /** The chat host pair — NO default; a post throws when unset (see the config JSDoc). */
   #chatHostBinding?: string;
@@ -84,7 +87,11 @@ export class StudioClient extends NebulaClient {
    */
   @mesh()
   runInTab(tab: string, code: string): Promise<RunAnswer> {
-    if (!this.#runInTab) throw new Error('This Studio tab is not showing a preview, so it has no tab to run code in');
+    if (!this.#runInTab) {
+      // Named, so the Galaxy can pass this client over for the person's next tab: a script's
+      // client, or one made by `impersonate()`, shows no preview, and ran nothing.
+      throw Object.assign(new Error('This Studio tab is not showing a preview, so it has no tab to run code in'), { name: NO_PREVIEW_ERROR });
+    }
     return this.#runInTab(tab, code);
   }
 

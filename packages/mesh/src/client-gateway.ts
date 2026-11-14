@@ -890,7 +890,7 @@ export class ClientGateway {
       // The timer only times the wait out: `ctx.waitUntil` is what holds the Gateway.
       const timeout = setTimeout(() => {
         this.#pendingCalls.delete(callId);
-        reject(new ClientDisconnectedError('Client call timed out'));
+        reject(new ClientDisconnectedError('Client call timed out', { unanswered: true }));
       }, this.#clientCallTimeoutMs);
       this.#pendingCalls.set(callId, { resolve, reject, timeout, instanceName, envelope, frame });
       ws.send(frame);

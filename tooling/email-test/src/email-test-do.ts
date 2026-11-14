@@ -19,7 +19,7 @@ export interface StoredEmail {
    */
   instance: string;
   /**
-   * The message as it arrived, every byte, in base64. A harness hands it to a local Worker's
+   * The message as it arrived, every byte, in base64. A local stack's relay hands it to a local Worker's
    * `email` handler, which no routed mail can reach, so that handler reads what production's would.
    */
   raw: string;

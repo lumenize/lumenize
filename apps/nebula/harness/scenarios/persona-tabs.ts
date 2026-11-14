@@ -309,7 +309,9 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(mannyFrame.admin, true, "Manny's token must carry the admin bit his membership holds");
     assert.equal(mannyFrame.actSub, oToken.sub, 'the opener rides in act');
     // The plain member beside him, as the control: Sally's token carries no admin bit.
-    assert.notEqual((await readFrame(o.page, 'sally'))?.admin, true, "Sally's token must carry no admin bit");
+    const sallyNow = await readFrame(o.page, 'sally');
+    assert.equal(sallyNow?.sub, sallyFrame.sub, "Sally's frame must still hold her token, or the control reads nothing");
+    assert.notEqual(sallyNow?.admin, true, "Sally's token must carry no admin bit");
     console.error("  ✓ limb 8 — invited into the workspace with the admin bit from the me tab, Manny's tab opened as its admin");
 
     // ── LIMB 7: a persona's page logs out by disconnecting ───────────────────────────────────

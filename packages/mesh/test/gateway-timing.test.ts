@@ -128,8 +128,11 @@ describe('a host\'s grace period running out', () => {
       expect(kept).toHaveLength(1);
       return parse(kept[0]).result;
     }, { timeout: 5000 });
-    expect({ name: error.name, message: error.message })
-      .toEqual({ name: 'ClientDisconnectedError', message: 'Client call timed out' });
+    // `unanswered` tells a caller the call was delivered and may still run, where a Client with no
+    // socket was sent nothing. MUTATION: drop it at the timeout, and a caller that tries the call
+    // on another Client cannot tell the two apart.
+    expect({ name: error.name, message: error.message, unanswered: error.unanswered })
+      .toEqual({ name: 'ClientDisconnectedError', message: 'Client call timed out', unanswered: true });
     const code = await Promise.race([closed, new Promise((resolve) => setTimeout(() => resolve('no close'), 2000))]);
     expect(code).toBe(4408);
 

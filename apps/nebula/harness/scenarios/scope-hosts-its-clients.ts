@@ -23,8 +23,9 @@
  *     Star's own `onBeforeCall` would refuse both chains: a Profile's names no scope, and a chain
  *     the Galaxy starts has no passage down into a Star. Mutation: run the Star's passage check on
  *     a call addressed to a Client it hosts; neither push arrives.
- *  4. **On a persona's host the same upgrade reaches the `.dev` Star.** Its accept line names
- *     `{galaxy}.dev/{persona id}`.
+ *  4. **On a persona's host the same upgrade reaches the `.dev` Star.** Manny is invited there
+ *     first, since a persona's host mints only for a member. Its accept line names
+ *     `{galaxy}.dev/{Manny's client id}`.
  *  5. **A tab's save runs in place on its own Star, and its read of the Galaxy is relayed; both
  *     answers arrive.** The Star's Gateway logs the save's frame with the outcome `ran in place`.
  *     Mutation: send a Client's call to its host by RPC; the outcome is `sent on`.
@@ -48,10 +49,11 @@ import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { Browser } from '@lumenize/testing';
 import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources/client';
+import { personaAddress } from '@lumenize/mesh/client';
 import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { Galaxy, Star } from '@lumenize/nebula';
 import type { DevStack, Driver } from '../lib/harness';
-import { connectDriver, constructionPairs, readDevVar, scopeUrlOf } from '../lib/harness';
+import { connectDriver, constructionPairs, inviteViaMesh, readDevVar, scopeUrlOf } from '../lib/harness';
 import { provisionAndLogin, refreshAccessToken, refreshCookie, scopeOriginFrom, foundTenantStar } from '../../test/lib/email-login';
 import { sharedApp } from '../lib/shared-app';
 import { testSlug } from '../lib/test-scopes';
@@ -272,10 +274,21 @@ export async function run(stack: DevStack): Promise<void> {
     // ── LIMB 4: on a persona's host the same upgrade reaches the `.dev` Star ───────────────────
     const devOrigin = scopeOriginFrom(origin, `${app.galaxy}.dev`);
     const personaUrl = devOrigin.replace('//dev.', '//manny--dev.');
-    const personaRefresh = await fetch(`${origin}/auth/refresh-token`, {
+    // Manny is a member of the `.dev` Star, invited at the address his host spells. The Worker's
+    // mail handler accepts the invite, so his host's refresh answers once that mail has arrived.
+    const dev = `${app.galaxy}.dev`;
+    const atDev = await refreshAccessToken(origin, owner.session, dev);
+    const invited = await inviteViaMesh(stack, atDev, dev, [{ email: await personaAddress({ persona: 'manny', scope: dev }, stack.personaMailDomain) }]);
+    assert.equal(invited.errors.length, 0, `Manny's invite failed: ${JSON.stringify(invited.errors)}`);
+    const refreshAsManny = () => fetch(`${origin}/auth/refresh-token`, {
       method: 'POST',
       headers: { Origin: personaUrl, Cookie: refreshCookie(owner.session.authScope, owner.session.refreshToken), 'Sec-Fetch-Site': 'same-site' },
     });
+    let personaRefresh = await refreshAsManny();
+    for (const deadline = Date.now() + 90_000; personaRefresh.status === 401 && Date.now() < deadline;) {
+      await new Promise((r) => setTimeout(r, 1_000));
+      personaRefresh = await refreshAsManny();
+    }
     assert.equal(personaRefresh.status, 200, `the persona's refresh answered ${personaRefresh.status}`);
     const persona = await personaRefresh.json() as { access_token: string; sub: string };
     const personaTab = await hostedTab(personaUrl, `${app.galaxy}.dev`, persona.access_token, persona.sub, socketLog());

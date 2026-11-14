@@ -734,6 +734,17 @@ export class GalaxyTest extends Galaxy {
     ).toArray().map((r) => r.clientAddress);
   }
 
+  /** Test-only: copy one query subscriber's row under another address and `sub`, for a row no
+   *  client of this lane can make: one held by another node's Client under a Galaxy member's `sub`. */
+  @mesh(requireDominionHere)
+  copyQuerySubscriberForTest(fromAddress: string, toAddress: string, toSub: string): number {
+    return this.ctx.storage.sql.exec(
+      `INSERT INTO Subscriptions (kind, topic, clientAddress, subscribedAt, sub, profileId, dominionOverHostAtSubscribe, query)
+       SELECT kind, topic, ?, subscribedAt, ?, profileId, dominionOverHostAtSubscribe, query
+       FROM Subscriptions WHERE kind = 'query' AND clientAddress = ?`, toAddress, toSub, fromAddress,
+    ).rowsWritten;
+  }
+
   /** Test-only: delete every query row — the reconnect test's server-side amnesia, so the
    *  client's re-subscribe walk is what restores fanout (without it the walk's absence would
    *  be invisible: rows would just still exist). */
