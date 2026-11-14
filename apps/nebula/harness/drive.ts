@@ -119,7 +119,7 @@ import * as certificateWake from './scenarios/certificate-wake';
 import * as deletedOnCloudflare from './scenarios/deleted-on-cloudflare';
 import * as eachTransactionGetsOneMoment from './scenarios/each-transaction-gets-one-moment';
 // @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with deploy-test.sh.
-import { TEST_ORIGIN } from '../scripts/test-deploy-config.mjs';
+import { TEST_ORIGIN, TEST_PERSONA_MAIL_DOMAIN } from '../scripts/test-deploy-config.mjs';
 
 /** This checkout's root, which the path of every workerd it started begins with. */
 const CHECKOUT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -246,7 +246,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'studio-app-settings': studioAppSettings, // Studio lists its tenants and deletes one; a caller without dominion is refused by the facade (no Docker)
   // ── passage and dominion read the host's scope ──────────────────────────────────────────────
   'host-rule': hostRule, // a token acts from its host: dominion down, passage up, the facade refuses below the parent (no Docker)
-  'persona-host': personaHost, // a persona's host mints the persona's token for a dev Star admin, and for nobody else (no Docker)
+  'persona-host': personaHost, // a persona is invited by mail, accepted by the Worker's handler, and opened by an admin through the impersonation mint (no Docker)
   'certificate-wake': certificateWake, // a create or acceptance wakes its galaxy's certificate order by name; nothing else does (no Docker)
   'deleted-on-cloudflare': deletedOnCloudflare, // a deletion leaves no pack and no stored data, read from Cloudflare's API; deployed only (no Docker)
 };
@@ -626,6 +626,7 @@ function deployedStack(target: string): Omit<DevStack, 'logs'> {
     id: DEPLOYED_STACK_ID,
     baseUrl: hostOrigin({ kind: 'platform' }, TEST_ORIGIN, target),
     origin: TEST_ORIGIN,
+    personaMailDomain: TEST_PERSONA_MAIL_DOMAIN,
     signingKey: readDevVar('JWT_PRIVATE_KEY_BLUE'),
     activeKey: 'BLUE' as const,
     // ⚠️ State on a deployed target SURVIVES the run — scenarios provision fresh scopes per run,

@@ -33,7 +33,9 @@ import { waitForHost } from './wait-for-host';
 export { waitForHost, NEW_HOST_TIMEOUT_MS } from './wait-for-host';
 import { signJwt, importPrivateKey, createJwtPayload, parseJwtUnsafe } from '@lumenize/crypto';
 // @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with `npm run dev`.
-import { deriveLocalConfig, LOCAL_ORIGIN } from '../../scripts/local-config.mjs';
+import { deriveLocalConfig, LOCAL_ORIGIN, LOCAL_PERSONA_MAIL_DOMAIN } from '../../scripts/local-config.mjs';
+// @ts-expect-error — plain JS with JSDoc types, as above; shared with `npm run dev`.
+import { startPersonaMailRelay } from '../../scripts/persona-mail-relay.mjs';
 
 const HARNESS_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula/harness
 const NEBULA_DIR = dirname(HARNESS_DIR); // apps/nebula
@@ -104,6 +106,9 @@ export interface DevStack {
   baseUrl: string;
   /** The deployment's origin, its `LUMENIZE_ORIGIN`: every host and the JWT issuer derive from it. */
   origin: string;
+  /** The deployment's `PERSONA_MAIL_DOMAIN`, where its personas receive mail: what a page reads
+   *  from its own meta to spell a persona's address. */
+  personaMailDomain: string;
   /** The Ed25519 private key PEM read from `.dev.vars` (never logged). */
   signingKey: string;
   /** The BLUE/GREEN selector this key belongs to (the JWT `kid`). */
@@ -214,9 +219,22 @@ export async function bootDevStack(
     },
   });
 
+  // A part of the local stack, as it is of `npm run dev`: no mail can be routed to this Worker, so
+  // the relay hands it each persona's message from the test mailbox as it arrived (its header says
+  // why it is no scenario's helper). Its lines join the stack's captured output.
+  const relay = startPersonaMailRelay({
+    workerUrl, testToken: readDevVar('TEST_TOKEN'),
+    log: (line: string) => { captured += `${line}\n`; if (process.env.HARNESS_DEBUG) process.stderr.write(`${line}\n`); },
+  });
+
   // Every host answers on the one port wrangler bound; the platform host is the one sessions use.
   const baseUrl = hostOrigin({ kind: 'platform' }, LOCAL_ORIGIN, workerUrl);
-  return { id: crypto.randomUUID(), baseUrl, origin: LOCAL_ORIGIN, signingKey, activeKey: 'BLUE', cleanup, logs: () => captured };
+  return {
+    id: crypto.randomUUID(), baseUrl, origin: LOCAL_ORIGIN, personaMailDomain: LOCAL_PERSONA_MAIL_DOMAIN,
+    signingKey, activeKey: 'BLUE',
+    cleanup: async () => { relay.stop(); await cleanup(); },
+    logs: () => captured,
+  };
 }
 
 /**

@@ -1,56 +1,73 @@
 /**
- * **A persona's host mints the persona's token for an admin of its `dev` Star, and for nobody else.**
+ * **A persona is a real member of its dev Star: invited at the address its host spells, accepted by
+ * the Worker's own mail handler, and opened by an admin through the impersonation mint.**
  *
- * Studio frames `manny--dev.crm.{u}.lumenize.dev` to show the app as Manny sees it. The page's
- * refresh answers with Manny's own plain token when the browser holds a cookie whose ACCEPTED
- * membership has dominion over the `.dev` Star, judged from the cookie's record and never its name.
- * Manny's `sub` and `profileId` are one version-5 UUID of `{u}.crm.dev/manny`, so every refresh
- * derives the same id and nothing stores it.
+ * Studio frames `gerry--dev.crm.{u}.lumenize.dev` to show the app as Gerry sees it. That host spells
+ * an address, `gerry--dev.crm.{u}@{the persona mail domain}`, and whoever holds an accepted
+ * membership under it at the dev Star is Gerry. Nobody sits behind the address, so the Worker's
+ * `email` handler accepts his invite from the message it arrives in. Then the page's refresh mints
+ * for that member through the impersonation mint, with the browser's admin as the opener.
  *
- * The cast: **O** owns `{u}` and its app `crm`. **C** is invited into the app as an admin, which
- * co-mints a `.dev` admin membership, and accepts. **P** is invited into the `.dev` Star as a plain
- * member. **N** is invited into the app as an admin and signs in through a plain link without
- * accepting. **E** owns an unrelated universe.
+ * Mail reaches the handler as each venue delivers it: Cloudflare's routing on the deployed target,
+ * and the local stack's own relay locally, which hands the handler the message as it arrived
+ * (`scripts/persona-mail-relay.mjs`). The scenario does nothing about delivery in either.
+ *
+ * The cast: **O** owns `{u}` and its app `crm`. **P** is invited into the dev Star as a plain
+ * member and accepts as a person does. **Gerry** and **Sally** are personas.
  *
  * Limbs, each isolated (`live.md` — per limb):
  *
- *  1. **An admin of the `dev` Star gets Manny's token.** O's cookie mints a plain token on Manny's
- *     host — no `act`, no `scopeAdmin`, `authScope` and `aud` both the `.dev` Star — and C's does
- *     too. *Reds if the host is treated as its Star: the page gets its opener's own token.*
- *  2. **Nobody else gets Manny, each refused by the refresh's own 401.** P, a plain member; N,
- *     whose admin membership is unaccepted; and O on `manny--staging`. *Reds, one per limb, if the
- *     persona falls through to the ordinary pick, the accepted conjunct goes, or the `dev` check
- *     goes.* Positive control: N, after Accept, gets Manny's token.
- *  3. **The refresh records its opener.** The persona's line, read by the refresh's id, names
- *     both O's `sub` and Manny's. *Reds if the record is dropped.*
- *  4. **The cookie's record decides, not its name.** E's own refresh value, sent under O's
- *     universe's cookie name, gets 401. *Reds if the name decides — Manny's token is minted.*
- *  5. **Manny's id is a name-based GUID no person's can equal.** It is the `sub` and the
- *     `profileId`, carries version 5, and is the same from O's browser and C's. Positive control:
- *     Manny's tab opens a socket and makes a call, so the `.dev` Star accepts the id.
+ *  1. **Gerry's invite is accepted by mail, with nobody clicking.** Before the invite his host
+ *     answers 401. O invites his address into the dev Star, and his host then opens. *Reds if the
+ *     handler accepts nothing, or the address the page spells is not the one the host derives.*
+ *  2. **The token is Gerry's own, with O in `act`.** Its `sub` is the membership the invite
+ *     minted, it carries no admin bit though O's does, and Gerry's tab connects and calls his Star.
+ *     *Reds if the refresh mints for its opener, or copies the opener's bit.*
+ *  3. **A plain member of the Star cannot open Gerry's page,** refused in the impersonation mint's
+ *     own words. Positive control: P's cookie opens the dev Star's own page. *Reds if any member
+ *     may open a persona.*
+ *  4. **A login link sent to a persona's address signs nobody in and accepts nothing.** Sally is
+ *     invited by a link the handler must refuse (limb 5), so she is pending when a login link is
+ *     mailed to her address; the handler logs that it dropped it, and her host still answers 401.
+ *     *Reds if the handler accepts by any link it is sent.*
+ *  5. **An invite into the app, sent to a persona's address, is dropped.** It mints a pending
+ *     admin membership at the dev Star for that address, which is the membership a persona's host
+ *     would open, so accepting it would make a persona an admin nobody chose. The handler logs the
+ *     drop and Sally's host answers 401. *Reds if the handler does not spell the address forward
+ *     from the Star the link names.*
+ *  6. **The cookie's record decides, not its name.** E's own refresh value, sent under O's
+ *     universe's cookie name, gets 401 on Gerry's host.
  *
- * Limb 3 reads the Worker's logs, in both venues.
+ * Limbs 4 and 5 read the Worker's logs, in both venues.
  *
- * `needsContainer = false` — auth, the refresh and one Star only.
+ * `needsContainer = false` — auth, the mail handler, the refresh and one Star only.
  */
 import assert from 'node:assert/strict';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
+import { personaAddress } from '@lumenize/mesh/client';
 import type { Star } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, inviteViaMesh, readDevVar, scopeUrlOf, waitForHost } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
-import { waitForDebugLines } from '../lib/stdio';
+import { loggedAfter, waitForDebugLines } from '../lib/stdio';
+import type { DebugLine } from '../lib/stdio';
 import {
   provisionAndLogin, consumeLink, setCookieHeaders, refreshTokenForScope, refreshCookie, refreshAccessToken,
-  acceptMembership, requestMagicLink, scopeOriginFrom,
+  requestMagicLink, scopeOriginFrom,
 } from '../../test/lib/email-login';
 
 export const needsContainer = false;
-export const bootVars = { DEBUG: 'nebula-auth.worker.refresh' };
+export const bootVars = { DEBUG: 'nebula-auth.worker.refresh,nebula-auth.worker.personaMail' };
 
-type Claims = { sub: string; profileId: string; aud: string; act?: unknown; access: { authScope: string; scopeAdmin?: boolean } };
+type Claims = {
+  sub: string; profileId: string; aud: string; act?: { sub: string; profileId: string };
+  access: { authScope: string; scopeAdmin?: boolean };
+};
 const claimsOf = (token: string) => parseJwtUnsafe(token)!.payload as unknown as Claims;
+
+/** How long a persona's host may take to open after its invite: the mail's round trip. */
+const ACCEPT_BY_MAIL_MS = 90_000;
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
@@ -59,123 +76,122 @@ export async function run(stack: DevStack): Promise<void> {
   const galaxy = `${universe}.crm`;
   const dev = `${galaxy}.dev`;
   const devOrigin = scopeOriginFrom(origin, dev);
-  /** A persona's host in `star`'s slot: `manny--dev.crm.{u}.lumenize.localhost`. */
-  const personaOrigin = (persona: string, starSlug: string) => devOrigin.replace('//dev.', `//${persona}--${starSlug}.`);
-  const manny = personaOrigin('manny', 'dev');
+  /** A persona's host: `gerry--dev.crm.{u}.lumenize.localhost`. */
+  const hostOf = (persona: string) => devOrigin.replace('//dev.', `//${persona}--dev.`);
+  /** A persona's address, as a page on this deployment spells it. */
+  const addressOf = (persona: string) => personaAddress({ persona, scope: dev }, stack.personaMailDomain);
 
   /** The refresh a page on `pageOrigin` sends, with `cookie`. */
   const refreshOn = (pageOrigin: string, cookie: string) => fetch(`${origin}/auth/refresh-token`, {
     method: 'POST', headers: { Origin: pageOrigin, Cookie: cookie, 'Sec-Fetch-Site': 'same-site' },
   });
-  const mannyFrom = async (cookie: string, who: string): Promise<{ accessToken: string; claims: Claims }> => {
-    const res = await refreshOn(manny, cookie);
-    const body = await res.json() as { access_token?: string; error_description?: string };
-    assert.equal(res.status, 200, `${who}'s refresh on Manny's host answered ${res.status}: ${body.error_description}`);
-    return { accessToken: body.access_token!, claims: claimsOf(body.access_token!) };
-  };
-  const refusedOn = async (pageOrigin: string, cookie: string, who: string) => {
+  const refused = async (pageOrigin: string, cookie: string, who: string): Promise<string> => {
     const res = await refreshOn(pageOrigin, cookie);
     // Never the body itself: a refusal that failed carries a token, which no log may hold.
-    const body = await res.json().catch(() => ({})) as { error?: string; access_token?: string };
+    const body = await res.json().catch(() => ({})) as { error?: string; error_description?: string; access_token?: string };
     const said = body.access_token ? 'a token' : body.error ?? '(no error code)';
     assert.equal(res.status, 401, `${who} must be refused on ${new URL(pageOrigin).hostname}, got ${res.status}: ${said}`);
     assert.equal(res.headers.get('Access-Control-Allow-Origin'), pageOrigin, `${who}'s refusal must be the refresh's own, with its CORS`);
+    return body.error_description ?? '';
   };
-  /** The link an invite mails, armed before the send and filtered by its unique recipient. */
-  const inviteLink = async (admin: { accessToken: string; sub: string }, scope: string, email: string, scopeAdmin: boolean) => {
-    // Before the waiter is armed: on a deployed target this app's host answers only once its certificate
-    // is issued, which can outlast the waiter, and the invite dials it.
-    await waitForHost(scopeUrlOf(stack, (parseJwtUnsafe(admin.accessToken)!.payload as { aud: string }).aud));
-    const waiter = waitForEmail({ testToken, to: email, timeout: 120_000 });
-    try {
-      const summary = await inviteViaMesh(stack, admin, scope, [{ email, scopeAdmin }]);
-      assert.equal(summary.errors.length, 0, `the invite into ${scope} failed: ${JSON.stringify(summary.errors)}`);
-      const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec((await waiter.emailPromise).html ?? '')?.[1];
-      assert.ok(href, `the invite into ${scope} carried no link`);
-      return href.replace(/&amp;/g, '&');
-    } finally {
-      waiter.cleanup();
+  /** Ask `pageOrigin` for its token until it opens, which a persona's does once its mail is accepted. */
+  const opens = async (pageOrigin: string, cookie: string, who: string): Promise<{ accessToken: string; claims: Claims }> => {
+    const deadline = Date.now() + ACCEPT_BY_MAIL_MS;
+    for (;;) {
+      const res = await refreshOn(pageOrigin, cookie);
+      if (res.status === 200) {
+        const { access_token } = await res.json() as { access_token: string };
+        return { accessToken: access_token, claims: claimsOf(access_token) };
+      }
+      await res.body?.cancel();
+      assert.ok(Date.now() < deadline, `${who}'s host never opened: its invite was not accepted within ${ACCEPT_BY_MAIL_MS / 1000} s`);
+      await new Promise((r) => setTimeout(r, 1000));
     }
   };
-  /** Press a link's Accept and come back with the refresh cookies it set for `scopes`, as a header. */
-  const acceptedCookies = async (link: string, scopes: string[]) => {
-    const set = setCookieHeaders(await consumeLink(link, fetch, { nickname: 'Ph' }));
-    const pairs = scopes.flatMap((scope) => {
-      const token = refreshTokenForScope(set, scope);
-      return token ? [refreshCookie(scope, token)] : [];
-    });
-    assert.ok(pairs.length > 0, `the Accept set no cookie for ${scopes.join(' or ')}`);
-    return pairs.join('; ');
+  /** Invite `email` into `scope` as `admin`, and answer the membership it minted. */
+  const invite = async (admin: { accessToken: string; sub: string }, scope: string, email: string) => {
+    const summary = await inviteViaMesh(stack, admin, scope, [{ email }]);
+    assert.equal(summary.errors.length, 0, `the invite into ${scope} failed: ${JSON.stringify(summary.errors)}`);
+    return summary.results[0]!.sub;
   };
+  /** The handler's line saying it dropped a message for `to`, logged after `after`. */
+  const droppedLine = (to: string, after?: DebugLine) => waitForDebugLines(
+    stack,
+    (all) => all.some((x) => x.namespace === 'nebula-auth.worker.personaMail' && x.message === 'dropped'
+      && x.data.to === to && (!after || loggedAfter(x, after))),
+    `the mail handler's drop for ${to}`,
+  ).then((all) => all.filter((x) => x.namespace === 'nebula-auth.worker.personaMail' && x.message === 'dropped' && x.data.to === to).at(-1)!);
 
   // ── The cast ──────────────────────────────────────────────────────────────────────────────
   const owner = await provisionAndLogin({ baseUrl: origin, scope: galaxy, testToken });
   const ownerCookie = refreshCookie(owner.session.authScope, owner.session.refreshToken);
-  const atGalaxy = await refreshAccessToken(origin, owner.session, galaxy);
-  const c = uniqueTestEmail();
-  const cCookie = await acceptedCookies(await inviteLink(atGalaxy, galaxy, c, true), [galaxy, dev]);
-  const p = uniqueTestEmail();
+  await waitForHost(scopeUrlOf(stack, dev));
   const atDev = await refreshAccessToken(origin, owner.session, dev);
-  const pCookie = await acceptedCookies(await inviteLink(atDev, dev, p, false), [dev]);
+  const atGalaxy = await refreshAccessToken(origin, owner.session, galaxy);
+  const gerry = await addressOf('gerry');
+  const sally = await addressOf('sally');
 
-  // ── LIMB 1: an admin of the dev Star gets Manny's token ──────────────────────────────────
-  const fromO = await mannyFrom(ownerCookie, 'O');
-  assert.equal(fromO.claims.act, undefined, "Manny's token carries no act chain");
-  assert.deepEqual(fromO.claims.access, { authScope: dev }, "Manny's token is a plain membership at the .dev Star");
-  assert.equal(fromO.claims.aud, dev, "Manny's token is for the .dev Star's host");
-  assert.notEqual(fromO.claims.sub, owner.sub, "the page must get Manny, not its opener");
-  const fromC = await mannyFrom(cCookie, 'C');
-  console.error("  ✓ limb 1 — O's universe cookie and C's galaxy-admin cookie each got Manny's plain token");
+  // ── LIMB 1: Gerry's invite is accepted by mail, with nobody clicking ───────────────────────
+  assert.equal(await refused(hostOf('gerry'), ownerCookie, 'O, before Gerry is invited'),
+    "No member of this Star holds this persona's address yet");
+  const gerrySub = await invite(atDev, dev, gerry);
+  const fromO = await opens(hostOf('gerry'), ownerCookie, 'Gerry');
+  console.error("  ✓ limb 1 — Gerry's invite was accepted by the Worker's mail handler, and his host opened");
 
-  // ── LIMB 2: nobody else gets Manny, each refused by the refresh's own 401 ─────────────────
-  await refusedOn(manny, pCookie, 'P, a plain member of the .dev Star');
-  const n = uniqueTestEmail();
-  await inviteLink(atGalaxy, galaxy, n, true); // never opened: N signs in through a plain link instead
-  const nWaiter = waitForEmail({ testToken, to: n, timeout: 120_000 });
-  let nLogin: string;
-  try {
-    await requestMagicLink({ baseUrl: origin, email: n });
-    nLogin = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec((await nWaiter.emailPromise).html ?? '')![1]!.replace(/&amp;/g, '&');
-  } finally {
-    nWaiter.cleanup();
-  }
-  const nDevToken = refreshTokenForScope(setCookieHeaders(await consumeLink(nLogin)), dev);
-  assert.ok(nDevToken, "N's plain login must set the .dev cookie, pending");
-  await refusedOn(manny, refreshCookie(dev, nDevToken!), 'N, whose admin membership is unaccepted');
-  await refusedOn(personaOrigin('manny', 'staging'), ownerCookie, 'O on a staging persona');
-  await acceptMembership(origin, nDevToken!, dev);
-  await mannyFrom(refreshCookie(dev, nDevToken!), 'N after Accept'); // the positive control
-  console.error('  ✓ limb 2 — P, unaccepted N and the staging persona were refused; N got Manny once accepted');
-
-  // ── LIMB 3: the refresh records its opener ─────────────────────────────────────────────
-  {
-    const isRecord = (x: { namespace: string; message: string; data: Record<string, unknown> }) =>
-      x.namespace === 'nebula-auth.worker.refresh.persona' && x.message === 'persona minted'
-      && x.data.sub === fromO.claims.sub && (x.data.opener as { sub?: string } | undefined)?.sub === owner.sub;
-    const lines = await waitForDebugLines(stack, (all) => all.some(isRecord), "the persona refresh's opener record");
-    const record = lines.find(isRecord)!;
-    assert.deepEqual(record.data.opener, { sub: owner.sub, profileId: claimsOf(atGalaxy.accessToken).profileId, scope: universe, scopeAdmin: true },
-      'the record names the opener from its cookie record');
-    assert.equal(record.data.star, dev);
-    assert.equal(record.data.recordedClaims, undefined, 'a persona refresh records no claims');
-    console.error("  ✓ limb 3 — the refresh's record named O as the opener beside Manny");
-  }
-
-  // ── LIMB 4: the cookie's record decides, not its name ───────────────────────────────────
-  const evil = await provisionAndLogin({ baseUrl: origin, scope: testSlug('phe'), testToken });
-  await refusedOn(manny, refreshCookie(universe, evil.session.refreshToken), "E's value under O's cookie name");
-  console.error("  ✓ limb 4 — E's refresh value under O's universe cookie name minted nothing");
-
-  // ── LIMB 5: Manny's id is a name-based GUID no person's can equal ─────────────────────────
-  assert.equal(fromO.claims.sub, fromO.claims.profileId, "Manny's sub and profileId are one value");
-  assert.equal(fromO.claims.sub[14], '5', "Manny's id carries version 5");
-  assert.equal(fromC.claims.sub, fromO.claims.sub, "two browsers' refreshes derive the same id");
+  // ── LIMB 2: the token is Gerry's own, with O in act ─────────────────────────────────────
+  assert.equal(fromO.claims.sub, gerrySub, "the token's subject is the membership the invite minted");
+  assert.notEqual(fromO.claims.sub, owner.sub, 'the page must get Gerry, not its opener');
+  assert.deepEqual(fromO.claims.act, { sub: owner.sub, profileId: claimsOf(atDev.accessToken).profileId },
+    'the opener is recorded in act');
+  assert.deepEqual(fromO.claims.access, { authScope: dev }, "Gerry's own membership is a plain one, though O's is an admin's");
+  assert.equal(fromO.claims.aud, dev, "Gerry's token is for the dev Star's host");
   const tab = await connectDriver(stack, { scope: dev, session: { accessToken: fromO.accessToken, sub: fromO.claims.sub } });
   try {
     const tree = await tab.client.lmz.callAsync('STAR', dev, tab.client.ctn<Star>().resources.orgTree.getState());
-    assert.ok(tree, "Manny's tab must reach its Star");
+    assert.ok(tree, "Gerry's tab must reach his Star");
   } finally {
     tab.dispose();
   }
-  console.error("  ✓ limb 5 — Manny's id is version 5, the same from two openers, and his tab connected and called");
+  console.error("  ✓ limb 2 — the token is Gerry's own membership, plain, with O in act, and his tab connected and called");
+
+  // ── LIMB 3: a plain member of the Star cannot open Gerry's page ──────────────────────────
+  const p = uniqueTestEmail();
+  const pWaiter = waitForEmail({ testToken, to: p, timeout: 120_000 });
+  let pCookie: string;
+  try {
+    await invite(atDev, dev, p);
+    const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec((await pWaiter.emailPromise).html ?? '')?.[1];
+    assert.ok(href, "P's invite carried no link");
+    const token = refreshTokenForScope(setCookieHeaders(await consumeLink(href.replace(/&amp;/g, '&'), fetch, { nickname: 'Pat' })), dev);
+    assert.ok(token, "P's Accept set no cookie for the dev Star");
+    pCookie = refreshCookie(dev, token);
+  } finally {
+    pWaiter.cleanup();
+  }
+  assert.equal((await refreshOn(devOrigin, pCookie)).status, 200, "the control: P's cookie opens the dev Star's own page");
+  assert.equal(await refused(hostOf('gerry'), pCookie, 'P, a plain member of the dev Star'),
+    `The calling host's scope "${dev}" does not administer this subject`);
+  console.error("  ✓ limb 3 — P opens the dev Star's page, and is refused Gerry's by the impersonation mint");
+
+  // ── LIMB 5 first: an invite into the app, sent to a persona's address, is dropped ─────────
+  // It runs before limb 4 because it is what leaves Sally with a pending membership at the dev
+  // Star, the state in which limb 4's login link could do harm.
+  await invite(atGalaxy, galaxy, sally);
+  const appInviteDropped = await droppedLine(sally);
+  assert.equal(appInviteDropped.data.reason, "the link is no invite into this persona's Star");
+  assert.equal(await refused(hostOf('sally'), ownerCookie, 'O, on Sally, whose only invite was into the app'),
+    "No member of this Star holds this persona's address yet");
+  console.error("  ✓ limb 5 — an invite into the app, mailed to Sally's address, was dropped and she is no member");
+
+  // ── LIMB 4: a login link sent to a persona's address accepts nothing ──────────────────────
+  await requestMagicLink({ baseUrl: origin, email: sally });
+  const loginDropped = await droppedLine(sally, appInviteDropped);
+  assert.equal(loginDropped.data.reason, "the link is no invite into this persona's Star");
+  await refused(hostOf('sally'), ownerCookie, 'O, on Sally, after a login link was mailed to her');
+  console.error("  ✓ limb 4 — a login link mailed to Sally's address was dropped, and her pending membership stayed pending");
+
+  // ── LIMB 6: the cookie's record decides, not its name ───────────────────────────────────
+  const evil = await provisionAndLogin({ baseUrl: origin, scope: testSlug('phe'), testToken });
+  await refused(hostOf('gerry'), refreshCookie(universe, evil.session.refreshToken), "E's value under O's cookie name");
+  console.error("  ✓ limb 6 — E's refresh value under O's universe cookie name minted nothing");
 }

@@ -263,3 +263,14 @@ Each phase ends with its tests mutation-checked and its notes in § *Build notes
 - **Retro.** Each persona refresh costs the Registry two reads, the address's member and the mint's own read of that member. A tab refreshes every 15 minutes, and only dev tabs do this.
 - **Close-out.** `personaId` and `PERSONA_NAMESPACE` are deleted. The `/live` scenario `persona-host` still describes the old token and is rewritten with phase 2, where the mail handler gives it a real member.
 
+### Phase 2: the Worker accepts a persona's invite by mail
+
+- **For Larry.** `lumenize.io`'s catch-all rule now belongs to the test deploy. It was disabled before, so no mail is lost, and the one literal rule there, `claude@lumenize.io`, still wins. `deploy-test.sh` sets it on every deploy. To put it back: `wrangler email routing rules update lumenize.io catch-all --enabled false --action-type drop`.
+- **For Larry.** The test mailbox Worker, `email-test`, was redeployed. It now keeps each message's bytes, which the local relay hands on.
+- **For Larry.** `npm run dev` now starts the relay beside `wrangler dev`, so a stack run by hand accepts a persona's invite too. It needs `TEST_TOKEN` in `.dev.vars` and says so when it is missing.
+- **Retro.** C9's probe changed the design mid-phase. An address is no longer read back into a Star. The handler spells it forward from the Star the Registry names and compares, so the short form for long names needed no second code path in the handler.
+- **Retro.** Mutations removed two checks the first cut had: the invite's `invited` flag, since a pending membership at a dev Star is always an invite's, and a re-check after the consume, since acceptance is idempotent. A third, the mailbox proof, had no reader anywhere, and is kept so a persona's row is in the state any member's is, with a test that now reads it.
+- **Retro.** The whole mail round trip, send to acceptance, took under two seconds in every local run. The scenario runs in 8 s.
+- **Not driven.** A rejected message's bounce is not asserted anywhere. The lane tests cover the handler's answer, and the Worker's one line that turns it into a rejection is untested.
+- **Close-out.** `persona-host` is rewritten and passes locally with a mutation caught at each of its first five limbs. Its deployed pass is phase 8's.
+
