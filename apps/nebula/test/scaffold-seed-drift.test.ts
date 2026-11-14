@@ -9,6 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { SCAFFOLD_FILES } from '../src/scaffold-seed';
+import { parseCast } from '../src/cast';
 
 describe('scaffold-seed embed invariants', () => {
   it('carries the whole 14-file scaffold, with the load-bearing members present', () => {
@@ -40,8 +41,12 @@ describe('scaffold-seed embed invariants', () => {
     for (const p of ['AGENTS.md', 'docs/vision.md', 'docs/personas.md', 'docs/permissions.md']) {
       expect(SCAFFOLD_FILES[p]).toContain('Write this when');
     }
-    // The four verbs any org-tree shape composes from ride the personas template.
-    for (const verb of ['mint', 'node', 'edge', 'grant']) expect(SCAFFOLD_FILES['docs/personas.md']).toContain(`**${verb}**`);
+    // The steps any cast is built from ride the personas template.
+    for (const verb of ['node', 'edge', 'invite']) expect(SCAFFOLD_FILES['docs/personas.md']).toContain(`**${verb}**`);
+    // The template names no cast of its own: its examples sit outside list lines under *The cast*,
+    // so a new app's Studio shows the "Me" tab alone. Mutation: write the example as a list line.
+    expect(parseCast(SCAFFOLD_FILES['docs/personas.md']!)).toEqual([]);
+    expect(parseCast(SCAFFOLD_FILES['docs/personas.md']! + '\n## The cast\n\n- `ollie` — Ollie Organizer. Runs it.\n')).toEqual([{ slug: 'ollie', name: 'Ollie Organizer' }]);
     expect(SCAFFOLD_FILES['docs/permissions.md']).toContain('## Decisions');
   });
 

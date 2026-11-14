@@ -977,6 +977,22 @@ export function answerReloadRequests(opts: {
 /** What a framed page answers Studio's `lumenize:run` with: the code's value, or the error it threw. */
 export type RunAnswer = { ok: true; value: unknown } | { ok: false; error: string };
 
+/** How long a run waits, once the client is connected, for the org tree to reach the store. */
+export const TREE_WAIT_MS = 5_000;
+
+/**
+ * `value` as the JSON a run answers with: a `Map` as an array of its entries, a `Set` as an array
+ * of its members, a `bigint` as its digits, and everything else as `JSON.stringify` has it. Left
+ * to itself JSON turns a `Map` into `{}`, which reads as an empty one.
+ *
+ * @throws what `JSON.stringify` throws, for a value with a cycle.
+ */
+export function plainData(value: unknown): unknown {
+  const json = JSON.stringify(value, (_key, v: unknown) =>
+    v instanceof Map || v instanceof Set ? [...v] : typeof v === 'bigint' ? v.toString() : v);
+  return json === undefined ? undefined : JSON.parse(json);
+}
+
 /**
  * How a dev Star's page, framed in Studio, runs code Studio hands it: Studio posts
  * `{ type: 'lumenize:run', id, code }`, the page runs `code` as the body of an async function with
@@ -993,9 +1009,13 @@ export type RunAnswer = { ok: true; value: unknown } | { ok: false; error: strin
  *
  * The code waits for the client's `ready` first, so it runs connected. A page that never connects,
  * for want of a session, answers `noSession: true` beside the reason and runs nothing, which tells
- * Studio to load it again later: a persona's page is like that until its invite is accepted. A
- * value the browser cannot copy across windows, a Vue proxy say, comes back as an error that says
- * to return plain data. Returns the listener's removal.
+ * Studio to load it again later: a persona's page is like that until its invite is accepted. It
+ * then waits for the org tree to reach the store, up to {@link TREE_WAIT_MS}, since code looks a
+ * node up there and the tree arrives a moment after the connection.
+ *
+ * The code's value goes back as JSON ({@link plainData}), because its reader is a model, and a
+ * store value is a Vue proxy the browser will not copy across windows as it is. A value JSON
+ * cannot hold, a cycle say, comes back as an error that says so. Returns the listener's removal.
  */
 export function answerRunRequests(opts: {
   parentOrigin: string;
@@ -1007,6 +1027,12 @@ export function answerRunRequests(opts: {
   const AsyncFunction = Object.getPrototypeOf(async function () { /* its constructor is all that is wanted */ }).constructor as
     new (...args: string[]) => (...args: unknown[]) => Promise<unknown>;
   const describe = (err: unknown) => err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  const hasTree = () => (store as { lmz?: { orgTree?: { value?: unknown } } } | null)?.lmz?.orgTree?.value !== undefined;
+  const treeArrived = async (): Promise<void> => {
+    for (const deadline = Date.now() + TREE_WAIT_MS; !hasTree() && Date.now() < deadline;) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  };
   const listener = (e: MessageEvent) => {
     if (e.source !== window.parent || e.origin !== parentOrigin) return;
     const data = e.data as { type?: unknown; id?: unknown; code?: unknown } | null;
@@ -1021,16 +1047,18 @@ export function answerRunRequests(opts: {
         answer({ ok: false, noSession: true, error: describe(err) });
         return;
       }
-      let body: RunAnswer;
+      await treeArrived();
+      let value: unknown;
       try {
-        body = { ok: true, value: await new AsyncFunction('client', 'store', code)(client, store) };
+        value = await new AsyncFunction('client', 'store', code)(client, store);
       } catch (err) {
-        body = { ok: false, error: describe(err) };
+        answer({ ok: false, error: describe(err) });
+        return;
       }
       try {
-        answer(body);
+        answer({ ok: true, value: plainData(value) });
       } catch (err) {
-        answer({ ok: false, error: `the code's value could not be sent back (${describe(err)}). Return plain data, such as JSON.parse(JSON.stringify(value))` });
+        answer({ ok: false, error: `the code ran, and its value could not be sent back as JSON (${describe(err)}). Return plain data` });
       }
     })();
   };

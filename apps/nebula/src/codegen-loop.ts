@@ -203,21 +203,25 @@ export const CODEGEN_TOOLS = [
         'Run JavaScript in one of the preview\'s tabs and get back what it returns. The tabs are ' +
         'pages of the built app in the dev Star: "me" is the own page of the person whose post ' +
         'this turn took up, and each persona that docs/personas.md names has a tab under its ' +
-        'slug, such as "gerry". The code is the body of an async function with the app\'s own ' +
-        '`client` and `store` in scope, so it can do what that tab\'s person can do in the app, ' +
-        'and nothing more. Return plain data. Use "me" to build the cast: ' +
-        '`await client.personaAddress("gerry")` gives the address to invite a persona at. Use a ' +
-        'persona\'s tab to make what that persona would make, or to see what they see. The ' +
-        'result is { ok: true, value }, or { ok: false, error } when the code threw. It needs ' +
-        'the person\'s Studio open and a built app whose page imports ./nebula, and a ' +
-        'persona\'s tab opens a few seconds after its invite.',
+        'slug, such as "gerry". The code is the body of an async function, in plain JavaScript ' +
+        'with no TypeScript, with the app\'s own `client` and `store` in scope. It can do what ' +
+        'that tab\'s person can do in the app, and nothing more. Use "me" to build the cast, ' +
+        'and a persona\'s tab to make what that persona would make or to see what they see. ' +
+        'Before the first run of a turn, read .platform/skills/define-the-cast/SKILL.md: it has ' +
+        'the calls to copy for finding a node, inviting a persona, writing a record and reading ' +
+        'what a tab sees. The result is { ok: true, value }, with the value as JSON, or ' +
+        '{ ok: false, error } when the code threw. ok: true says only that the code returned: ' +
+        'client.resources.transaction does not throw when a write is refused, so return its ' +
+        'outcome and check its kind is "committed". The tool needs the person\'s Studio open ' +
+        'and an app that has been built, and a persona\'s tab opens a few seconds after its ' +
+        'invite.',
       parameters: {
         type: 'object',
         additionalProperties: false,
         required: ['tab', 'code'],
         properties: {
           tab: { type: 'string', description: '"me", or a persona\'s slug from docs/personas.md.' },
-          code: { type: 'string', description: 'The body of an async function. `client` and `store` are in scope. Return plain data.' },
+          code: { type: 'string', description: 'The body of an async function, in plain JavaScript. `client` and `store` are in scope. Return what you want to read.' },
         },
       },
     },

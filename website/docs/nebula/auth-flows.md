@@ -187,12 +187,17 @@ When the browser holds several cookies at or above a host, the refresh picks the
 
 ### A persona's page
 
-Studio shows the app as one of its personas sees it, say Manny, by framing his page: `https://manny--dev.crm.acme.lumenize.dev/`. That host names the persona and the Star it lives in, `acme.crm.dev`. Its refresh answers with **Manny's own token**, not the visitor's:
+A persona is a test member of an app's `dev` Star: a real membership, at an address the platform itself receives mail for. Gerry of `acme.crm.dev` is `gerry--dev.crm.acme@lumenize.dev`. An invite sent there is accepted by the Worker's mail handler when it arrives, with no link for anyone to click, and a login link sent there is dropped, so nobody signs in as Gerry.
 
-- **Only an admin of the `dev` Star opens it.** The browser must hold a cookie whose accepted membership has dominion over `acme.crm.dev` — a Galaxy or Universe admin's, or the `.dev` admin membership an app's admin invite co-mints. A plain member of the Star, or an invitee who has not accepted, gets 401.
-- **Only the `dev` Star has personas.** `manny--staging.crm.acme.lumenize.dev` gets 401.
-- **Manny's token is a plain membership at the Star**: `authScope` and `aud` both `acme.crm.dev`, no `scopeAdmin` and no `act`. His `sub` and `profileId` are one version-5 UUID of `acme.crm.dev/manny`, so every refresh derives the same id and nothing stores it.
-- **The refresh records who opened it**, from that cookie's record, since Manny's token names nobody else.
+Studio shows the app as Gerry sees it by framing his page, `https://gerry--dev.crm.acme.lumenize.dev/`. That host names the persona and the Star he lives in, and its refresh answers with **Gerry's own token**, not the visitor's:
+
+- **Whoever may impersonate Gerry may open it.** The refresh hands the impersonation mint the claims it would have minted for the visitor on that host, so the mint's own rule decides. The browser must hold a cookie whose accepted membership has dominion over `acme.crm.dev`: a Galaxy or Universe admin's, or the `.dev` admin membership an app's invite co-mints. Anyone else gets 401.
+- **Gerry's token is his membership's, with the opener in `act`.** `sub` and `profileId` are Gerry's own, `aud` and `authScope` are `acme.crm.dev`, and `scopeAdmin` is there only if his membership carries it. Every record his tab leaves names Gerry and the person who opened it.
+- **Until his invite is accepted the refresh answers 401**, which is how Studio knows to say he is not a member yet.
+- **Only the `dev` Star has personas.** `gerry--staging.crm.acme.lumenize.dev` is not a host the platform serves, and a refresh from it is refused.
+- **His tab logs out by disconnecting.** It holds no cookie of its own, so its logout ends that tab and leaves the opener's sessions alone.
+
+A page spells a persona's address with [`client.personaAddress`](./api-reference.md#clientpersonaaddress), so nothing else composes one.
 
 :::note[Opening a scope's page ≠ acting as another user]
 

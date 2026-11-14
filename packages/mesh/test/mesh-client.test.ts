@@ -492,6 +492,35 @@ describe('MeshClient', () => {
       client.disconnect();
     });
 
+    it('a load\'s first connection establishes its subscriptions whatever the host reports, and a reconnect goes by the report', async () => {
+      // A reloaded page keeps its tab's id, so inside the grace period its host reports nothing
+      // lost, while the new load holds nothing. Mutation: go by the report on the first connection
+      // too → the first count is 0 → red. Mutation: establish on every connection → the last is 2.
+      let required = 0;
+      const client = new TestClient({
+        instanceName: 'user.tab1',
+        baseUrl: 'wss://example.com',
+        accessToken: 'token',
+        WebSocket: createMockWebSocketClass(),
+        onSubscriptionRequired: () => { required += 1; },
+      });
+      const status = JSON.stringify({ type: 'connection_status', subscriptionRequired: false, address: 'HOST_DO/host/user.tab1' });
+      const ws1 = createdWebSockets[0];
+      ws1.simulateOpen();
+      ws1.simulateMessage(status);
+      expect(required).toBe(1);
+
+      ws1.simulateClose(1006, 'Connection lost');
+      client.connect();
+      await new Promise((r) => setTimeout(r, 20));
+      const ws2 = createdWebSockets[1];
+      ws2.simulateOpen();
+      ws2.simulateMessage(status);
+      expect(client.connectionState).toBe('connected');
+      expect(required).toBe(1);
+      client.disconnect();
+    });
+
     it('transitions to disconnected on disconnect()', () => {
       const client = new TestClient({
         instanceName: 'user.tab1',

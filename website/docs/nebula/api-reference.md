@@ -35,7 +35,11 @@ Each surface below carries one tag describing its provenance. The tags captured 
 | `ROOT_NODE_ID` (sentinel UUID) constant | new-in-v3 | [OrgTreeState](#orgtreestate) |
 | Reserved state paths (`store.resources.*`, `store.lmz.*`) | implemented-in-spike | [Reserved state paths](#reserved-state-paths) |
 | `store.lmz.connection.{state, connected, lastConnectedAt}` | implemented-in-spike | [lmz.connection](#lmzconnection) |
+| `client.resources.invite(nodeId, invitees)` (a person onto a node, at a tier) | new-in-v3 | [resources.invite](#resourcesinvite) |
+| `client.invite(scope, invitees)` (a person into a scope) | inherited from `MeshClient` | [client.invite](#clientinvite) |
 | `client.subscribeProfile(id)` (+ auto-subscribe on read) | new-in-v3 | [subscribeProfile](#subscribeprofile) |
+| `client.updateMyProfile(fields)` | inherited from `MeshClient` | [updateMyProfile](#updatemyprofile) |
+| `client.personaAddress(slug)` (a dev workspace's page only) | new-in-v3 | [personaAddress](#clientpersonaaddress) |
 | `store.lmz.profiles[profileId].value.{name, nickname, picture}` | new-in-v3 | [store.lmz.profiles](#lmzprofiles) |
 | `client.subscribeQuerySubscribers(query)` (+ auto-subscribe on read) | new-in-v3 | [subscribeQuerySubscribers](#subscribequerysubscribers) |
 | `store.lmz.querySubscribers.<typeName>.<field>[value]` (live roster) | new-in-v3 | [store.lmz.querySubscribers](#lmzquerysubscribers) |
@@ -598,6 +602,40 @@ interface OrgTreeState {
 
 `ROOT_NODE_ID` (a reserved sentinel UUID, the root node every Star is provisioned with) is also exported from `@lumenize/resources/frontend` — the bootstrap and admin-gating examples in Coding your UI import it.
 
+## `client.resources.invite` {#resourcesinvite}
+
+**Tag**: `new-in-v3`
+
+```typescript @skip-check
+client.resources.invite(
+  nodeId: string,
+  invitees: Array<{ email: string; tier: 'admin' | 'write' | 'read' }>,
+): Promise<{ accepted: number; errors: Array<{ email: string; error: string }> }>;
+```
+
+Invite people onto a **node** of the org tree. Each invitee becomes a member of the page's scope, if they are not one already, and is granted `tier` on `nodeId`, which cascades to everything beneath it. The caller needs `admin` on the node.
+
+The Promise resolves once the invites are submitted, with how many were accepted and why any was not. The membership, the grant and the email land a moment later. Inviting someone who is already a member onto another node adds that grant and sends them no new link.
+
+```typescript @skip-check
+const ack = await client.resources.invite(listsNodeId, [{ email: 'pat@example.com', tier: 'write' }]);
+// { accepted: 1, errors: [] }
+```
+
+## `client.invite` {#clientinvite}
+
+**Tag**: inherited from `MeshClient`
+
+```typescript @skip-check
+client.invite(
+  targetScope: string,
+  invitees: Array<{ email: string; scopeAdmin?: boolean }>,
+  inviterName?: string,
+): Promise<InviteSummary>;
+```
+
+Invite people into a **scope**, with no grant on any node. With `scopeAdmin: true` the invitee administers the scope, which only someone who administers it themself may give. `targetScope` is the page's own scope, `client.claims.aud`, or one beneath it. Use [`client.resources.invite`](#resourcesinvite) when the person should reach one part of the tree.
+
 ## `client.subscribeProfile` {#subscribeprofile}
 
 **Tag**: `new-in-v3`
@@ -610,7 +648,34 @@ Subscribe to a person's **public profile** (`name` / `nickname` / `picture`) by 
 
 You rarely call this directly — **reading `store.lmz.profiles[profileId].value` inside a component auto-subscribes it** (refcounted, grace-period-aware, windowed), exactly like reading a resource. The common pattern is resolving display identity for ids you already hold (the current user's own `client.claims.profileId` for the app chrome, or each `profileId` in a roster).
 
-Profiles are read-only through the store; the owner edits their own profile via a separate write path. A profile is a **shape**, not a resource — it lives under `store.lmz.*` (never `store.resources.*`), so a dev-user ontology type named `Profile` does **not** collide with it.
+Profiles are read-only through the store; the owner edits their own profile with [`client.updateMyProfile`](#updatemyprofile). A profile is a **shape**, not a resource — it lives under `store.lmz.*` (never `store.resources.*`), so a dev-user ontology type named `Profile` does **not** collide with it.
+
+## `client.updateMyProfile` {#updatemyprofile}
+
+**Tag**: inherited from `MeshClient`
+
+```typescript @skip-check
+client.updateMyProfile(fields: { name?: string; nickname?: string; picture?: string }): Promise<void>;
+```
+
+Write the public fields of the signed-in person's own profile, the one `client.claims.profileId` names. A field left out is left as it is. The change reaches every subscriber of the profile, this page included.
+
+## `client.personaAddress` {#clientpersonaaddress}
+
+**Tag**: `new-in-v3`
+
+```typescript @skip-check
+client.personaAddress(slug: string): Promise<string>;
+```
+
+The email address of a **persona**: a test member of an app's `dev` workspace, who has a tab of their own in Studio's preview. Inviting that address makes the persona a member with no link to click, because the platform receives the mail and accepts it. The address is spelled from the page's own host, so nothing else should compose one:
+
+```typescript @skip-check
+await client.personaAddress('gerry');
+// on https://dev.crm.acme.lumenize.dev/  →  'gerry--dev.crm.acme@lumenize.dev'
+```
+
+It rejects on any page but a `dev` workspace's, which alone has personas, and for a `slug` that is not 3 to 30 characters of lowercase letters, digits and single hyphens. A workspace with long names gets a shorter address than its host, which is one more reason to ask for it.
 
 ## `client.subscribeQuerySubscribers` {#subscribequerysubscribers}
 

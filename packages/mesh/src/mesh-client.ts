@@ -1955,11 +1955,15 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
     // Flush queued messages
     this.#flushMessageQueue();
 
-    // Notify if subscriptions need to be (re)established. The Gateway's report is the one signal: it
-    // records any delivery to this Client that failed, a 4408 close included.
-    if (message.subscriptionRequired) {
+    // Notify if subscriptions need to be (re)established. For a reconnect the Gateway's report is
+    // the one signal: it records any delivery to this Client that failed, a 4408 close included.
+    // A load's first connection establishes them whatever the report says. A reloaded page keeps
+    // its tab's id, so inside the grace period its host counts it as the same Client back with
+    // nothing lost, while this load holds nothing. What a Client subscribes to on this signal
+    // alone, as Resources does its org tree, would otherwise never be asked for.
+    if (message.subscriptionRequired || !reconnect) {
       this.onSubscriptionRequired();
-    } else if (reconnect) {
+    } else {
       // Nothing was lost, but a profile subscribe sent just as the last socket closed may never have
       // reached its Profile: one still waiting for its first push goes again. So does one answered
       // never-written, which registered nothing: the profile may have been written since.

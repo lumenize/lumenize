@@ -31,7 +31,7 @@ A lower layer adds to the layers above it. What a token may reach is decided by 
 ## The app declares itself in files you read and write
 
 - `docs/vision.md` — what the app is for, who uses it, tone and values. Read it when a request bears on purpose or tone; write it when the conversation settles something about them.
-- `docs/personas.md` — the cast: the people who use the app, as a numbered procedure that re-creates them. The `define-the-cast` skill fills it.
+- `docs/personas.md` — the cast: the people who use the app, each a test member of the workspace with a tab in the preview, and the steps in plain words that rebuild their grants and sample data. The `define-the-cast` skill fills it and builds from it.
 - `docs/permissions.md` — which sharing shape each relationship got and why, as prose plus a Decisions table. The `define-the-cast` skill fills it; `.platform/docs/access-control.md` is the vocabulary.
 - `src/ontology.d.ts` — the data model. The `define-ontology` skill grows it.
 - `AGENTS.md` — the app's own conventions, and the lessons learned building it. Read every turn; see the next section for when to write it.

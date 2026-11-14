@@ -8,7 +8,7 @@
  * asking a real page and a persona's tab answering, is the `/live` scenario `persona-tabs`.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { answerRunRequests, createNebulaClient } from '../../../../packages/resources/src/frontend/create-nebula-client';
+import { answerRunRequests, createNebulaClient, TREE_WAIT_MS } from '../../../../packages/resources/src/frontend/create-nebula-client';
 
 const STUDIO = 'https://crm.acme.lumenize.dev';
 
@@ -25,7 +25,8 @@ function answers() {
 }
 
 const client = { claims: { sub: 'gerry-sub' }, double: (n: number) => n * 2 };
-const store = { resources: { Deal: {} } };
+/** A store the org tree has reached, as a connected page's is a moment after it connects. */
+const store = { resources: { Deal: {} }, lmz: { orgTree: { value: { nodes: new Map([['n1', { slug: 'deals', label: 'Deals' }]]), edges: new Set(['root:n1']) } } } };
 
 describe('answerRunRequests', () => {
   afterEach(() => { vi.restoreAllMocks(); });
@@ -90,21 +91,59 @@ describe('answerRunRequests', () => {
     }
   });
 
-  it('says to return plain data when the browser cannot copy the value across windows', async () => {
-    const ran: any[] = [];
-    vi.spyOn(window.parent, 'postMessage').mockImplementation(((msg: any) => {
-      if (msg?.ok === true) throw new DOMException('#<Object> could not be cloned.', 'DataCloneError');
-      ran.push(msg);
-    }) as never);
+  it('answers with JSON: a Map as its entries and a Set as its members, and a value JSON cannot hold as an error', async () => {
+    // The value's reader is a model, and JSON left to itself turns a Map into `{}`, which reads as
+    // an empty tree. Mutations: answer with the value as it is → the Map arrives a Map → red; drop
+    // the replacer → `nodes` is `{}` → red.
+    const { ran } = answers();
     const remove = answerRunRequests({ parentOrigin: STUDIO, client, store, ready: Promise.resolve() });
     try {
-      post(STUDIO, { type: 'lumenize:run', id: 'c1', code: 'return store' });
-      await vi.waitFor(() => expect(ran).toHaveLength(1));
-      expect(ran[0]).toMatchObject({ type: 'lumenize:ran', id: 'c1', ok: false });
-      expect(ran[0].error).toContain('could not be sent back');
-      expect(ran[0].error).toContain('Return plain data');
+      post(STUDIO, { type: 'lumenize:run', id: 'c1', code: 'return { tree: store.lmz.orgTree.value, big: 10n, when: new Date(0), nothing: undefined }' });
+      post(STUDIO, { type: 'lumenize:run', id: 'c2', code: 'const a = {}; a.self = a; return a' });
+      post(STUDIO, { type: 'lumenize:run', id: 'c3', code: 'return' });
+      await vi.waitFor(() => expect(ran).toHaveLength(3));
+      expect(ran.find((a) => a.id === 'c1')).toMatchObject({ ok: true, value: {
+        tree: { nodes: [['n1', { slug: 'deals', label: 'Deals' }]], edges: ['root:n1'] }, big: '10', when: '1970-01-01T00:00:00.000Z',
+      } });
+      const cyclic = ran.find((a) => a.id === 'c2')!;
+      expect(cyclic.ok).toBe(false);
+      expect(cyclic.error).toContain('the code ran, and its value could not be sent back as JSON');
+      expect(ran.find((a) => a.id === 'c3')).toMatchObject({ ok: true, value: undefined });
     } finally {
       remove();
+    }
+  });
+
+  it('waits for the org tree to reach the store before it runs, and no longer than its bound', async () => {
+    // The tree arrives a moment after the connection, and code looks a node up in it. Mutations:
+    // drop the wait → the first run reads no tree → red; wait with no bound → the second never runs.
+    vi.useFakeTimers();
+    try {
+      const { ran } = answers();
+      const late: { lmz: { orgTree: { value?: unknown } } } = { lmz: { orgTree: {} } };
+      const remove = answerRunRequests({ parentOrigin: STUDIO, client, store: late, ready: Promise.resolve() });
+      try {
+        post(STUDIO, { type: 'lumenize:run', id: 't1', code: 'return store.lmz.orgTree.value.root' });
+        await vi.advanceTimersByTimeAsync(200);
+        expect(ran).toEqual([]);
+        late.lmz.orgTree.value = { root: 'r' };
+        await vi.advanceTimersByTimeAsync(100);
+        expect(ran).toMatchObject([{ id: 't1', ok: true, value: 'r' }]);
+      } finally {
+        remove();
+      }
+      const never = answerRunRequests({ parentOrigin: STUDIO, client, store: { lmz: { orgTree: {} } }, ready: Promise.resolve() });
+      try {
+        post(STUDIO, { type: 'lumenize:run', id: 't2', code: 'return typeof store.lmz.orgTree.value' });
+        await vi.advanceTimersByTimeAsync(TREE_WAIT_MS - 200);
+        expect(ran).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(400);
+        expect(ran[1]).toMatchObject({ id: 't2', ok: true, value: 'undefined' });
+      } finally {
+        never();
+      }
+    } finally {
+      vi.useRealTimers();
     }
   });
 

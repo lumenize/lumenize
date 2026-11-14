@@ -4,7 +4,7 @@
  * O owns the app, signed up through the rendered screens, so O's browser holds the session every
  * persona's tab is opened from. The app is the scenario's: the scaffold's `nebula.ts`, a `Deal`
  * type with an index on its stage, and an `App.vue` that puts its client on `window` so a limb can
- * read a frame's token. `docs/personas.md` names a cast of `gerry` and `sally`.
+ * read a frame's token. `docs/personas.md` names a cast of `gerry`, `sally` and `manny`.
  *
  * No model runs. Where the agent's `run_in_tab` would have Studio ask a tab to run code, a limb
  * posts the same message from Studio's own page, `{ type: 'lumenize:run', id, code }` to the tab's
@@ -13,7 +13,7 @@
  *
  * Limbs, each isolated (`live-scenarios.md` — per limb):
  *
- *  1. **The strip is the file's cast.** Studio shows `me`, `gerry` and `sally`, and a persona nobody
+ *  1. **The strip is the file's cast.** Studio shows `me` and then each persona, and a persona nobody
  *     has invited says so where its page would be. *Reds if the cast is read from anywhere but
  *     `docs/personas.md`.*
  *  2. **The "me" tab builds the cast.** Asked to run code, O's own page spells each persona's
@@ -28,10 +28,15 @@
  *  5. **Sally finds what Gerry made.** Her tab's query for open Deals holds Gerry's open Deal and
  *     not his lead. *Reds if a persona's page cannot query, or the filter is ignored.*
  *  6. **The URL is the strip.** With `sally` in view and `gerry` closed, reloading Studio restores
- *     both, and the URL holds slugs and no token (ADR-017). *Reds if the strip forgets the URL.*
+ *     both, and the URL holds slugs and no token (ADR-017). Sally's reloaded tab holds the org
+ *     tree. *Reds if the strip forgets the URL, or if a reloaded page waits on its host's word to
+ *     ask for its tree.*
  *  7. **A persona's page logs out by disconnecting.** On Gerry's own host, opened as a page of its
  *     own in O's browser, page script calls `client.logout()`: the client disconnects, the URL
  *     does not change, and O's session still mints. *Reds if the logout goes through `/auth/logout`.*
+ *  8. **A persona can administer the workspace.** From the "me" tab, `client.invite` with the admin
+ *     bit makes Manny an admin member, and his tab's token carries the bit, where Sally's does not.
+ *     *Reds if a persona's token takes its admin bit from anywhere but that persona's membership.*
  *
  * `needsContainer = true` — the app is built in the build container.
  */
@@ -85,6 +90,7 @@ const PERSONAS_MD = `# Personas
 
 - \`gerry\` — Gerry Salesperson. Works his own deals.
 - \`sally\` — Sally Salesperson. Sees the team's deals.
+- \`manny\` — Manny Manager. Administers the workspace.
 
 ## Building the cast
 
@@ -93,7 +99,7 @@ From the me tab, invite each persona onto the deals node. Gerry gets write and S
 
 type BuildReportLike = { bundle: { indexSha256?: string }; preview: { refreshed: boolean; why: string } };
 type RunAnswer = { ok: boolean; value?: any; error?: string; noSession?: boolean };
-type FrameRead = { origin: string; sub?: string; actSub?: string; state?: string };
+type FrameRead = { origin: string; sub?: string; actSub?: string; state?: string; admin?: boolean };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const until = async (ms: number, check: () => Promise<boolean>): Promise<boolean> => {
@@ -113,8 +119,8 @@ async function tabFrame(page: Page, tab: string): Promise<Frame | undefined> {
 async function readFrame(page: Page, tab: string): Promise<FrameRead | undefined> {
   const frame = await tabFrame(page, tab);
   return frame?.evaluate(() => {
-    const c = (window as unknown as { __client?: { claims?: { sub?: string; act?: { sub?: string } }; connectionState?: string } }).__client;
-    return { origin: location.origin, sub: c?.claims?.sub, actSub: c?.claims?.act?.sub, state: c?.connectionState };
+    const c = (window as unknown as { __client?: { claims?: { sub?: string; act?: { sub?: string }; access?: { scopeAdmin?: boolean } }; connectionState?: string } }).__client;
+    return { origin: location.origin, sub: c?.claims?.sub, actSub: c?.claims?.act?.sub, state: c?.connectionState, admin: c?.claims?.access?.scopeAdmin };
   }).catch(() => undefined);
 }
 /** The slugs the strip shows as tabs, `me` first. */
@@ -179,7 +185,7 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── LIMB 1: the strip is the file's cast ──────────────────────────────────────────────────
     await o.page.reload({ waitUntil: 'domcontentloaded' });
-    assert.ok(await until(30_000, async () => (await stripTabs(o.page)).join(',') === 'me,gerry,sally'),
+    assert.ok(await until(30_000, async () => (await stripTabs(o.page)).join(',') === 'me,gerry,sally,manny'),
       `O's strip never showed the file's cast: ${(await stripTabs(o.page)).join(',')}`);
     assert.ok(await until(60_000, async () => (await readFrame(o.page, 'me'))?.sub !== undefined), "the me frame never showed the app's client");
     await o.page.getByTestId('tab-sally').click();
@@ -187,7 +193,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.match(await o.page.getByTestId('preview-notice').innerText(), /^sally is not a member of the workspace yet/,
       'a persona nobody has invited must say so where its page would be');
     await o.page.getByTestId('tab-me').click();
-    console.error('  ✓ limb 1 — the strip showed me, gerry and sally from docs/personas.md, and uninvited Sally said so');
+    console.error('  ✓ limb 1 — the strip showed me and the cast docs/personas.md names, and uninvited Sally said so');
 
     // ── LIMB 2: the me tab builds the cast ────────────────────────────────────────────────────
     const built = await askTab(o.page, 'me', `
@@ -277,10 +283,34 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(url.searchParams.get('closed'), 'gerry', `the URL must name the closed tab: ${url.search}`);
     assert.doesNotMatch(url.href, /eyJ|token/i, 'the URL must hold no token');
     await o.page.reload({ waitUntil: 'domcontentloaded' });
-    assert.ok(await until(30_000, async () => (await stripTabs(o.page)).join(',') === 'me,sally'), `the reload lost the strip: ${(await stripTabs(o.page)).join(',')}`);
+    assert.ok(await until(30_000, async () => (await stripTabs(o.page)).join(',') === 'me,sally,manny'), `the reload lost the strip: ${(await stripTabs(o.page)).join(',')}`);
     assert.ok(await until(60_000, async () => (await readFrame(o.page, 'sally'))?.sub === sallyFrame.sub), "the reload did not restore Sally's tab in view");
     assert.ok(await o.page.locator('iframe[title="Preview as sally"]').isVisible(), "Sally's frame must be the one in view");
-    console.error('  ✓ limb 6 — the URL named the tab in view and the closed one, held no token, and a reload restored both');
+    // A reloaded page keeps its tab's id, so its host counts it as the same client back with
+    // nothing lost. It must ask for the org tree all the same, since the new load holds none.
+    const reloaded = await askTab(o.page, 'sally', `return [...store.lmz.orgTree.value.nodes].map(([, node]) => node.slug);`);
+    assert.equal(reloaded.ok, true, `Sally's reloaded tab holds no org tree: ${reloaded.error}`);
+    assert.ok((reloaded.value as string[]).includes('deals'), `Sally's reloaded tab's tree lacks the node: ${JSON.stringify(reloaded.value)}`);
+    console.error('  ✓ limb 6 — the URL named the tab in view and the closed one, held no token, and a reload restored both, each tab with its tree');
+
+    // ── LIMB 8: a persona who administers the workspace ──────────────────────────────────────
+    // Run before limb 7, which ends with a page of Gerry's own; the numbers are the header's.
+    // The reload left only Sally's frame loaded, so bring O's own back first.
+    await o.page.getByTestId('tab-me').click();
+    assert.ok(await until(60_000, async () => (await readFrame(o.page, 'me'))?.sub === oToken.sub), "O's me tab never came back after the reload");
+    const admin = await askTab(o.page, 'me', `
+      const summary = await client.invite(client.claims.aud, [{ email: await client.personaAddress('manny'), scopeAdmin: true }]);
+      return { errors: summary.errors, outcomes: summary.results.map((r) => r.outcome) };
+    `);
+    assert.equal(admin.ok, true, `the me tab could not invite an admin persona: ${admin.error}`);
+    assert.deepEqual(admin.value, { errors: [], outcomes: ['invited'] }, `the admin invite: ${JSON.stringify(admin.value)}`);
+    const mannyFrame = await opened('manny');
+    assert.equal(new URL(mannyFrame.origin).hostname, personaHost('manny'), "Manny's frame must be on his own host");
+    assert.equal(mannyFrame.admin, true, "Manny's token must carry the admin bit his membership holds");
+    assert.equal(mannyFrame.actSub, oToken.sub, 'the opener rides in act');
+    // The plain member beside him, as the control: Sally's token carries no admin bit.
+    assert.notEqual((await readFrame(o.page, 'sally'))?.admin, true, "Sally's token must carry no admin bit");
+    console.error("  ✓ limb 8 — invited into the workspace with the admin bit from the me tab, Manny's tab opened as its admin");
 
     // ── LIMB 7: a persona's page logs out by disconnecting ───────────────────────────────────
     {

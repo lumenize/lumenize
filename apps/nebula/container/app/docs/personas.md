@@ -1,20 +1,22 @@
 # Personas
 
-The cast — every kind of person who uses this app — as a numbered procedure that re-creates them from nothing. Keyed on persona SLUG, never on an id and never on the full name: identities are re-minted by every data wipe, so this file is what survives. Write no email address — each persona's address is composed at provision time from its slug and this app's scope, which this file does not carry.
+The cast: each kind of person who uses this app, as a test member of the workspace with a tab of their own beside "Me" in Studio's preview. A data wipe keeps the cast's memberships and drops their grants and data, so this file holds, in plain words, the steps that give both back. Key everything on a persona's slug. Write no id and no email address: the page spells a persona's address when it is asked to.
 
-Write this when: the `define-the-cast` skill has elicited the cast, or a new kind of user appears in the conversation.
+Write this when: the `define-the-cast` skill has settled the cast, or a new kind of user appears in the conversation.
 
 ## The cast
 
-Write this when: the personas are named. One line each — the slug, the full name, what they do, what they must never see. Names are alliterative and say the role (Ollie Organizer, Pat Participant); the slug is the first name alone, lowercase, 3 to 11 characters (`ollie`, `pat`).
+Write this when: the personas are named. One list line for each, which Studio reads for its tabs: the slug in backticks, then the full name and what they do, as in "`ollie` — Ollie Organizer. Runs the exchange and sees every list." Names are alliterative and say the role; the slug is the first name alone, lowercase.
 
-## The procedure
+## Building the cast
 
-Every org-tree shape composes from four verbs — **mint** an identity, create a **node**, add an **edge** beneath another node, **grant** a persona a tier on a node. Write the steps in order so the same cast can be re-created after a wipe; a worked example, for a secret-santa app:
+Write this when: the cast is settled. Numbered steps in plain words that rebuild the cast's grants from nothing, each one of: create a **node**, add an **edge** beneath another node, **invite** a persona onto a node at a tier. A worked example for a secret-santa app, to replace with this app's own:
 
-1. Mint `ollie` (Ollie Organizer) as the stand-in founder: admin on the root node and scopeAdmin at the `.dev` Star.
-2. Create the node `lists`.
-3. Add `example` beneath `lists`.
-4. Mint `pat` (Pat Participant); grant `pat` `admin` on `example`.
+1. Create the node `lists` under the root.
+2. Create the node `example` under `lists`.
+3. Invite `ollie` onto `lists` with `admin`.
+4. Invite `pat` onto `example` with `write`.
 
-Write this when: the cast is settled. Replace the example with this app's own steps.
+## Sample data
+
+Write this when: the app has something to show. Numbered steps in plain words, each naming the persona whose tab makes the record, as in "As `pat`, add three wishes to `example`."
