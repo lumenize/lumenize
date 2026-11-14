@@ -120,7 +120,6 @@ Notice how **scopes are hierarchical**. The `this-universe.milky-way.sol` Star i
 
 A few rules bend for it, each because nothing real lives there:
 
-- **A Galaxy's own chain is its `.dev` Star's admin** (§ *`activeScope`*).
 - **It holds personas.** Mary, Sally and Gerry are a cast of test users, each on a host of its own, `mary--dev.crm.acme.lumenize.dev`, with a token that rests on no membership (§ *Identity and membership*) and claims the Star can build itself (§ *How the claims travel*). Mary's `scopeAdmin` is held in the Galaxy's record of its cast, and the refresh that mints her token asks the Galaxy.
 - **An invite into the Galaxy makes the invitee its admin** (§ *Grants*).
 - **Provisioning writes there as the cast**, not as the person who asked (§ *When the agent acts*).
@@ -155,7 +154,7 @@ The refresh takes it from the request's `Origin`, which no script can set, and m
 
 It is what the coarse-grained checks read, so a call acts within its `activeScope` and below ([ADR-022](../adr/022-every-session-lives-on-the-platform-host.md) § *What an access token carries*). Reading it only ever narrows what `authScope` alone would allow, because it already sits at or below `authScope`.
 
-**A call chain a node started has an `activeScope` too, though it carries no token.** It is the name of the node that started the chain, when that name is a scope. An alarm on the Star `acme.crm.bigco`, or an update it broadcasts, acts from `acme.crm.bigco` with no `scopeAdmin`: passage into that Star and up through `acme.crm` and `acme`, and dominion over nothing. The one exception is a Galaxy's chain into its own `.dev` Star, `acme.crm` calling `acme.crm.dev`, which acts as that Star's admin and nowhere else (§ *A Galaxy's `.dev` Star*). A node named by an id rather than a scope, such as a Profile, gives its chains no `activeScope`, so a scoped node refuses them.
+**A call chain a node started has an `activeScope` too, though it carries no token.** It is the name of the node that started the chain, when that name is a scope. An alarm on the Star `acme.crm.bigco`, or an update it broadcasts, acts from `acme.crm.bigco` with no `scopeAdmin`: passage into that Star and up through `acme.crm` and `acme`, and dominion over nothing. A node named by an id rather than a scope, such as a Profile, gives its chains no `activeScope`, so a scoped node refuses them.
 
 Moving between active scopes is moving between hosts, which a person does from Home (§ *Home*). A tab on the new host gets a token of its own, and a connection carries for its life the one `aud` it presented.
 

@@ -57,7 +57,7 @@ passage(aud, scopeAdmin, targetScope)  = isAtOrBelow(aud, targetScope)
 
 **One implementation.** Every site needing either verdict calls the shared predicate against the scope it is acting on, rather than re-inlining ([ADR-007](007-shared-node-security-core.md)) — which is what made both violations in § *Context* fixable in one place instead of N. The symbols are `hasDominionOver(claims, targetScope)` and `hasPassageInto(claims, targetScope)`.
 
-**Those signatures take two arguments where the predicates take three**, because two of the three arrive together: from a verified token, `aud` and `access.scopeAdmin`; for a chain a node started, the starting node's name and `false`, or, for a Galaxy's chain calling its own `.dev` Star, that Star's name and `true`; a local principal adds none (ADR-025). One function derives the pair from a call's context. `targetScope` is passed separately.
+**Those signatures take two arguments where the predicates take three**, because two of the three arrive together: from a verified token, `aud` and `access.scopeAdmin`; for a chain a node started, the starting node's name and `false`; a local principal adds none (ADR-025). One function derives the pair from a call's context. `targetScope` is passed separately.
 
 **Scope comparisons are hierarchical by dot-separated segments**, so `u.g.s1` does not cover `u.g.s10`, and `acme` does not cover `acme-2` — the second is the one a naive `startsWith` gets wrong.
 
