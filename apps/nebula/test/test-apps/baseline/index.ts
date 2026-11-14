@@ -725,6 +725,15 @@ export class GalaxyTest extends Galaxy {
     return this.chatOntology().version;
   }
 
+  /** Test-only: the address of every query subscriber row, so a test can assert a closed tab's
+   *  row is still there when the code under test reads the rows. */
+  @mesh(requireDominionHere)
+  querySubscriberAddressesForTest(): string[] {
+    return this.ctx.storage.sql.exec<{ clientAddress: string }>(
+      `SELECT clientAddress FROM Subscriptions WHERE kind = 'query' ORDER BY clientAddress`,
+    ).toArray().map((r) => r.clientAddress);
+  }
+
   /** Test-only: delete every query row — the reconnect test's server-side amnesia, so the
    *  client's re-subscribe walk is what restores fanout (without it the walk's absence would
    *  be invisible: rows would just still exist). */

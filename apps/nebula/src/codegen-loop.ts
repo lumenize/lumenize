@@ -63,6 +63,7 @@ export const TOOL_ARG_TYPE: Record<string, string> = {
   mark_complete: 'MarkCompleteArgs',
   take_up: 'TakeUpArgs',
   invite: 'InviteArgs',
+  run_in_tab: 'RunInTabArgs',
 };
 
 /**
@@ -197,6 +198,33 @@ export const CODEGEN_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'run_in_tab',
+      description:
+        'Run JavaScript in one of the preview\'s tabs and get back what it returns. The tabs are ' +
+        'pages of the built app in the dev Star: "me" is the own page of the person whose post ' +
+        'this turn took up, and each persona that docs/personas.md names has a tab under its ' +
+        'slug, such as "gerry". The code is the body of an async function with the app\'s own ' +
+        '`client` and `store` in scope, so it can do what that tab\'s person can do in the app, ' +
+        'and nothing more. Return plain data. Use "me" to build the cast: ' +
+        '`await client.personaAddress("gerry")` gives the address to invite a persona at. Use a ' +
+        'persona\'s tab to make what that persona would make, or to see what they see. The ' +
+        'result is { ok: true, value }, or { ok: false, error } when the code threw. It needs ' +
+        'the person\'s Studio open and a built app whose page imports ./nebula, and a ' +
+        'persona\'s tab opens a few seconds after its invite.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['tab', 'code'],
+        properties: {
+          tab: { type: 'string', description: '"me", or a persona\'s slug from docs/personas.md.' },
+          code: { type: 'string', description: 'The body of an async function. `client` and `store` are in scope. Return plain data.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'mark_complete',
       description:
         'Call when the app is finished and the last build report is acceptable — ' +
@@ -292,11 +320,33 @@ export function unknownToolArgKeys(toolName: string, args: unknown): string[] {
   return Object.keys(args as Record<string, unknown>).filter((k) => !declared.has(k)).sort();
 }
 
+/** The most a `run_in_tab` value may add to the transcript, in characters of its JSON. */
+export const RUN_RESULT_MAX_CHARS = 20_000;
+
+/**
+ * A `run_in_tab` result as the model and the record get it. A value whose JSON runs past
+ * {@link RUN_RESULT_MAX_CHARS} is replaced by its first characters and a note, since it goes into
+ * every later round's request and into a record every chat subscriber receives.
+ */
+export function clipRunResult<R extends { ok: boolean }>(result: R): R | { ok: true; clipped: true; json: string; note: string } {
+  if (!result.ok) return result;
+  let json: string | undefined;
+  try { json = JSON.stringify((result as unknown as { value: unknown }).value); } catch { json = undefined; }
+  if (json === undefined) return { ...result, value: undefined } as R;
+  if (json.length <= RUN_RESULT_MAX_CHARS) return result;
+  return {
+    ok: true, clipped: true, json: json.slice(0, RUN_RESULT_MAX_CHARS),
+    note: `The value was ${json.length} characters of JSON and only the first ${RUN_RESULT_MAX_CHARS} are here. Return less.`,
+  };
+}
+
 /** Tools EXEMPT from the identical-call loop detector: `build` because fix-then-rebuild
  *  legitimately repeats it; `read_file` because a read is idempotent, and the retro's
  *  read → edit → read would otherwise end the turn `loop-detected`. `mark_complete`
- *  ends the turn before the detector runs. */
-const LOOP_DETECTOR_EXEMPT: ReadonlySet<string> = new Set(['build', 'read_file']);
+ *  ends the turn before the detector runs. `run_in_tab` because the same code is rightly
+ *  run again: a persona's tab opens a few seconds after its invite, and a read of a page is
+ *  worth repeating after a change. */
+const LOOP_DETECTOR_EXEMPT: ReadonlySet<string> = new Set(['build', 'read_file', 'run_in_tab']);
 
 // ─── Message + model-turn shapes ─────────────────────────────────────────
 
@@ -408,6 +458,12 @@ export interface LoopToolDeps {
    * dominion over the app, which reaches the model as the call's tool error within the turn.
    */
   invite(email: string, scopeAdmin?: boolean): Promise<{ invited: string; as: 'collaborator' | 'admin'; note: string }>;
+  /**
+   * Run `code` in a preview tab of the person whose post the turn took up, "me" or a persona's,
+   * and answer with what the page said: the code's value, or the error it threw. Throws when
+   * nothing ran it: no Studio of theirs is open, or the tab did not answer in time.
+   */
+  run_in_tab(tab: string, code: string): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
 }
 
 /** The loop tools that reach an entry — the keys of {@link LoopToolDeps}. */
@@ -882,6 +938,20 @@ export async function runCodegenLoop(
         try {
           const result = await deps.tools.invite(email, scopeAdmin);
           deps.onProgress?.(`invited ${email}`);
+          recorded.push({ name: tc.name, args: tc.args, result, ...deps.actsFor?.() });
+          messages.push(toolResultMessage(tc.id, result));
+        } catch (e) {
+          if (postMoved(e)) return done('post-moved', POST_MOVED_DETAIL);
+          fail(tc, e instanceof Error ? e.message : String(e), tc.args, deps.actsFor?.());
+        }
+        continue;
+      }
+
+      if (tc.name === 'run_in_tab') {
+        const { tab, code } = tc.args as { tab: string; code: string };
+        try {
+          const result = clipRunResult(await deps.tools.run_in_tab(tab, code));
+          deps.onProgress?.(`ran code in the ${tab} tab`);
           recorded.push({ name: tc.name, args: tc.args, result, ...deps.actsFor?.() });
           messages.push(toolResultMessage(tc.id, result));
         } catch (e) {

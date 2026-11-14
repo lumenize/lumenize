@@ -108,7 +108,7 @@ function harness(
   const reads: string[] = [];
   const paramsSeen: ModelParams[] = [];
   const messagesSeen: ChatMessage[][] = [];
-  const { read_file, write_file, edit_file, build, ...rest } = over;
+  const { read_file, write_file, edit_file, build, run_in_tab, ...rest } = over;
   const deps: CodegenLoopDeps = {
     callModel: async (messages, params) => {
       paramsSeen.push(params);
@@ -134,6 +134,7 @@ function harness(
       }),
       build: build ?? (async () => cleanReport()),
       invite: async (email, scopeAdmin) => ({ invited: email, as: scopeAdmin ? 'admin' as const : 'collaborator' as const, note: 'sent' }),
+      run_in_tab: run_in_tab ?? (async () => ({ ok: true as const, value: 1 })),
     },
     validateToolArgs: async () => ({ ok: true }),
     ...rest,
@@ -469,6 +470,27 @@ describe('the read and edit tools (loop-level; the real deps are the Galaxy laye
     expect(h.reads).toEqual(['AGENTS.md', 'AGENTS.md']);
     // The positive control for the exemption: an identical WRITE still trips the detector
     // (asserted in the loop-detection block above), so this is the exemption at work.
+  });
+
+  it('two consecutive IDENTICAL run_in_tab calls do not end the turn loop-detected, and each result reaches the model', async () => {
+    // The same code is rightly run twice: a persona's tab opens a few seconds after its invite,
+    // and a read of a page is worth repeating after a change. Mutation: drop `run_in_tab` from
+    // LOOP_DETECTOR_EXEMPT → the second call ends the turn `loop-detected` → red.
+    let n = 0;
+    const h = harness([
+      resp([toolCall('run_in_tab', { tab: 'gerry', code: 'return 1' }, 't1')], { content: 'first try' }),
+      resp([toolCall('run_in_tab', { tab: 'gerry', code: 'return 1' }, 't2')], { content: 'second try' }),
+      resp([toolCall('mark_complete', {}, 'c1')]),
+    ], { run_in_tab: async () => { n += 1; if (n === 1) throw new Error('`gerry` is not a member of the dev Star yet'); return { ok: true, value: n }; } });
+    const r = await runCodegenLoop(INITIAL, h.deps);
+    expect(r.stop).toBe('complete');
+    expect(r.toolCalls.filter((tc) => tc.name === 'run_in_tab').map((tc) => [tc.error, tc.result])).toEqual([
+      ['`gerry` is not a member of the dev Star yet', undefined], [undefined, { ok: true, value: 2 }],
+    ]);
+    // What the model read back after each: the refusal, then the value.
+    const toolTexts = h.messagesSeen[2]!.filter((m) => m.role === 'tool').map((m) => String(m.content));
+    expect(toolTexts[0]).toContain('not a member of the dev Star yet');
+    expect(toolTexts[1]).toContain('"value":2');
   });
 
   it('edit_file: the dep is called with (path, anchor, replacement); the edited path is APPLIED', async () => {

@@ -581,7 +581,7 @@ describe('a turn that ends after posts arrived mid-turn closes by reading them',
     // The step names the post that arrived, and is offered a message and nothing that acts.
     expect(turnLines(scope, 'closing step').map((l) => [l.postId, l.posts])).toEqual([[j1, [a1]]]);
     expect(turnLines(scope, 'request').map((l) => [l.step, l.tools])).toEqual([
-      ['turn', ['read_file', 'write_file', 'edit_file', 'build', 'invite', 'mark_complete']],
+      ['turn', ['read_file', 'write_file', 'edit_file', 'build', 'invite', 'run_in_tab', 'mark_complete']],
       ['closing', ['mark_complete']],
     ]);
     // Its message replaced the draft, and answers the post the turn took up and the one it named.

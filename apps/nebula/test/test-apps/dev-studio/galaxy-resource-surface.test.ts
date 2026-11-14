@@ -5,8 +5,9 @@
  * Two things, neither needing a client:
  *  1. **Frozen surface, in THREE tiers plus what the door hands back.** Every entry reachable
  *     on the Galaxy's whole prototype chain: the bare `@mesh()` door `resources` and the
- *     ontology and config reads; the source entries — every entry `LOOP_TOOL_ENTRIES` names —
- *     at the CHAT FLOOR (`requireChatWrite`, the door a Message create passes); and
+ *     ontology and config reads; the source entries, which are every `@mesh()`-decorated entry
+ *     `LOOP_TOOL_ENTRIES` names, and `readCast`, at the CHAT FLOOR (`requireChatWrite`, the door
+ *     a Message create passes); and
  *     configuration at dominion; the inherited `teardown` is `@rawRpc()`, on no tier. Past the door the plane's
  *     `requests` and `results` member lists are frozen, and so is `OrgTree`'s, which `requests`
  *     hands out as `orgTree` — past a gate nothing is checked, so a member added there is on the
@@ -77,7 +78,7 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
     );
   });
 
-  it('every `@mesh()`-decorated entry LOOP_TOOL_ENTRIES names sits at the CHAT FLOOR, and `invite` has no `@mesh()` at all', () => {
+  it('every `@mesh()`-decorated entry LOOP_TOOL_ENTRIES names sits at the CHAT FLOOR, and `invite` and `runInTab` have no `@mesh()` at all', () => {
     // Mutations: restore `requireDominionHere` on `writeSource` → it leaves the chat set → red;
     // decorate `invite` with `@mesh()` → the last assertion reds.
     const chat = meshMethods('chat');
@@ -85,11 +86,15 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
     const named = [...new Set(Object.values(LOOP_TOOL_ENTRIES).flat())] as string[];
     expect(named.length).toBeGreaterThan(0); // the table is not empty (positive control)
     for (const entry of named.filter((name) => callable.has(name))) expect(chat).toContain(entry);
-    // The exact chat-floor set: the table's three decorated entries, and nothing else.
-    expect(chat).toEqual(['buildNow', 'readSource', 'writeSource']);
+    // The exact chat-floor set: the table's three decorated entries, and `readCast`, which
+    // Studio's tab strip reads and no loop tool reaches.
+    expect(chat).toEqual(['buildNow', 'readCast', 'readSource', 'writeSource']);
     // `invite` is on no wire: a loop tool calls it in-process, under the claims recorded on its turn's post, and a
     // client already has `resources.invite`, so a decorated entry would only be a second door.
-    expect(named.filter((name) => !callable.has(name))).toEqual(['invite']);
+    // `runInTab` likewise: the loop reaches it under the claims recorded on the post its turn
+    // took up, and records the call on the turn's message, which a direct call would not.
+    expect(named.filter((name) => !callable.has(name))).toEqual(['invite', 'runInTab']);
+    expect(typeof (Galaxy.prototype as unknown as Record<string, unknown>).runInTab).toBe('function');
     expect(typeof (Galaxy.prototype as unknown as Record<string, unknown>).invite).toBe('function'); // it exists, undecorated
   });
 
@@ -144,7 +149,7 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
     // literal list is the assertion — comparing against `Object.keys(LOOP_TOOL_ENTRIES)`
     // would compare the value with its own source.
     const keys = await callGalaxy(uniqueGalaxyScope(), 'loopToolDepKeysForTest') as string[];
-    expect(keys).toEqual(['build', 'edit_file', 'invite', 'read_file', 'write_file']);
+    expect(keys).toEqual(['build', 'edit_file', 'invite', 'read_file', 'run_in_tab', 'write_file']);
   });
 
   it('onInviteResult is gone from the Galaxy, and `resourcesResults`, where it now lives, has no `@mesh()`', () => {

@@ -965,6 +965,19 @@ export class Resources {
       .map((r) => (splitAddress(r.clientAddress)));
   }
 
+  /**
+   * The addresses of the Clients subscribed to `query` under `sub`, in address order: one for each
+   * tab that person has open on the query. A host reads it to call one of that person's tabs. On
+   * no wire surface.
+   */
+  subscriberAddresses(query: QueryDescriptor, sub: string): string[] {
+    return this.#subscriptions
+      .forQuery(canonicalQueryHash(query))
+      .filter((r) => r.sub === sub)
+      .map((r) => r.clientAddress)
+      .sort();
+  }
+
   // --- Subscriber-list roster (a query's live subscriber roster, delivered to WATCHERS —
   //     tasks/nebula-subscriber-lists.md) ---
 

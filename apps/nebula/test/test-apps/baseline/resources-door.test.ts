@@ -152,7 +152,7 @@ describe('each host has one door, and the per-op entries are gone', () => {
     // reaper is left on either host; they answer through `resourcesResults`.
     expect(meshSurface(Galaxy)).toEqual([
       'buildNow', 'getCurrentOntology', 'getGalaxyConfig',
-      'readSource', 'resources', 'setGalaxyConfig', 'writeSource',
+      'readCast', 'readSource', 'resources', 'setGalaxyConfig', 'writeSource',
     ]);
     expect(meshSurface(Star)).toEqual(['getStarConfig', 'resetDevData', 'resources', 'setStarConfig']);
   });

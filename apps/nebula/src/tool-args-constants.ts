@@ -27,6 +27,7 @@ interface BuildArgs { preview?: boolean; }
 interface MarkCompleteArgs { answers?: string[]; }
 interface TakeUpArgs { postId: string; }
 interface InviteArgs { email: string; scopeAdmin?: boolean; }
+interface RunInTabArgs { tab: string; code: string; }
 `;
 
 /**
@@ -40,6 +41,6 @@ interface InviteArgs { email: string; scopeAdmin?: boolean; }
  * generator's `--check` catches a stale literal. v4: `read_file` + `edit_file` joined,
  * `BuildArgs.publish` became `preview` (2026-09-05). v5: each loop tool's optional `postId`,
  * `take_up`, and `mark_complete`'s `answers` (2026-11-11). v6: `invite` joined (2026-11-11).
- * v7: the loop tools lost `postId` (2026-11-12).
+ * v7: the loop tools lost `postId` (2026-11-12). v8: `run_in_tab` joined (2026-11-14).
  */
-export const TOOL_ARGS_BUNDLE_ID = 'nebula-devstudio-tool-args-v7';
+export const TOOL_ARGS_BUNDLE_ID = 'nebula-devstudio-tool-args-v8';

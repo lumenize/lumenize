@@ -310,7 +310,7 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     const tools = client.lastResult as string[][];
     // The full tool set on a question's turn — no answer fork strips it (the deleted
     // `#answerTurn` sent no tools at all).
-    expect(tools).toEqual([['read_file', 'write_file', 'edit_file', 'build', 'invite', 'mark_complete']]);
+    expect(tools).toEqual([['read_file', 'write_file', 'edit_file', 'build', 'invite', 'run_in_tab', 'mark_complete']]);
 
     client[Symbol.dispose]();
   });

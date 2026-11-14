@@ -300,3 +300,14 @@ Each phase ends with its tests mutation-checked and its notes in § *Build notes
 - **Not driven here.** `persona-tabs` posts the run request from Studio's own page, as `TabRunner`'s port does. The path from a turn to that post, `StudioClient.runInTab` and App.vue's wiring of the runner, is phase 6's scenario, which needs the model.
 - **Close-out.** `persona-tabs` passes locally in 22 s, with a mutation caught at each of its seven limbs. C5 holds on a real page: Gerry's tab wrote his own Profile.
 
+
+### Phase 6: the agent has one tool that runs code in a tab
+
+- **For Larry.** `run_in_tab` makes no chat-floor check of its own, unlike the source tools. The code runs in the poster's own Studio with their own session, and writes none of the app's source, so the check stopped nothing they could not do from the tab themself. A mutation showed no test depended on it.
+- **For Larry.** With no Studio open, the tool's error is written for the model: "The person this turn is working for has no Studio tab open, so there is no tab to run code in. Say so, and ask them to open Studio and ask again." D31's "no Studio tab of yours is open" addressed the person, who does not read a tool error.
+- **For Larry.** A value whose JSON runs past 20,000 characters is replaced by its first 20,000 and a note. The value goes into every later request of the turn and into a record every chat subscriber receives.
+- **For Larry.** A Studio tab's answer is read as data: one in neither of the page's forms is a tool error. The tab is the person's own browser, and an answer passed on unread would skip the clip.
+- **Retro.** Phase 5 was committed with surface tests red: `readCast` joined the chat floor, and the inventories in `galaxy-resource-surface`, `scope-isolation` and `resources-door` did not list it. I had run the files I touched and not the suite. This phase's full run found them, and the closing run in phase 8 is the whole suite for that reason.
+- **Retro.** A closed tab's subscriber row is usually reaped by the next push before a tool could meet it. The lane test closes the tab while the turn is thinking, when nothing is pushed, and asserts the row is still there before the tool runs.
+- **Not driven here.** `cast-from-a-tab` is written with phase 7, since what it asks of the model is the skill phase 7 writes. C8's silent arm, a tab that holds its socket and answers nothing for 30 s, is `mesh.md`'s and has no test of this phase's.
+- **Close-out.** The lane test `run-in-tab.test.ts` and the loop's unit test hold the criteria, with eleven mutations caught. The tool-args bundle is `v8`.

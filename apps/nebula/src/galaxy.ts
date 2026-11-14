@@ -39,7 +39,7 @@ import {
 import { NEBULA_SUB, toRecordedClaims } from '@lumenize/mesh/auth';
 import type { AuthClaims, InviteSummary } from '@lumenize/mesh/auth';
 import type { AuthFacade } from '@lumenize/mesh/auth/facade';
-import { GATEWAY_PREFIX, ScopedMeshDO, hasDominionOver, requireDominionHere } from '@lumenize/mesh';
+import { GATEWAY_PREFIX, ScopedMeshDO, hasDominionOver, requireDominionHere, splitAddress } from '@lumenize/mesh';
 // Types only — the COMPILE itself runs in the container build job
 // (tasks/archive/nebula-move-compilers-out-of-the-worker.md: the Worker orchestrates and
 // stores, and does not build). No value import of the compile half may return here;
@@ -56,6 +56,8 @@ import type { QueryDescriptor } from '@lumenize/resources';
 import { chatOntologySeedRow } from './chat-ontology';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID, GALAXY_TREE_SEED } from './chat-constants';
 import { parseCast, type CastEntry } from './cast';
+import type { StudioClient } from './studio-client';
+import type { RunAnswer } from '@lumenize/resources/frontend';
 import { serveApp } from './serve';
 import { afterCall, cloudflareCertificateApi, isFinalStatus, nextCall, onWake, packHosts, packNamesGalaxy, teardownSteps } from './certificate';
 import type { CertificateApi, CertificateState } from './certificate';
@@ -389,14 +391,15 @@ export function assertModelPath(path: string, opts: { write: boolean }): string 
 /** A loop tool → the Galaxy entries it reaches. `runCodegenTurn` builds the tool deps from
  *  this table ({@link Galaxy.loopToolDeps}), so a tool cannot reach an entry the table does
  *  not name, and the resource-surface test reads it to assert every `@mesh()`-decorated entry
- *  it names sits at the chat floor, and that `invite` has no `@mesh()` at all. `mark_complete`
- *  reaches nothing and is not listed. */
+ *  it names sits at the chat floor, and that `invite` and `runInTab` have no `@mesh()` at all.
+ *  `mark_complete` reaches nothing and is not listed. */
 export const LOOP_TOOL_ENTRIES = {
   read_file: ['readSource'],
   write_file: ['writeSource'],
   edit_file: ['readSource', 'writeSource'],
   build: ['buildNow'],
   invite: ['invite'],
+  run_in_tab: ['runInTab'],
 } as const satisfies { [K in LoopToolName]: readonly LoopEntry[] };
 
 /** The reserved mounts a `read_file` path may name, and what answers each: `.platform/`
@@ -416,8 +419,20 @@ function noSuchFile(path: string, e: unknown): Error {
     : (e instanceof Error ? e : new Error(msg));
 }
 
+/** What `run_in_tab` tells the model when the person its turn works for has no Studio tab to ask. */
+export const NO_STUDIO_TAB = 'The person this turn is working for has no Studio tab open, so there is no tab to run code in. Say so, and ask them to open Studio and ask again.';
+
+/** A Studio tab's answer as a {@link RunAnswer}, or a throw: the tab is the person's own browser,
+ *  so its answer is read as data and checked for the two forms the page gives. */
+function runAnswerOf(answer: unknown): RunAnswer {
+  const a = answer as { ok?: unknown; value?: unknown; error?: unknown } | null | undefined;
+  if (a?.ok === true) return { ok: true, value: a.value };
+  if (a?.ok === false && typeof a.error === 'string') return { ok: false, error: a.error };
+  throw new Error('the Studio tab answered in a form run_in_tab does not read');
+}
+
 /** The Galaxy entries a loop tool may reach — the domain of {@link LOOP_TOOL_ENTRIES}. */
-type LoopEntry = 'readSource' | 'writeSource' | 'buildNow' | 'invite';
+type LoopEntry = 'readSource' | 'writeSource' | 'buildNow' | 'invite' | 'runInTab';
 
 /** {@link isStuckFlagResponse} over a thrown error carrying `(status, body)` — defensive
  *  against a plain Error (no `status`/`body` → not stuck). Pure. */
@@ -1515,6 +1530,79 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     await this.commitAgentMessage(DEFAULT_CHAT_ID, crypto.randomUUID(), text, CHAT_NODE_ID, undefined);
   }
 
+  // ─── The agent runs code in a tab ───────────────────────────────────
+
+  /** The calls to Studio tabs a turn is waiting on, each by the id its result handler carries.
+   *  In memory, as the turn itself is: a Galaxy evicted mid-turn loses both. */
+  #tabAnswers = new Map<string, (answer: unknown) => void>();
+
+  /**
+   * Run `code` in a preview tab of the person these claims name, for the loop's `run_in_tab`
+   * tool: `tab` is "me", their own page on the dev Star, or a persona's slug. It has NO `@mesh()`,
+   * on purpose: a loop tool calls it in-process, under the claims recorded on the post its turn
+   * took up, where its call is recorded on the turn's message. Decorated, it would be a second way
+   * for a person to run code in their own tabs, and one that leaves no such record.
+   *
+   * The preview's frames live in Studio, so the request goes to a Studio tab, and only to one
+   * whose chat subscription was made under that person's own `sub`: the code then runs with
+   * their session, or a persona's they opened, and never in another collaborator's browser. Of
+   * several such tabs it asks the first by address, and passes over one its host reports gone
+   * for the next. Each call to a tab is bounded by the 30 s every call to a Client has.
+   *
+   * It answers with what the page said. It throws when nothing ran the code: the person has no
+   * Studio tab open, or Studio said why its tab could not run it.
+   */
+  async runInTab(tab: string, code: string): Promise<RunAnswer> {
+    const claims = this.#claimsIfAny();
+    if (!claims) throw new Error('run_in_tab runs in a tab of the person a turn is working for, and this call names nobody');
+    const chat: QueryDescriptor = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
+    for (const address of this.#resources.subscriberAddresses(chat, claims.sub)) {
+      const answer = await this.#askStudioTab(address, tab, code);
+      if (answer instanceof Error) {
+        if (answer.name === 'ClientDisconnectedError') {
+          debug('nebula.Galaxy.runInTab').debug('passed over a tab its host reported gone', { instanceName: this.lmz.instanceName, address });
+          continue;
+        }
+        throw new Error(answer.message);
+      }
+      return runAnswerOf(answer);
+    }
+    throw new Error(NO_STUDIO_TAB);
+  }
+
+  /** Call one Studio tab's `runInTab` and wait, in memory, for {@link onTabAnswer} to hear back. */
+  #askStudioTab(address: string, tab: string, code: string): Promise<unknown> {
+    const requestId = crypto.randomUUID();
+    const { bindingName, instanceName } = splitAddress(address);
+    return new Promise<unknown>((resolve, reject) => {
+      this.#tabAnswers.set(requestId, resolve);
+      try {
+        this.lmz.call(bindingName, instanceName,
+          this.ctn<StudioClient>().runInTab(tab, code),
+          this.ctn<Galaxy>().onTabAnswer(requestId));
+      } catch (e) {
+        this.#tabAnswers.delete(requestId);
+        reject(e);
+      }
+    });
+  }
+
+  /**
+   * A Studio tab's answer to {@link runInTab}'s call, as the result handler that call named: the
+   * page's answer, or the Error the tab or its host gave. It has no `@mesh()`: it runs at the
+   * fire-back door, and wakes the turn waiting on `requestId`. An answer nobody is waiting for
+   * is one whose turn was lost with its Galaxy, and is dropped.
+   */
+  onTabAnswer(requestId: string, answer?: unknown): void {
+    const waiting = this.#tabAnswers.get(requestId);
+    if (!waiting) {
+      debug('nebula.Galaxy.runInTab').warn('a tab answered a turn that is gone', { instanceName: this.lmz.instanceName, requestId });
+      return;
+    }
+    this.#tabAnswers.delete(requestId);
+    waiting(answer);
+  }
+
   // ─── The codegen turn ───────────────────────────────────────────────
 
   /**
@@ -2391,6 +2479,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       build: (buildOpts) => atChatFloor(() => entries.build(buildOpts)),
       // An invite changes who can do what, and its own entry checks the poster's dominion.
       invite: (email, scopeAdmin) => under(() => entries.invite(email, scopeAdmin)),
+      // The code runs in the poster's own Studio, with their own session, so the entry reads who
+      // they are. It makes no chat-floor check: the code can do only what they can do from that
+      // tab themself, and writes none of the app's source.
+      run_in_tab: (tab, code) => under(() => entries.run_in_tab(tab, code)),
     };
     const offered = { tools: CODEGEN_TOOLS, step: 'turn' as const, postId: opts.tookUp.id };
     const deps: CodegenLoopDeps = {
@@ -2508,6 +2600,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       },
       build: () => (opts) => via('build', 'buildNow')(opts),
       invite: () => (email, scopeAdmin) => via('invite', 'invite')(email, scopeAdmin),
+      run_in_tab: () => (tab, code) => via('run_in_tab', 'runInTab')(tab, code),
     };
     return Object.fromEntries(
       (Object.keys(LOOP_TOOL_ENTRIES) as LoopToolName[]).map((tool) => [tool, factories[tool]()]),
