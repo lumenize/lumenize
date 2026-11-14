@@ -48,7 +48,7 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     const S = crypto.randomUUID();
     const Other = crypto.randomUUID();
 
-    using sub = a.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'chat', value: S });
+    using sub = a.resources.subscribeQuery({ typeName: 'Message', filter: { chat: S } });
     await sub.ready;
     expect(sub.resourceIds).toEqual([]);
 
@@ -92,7 +92,7 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     const { client: b } = await devClient(scope);
     const S = crypto.randomUUID();
 
-    using sub = a.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'chat', value: S });
+    using sub = a.resources.subscribeQuery({ typeName: 'Message', filter: { chat: S } });
     await sub.ready;
     const t1 = crypto.randomUUID(), t2 = crypto.randomUUID();
     const versions = await b.resources.transaction({
@@ -147,7 +147,7 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     await admin.orgTree.setPermission(nodeA, payload.sub, 'read');
     await admin.orgTree.setPermission(nodeB, payload.sub, 'read');
 
-    using sub = user.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'chat', value: S });
+    using sub = user.resources.subscribeQuery({ typeName: 'Message', filter: { chat: S } });
     await sub.ready;
     await vi.waitFor(() => expect([...sub.resourceIds].sort()).toEqual([tA, tB].sort()));
     expect(sub.deniedNodes).toEqual([]);

@@ -1,12 +1,11 @@
 /**
- * Child 2 Phase 3 — enumerateCurrentByField + the registry's query rows + subscribeQuery
- * surface + initial push (Flow 1), on Star with a Parent/Child ontology.
+ * A query's evaluation, the registry's query rows, the `subscribeQuery` surface and the first
+ * push, on a Star with a Parent/Child ontology.
  *
  * Covered: query evaluation (type/deleted/other-parent exclusion + (validFrom,
- * resourceId) ordering), no-denial vs has-denial delivery, M3 canonical-
- * hash idempotency (one row for reordered/omitted-default queries), fail-closed
- * validation (unknown queryType, non-to-one field), register-succeeds-when-all-denied,
- * and m1 (ontology install signals a query-sub-only client).
+ * resourceId) ordering), no-denial vs has-denial delivery, one row for two filters that
+ * differ only in key order, a refused query registering nothing, a subscriber who can read
+ * no result still registering, and an ontology install telling a client that holds only a query.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
@@ -19,7 +18,7 @@ const VERSION = 'v1';
 // Child.parent is the to-one relationship (write shape: by-id string).
 const TYPES = [
   'interface Parent { name: string }',
-  'interface Child { parent: Parent; label: string }',
+  'interface Child {\n/** @index */\nparent: Parent; label: string }',
 ].join('\n');
 
 const uniqueStar = () => `c2-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
@@ -89,9 +88,9 @@ describe('child2 query subscriptions (Phase 3)', () => {
     const expected = [c1, c2, c3].sort((x, y) =>
       vf[x] < vf[y] ? -1 : vf[x] > vf[y] ? 1 : (x < y ? -1 : x > y ? 1 : 0));
 
-    // A second admin (no-denial) subscribes the parentChild query.
+    // A second admin (no-denial) subscribes the query.
     const { client: b } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-    const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: P };
+    const query = { typeName: 'Child', filter: { parent: P } };
     b.callStarSubscribeQuery(star, query);
     await awaitQueryPush(b);
 
@@ -118,10 +117,10 @@ describe('child2 query subscriptions (Phase 3)', () => {
       [c1]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c1' } },
     });
 
-    // Two logically-equal forms: omitted defaults vs explicit defaults + reordered keys.
-    const formA = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: P };
-    const formB = { value: P, field: 'parent', typeName: 'Child', orderBy: 'validFrom' as const,
-                    queryType: 'parentChild' as const };
+    // Two forms that mean the same: the filter's keys in another order, and the scan
+    // explicitly not allowed.
+    const formA = { typeName: 'Child', filter: { parent: P, label: 'c1' } };
+    const formB = { filter: { label: 'c1', parent: P }, typeName: 'Child', allowScan: false };
     expect(canonicalQueryHash(formA)).toBe(canonicalQueryHash(formB));
 
     a.callStarSubscribeQuery(star, formA);
@@ -138,19 +137,17 @@ describe('child2 query subscriptions (Phase 3)', () => {
     a[Symbol.dispose]();
   });
 
-  it('fail-closed validation: unknown queryType + non-to-one field reject (Error push, no row)', async () => {
+  it('a refused query registers nothing: an unknown field, and a field no index can look up', async () => {
     const star = uniqueStar();
     const { client: a } = await admin(star);
 
-    // Unknown queryType.
-    a.callStarSubscribeQuery(star, { queryType: 'mongoLike' as any, typeName: 'Child', field: 'parent', value: 'P' });
-    await vi.waitFor(() => expect(a.lastQueryError).toBeDefined());
-    expect(a.lastQueryError?.message).toMatch(/queryType/i);
+    // A field the type does not declare.
+    a.callStarSubscribeQuery(star, { typeName: 'Child', filter: { nope: 'P' } });
+    await vi.waitFor(() => expect(a.lastQueryError?.message).toBe('Child has no field "nope"'));
 
-    // Non-to-one field ('label' is a scalar, not a relationship).
-    a.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'label', value: 'x' });
-    await vi.waitFor(() => expect(a.lastQueryError).toBeDefined());
-    expect(a.lastQueryError?.message).toMatch(/to-one relationship/i);
+    // `label` has no index, so a filter on it alone would read every Child.
+    a.callStarSubscribeQuery(star, { typeName: 'Child', filter: { label: 'x' } });
+    await vi.waitFor(() => expect(a.lastQueryError?.message).toContain('This filter would read every current Child'));
 
     // Nothing registered (fail closed).
     a.callStarInspectQuerySubscribers(star);
@@ -188,7 +185,7 @@ describe('child2 query subscriptions (Phase 3)', () => {
     await waitForSuccess(adminC);
 
     // The readable ids, and the node holding the one it cannot read.
-    user.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P });
+    user.callStarSubscribeQuery(star, { typeName: 'Child', filter: { parent: P } });
     await awaitQueryPush(user);
     expect(user.lastQueryUpdate?.result).toEqual({ resourceIds: [c1], deniedNodes: [privNode] });
 
@@ -212,7 +209,7 @@ describe('child2 query subscriptions (Phase 3)', () => {
     const { client: user } =
       await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'nope@example.com');
 
-    user.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P });
+    user.callStarSubscribeQuery(star, { typeName: 'Child', filter: { parent: P } });
     await awaitQueryPush(user);
     // Registration succeeded (no error), the push is deniedNodes-only (allow + empty readable).
     expect(user.lastQueryError).toBeUndefined();
@@ -237,7 +234,7 @@ describe('child2 query subscriptions (Phase 3)', () => {
 
     // A second client with ONLY a query sub (no single-resource sub).
     const { client: b } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-    b.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P });
+    b.callStarSubscribeQuery(star, { typeName: 'Child', filter: { parent: P } });
     await awaitQueryPush(b);
     b.resetResults(); // clear lastErrorObject before the install
 

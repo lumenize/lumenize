@@ -63,7 +63,11 @@ export type { OntologyVersionConfig, OntologyVersionRow };
  */
 export const PLATFORM_RESOURCE_TYPES: readonly string[] = [
   'interface _OrgNode { platformReserved?: string }',
-  'interface _InviteStatus { node: _OrgNode; email: string; tier: string; state: string; error?: string }',
+  // The members panel subscribes to a node's invites, so `node` declares its index.
+  `interface _InviteStatus {
+  /** @index */
+  node: _OrgNode;
+  email: string; tier: string; state: string; error?: string }`,
 ];
 
 // Every platform type must live in the reserved `_` namespace — the prefix guard in
@@ -109,5 +113,7 @@ export function compileOntologyVersion(
     types: versionConfig.types,
     validatorBundle,
     relationships: md.relationships,
+    fields: md.fields,
+    indexes: md.indexes,
   };
 }

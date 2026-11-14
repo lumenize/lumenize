@@ -226,15 +226,16 @@ export function createNebulaStore(
     trackRead(profileKey(profileId), () => client.subscribeProfile(profileId));
   }
 
-  // Distinct keyspace for subscriber-list (a) query-in-path auto-subscribes, keyed by the parentChild query.
+  // Distinct keyspace for subscriber-list (a) query-in-path auto-subscribes, keyed by the query the
+  // path spells: the resources of `typeName` whose `field` equals `value`.
   function querySubscribersKey(typeName: string, field: string, value: string): string {
     return `lmz.querySubscribers:${typeName}.${field}.${value}`;
   }
 
   function trackQuerySubscribersRead(typeName: string, field: string, value: string): void {
-    // The path segments ARE the parentChild query → subscribe to its subscriber-LIST (STANDALONE roster,
-    // NOT the coupled data sub). The roster lands via `onQuerySubscribersUpdate` below.
-    const query = { queryType: 'parentChild' as const, typeName, field, value };
+    // The path segments are the query, so subscribe to its subscriber list (the standalone roster,
+    // not the data subscription). The roster lands via `onQuerySubscribersUpdate` below.
+    const query = { typeName, filter: { [field]: value } };
     trackRead(querySubscribersKey(typeName, field, value), () => client.subscribeQuerySubscribers(query));
   }
 
@@ -713,12 +714,15 @@ export function createNebulaStore(
   // Mirror each subscriber-list roster into the query-in-path store surface
   // `store.lmz.querySubscribers.<typeName>.<field>[value]` — a reactive array of `{ sub, profileId }`
   // (v-for-ready). Fed by the STANDALONE `handleQuerySubscribersUpdate` channel.
+  // The path holds one field and one value, so only a query that is one equality has a place in the
+  // store. A roster for any other filter reaches its own handle's listener and nothing here.
   client.onQuerySubscribersUpdate((delivery) => {
+    const conditions = Object.entries(delivery.query.filter);
+    if (conditions.length !== 1) return;
+    const [field, value] = conditions[0]!;
+    if (field.startsWith('$') || typeof value !== 'string') return;
     withContext({ source: 'remote' }, () => {
-      internalDeepWrite(
-        ['lmz', 'querySubscribers', delivery.query.typeName, delivery.query.field, delivery.query.value],
-        delivery.roster,
-      );
+      internalDeepWrite(['lmz', 'querySubscribers', delivery.query.typeName, field, value], delivery.roster);
     });
   });
 

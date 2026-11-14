@@ -226,19 +226,42 @@ Auto-subscribe handles the common case (component unmount → grace period → u
 subscribeQuery(query: QueryDescriptor, options?: { renderGraceMs?: number }): QuerySubscription;
 ```
 
-Subscribe to a **live query** — the ordered set of resource ids matching a relationship query, kept current as resources are created / deleted / re-parented. Fire-and-forget (the client computes the query's canonical hash locally and correlates pushes by it — ADR-003), so the initial membership arrives asynchronously: `await handle.ready`. Membership is REPLACED on every push (idempotent, self-healing — no delta merge).
-
-v1 supports exactly one query shape — equality on a single to-one relationship field:
+Subscribe to a **live query**: the resources of one type that match a filter, kept current as resources are created, changed and deleted. It returns at once (the client computes the query's hash itself and matches pushes to it — ADR-003), so the first result arrives asynchronously: `await handle.ready`. Each push REPLACES the list, so there is no delta to merge.
 
 ```typescript @skip-check
 interface QueryDescriptor {
-  queryType: 'parentChild';   // the only v1 queryType
-  typeName: string;           // the CHILD type being matched, e.g. 'Message'
-  field: string;              // its to-one relationship field, e.g. 'session'
-  value: string;              // the parent id that `field` must equal
-  orderBy?: 'validFrom';      // v1 only (default): by each resource's latest write, oldest first
+  typeName: string;      // the type being matched, e.g. 'Deal'
+  filter: Filter;        // which of them, e.g. { stage: 'open', amount: { $gt: 1000 } }
+  allowScan?: boolean;   // read every resource of the type; see "A query needs an index" below
 }
 ```
+
+**The filter** is an object of field names and conditions, MongoDB-style. Several fields are ANDed.
+
+| Condition | Meaning |
+|---|---|
+| `{ stage: 'open' }` | equals. A relationship field compares to the related resource's id: `{ owner: personId }`. |
+| `{ amount: { $gt: 1000, $lte: 5000 } }` | `$gt`, `$gte`, `$lt`, `$lte` on a number, a string or a `Date`. |
+| `{ stage: { $in: ['open', 'won'] } }` | any of a list; `$nin` is none of it. |
+| `{ stage: { $ne: 'won' } }` | not equal. |
+| `{ due: { $exists: true } }` | the field holds a value. `{ due: null }` and `$exists: false` select resources where it does not. |
+| `{ title: { $startsWith: 'Ac' } }` | also `$endsWith` and `$contains`, on a string field. Case-sensitive. |
+| `{ 'address.city': 'Raleigh' }` | a field inside an inline object, by a dotted path. |
+| `{ $or: [f1, f2] }` | also `$and`, `$nor`, and `$not: f`. |
+
+- A `Date` field compares to a `Date`, a boolean to `true` or `false`, and a union of string literals to one of its values. A value of the wrong type is refused, by a message naming the field.
+- `$ne`, `$nin`, `$not` and `$nor` also match a resource whose field holds no value.
+- An array, `Set`, `Map` or bigint field cannot be filtered on, and neither can a union of string literals with `$gt` or `$lt`. Filter those in the page.
+- A refused query rejects `handle.ready` with the reason. Read it: it says what to change.
+
+**A query needs an index.** A filter must give one of the type's indexes something to look up: equality, `$in`, a range or `$startsWith` on a field the ontology declares with [`@index`](./ontology.md#indexes), at the filter's top level or inside a top-level `$and`. The rest of the filter then tests only what that lookup found, so `$ne`, `$exists` and the others are fine beside it. A filter with no such condition is refused, because it would read every resource of the type, and the refusal lists the fields the type's indexes start with.
+
+Two ways out, and which is right depends on how many resources the type will hold:
+
+- **Add `@index` to the field** when the type can grow: Deals, Messages, Orders. An index adds one row to every write of that type, so add one for a filter the app really runs, not for every field.
+- **Pass `allowScan: true`** when the type will only ever hold a few resources, such as a workspace's five Pipelines. It reads them all each time, which costs nothing at that size and saves the index's write on every change.
+
+`{}` matches every resource of the type and needs neither.
 
 The handle is a `using`-compatible `QuerySubscription`:
 
@@ -247,14 +270,15 @@ interface QuerySubscription extends Disposable {
   readonly ready: Promise<void>;          // resolves on the first push; rejects if the query is rejected
   readonly resourceIds: string[];         // current ordered membership — the ids you may read
   readonly deniedNodes: string[];         // node ids you can't reach (drives request-access UI)
+  readonly more: boolean;                 // the query matched more than the 1,000 ids one push carries
   setRenderWindow(resourceIds: string[]): void;  // open content subs for exactly these ids
   onChange(cb: () => void): void;          // fired on every membership / denied change
 }
 ```
 
-**The query delivers ids, not content.** `resourceIds` is the membership in order of each resource's latest write, oldest first, with resources one transaction wrote in id order; it promises no other order, so a list whose order matters keeps it in a container resource's array of ids (see [Coding your UI § Lists](./coding-your-ui.md)). Read each resource's value the normal way (`store.resources.<typeName>[id].value.*`), which auto-subscribes it. For large results, call `setRenderWindow(ids)` with just the ids you're actually rendering (e.g. the 25 visible rows of a virtual list) — the factory opens per-resource content subscriptions for exactly those and releases ids that scroll out of view after a grace period. Content subs are refcounted and shared with direct [`subscribe`](#resourcessubscribe).
+**The query delivers ids, not content.** `resourceIds` is the result in order of each resource's latest write, oldest first, with resources one transaction wrote in id order; it promises no other order, so sort in the page, or keep a list whose order matters in a container resource's array of ids (see [Coding your UI § Lists](./coding-your-ui.md)). A push carries at most 1,000 ids, the first by that order, and `more` is true when the query matched more; narrow the filter rather than paging. Read each resource's value the normal way (`store.resources.<typeName>[id].value.*`), which auto-subscribes it. For large results, call `setRenderWindow(ids)` with just the ids you're actually rendering (e.g. the 25 visible rows of a virtual list) — the factory opens per-resource content subscriptions for exactly those and releases ids that scroll out of view after a grace period. Content subs are refcounted and shared with direct [`subscribe`](#resourcessubscribe).
 
-`deniedNodes` lists nodes the subscriber can't reach; surface a "request access" affordance (climb the org tree to the nearest admin — see [`OrgTreeState`](#orgtreestate)). A grant or a revoke writes no resource, so the membership changes at the next update to the query; a client watching the org tree, as every `createNebulaClient` client does, re-subscribes a query with denied nodes at each tree change, so a grant reaches it with no write. `[Symbol.dispose]()` is per-handle (refcounted); the server-side `unsubscribeQuery` fires when the last handle releases.
+`deniedNodes` lists nodes the subscriber can't reach; surface a "request access" affordance (climb the org tree to the nearest admin — see [`OrgTreeState`](#orgtreestate)). **A person sees only what they may read.** Two people running the same query get different lists: each result is checked against that person's `read` on the node it sits under. A grant or a revoke writes no resource, so the list changes at the next update to the query; a client watching the org tree, as every `createNebulaClient` client does, re-subscribes a query with denied nodes at each tree change, so a grant reaches it with no write. `[Symbol.dispose]()` is per-handle (refcounted); the server-side `unsubscribeQuery` fires when the last handle releases.
 
 To watch **who is subscribed** to a query (its live roster) rather than its data, see [`client.subscribeQuerySubscribers`](#subscribequerysubscribers).
 

@@ -49,7 +49,7 @@ describe('child3 — a turn\'s chunks reach the readers of the chat node, and no
   it('reaches the dominionOverHostAtSubscribe-bypass + read-granted subscribers, not the read-denied one', async () => {
     const scope = uniqueChatScope();
     const { client: admin, accessToken } = await devClient(scope);
-    const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
+    const query: QueryDescriptor = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
     const resourcePair = { resourceHostBinding: 'GALAXY' } as const;
 
     // Non-admin "granted": explicit read on the chat node.

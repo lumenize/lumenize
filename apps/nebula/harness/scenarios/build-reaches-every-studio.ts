@@ -271,7 +271,7 @@ export async function run(stack: DevStack): Promise<void> {
     // The record both Studios heard is the agent's own write, whoever asked for the build.
     let writer = 'no ServedBuild names the build';
     {
-      using served = driver.client.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'ServedBuild', field: 'chat', value: DEFAULT_CHAT_ID });
+      using served = driver.client.resources.subscribeQuery({ typeName: 'ServedBuild', filter: { chat: DEFAULT_CHAT_ID } });
       await served.ready;
       for (const id of served.resourceIds) {
         const row = await driver.client.resources.read('ServedBuild', id) as Snapshot | null;
@@ -300,7 +300,7 @@ export async function run(stack: DevStack): Promise<void> {
     await fresh.close();
 
     // ── LIMB 2: a landing Studio missed arrives when it comes back ───────────────────────────
-    using thread = driver.client.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID });
+    using thread = driver.client.resources.subscribeQuery({ typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } });
     await thread.ready;
     const messagesBefore = thread.resourceIds.length;
     // P's Studio is the tab whose id its page keeps under `lmz_tab`, so its reap is told from any

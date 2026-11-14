@@ -58,7 +58,7 @@ const SCOPE = `${testSlug('invt')}.app`;
 const DEV = `${SCOPE}.dev`;
 /** A real generation, and the mail it sends, fit well inside this. */
 const TURN_TIMEOUT_MS = 240_000;
-const chatQuery = { queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
+const chatQuery = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 const address = (who: string) => `test-${who}-${crypto.randomUUID().slice(0, 8)}@lumenize-test.dev`;
 type Value = { content?: string; replyTo?: string; answers?: string[]; codegen?: { toolCalls?: Array<{ name: string; error?: string; result?: unknown }> } };
 

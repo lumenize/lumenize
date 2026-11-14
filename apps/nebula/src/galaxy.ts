@@ -911,7 +911,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
           });
           return { refreshed: false, why: 'the compiled types do not match the version the build was asked for — build again' };
         }
-        row = { version: ontologyVersion, types: file.types, validatorBundle: file.validatorBundle, relationships: file.relationships };
+        row = {
+          version: ontologyVersion, types: file.types, validatorBundle: file.validatorBundle,
+          relationships: file.relationships, fields: file.fields, indexes: file.indexes,
+        };
       } catch (e) {
         log.error('refused: the compiled row could not be read', { instanceName, expected: ontologyVersion, error: e });
         return { refreshed: false, why: 'the compiled ontology row could not be read — build again' };
@@ -1523,7 +1526,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     try {
       return this.lmz.asLocalPrincipal(NEBULA_SUB, () => {
         const out: Array<{ id: string; snap: Snapshot }> = [];
-        for (const { resourceId: id } of this.#resources.findCurrentByField('Message', 'chat', DEFAULT_CHAT_ID)) {
+        for (const { resourceId: id } of this.#resources.findCurrent('Message', { chat: DEFAULT_CHAT_ID })) {
           let snap: Snapshot | null;
           try { snap = this.#resources.doRead(id); } catch { continue; }
           if (snap) out.push({ id, snap });
@@ -1964,7 +1967,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * whose turn it is.
    */
   #chatProgress(agentMessageId: string, progress: string, userMessageId: string): void {
-    const chatQuery: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
+    const chatQuery: QueryDescriptor = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
     this.#resources.streamProgress(chatQuery, agentMessageId, progress, CHAT_NODE_ID, userMessageId);
   }
 

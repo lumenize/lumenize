@@ -85,9 +85,38 @@ The asymmetry is intentional. Config-named annotations are unambiguous about sco
 | `@title` | metadata | Display name for Studio's UI surfaces (form labels, list headers). |
 | `@description` | metadata | Human/LLM explanation; Studio consults when reasoning about the type. |
 | `@inverse` | reference | Back-reference declaration for relationships. |
+| `@index` | query | Declares an index, so a query can filter on the field. See [Indexes](#indexes). |
 | `@debounce(q?, m?)` | config | Debounce timing for writes to this field. `@debounce(0)` makes the field commit immediately (no debounce) — used for booleans, enums, anything click-to-commit. |
 | `@longform` | semantic | This field is long-form text. Effects: a longer maximum wait than the framework default (default `quietMs: 1000`, `maxWaitMs: 5000`), auto-register a text-merge conflict resolver, Studio renders as `<textarea>` in generated UI. |
 | typia validation tags (`@minimum`, `@maximum`, `@pattern`, `@format`, etc.) | validation | Standard typia constraints; see [@lumenize/ts-runtime-parser-validator](../ts-runtime-parser-validator/index.md). |
+
+### Indexes {#indexes}
+
+A query filters on a field only when an index lets it look the value up ([`subscribeQuery`](./api-reference.md#resourcessubscribequery)). Declare one with `@index`:
+
+```typescript @skip-check
+/** @index stage, amount */
+export interface Deal {
+  title: string;
+  /**
+   * @title Owner
+   * @index
+   */
+  owner: Person;
+  stage: 'lead' | 'open' | 'won';
+  amount?: number;
+}
+```
+
+- **On a field,** `@index` takes no text and indexes that field. `{ owner: personId }` can now be looked up.
+- **On the interface,** `@index stage, amount` indexes several fields together, in that order. It serves a filter on `stage`, or on `stage` and `amount`, and not one on `amount` alone.
+- **Put each JSDoc block on a line of its own,** directly above what it belongs to. `{ /** @index */ owner: Person }` on one line is refused at build, because TypeScript attaches that comment to nothing.
+- **A field inside an inline object** takes `@index` on itself, or a dotted path on the interface: `@index address.city`.
+- **What can be indexed:** a string, a number, a boolean, a `Date`, a relationship to one resource, and a union of string literals. An array, `Set`, `Map`, bigint or inline object cannot, and declaring one is refused at build.
+
+**Index what the app filters by, and nothing else.** Every index adds one stored row to each write of its type, and a write costs about a thousand times what a read does. Declare `@index` on each relationship a query filters by, and on the other fields a filter really uses. For a type that will only ever hold a few resources, skip the index and pass `allowScan: true` in the query.
+
+**A number field holds a finite number.** A write holding `Infinity`, `-Infinity`, `NaN` or `-0` in a `number` field is refused, as is an invalid `Date`, because no query could compare it. Leave the field out when there is no value.
 
 ### Type-derived defaults (no annotation needed)
 

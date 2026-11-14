@@ -8,7 +8,7 @@
  */
 
 // The plane a node composes, and the two surfaces it hands the wire
-export { Resources } from './resources';
+export { Resources, MAX_LIVE_QUERIES_PER_TYPE } from './resources';
 export type {
   OntologySource, InstalledOntology, ResourcesHost, ResourcesRequests, ResourcesResults, NodeInvitee, NodeInviteAck,
 } from './resources';
@@ -30,8 +30,8 @@ export { Subscriptions } from './subscriptions';
 export type {
   SubscriptionKind, SubscriberRow, QuerySubscriberRow, AddressRow, DroppedAddress, ResourceSubscribeOutcome,
 } from './subscriptions';
-export { canonicalQueryHash } from './query-hash';
-export type { QueryDescriptor, QueryUpdatePayload, QueryType, OrderBy, SubscriberEntry, SubscriberRosterPayload } from './query-hash';
+export { canonicalQueryHash, QUERY_RESULT_CAP } from './query-hash';
+export type { QueryDescriptor, QueryUpdatePayload, SubscriberEntry, SubscriberRosterPayload } from './query-hash';
 
 // Errors
 export {

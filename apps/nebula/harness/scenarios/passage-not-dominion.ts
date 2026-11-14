@@ -209,7 +209,7 @@ export async function run(stack: DevStack): Promise<void> {
     (member.client as any).handleQuerySubscribersUpdate = capture;
     const rosterRefusal = await refusal(member.client.lmz.callAsync('GALAXY', galaxy,
       member.client.ctn<GalaxyMethods>().resources.subscribeQuerySubscribers(CHAT_MESSAGE_ONTOLOGY_VERSION,
-        { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID })));
+        { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } })));
     assert.equal(rosterRefusal, null, `a Star member was refused the Galaxy's roster watch: ${rosterRefusal}`);
     const rosterDeadline = Date.now() + 15_000;
     while (roster === undefined && Date.now() < rosterDeadline) await new Promise((r) => setTimeout(r, 100));

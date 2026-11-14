@@ -380,6 +380,45 @@ async function addTodo(title: string) {
 }
 ```
 
+
+## Data several people share: query it
+
+A container keyed by the user's own `sub` is that user's alone: nobody else's page knows its id. For data a team shares, such as the Deals every salesperson works, subscribe to a **query** instead. A query finds resources by what they hold, so one person's page finds what another person made.
+
+```typescript @skip-check
+// src/ontology.d.ts
+export interface Deal {
+  title: string;
+  /**
+   * @title Stage
+   * @index
+   */
+  stage: 'lead' | 'open' | 'won';
+  amount?: number;
+}
+```
+
+```typescript @skip-check
+// In a component's <script setup>
+import { onBeforeUnmount, shallowRef } from 'vue';
+import { client, store } from './nebula';
+
+const openDeals = shallowRef<string[]>([]);
+const query = client.resources.subscribeQuery({ typeName: 'Deal', filter: { stage: 'open' } });
+query.onChange(() => { openDeals.value = [...query.resourceIds]; });
+query.ready.then(() => { openDeals.value = [...query.resourceIds]; }, (error) => console.error(error.message));
+onBeforeUnmount(() => query[Symbol.dispose]());
+```
+
+```html @skip-check
+<li v-for="id in openDeals" :key="id">{{ store.resources.Deal[id]?.value?.title }}</li>
+```
+
+- **The query delivers ids.** Reading `store.resources.Deal[id]` in the loop subscribes to each Deal's content, as with a container.
+- **Each person gets their own answer.** The same query returns only the Deals that person may read, and `query.deniedNodes` names the nodes holding ones they may not.
+- **A filter needs an `@index` on a field it looks up by,** or `allowScan: true` for a type that will only ever hold a few resources. [`subscribeQuery`](./api-reference.md#resourcessubscribequery) has the operators and the rule, and [Ontology § Indexes](./ontology.md#indexes) how to declare one.
+- **Create a shared resource under a node the team can read,** not under a node only its author holds.
+
 ## Conditionals with `v-if`
 
 Stock Vue. The one Nebula-relevant note: subscriptions inside an unmounted branch don't initiate. A `v-if="false"` branch's resource paths are NOT subscribed.

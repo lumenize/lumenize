@@ -83,7 +83,7 @@ const turn = ref<TurnLiveness | null>(null);
 function openChatThread(client: { resources: { subscribeQuery(q: unknown): unknown } }) {
   closeChatThread();
   const sub = client.resources.subscribeQuery({
-    queryType: "parentChild", typeName: "Message", field: "chat", value: DEFAULT_CHAT_ID,
+    typeName: "Message", filter: { chat: DEFAULT_CHAT_ID },
   }) as QuerySub;
   const sync = () => {
     messageIds.value = [...sub.resourceIds];
@@ -115,7 +115,7 @@ const servedIds = ref<string[]>([]);
 function openServedBuilds(client: { resources: { subscribeQuery(q: unknown): unknown } }) {
   closeServedBuilds();
   const sub = client.resources.subscribeQuery({
-    queryType: "parentChild", typeName: "ServedBuild", field: "chat", value: DEFAULT_CHAT_ID,
+    typeName: "ServedBuild", filter: { chat: DEFAULT_CHAT_ID },
   }) as QuerySub;
   const sync = () => {
     servedIds.value = [...sub.resourceIds];

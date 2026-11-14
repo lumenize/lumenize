@@ -18,7 +18,7 @@ import { NebulaClientTest } from './index';
 const VERSION = 'v1';
 const TYPES = [
   'interface Parent { name: string }',
-  'interface Child { parent: Parent; label: string }',
+  'interface Child {\n/** @index */\nparent: Parent; label: string }',
 ].join('\n');
 const uniqueStar = () => `c2r-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 
@@ -56,7 +56,7 @@ describe('child2 query rerun on commit (Phase 4)', () => {
     const { client: a } = await admin(star);
     const { client: b } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const P = crypto.randomUUID(), Q = crypto.randomUUID();
-    const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: P };
+    const query = { typeName: 'Child', filter: { parent: P } };
 
     b.callStarSubscribeQuery(star, query);
     await nextPush(b, 0);
@@ -104,7 +104,7 @@ describe('child2 query rerun on commit (Phase 4)', () => {
     const { client: a } = await admin(star);
     const { client: b } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const P = crypto.randomUUID();
-    b.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P });
+    b.callStarSubscribeQuery(star, { typeName: 'Child', filter: { parent: P } });
     await nextPush(b, 0);
 
     const baseline = b.queryUpdateCount;
@@ -129,7 +129,7 @@ describe('child2 query rerun on commit (Phase 4)', () => {
     const P = crypto.randomUUID();
     const c1 = crypto.randomUUID();
     const e = await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c1' } } });
-    b.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P });
+    b.callStarSubscribeQuery(star, { typeName: 'Child', filter: { parent: P } });
     await nextPush(b, 0);
     expect(b.lastQueryUpdate?.result.resourceIds).toEqual([c1]);
 
@@ -162,7 +162,7 @@ describe('child2 query rerun on commit (Phase 4)', () => {
 
     // A no-denial admin subscriber + the has-denial user, same query.
     const { client: b } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-    const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: P };
+    const query = { typeName: 'Child', filter: { parent: P } };
     b.callStarSubscribeQuery(star, query); await nextPush(b, 0);
     user.callStarSubscribeQuery(star, query); await nextPush(user, 0);
 

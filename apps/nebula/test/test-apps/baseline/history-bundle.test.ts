@@ -23,7 +23,7 @@ import { universeAdminClient } from '../../test-helpers';
 import { StudioClientTest } from './index';
 
 const uniqueScope = () => `hb-${crypto.randomUUID().slice(0, 8)}.app`;
-const chatQuery = { queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
+const chatQuery = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 
 /** One text-only model round (→ the loop's `no-tool-calls` stop; the text is the reply). */
 const round = (content: string) => ({ choices: [{ message: { content, reasoning_content: '', tool_calls: [] } }] });

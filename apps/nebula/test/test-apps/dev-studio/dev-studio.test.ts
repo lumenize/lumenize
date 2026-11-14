@@ -176,13 +176,13 @@ describe('the .dev Star runs the last landed build\'s row; nothing else moves it
     expect(await servedIndex(galaxy)).toBe(servedBefore);
 
     // A row file the build dressed: its types hash to the version, but it carries another label
-    // and a key of its own. The stored row is the hash and the four fields, nothing more.
+    // and a key of its own. The stored row is the hash and the row's own fields, nothing more.
     const dressed = await build(galaxy, { dressRow: { version: 'planted', planted: true } });
     expect(dressed.preview.refreshed).toBe(true);
     expect(await servedIndex(galaxy)).not.toBe(servedBefore); // the page lands with its row
     const stored = await inDO(env.GALAXY, galaxy, (s) => s.ctx.storage.kv.get(DEV_ROW_KEY)) as Record<string, unknown>;
     expect(stored.version).toBe(v3);
-    expect(Object.keys(stored).sort()).toEqual(['relationships', 'types', 'validatorBundle', 'version']);
+    expect(Object.keys(stored).sort()).toEqual(['fields', 'indexes', 'relationships', 'types', 'validatorBundle', 'version']);
   });
 
   // Mutation: compare the file with the row before the build ahead has landed (drop the queue

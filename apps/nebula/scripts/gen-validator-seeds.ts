@@ -59,6 +59,8 @@ export const CHAT_ONTOLOGY_SEED_ROW: OntologyVersionRow = {
   types: ${JSON.stringify(chatRow.types)},
   validatorBundle: ${JSON.stringify(chatRow.validatorBundle)},
   relationships: ${JSON.stringify(chatRow.relationships)},
+  fields: ${JSON.stringify(chatRow.fields)},
+  indexes: ${JSON.stringify(chatRow.indexes)},
 };
 
 /**

@@ -148,7 +148,7 @@ import { client } from './nebula';
 
 const deals = ref(-1);
 onMounted(() => {
-  const list = client.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Deal', field: 'pipeline', value: 'p1' });
+  const list = client.resources.subscribeQuery({ typeName: 'Deal', filter: { pipeline: 'p1' } });
   list.setRenderWindow(list.resourceIds.slice(0, 25));
   list.onChange(() => { deals.value = list.resourceIds.length; });
 });
@@ -207,7 +207,7 @@ describe('SFC gate: Pass 2 reads the real types, so it is exact both ways', () =
   it('a misspelled client method is a finding, naming the method the client has', () => {
     // A loose copy of the client let any member through; the real `ClientResources` does not.
     const r = compileSource('src/App.vue', setup(`import { client } from './nebula';
-client.resources.subscribeQuerry({ queryType: 'parentChild', typeName: 'Deal', field: 'pipeline', value: 'p1' });`));
+client.resources.subscribeQuerry({ typeName: 'Deal', filter: { pipeline: 'p1' } });`));
     expect(r.ok).toBe(false);
     expect(r.errorTail).toContain("src/App.vue(3,18): error TS2551: Property 'subscribeQuerry' does not exist");
     expect(r.errorTail).toContain("Did you mean 'subscribeQuery'?");

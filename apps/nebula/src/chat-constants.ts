@@ -49,7 +49,7 @@ export const GALAXY_TREE_SEED: TreeSeed = {
  * in its Workspace repo. The chat loader's bundle id derives from it, so a changed seed
  * row MUST come with a new label (`scripts/gen-validator-seeds.ts`).
  */
-export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v3';
+export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v4';
 
 /**
  * The Chat/Message ontology, in source (ADR-001 — TS types ARE the schema).
@@ -91,6 +91,9 @@ export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v3';
  * subscribes to `ServedBuild where chat == DEFAULT_CHAT_ID`, so every Studio on the app
  * hears every landing. `star` names the Star slug whose host serves it.
  *
+ * `Message.chat` and `ServedBuild.chat` each declare an index, since every Studio subscribes to
+ * both by their chat and a Galaxy's Messages are the largest type it holds.
+ *
  * A change here bumps {@link CHAT_MESSAGE_ONTOLOGY_VERSION}, never an in-place edit. An
  * already-seeded Galaxy then installs the new row the first time a client pinned to it asks,
  * since the plane installs its source's row on a mismatch (`Resources`' version rule), and it
@@ -99,8 +102,12 @@ export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v3';
  */
 export const CHAT_MESSAGE_TYPES = [
   'interface Chat { title: string }',
-  'interface ServedBuild { chat: Chat; star: string; buildVersion: string }',
+  `interface ServedBuild {
+    /** @index */
+    chat: Chat;
+    star: string; buildVersion: string }`,
   `interface Message {
+    /** @index */
     chat: Chat;
     content: string;
     status?: string;

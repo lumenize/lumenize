@@ -55,7 +55,7 @@ async function inviteStatuses(
   client: NebulaClient, nodeId: string,
 ): Promise<Record<string, { state: string; tier: string; error?: string }>> {
   using sub = client.resources.subscribeQuery({
-    queryType: 'parentChild', typeName: '_InviteStatus', field: 'node', value: nodeId,
+    typeName: '_InviteStatus', filter: { node: nodeId },
   });
   await sub.ready;
   const out: Record<string, { state: string; tier: string; error?: string }> = {};
@@ -277,7 +277,7 @@ describe('_InviteStatus — org-visible live state', () => {
 
       // Exactly ONE row for the address — reds against INSERTing a second (the convergence rule).
       using sub = adminB.resources.subscribeQuery({
-        queryType: 'parentChild', typeName: '_InviteStatus', field: 'node', value: ROOT_NODE_ID,
+        typeName: '_InviteStatus', filter: { node: ROOT_NODE_ID },
       });
       await sub.ready;
       let matches = 0;
@@ -300,7 +300,7 @@ describe('_InviteStatus — org-visible live state', () => {
     try {
       // B subscribes FIRST (org-visible, ADR-008): the whole lifecycle arrives on B's channel.
       using sub = adminB.resources.subscribeQuery({
-        queryType: 'parentChild', typeName: '_InviteStatus', field: 'node', value: ROOT_NODE_ID,
+        typeName: '_InviteStatus', filter: { node: ROOT_NODE_ID },
       });
       await sub.ready;
 

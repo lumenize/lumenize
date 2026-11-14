@@ -32,7 +32,7 @@ import { NebulaClientTest, StudioClientTest } from './index';
 const uniqueScope = () => `scf-${crypto.randomUUID().slice(0, 8)}.app`;
 const PAIR = (_scope: string) => ({ resourceHostBinding: 'GALAXY' });
 const OID_RE = /^[0-9a-f]{40}$/;
-const chatQuery = { queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
+const chatQuery = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 
 type SinkEntry = { namespace: string; level: string; message: string; data?: Record<string, unknown> };
 let entries: SinkEntry[] = [];

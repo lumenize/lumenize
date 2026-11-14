@@ -16,6 +16,8 @@ import { toRecordedClaims } from '@lumenize/mesh/client';
 import type { RecordedClaims } from '@lumenize/mesh/client';
 import { debug } from '@lumenize/debug';
 import { PermissionDeniedError, WipedMidTransactionError } from './errors';
+import { findUnqueryable } from './query/queryable';
+import type { FieldsMap } from './query/fields';
 import type {
   ParserValidator,
   ParseRequest,
@@ -106,6 +108,13 @@ export interface TransactionOpts {
    *  validation's `await`, the one place a commit can pause, so a commit that paused across a
    *  wipe writes nothing into the rebuilt tables and throws {@link WipedMidTransactionError}. */
   stillCurrent?: () => boolean;
+  /**
+   * The installed ontology's fields. With them, a value a query would read wrongly is refused as a
+   * validation failure: `Infinity` in a number field, an invalid `Date`, one object stored at two
+   * places (`src/query/queryable.ts`). A row compiled before queries took a filter has none, and
+   * its writes are not checked.
+   */
+  fields?: FieldsMap;
 }
 
 /** Allow-list pick for the wire — see {@link WireRecordedClaims}. */
@@ -449,50 +458,6 @@ export class Snapshots {
     return row ? (row.typeName as string) : undefined;
   }
 
-  /**
-   * Enumerate the CURRENT resources of `typeName` whose to-one relationship
-   * `field` equals `fieldValue` — the v1 `parentChild` query primitive. Returns
-   * `{ resourceId, nodeId, validFrom }` ordered by `(validFrom, resourceId)`, which is the order of
-   * each resource's latest write, with `resourceId` breaking ties among resources one transaction
-   * wrote, and promises no more. A list whose order matters keeps it in a container's array of ids.
-   *
-   * **No permission check here** — membership authorization happens at delivery
-   * (the per-target `evaluatePermissions` in the membership-delivery routine);
-   * each resource's CONTENT still requires a per-resource read on subscribe.
-   *
-   * The FK is extracted in **JS from the structured-clone value at scan time**:
-   * a full scan of the type's current snapshots, with deleted and superseded
-   * rows excluded. `src/query` is where SQL reads the stored form, through the
-   * one file that knows its shapes, and its `compileQuery` is what replaces
-   * this scan when the query engine is wired in.
-   */
-  enumerateCurrentByField(
-    typeName: string,
-    field: string,
-    fieldValue: string,
-  ): Array<{ resourceId: string; nodeId: string; validFrom: string }> {
-    const rows = this.#ctx.storage.sql.exec(
-      `SELECT resourceId, nodeId, validFrom, value
-       FROM Snapshots
-       WHERE typeName = ? AND validTo = ? AND deleted = 0
-       ORDER BY validFrom, resourceId`,
-      typeName, END_OF_TIME,
-    ).toArray();
-
-    const matches: Array<{ resourceId: string; nodeId: string; validFrom: string }> = [];
-    for (const row of rows) {
-      const value = parse(row.value as string);
-      if (value != null && value[field] === fieldValue) {
-        matches.push({
-          resourceId: row.resourceId as string,
-          nodeId: row.nodeId as string,
-          validFrom: row.validFrom as string,
-        });
-      }
-    }
-    return matches;
-  }
-
   async transaction(
     ops: Record<string, OperationDescriptor>,
     ontologyVersion: string,
@@ -584,6 +549,17 @@ export class Snapshots {
           const op = ops[resourceId];
           if (op.op === 'create' || op.op === 'put') {
             op.value = result.data;
+            // Checked on the value as it will be stored, defaults filled, since that is what a
+            // query reads.
+            const typeName = requests.get(resourceId)!.typeName;
+            const unqueryable = opts.fields && Object.hasOwn(opts.fields, typeName)
+              ? findUnqueryable(opts.fields, typeName, stringify(op.value)) : [];
+            if (unqueryable.length > 0) {
+              validationErrors[resourceId] = {
+                type: 'validation',
+                errors: unqueryable.map((issue) => ({ path: `$input.${issue.path}`, expected: issue.message, value: undefined })),
+              };
+            }
           }
         } else {
           validationErrors[resourceId] = { type: 'validation', errors: result.errors };

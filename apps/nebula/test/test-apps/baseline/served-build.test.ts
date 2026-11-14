@@ -28,7 +28,7 @@ import type { GalaxyTest } from './index';
 
 const uniqueScope = () => `sbt-${crypto.randomUUID().slice(0, 8)}.app`;
 const PAIR = { resourceHostBinding: 'GALAXY' };
-const SERVED = { queryType: 'parentChild' as const, typeName: 'ServedBuild', field: 'chat', value: DEFAULT_CHAT_ID };
+const SERVED = { typeName: 'ServedBuild', filter: { chat: DEFAULT_CHAT_ID } };
 type Report = { bundle: { indexSha256?: string }; preview: { refreshed: boolean } };
 
 async function owner(scope: string, version = CHAT_MESSAGE_ONTOLOGY_VERSION) {
@@ -87,7 +87,8 @@ describe('a landing records its build as .dev\'s newest ServedBuild', () => {
     // old row, the type is unknown there, and no row ever reaches the subscriber.
     const scope = uniqueScope();
     const old = (await owner(scope, 'chat-message-v1')).client;
-    const OLD_TYPES = CHAT_MESSAGE_TYPES.split('\n').filter((l) => !l.includes('ServedBuild')).join('\n');
+    const OLD_TYPES = CHAT_MESSAGE_TYPES.replace(/interface ServedBuild \{[^}]*\}\n/, '');
+    expect(OLD_TYPES).not.toContain('ServedBuild');
     await old.lmz.callAsync('GALAXY', scope, old.ctn<GalaxyTest>().setChatSourceForTest({ version: 'chat-message-v1', types: OLD_TYPES }));
     // An op at the old label installs the old row.
     const posted = await old.resources.transaction({

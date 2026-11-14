@@ -147,6 +147,9 @@ export interface QuerySubscription extends Disposable {
   readonly resourceIds: string[];
   /** Denied node ids (for the request-access UI). */
   readonly deniedNodes: string[];
+  /** True when the query matched more resources than one push carries, so `resourceIds` is the
+   *  first of them and not all. */
+  readonly more: boolean;
   /** Set the rendered window — content subs open for exactly these ids (∩ current
    *  membership); ids that leave are released after the grace period. */
   setRenderWindow(resourceIds: string[]): void;
@@ -185,6 +188,7 @@ interface QueryEntry {
   query: QueryDescriptor;
   resourceIds: string[];
   deniedNodes: string[];
+  more: boolean;
   refcount: number;
   ready: { promise: Promise<void>; resolve: () => void; reject: (e: unknown) => void; settled: boolean };
   /** Ids the consumer asked to render; effective window = this ∩ resourceIds. */
@@ -986,12 +990,13 @@ export class ClientResources {
     },
 
     /**
-     * Subscribe to a QUERY across resources — v1: equality on one to-one
-     * relationship field. Returns a `using`-compatible {@link QuerySubscription}
-     * synchronously; the client computes the canonical `queryHash` LOCALLY and keys
-     * the handle before firing the (void) `subscribeQuery` (ADR-003). Membership
-     * arrives on `ready` + every subsequent push (full-set replace). Use
-     * `setRenderWindow` to lazily hydrate content for the rendered ids only.
+     * Subscribe to the resources of one type that match a filter, such as
+     * `{ typeName: 'Deal', filter: { stage: 'open' } }`. Returns a `using`-compatible
+     * {@link QuerySubscription} synchronously; the client computes the canonical `queryHash`
+     * itself and keys the handle before it sends the (void) `subscribeQuery` (ADR-003). The ids
+     * arrive on `ready` and on every later push, each replacing the list. Use
+     * `setRenderWindow` to subscribe to the content of only the ids being rendered.
+     * A filter the host refuses rejects `ready` with the host's message.
      * Refcounted: `[Symbol.dispose]()` releases `unsubscribeQuery` on the last handle.
      */
     subscribeQuery: (query: QueryDescriptor, options?: SubscribeQueryOptions): QuerySubscription => {
@@ -1006,6 +1011,7 @@ export class ClientResources {
           query,
           resourceIds: [],
           deniedNodes: [],
+          more: false,
           refcount: 0,
           ready: { promise, resolve, reject, settled: false },
           desiredWindow: new Set<string>(),
@@ -1023,6 +1029,7 @@ export class ClientResources {
         ready: e.ready.promise,
         get resourceIds() { return e.resourceIds; },
         get deniedNodes() { return e.deniedNodes; },
+        get more() { return e.more; },
         setRenderWindow: (resourceIds: string[]): void => {
           e.desiredWindow = new Set(resourceIds);
           this.#reconcileQueryWindow(e);
@@ -1568,7 +1575,7 @@ export class ClientResources {
    * `subscribeQuery` state or a Flow-3 rerun. Correlated by the **locally-computed**
    * `queryHash` (subscribeQuery is void). `result` is `{ resourceIds?, deniedNodes? }`
    * (the client REPLACES its set per push — idempotent, self-healing) or an Error
-   * (a rejected query — bad `queryType`/`field`).
+   * (a rejected query, with the host's reason).
    *
    * Replaces the entry's membership set + denied set (full-set replace —
    * idempotent), reconciles the rendered window (opening/releasing per-resource
@@ -1597,6 +1604,7 @@ export class ClientResources {
     }
     entry.resourceIds = result.resourceIds ?? [];
     entry.deniedNodes = result.deniedNodes ?? [];
+    entry.more = result.more === true;
     this.#reconcileQueryWindow(entry);
     for (const cb of entry.listeners) {
       try { cb(); } catch { /* a listener throw must not break the push channel */ }

@@ -1,52 +1,45 @@
 /**
- * Shared query-subscription descriptor + the canonical `queryHash` (Child 2).
+ * The query-subscription descriptor and its canonical `queryHash`.
  *
- * This module is **isomorphic** — imported by BOTH the browser `NebulaClient` and
- * the server-side capability — so the client can compute the `queryHash` LOCALLY
- * and key its handle before firing, which is what lets `subscribeQuery` be **void**
- * (no awaited return across the client WS — the ADR-003 "thinking-forever" trap;
- * D7/B1). Every `handleQueryUpdate(queryHash, …)` push then correlates by it.
+ * This module is **isomorphic**: the browser's `NebulaClient` and the host both import it, so the
+ * client computes the `queryHash` itself and keys its handle before it sends anything. That is what
+ * lets `subscribeQuery` return nothing across the socket (ADR-003), and every
+ * `handleQueryUpdate(queryHash, …)` push then finds its handle by the hash.
  *
- * The hash is **canonical**: logically-equal queries (reordered keys, present-vs-
- * omitted `orderBy`) MUST collapse to ONE `queryHash` (coalesces the broadcast
- * partition + makes re-subscribe idempotent — M3). We achieve this by hashing a
- * **normalized tuple in fixed field order** (NOT a raw `stringify` of the object,
- * which preserves key insertion order).
+ * The hash is **canonical**: two queries that mean the same collapse to one `queryHash`, which is
+ * one set of subscribers and one rerun. A filter's keys are sorted before hashing, at every depth,
+ * since `{ a: 1, b: 2 }` and `{ b: 2, a: 1 }` select the same resources. A list keeps its order.
  */
 
 import { stringify } from '@lumenize/structured-clone';
-
-/** v1 implements only `'parentChild'`; typed as `string` because this is a PUBLIC
- *  contract seam — a future `queryType` (e.g. `'mongoLike'`) is additive and
- *  an unknown one must fail closed server-side, not be a compile error for callers
- *  on a newer client. */
-export type QueryType = string;
-
-/** v1 accepts only `'validFrom'` (the default); other keys are additive. */
-export type OrderBy = 'validFrom';
+import type { Filter } from './query/where';
 
 /**
- * A query subscription request — a single object carrying its `queryType`
- * discriminant + all options (D7/D12). v1 supports exactly: equality on one
- * to-one relationship `field` (`field == value`, `value` = the parent id).
+ * A query: the resources of one type that match a filter.
+ *
+ * `{ typeName: 'Message', filter: { chat: chatId } }` is a chat's Messages. `src/query/where.ts`
+ * says what a filter may hold and what each operator means. A query must give one of the type's
+ * indexes something to look up, or set `allowScan`, which reads every resource of the type and is
+ * right only for a type that will hold a few.
  */
 export interface QueryDescriptor {
-  queryType: QueryType;
   typeName: string;
-  field: string;
-  /** The parent id the to-one `field` must equal. */
-  value: string;
-  /** Result ordering; v1 only `'validFrom'` (default). */
-  orderBy?: OrderBy;
+  filter: Filter;
+  allowScan?: boolean;
 }
 
-/** A membership push payload. `resourceIds` = the ids the subscriber can read, ordered;
- *  `deniedNodes` = the nodes holding results it cannot read (ADR-008 — told, never silently
+/** A membership push payload. `resourceIds` are the ids the subscriber can read, ordered, and at
+ *  most {@link QUERY_RESULT_CAP} of them; `more` is set when the query matched more than that.
+ *  `deniedNodes` are the nodes holding results it cannot read (ADR-008: told, never silently
  *  dropped), and the request-access UI's input. */
 export interface QueryUpdatePayload {
   resourceIds?: string[];
   deniedNodes?: string[];
+  more?: true;
 }
+
+/** The most results one push carries. Paging past it is not built. */
+export const QUERY_RESULT_CAP = 1000;
 
 /** One entry in a query's subscriber-list roster — a distinct PERSON (deduped by `sub`) subscribed to a
  *  query's data, with their public `profileId` display handle, which every token carries. "Presence"
@@ -86,20 +79,23 @@ function fnv1a64(s: string): string {
   return h.toString(16).padStart(16, '0');
 }
 
+/** `value` with every plain object's keys sorted, at every depth. Lists, Dates and scalars stay. */
+function sortedKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortedKeys);
+  if (typeof value !== 'object' || value === null || value instanceof Date) return value;
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return value;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(value).sort()) out[key] = sortedKeys((value as Record<string, unknown>)[key]);
+  return out;
+}
+
 /**
- * The canonical `queryHash` for a query — the content key (analogous to
- * `resourceId` for single-resource subs). Hashes a fixed-order tuple of the
- * IDENTITY fields (`queryType`, `typeName`, `field`, `value`, `orderBy` with its
- * default normalized) via the shared isomorphic `stringify` (ADR-002 fidelity) +
- * the sync `fnv1a64`. Stable across clients and across re-subscribes.
+ * The canonical `queryHash` for a query: its content key, as `resourceId` is a single resource's.
+ * It hashes the type, the filter with its keys sorted, and whether the scan is allowed, through the
+ * shared `stringify` (so a `Date` in a filter hashes as itself) and the synchronous `fnv1a64`.
+ * Stable across clients and across re-subscribes.
  */
 export function canonicalQueryHash(query: QueryDescriptor): string {
-  const tuple = [
-    query.queryType,
-    query.typeName,
-    query.field,
-    query.value,
-    query.orderBy ?? 'validFrom',
-  ];
-  return fnv1a64(stringify(tuple));
+  return fnv1a64(stringify([query.typeName, sortedKeys(query.filter), query.allowScan === true]));
 }

@@ -28,12 +28,12 @@ import { ORIGIN, pageOf, addressOfClient } from '../../test-helpers';
 const VERSION = 'v1';
 const TYPES = [
   'interface Parent { name: string }',
-  'interface Child { parent: Parent; label: string }',
+  'interface Child {\n/** @index */\nparent: Parent; label: string }',
 ].join('\n');
 
 function uuid(): string { return crypto.randomUUID(); }
 const uniqueStar = () => `sublist-${uuid().slice(0, 8)}.app.tenant`;
-const mkQuery = (): QueryDescriptor => ({ queryType: 'parentChild', typeName: 'Child', field: 'parent', value: uuid() });
+const mkQuery = (): QueryDescriptor => ({ typeName: 'Child', filter: { parent: uuid() } });
 
 let clients: NebulaClientTest[] = [];
 async function connect(opts: {
@@ -199,8 +199,8 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
   it('FAIL-CLOSED validation — a watcher on an INVALID query is rejected (ready rejects), not left silently empty', async () => {
     const star = uniqueStar();
     await admin(star);
-    // A malformed query (unknown queryType) — `#validateQuery` must reject it, keyed by queryHash.
-    const badQuery = { queryType: 'not-a-real-type', typeName: 'Child', field: 'parent', value: uuid() } as unknown as QueryDescriptor;
+    // A query the engine refuses, for a field `Child` does not declare, rejected under its queryHash.
+    const badQuery: QueryDescriptor = { typeName: 'Child', filter: { nope: uuid() } };
 
     const w = await connect({ star });
     await expect(w.subscribeQuerySubscribers(badQuery).ready).rejects.toThrow();
@@ -264,7 +264,7 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
     // A galaxy's name, on its own host: a Client's Gateway sends `GALAXY` only to a galaxy scope.
     const galaxy = `sublist-ds-${uuid().slice(0, 8)}.app`;
     const query: QueryDescriptor = {
-      queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID,
+      typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID },
     };
     // A WATCHER on the Galaxy host (resourceHostBinding routes subscribeQuerySubscribers to GALAXY).
     const w = await connect({ star: galaxy, binding: 'GALAXY' });

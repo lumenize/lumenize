@@ -31,7 +31,7 @@ import type { GalaxyTest } from './index';
 
 const uniqueScope = () => `hpt-${crypto.randomUUID().slice(0, 8)}.app`;
 const PAIR = (scope: string) => ({ resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope });
-const chatQuery = { queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
+const chatQuery = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 const AGENT = { sub: NEBULA_SUB, profileId: NEBULA_SUB };
 
 type SinkEntry = { namespace: string; level: string; message: string; data?: Record<string, unknown> };

@@ -22,8 +22,24 @@ export { AuthRegistry, Profile } from '../../mesh/test/support/test-auth';
 /** The one version the host serves. */
 export const ONTOLOGY_VERSION = 'v1';
 
-/** Its types: a `Note` belongs to a `Board`, so `Note where board == …` is a query. */
-const TYPES = 'interface Board { title: string; }\ninterface Note { title: string; board: Board; }';
+/**
+ * Its types: a `Note` belongs to a `Board`, so a Board's Notes are a query, and a `Deal` has what a
+ * filter needs: an index over two fields, a field with none, and a `Map` no query reaches.
+ */
+export const TYPES = `interface Board { title: string; }
+interface Note {
+  title: string;
+  /** @index */
+  board: Board;
+}
+/** @index stage, amount */
+interface Deal {
+  title: string;
+  stage: 'lead' | 'open' | 'won';
+  amount?: number;
+  owner?: string;
+  scores?: Map<string, number>;
+}`;
 
 /** Compiled once per isolate, on the first op that needs it. */
 let row: OntologyVersionRow | undefined;
@@ -35,6 +51,8 @@ function compiledRow(): OntologyVersionRow {
       types: TYPES,
       validatorBundle: generateParseModule(md.writeShapeTypeDefinitions, md.relationships),
       relationships: md.relationships,
+      fields: md.fields,
+      indexes: md.indexes,
     };
   }
   return row;
@@ -107,6 +125,40 @@ export class ResourcesHostDO extends ScopedMeshDO<Env> implements ResourcesHost 
   createUnder(resourceId: string, validFrom: string, principal: string, newId: string, nodeId: string): Promise<TransactionResult> {
     return this.#resources.actUnderClaimsOf(resourceId, validFrom, principal, () =>
       this.#resources.doTransaction({ [newId]: { op: 'create', typeName: 'Board', nodeId, value: { title: 'under a record' } } }, ''));
+  }
+
+  // ── Fixtures for the query tests (query/query-subscriptions.test.ts): what no Client can do.
+
+  /**
+   * Install another version's row, as a Star does when its Galaxy answers with one. `fields: false`
+   * leaves the row as one compiled before queries took a filter.
+   */
+  installTypesForTest(version: string, types: string, options: { fields?: boolean } = {}): void {
+    const md = extractTypeMetadata(types);
+    const row: OntologyVersionRow = {
+      version, types, validatorBundle: generateParseModule(md.writeShapeTypeDefinitions, md.relationships),
+      relationships: md.relationships,
+      ...(options.fields === false ? {} : { fields: md.fields, indexes: md.indexes }),
+    };
+    this.#resources.results.onOntologyPulled(row);
+  }
+
+  /** The names of this host's query indexes, from the catalogue. */
+  queryIndexesForTest(): string[] {
+    return this.ctx.storage.sql.exec(`SELECT name FROM sqlite_master WHERE type = 'index' AND name GLOB 'idx_Snapshots_q_*' ORDER BY name`)
+      .toArray().map((row) => row.name as string);
+  }
+
+  /** Write `count` current Deals straight into storage, in the form the plane stores them. */
+  seedDealsForTest(count: number, nodeId: string, stage: string): void {
+    for (let i = 0; i < count; i++) {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO Snapshots (resourceId, nodeId, typeName, ontologyVersion, validFrom, recordedClaims, value)
+         VALUES (?, ?, 'Deal', ?, ?, '{}', ?)`,
+        `seed-${String(i).padStart(5, '0')}`, nodeId, ONTOLOGY_VERSION, '2026-01-01T00:00:00.000Z',
+        JSON.stringify({ title: `Deal ${i}`, stage }),
+      );
+    }
   }
 
   /** Whether the surface the `@mesh()`-decorated `resources` getter hands the wire has `member`. */

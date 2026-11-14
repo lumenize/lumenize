@@ -1,7 +1,7 @@
 /**
  * Subscriber-list roster store-wiring — the factory surfaces the query-in-path roster (Phase 5,
  * tasks/nebula-subscriber-lists.md): reading `store.lmz.querySubscribers.<typeName>.<field>[value]` — the
- * path segments ARE the parentChild query — auto-subscribes via the STANDALONE `subscribeQuerySubscribers`
+ * path segments spell the query, one field equal to one value — auto-subscribes via the STANDALONE `subscribeQuerySubscribers`
  * (roster only, NOT the coupled data sub) and lands a reactive array of `{ sub, profileId }` (v-for-ready).
  * (This is the ONLY roster store surface; the named/byName form was cut — Decision 6.) Asserts on the
  * MockClient's `querySubscribersSubscribes`/`Unsubscribes` recorders + `simulateRoster`.
@@ -25,17 +25,17 @@ describe('Subscriber-list roster store-wiring — store.lmz.querySubscribers.*',
     app.mount('#app');
     await nextTick();
 
-    // The path segments ARE the parentChild query → exactly one STANDALONE subscribeQuerySubscribers
+    // The path segments spell the query → exactly one STANDALONE subscribeQuerySubscribers
     // (roster only), NOT a coupled resource/query DATA sub.
     expect(client.querySubscribersSubscribes).toHaveLength(1);
     expect(client.querySubscribersSubscribes[0]).toMatchObject({
-      query: { queryType: 'parentChild', typeName: 'Message', field: 'session', value: sessionId },
+      query: { typeName: 'Message', filter: { session: sessionId } },
     });
     expect(client.subscribes).toHaveLength(0);
 
     // A roster push lands at the query-in-path as a reactive array → renders in the v-for.
     client.simulateRoster(
-      { queryType: 'parentChild', typeName: 'Message', field: 'session', value: sessionId },
+      { typeName: 'Message', filter: { session: sessionId } },
       [{ sub: 'alice', profileId: 'p-alice' }, { sub: 'bob', profileId: 'p-bob' }],
     );
     await vi.waitFor(() => expect(document.querySelectorAll('#app li')).toHaveLength(2));

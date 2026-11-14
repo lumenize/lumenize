@@ -64,7 +64,7 @@ export const needsContainer = false;
 const SCOPE = `${testSlug('waits')}.app`;
 /** A real generation fits well inside this; silence past it is the failure. */
 const TURN_TIMEOUT_MS = 240_000;
-const chatQuery = { queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
+const chatQuery = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 
 type Value = {
   content?: string; replyTo?: string; answers?: string[];

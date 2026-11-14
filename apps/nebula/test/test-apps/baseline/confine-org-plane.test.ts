@@ -31,7 +31,7 @@ import { universeAdminClient, createSubject, createInvitedClient, addressOfClien
 import { NebulaClientTest, StudioClientTest } from './index';
 
 const CHAT_QUERY = {
-  queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID,
+  typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID },
 };
 
 const uniqueGalaxy = () => `cdp-${crypto.randomUUID().slice(0, 8)}.app`;
@@ -114,7 +114,7 @@ describe('the DAG permission plane is confined to its host', () => {
     // delivery), so the row is written for any caller and the stored bit is directly observable.
     it('a query row stores 0 for a descendant-scope admin and 1 for a covering one', async () => {
       const g = uniqueGalaxy();
-      const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: 'p1' };
+      const query = { typeName: 'Child', filter: { parent: 'p1' } };
       const { descendant, covering } = await onNonLeafHost(g, ({ subs, as }) => {
         as('descendant-admin', DESCENDANT(g));
         const d = subs.registerQuery(query, 'BINDING/client-d');
@@ -139,7 +139,7 @@ describe('the DAG permission plane is confined to its host', () => {
     // be vacuous, since it never sees a pattern.
     it('the persisted verdict drives evaluatePermissions: descendant denied, covering allowed', async () => {
       const g = uniqueGalaxy();
-      const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: 'p1' };
+      const query = { typeName: 'Child', filter: { parent: 'p1' } };
       const { dAllowed, cAllowed } = await onNonLeafHost(g, ({ tree, subs, as }) => {
         as('descendant-admin', DESCENDANT(g));
         const d = subs.registerQuery(query, 'BINDING/client-d');

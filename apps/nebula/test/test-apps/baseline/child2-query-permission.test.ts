@@ -24,9 +24,9 @@ import { NebulaClientTest, StudioClientTest } from './index';
 const VERSION = 'v1';
 const TYPES = [
   'interface Parent { name: string }',
-  'interface Child { parent: Parent; label: string }',
+  'interface Child {\n/** @index */\nparent: Parent; label: string }',
 ].join('\n');
-const CHAT_QUERY: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
+const CHAT_QUERY: QueryDescriptor = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 const uniqueUniverse = () => `c2p-${crypto.randomUUID().slice(0, 8)}`;
 
 async function waitForResult(c: NebulaClientTest) { await vi.waitFor(() => expect(c.callCompleted).toBe(true)); }
@@ -57,7 +57,7 @@ async function privateChild() {
   await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: priv, value: { parent: P, label: 'c1' } } });
   const adminBrowser = new Browser();
   await createSubject(adminBrowser, star, accessToken, 'coach@example.com');
-  const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P };
+  const query: QueryDescriptor = { typeName: 'Child', filter: { parent: P } };
   return { star, a, P, priv, c1, query };
 }
 
@@ -95,7 +95,7 @@ describe('a permission change and a query subscriber', () => {
     expect(changes).toBe(1);
     const entry = member.store.resources.Child[c1];
     expect(entry.deniedNodes).toEqual([]);
-    expect(entry.value).toEqual({ parent: query.value, label: 'c1' });
+    expect(entry.value).toEqual({ parent: query.filter.parent, label: 'c1' });
 
     a[Symbol.dispose]();
   });
@@ -188,7 +188,7 @@ describe('a permission change and a query subscriber', () => {
     const priv = a.lastResult as string;
     const c1 = crypto.randomUUID();
     await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: priv, value: { parent: P, label: 'c1' } } });
-    const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: P };
+    const query = { typeName: 'Child', filter: { parent: P } };
 
     // A second admin (access.scopeAdmin, NO DAG grant) subscribes → sees the private child via the
     // stored dominionOverHostAtSubscribe bypass; its row carries dominionOverHostAtSubscribe = 1.

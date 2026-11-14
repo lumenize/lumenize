@@ -35,7 +35,7 @@ import type { StarTest } from './index';
 const VERSION = 'v1';
 const TYPES = [
   'interface Parent { name: string }',
-  'interface Child { parent: Parent; label: string }',
+  'interface Child {\n/** @index */\nparent: Parent; label: string }',
 ].join('\n');
 const uuid = () => crypto.randomUUID();
 
@@ -95,8 +95,8 @@ describe('no subscription update carries the identity of the caller whose call c
     await createSubject(new Browser(), star, accessToken, 'probe@example.com');
     const { client: probe, payload: probeP } = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'probe@example.com');
     await admin.orgTree.setPermission(nodeA, probeP.sub, 'read');
-    const qReadable: QueryDescriptor = { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: readable };
-    const qPartial: QueryDescriptor = { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: partial };
+    const qReadable: QueryDescriptor = { typeName: 'Child', filter: { parent: readable } };
+    const qPartial: QueryDescriptor = { typeName: 'Child', filter: { parent: partial } };
 
     // The probe's own subscribes — each initial answer is a kind.
     await probe.resources.subscribe('Parent', readable).snapshot;               // initial resource snapshot
@@ -153,10 +153,10 @@ describe('no subscription update carries the identity of the caller whose call c
     const { client: gProbe, payload: gProbeP } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'probe@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
     await gAdmin.orgTree.setPermission(CHAT_NODE_ID, gProbeP.sub, 'read');
-    using chat = gProbe.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID });
+    using chat = gProbe.resources.subscribeQuery({ typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } });
     await chat.ready;
     // The landing's `ServedBuild` reaches every subscriber, the probe included, as a query update.
-    using served = gProbe.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'ServedBuild', field: 'chat', value: DEFAULT_CHAT_ID });
+    using served = gProbe.resources.subscribeQuery({ typeName: 'ServedBuild', filter: { chat: DEFAULT_CHAT_ID } });
     await served.ready;
     gAdmin.callGalaxyChatScripted(scope, 'build it', [
       { choices: [{ message: { content: '', reasoning_content: '', tool_calls: [

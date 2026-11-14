@@ -41,7 +41,7 @@ const SCOPE = `${testSlug('guidance')}.guidance`;
 const TURN_TIMEOUT_MS = 900_000; // tracks the server's 14 min generation deadline plus margin (32-round cap)
 const FURTHER_TURNS = Number(process.env.HARNESS_GUIDANCE_TURNS ?? '10');
 
-const chatQuery = { queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
+const chatQuery = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 
 type Codegen = { toolCalls?: Array<{ name: string; args?: unknown; result?: unknown; error?: string }>; appliedPaths?: string[]; stop?: string; rounds?: number };
 type Reply = { content: string; codegen?: Codegen };

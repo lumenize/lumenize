@@ -17,7 +17,7 @@ import { NebulaClientTest } from './index';
 
 const uniqueScope = () => `rrd-${crypto.randomUUID().slice(0, 8)}.app`;
 const chatQuery = {
-  queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID,
+  typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID },
 };
 
 /** A read of the biggest platform page, then a text-only round (the loop's safe stop). */

@@ -45,7 +45,7 @@ const PLATFORM_SCOPE = '_platform';
 const REPLY_TIMEOUT_MS = 240_000;
 
 const chatQuery = {
-  queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID,
+  typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID },
 };
 
 async function waitForReply(driver: Driver, sub: { resourceIds: string[] }, repliedTo: string): Promise<Snapshot> {

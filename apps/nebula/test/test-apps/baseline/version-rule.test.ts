@@ -37,11 +37,11 @@ import { NebulaClientTest } from './index';
 import type { GalaxyTest, StarTest } from './index';
 
 const uuid = () => crypto.randomUUID();
-const TYPES_V1 = 'interface TestResource { title: string }\ninterface Parent { name: string }\ninterface Child { parent: Parent; label: string }';
-const TYPES_V2 = 'interface TestResource { title: string; note?: string }\ninterface Parent { name: string }\ninterface Child { parent: Parent; label: string }';
+const TYPES_V1 = 'interface TestResource { title: string }\ninterface Parent { name: string }\ninterface Child {\n/** @index */\nparent: Parent; label: string }';
+const TYPES_V2 = 'interface TestResource { title: string; note?: string }\ninterface Parent { name: string }\ninterface Child {\n/** @index */\nparent: Parent; label: string }';
 const CHAT_V2 = { version: 'chat-v2', types: `${CHAT_MESSAGE_TYPES}\ninterface Extra { note: string }` };
 const GALAXY_PAIR = (scope: string) => ({ resourceHostBinding: 'GALAXY' });
-const CHAT_QUERY: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
+const CHAT_QUERY: QueryDescriptor = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 /** The Galaxy's install and the faked build's compile run in place (typia); a hang still reds. */
 const COMPILE_TIMEOUT_MS = 60_000;
 
@@ -201,7 +201,7 @@ describe('the source is asked only on a mismatch', () => {
     await answer(admin.lmz.callAsync('STAR', star, door(admin).read('v-other', uuid())));
     expect(asks(star)).toBe(1);
     // A subscribe pinned to the installed version proceeds: no ask either.
-    await admin.lmz.callAsync('STAR', star, door(admin).subscribeQuery('v1', { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: uuid() }));
+    await admin.lmz.callAsync('STAR', star, door(admin).subscribeQuery('v1', { typeName: 'Child', filter: { parent: uuid() } }));
     expect(asks(star)).toBe(1);
     admin[Symbol.dispose]();
   });
@@ -222,7 +222,7 @@ describe('the source is asked only on a mismatch', () => {
       expect((e as any).checking).toBeFalsy();
     }
     // The two subscriptions answer by push, so the Star's own line says whether it refused them.
-    const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: uuid() };
+    const query = { typeName: 'Child', filter: { parent: uuid() } };
     await admin.lmz.callAsync('STAR', star, door(admin).subscribeQuery(undefined, query));
     await admin.lmz.callAsync('STAR', star, door(admin).subscribeQuerySubscribers(undefined, query));
     const arrived = (kind: string) => sink.filter((e) =>
@@ -321,7 +321,7 @@ describe('every op on an empty host takes the same path', () => {
   it('each op on an empty Star is first told `checking`', async () => {
     const star = newStar();
     const admin = await starAdmin(star);
-    const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: uuid() };
+    const query: QueryDescriptor = { typeName: 'Child', filter: { parent: uuid() } };
     const hash = canonicalQueryHash(query);
 
     const txn = await answer(admin.lmz.callAsync('STAR', star, door(admin).transaction('v1', {
@@ -387,7 +387,7 @@ async function build(owner: NebulaClientTest, galaxy: string, types: string): Pr
   return (await git.hashBlob({ object: types })).oid;
 }
 
-const CHILD = () => ({ queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: uuid() });
+const CHILD = () => ({ typeName: 'Child', filter: { parent: uuid() } });
 const EMPTY_STAR_KINDS = [
   { kind: 'query', land: (c: NebulaClientTest) => c.resources.subscribeQuery(CHILD()).ready },
   { kind: 'roster', land: (c: NebulaClientTest) => c.subscribeQuerySubscribers(CHILD()).ready },

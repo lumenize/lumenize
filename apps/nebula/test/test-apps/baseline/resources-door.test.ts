@@ -41,9 +41,9 @@ import { adminClientAt, universeAdminClient, createSubject, createInvitedClient,
 import { NebulaClientTest, StudioClientTest } from './index';
 
 const uuid = () => crypto.randomUUID();
-const TYPES = 'interface TestResource { title: string }\ninterface Parent { name: string }\ninterface Child { parent: Parent; label: string }';
+const TYPES = 'interface TestResource { title: string }\ninterface Parent { name: string }\ninterface Child {\n/** @index */\nparent: Parent; label: string }';
 const GALAXY_PAIR = (_scope: string) => ({ resourceHostBinding: 'GALAXY' });
-const CHAT_QUERY: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
+const CHAT_QUERY: QueryDescriptor = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 
 type SinkEntry = { namespace: string; level: string; message: string; data?: Record<string, unknown> };
 let sink: SinkEntry[] = [];
@@ -82,7 +82,7 @@ async function starHost(): Promise<Host> {
     binding: 'STAR', scope, version: 'v1', client, resourceType: 'TestResource',
     createOp: () => ({ op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'made' } }),
     putOp: (_rid, version) => ({ op: 'put', ifValidFromMatches: version, value: { title: `edit-${uuid().slice(0, 4)}` } }),
-    query: { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: uuid() },
+    query: { typeName: 'Child', filter: { parent: uuid() } },
   };
 }
 

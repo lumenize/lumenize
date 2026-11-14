@@ -33,7 +33,7 @@ const VERSION = 'v1';
 const TYPES = [
   'interface TestResource { title: string }',
   'interface Parent { name: string }',
-  'interface Child { parent: Parent; label: string }',
+  'interface Child {\n/** @index */\nparent: Parent; label: string }',
 ].join('\n');
 const uuid = () => crypto.randomUUID();
 const uniqueStar = () => `den-${uuid().slice(0, 8)}.app.tenant-a`;
@@ -161,7 +161,7 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
     const { admin, member, priv, open, closed } = await starWithMember();
     const clientAddress = addressOfClient(member.client);
     // A query with no results, so it has nothing to deny.
-    const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: uuid() };
+    const query: QueryDescriptor = { typeName: 'Child', filter: { parent: uuid() } };
 
     using readable = member.client.resources.subscribe('TestResource', open);
     await readable.snapshot;

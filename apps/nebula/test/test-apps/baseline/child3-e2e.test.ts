@@ -24,7 +24,7 @@ import { StudioClientTest } from './index';
 
 const uniqueChatScope = () => `c3e-${crypto.randomUUID().slice(0, 8)}.app`;
 const chatQuery = {
-  queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID,
+  typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID },
 };
 
   // ⚠️ `universeAdminClient`, not `adminClientAt`: chat lives at the GALAXY tier ({u}.{g})

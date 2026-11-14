@@ -34,7 +34,7 @@ import type { GalaxyTest } from './index';
 
 const uniqueChatScope = () => `ctr-${crypto.randomUUID().slice(0, 8)}.app`;
 const chatQuery = {
-  queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID,
+  typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID },
 };
 
 function devClient(scope: string, email = 'admin@example.com') {

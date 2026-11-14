@@ -42,7 +42,9 @@ import { OrgTree } from './org-tree';
 import { Snapshots } from './snapshots';
 import { Subscriptions } from './subscriptions';
 import type { DroppedAddress, QuerySubscriberRow } from './subscriptions';
-import { canonicalQueryHash } from './query-hash';
+import { compileIndex, compileQuery, compileWhere, QUERY_INDEX_PREFIX } from './query';
+import type { CompiledQuery, CompiledWhere, Filter } from './query';
+import { canonicalQueryHash, QUERY_RESULT_CAP } from './query-hash';
 import type { QueryDescriptor, QueryUpdatePayload, SubscriberEntry } from './query-hash';
 import { parse } from '@lumenize/structured-clone';
 import type { OperationDescriptor, TransactionResult, Snapshot } from './snapshots';
@@ -72,7 +74,17 @@ export interface InstalledOntology {
   version: string;
   facet: ParserValidator;
   relationships: OntologyVersionRow['relationships'];
+  /** Each field's kind, which a write's value check and a query's filter read. Absent on a row
+   *  compiled before queries took a filter. */
+  fields?: OntologyVersionRow['fields'];
 }
+
+/**
+ * The most distinct live queries one type may have on one host. Each write of a type tests the
+ * written resource against every live query of that type, so the bound is what keeps a write's
+ * cost from growing with its audience.
+ */
+export const MAX_LIVE_QUERIES_PER_TYPE = 200;
 
 /** One requested node invitee: the address, and the DAG tier to grant at the node. */
 export interface NodeInvitee { email: string; tier: PermissionTier }
@@ -459,7 +471,7 @@ export class Resources {
       if (stale) throw stale;
     }
     const { row, facet } = this.#ensureFacet();
-    return { version: row.version, facet, relationships: row.relationships };
+    return { version: row.version, facet, relationships: row.relationships, fields: row.fields };
   }
 
   /** Populate `#row`/`#facet` from storage — a same-isolate cache lookup once warm. */
@@ -560,11 +572,44 @@ export class Resources {
     });
     this.#row = null;
     this.#facet = null;
+    this.#matchIndexes(row);
     this.#notifyStale(tell, row.version);
     debug('nebula.Resources.ontology').debug('installed', {
       instanceName: this.#lmz().instanceName, version: row.version, prior: installed,
     });
     if (installed && this.#isDevStar()) this.#countFailingRows(row.version);
+  }
+
+  /**
+   * Make this host's query indexes exactly the ones `row` declares: create each it lacks, and drop
+   * each query index the row does not declare. A wipe needs no drop of its own, since it drops the
+   * `Snapshots` table and its indexes go with it. An index the engine refuses is logged and left
+   * out, so one bad declaration cannot stop an install; the extractor refuses the same ones at
+   * compile, so that is a row built by hand.
+   */
+  #matchIndexes(row: OntologyVersionRow): void {
+    const log = debug('nebula.Resources.indexes');
+    const instanceName = this.#lmz().instanceName;
+    const wanted = new Map<string, string>();
+    for (const spec of row.fields ? row.indexes ?? [] : []) {
+      try {
+        const index = compileIndex(row.fields!, spec);
+        wanted.set(index.name, index.createSql);
+      } catch (err) {
+        log.error('index declaration refused', { instanceName, version: row.version, spec, error: err });
+      }
+    }
+    const have = this.#ctx.storage.sql.exec<{ name: string }>(
+      `SELECT name FROM sqlite_master WHERE type = 'index' AND substr(name, 1, ?) = ?`,
+      QUERY_INDEX_PREFIX.length, QUERY_INDEX_PREFIX,
+    ).toArray().map((r) => r.name);
+    const dropped = have.filter((name) => !wanted.has(name));
+    for (const name of dropped) this.#ctx.storage.sql.exec(`DROP INDEX IF EXISTS "${name}"`);
+    const created = [...wanted.keys()].filter((name) => !have.includes(name));
+    for (const name of created) this.#ctx.storage.sql.exec(wanted.get(name)!);
+    if (created.length > 0 || dropped.length > 0) {
+      log.info('indexes matched to the installed version', { instanceName, version: row.version, created, dropped });
+    }
   }
 
   /**
@@ -846,7 +891,7 @@ export class Resources {
 
   /** The CURRENT `_InviteStatus` row for (email, node), or null — the convergence lookup. */
   #findInviteStatus(nodeId: string, email: string): (Snapshot & { resourceId: string }) | null {
-    for (const { resourceId } of this.findCurrentByField('_InviteStatus', 'node', nodeId)) {
+    for (const { resourceId } of this.findCurrent('_InviteStatus', { node: nodeId })) {
       const snapshot = this.doRead(resourceId);
       if (snapshot && (snapshot.value as { email?: string }).email === email) {
         return { ...snapshot, resourceId };
@@ -981,7 +1026,7 @@ export class Resources {
   doSubscribeQuerySubscribers(query: QueryDescriptor, clientAddress: string): void {
     const queryHash = canonicalQueryHash(query);
     try {
-      this.#validateQuery(query);
+      this.#compile(query);
     } catch (err) {
       // Fail-closed: reject the watcher handle (Error keyed by queryHash) so a typo'd/malformed query
       // doesn't register a silent, permanently-empty watcher.
@@ -1076,12 +1121,13 @@ export class Resources {
     // Existence alone, with no permission check: a second ensure of the same id does nothing.
     if (this.#snapshots.currentTypeName(resourceId) !== undefined) return;
     debug('nebula.Resources.ensureResource').debug('creating', { resourceId, typeName });
-    const { version, facet } = this.installedOntology();
+    const { version, facet, fields } = this.installedOntology();
     const generation = this.#generation;
     const result = await this.#snapshots.transaction(
       { [resourceId]: { op: 'create', typeName, nodeId, value } },
       version, facet,
       {
+        fields,
         onMutations: (mutations) => {
           this.#broadcast(mutations, '');
           this.#rerunQueriesForCommit(mutations);
@@ -1124,11 +1170,12 @@ export class Resources {
   ): Promise<TransactionResult> {
     const generation = this.#generation;
     try {
-      const { version, facet } = this.installedOntology();
+      const { version, facet, fields } = this.installedOntology();
       // RETURN the result — the framework fires it back to the originating client's `callAsync`
       // (the return-value pattern). The committed-mutation broadcasts to OTHER subscribers stay a one-way
       // side effect (originator excluded via `clientAddress`). An infra throw propagates → `callAsync` rejects.
       return await this.#snapshots.transaction(ops, version, facet, {
+        fields,
         onMutations: (mutations) => {
           // The single post-commit hook drives BOTH channels (Flow 2 + Flow 3 A):
           // single-resource content fanout, then the query rerun for touched types —
@@ -1184,13 +1231,15 @@ export class Resources {
     }
   }
 
-  /** Enumerate the CURRENT resources of `typeName` whose to-one relationship `field` equals
-   *  `value` — the host-side twin of a `parentChild` query's evaluation, for host code that must
-   *  CONVERGE on an existing row before writing (e.g. `Star.resources.invite`'s one-`_InviteStatus`-row-per-
-   *  (email, node) rule). Read-only; carries no permission gate of its own — the write that follows
-   *  goes through `doTransaction`'s ordinary checks, and reads of the values go through `doRead`. */
-  findCurrentByField(typeName: string, field: string, value: string): Array<{ resourceId: string; nodeId: string }> {
-    return this.#snapshots.enumerateCurrentByField(typeName, field, value);
+  /**
+   * The current resources of `typeName` that match `filter`, for host code that must converge on
+   * an existing row before it writes: a node invite keeps one `_InviteStatus` row for each address
+   * and node. It is a query's own evaluation, so it needs an index to look up as a query does.
+   * Read-only, with no permission check of its own: the write that follows goes through
+   * `doTransaction`'s ordinary checks, and a read of the values through `doRead`.
+   */
+  findCurrent(typeName: string, filter: Filter): Array<{ resourceId: string; nodeId: string }> {
+    return this.#evaluateQuery({ typeName, filter }).matches;
   }
 
   /**
@@ -1246,38 +1295,45 @@ export class Resources {
   // ─── Query subscriptions ───────────────────────────────────────────
 
   /**
-   * Register a query subscriber (Flow 1) + push the initial membership state.
-   * **Registration never fails for permissions** — the subscriber is told what it can read and
-   * which nodes it can't, update by update; its guard is authentication plus that evaluation. The
-   * query is FIRST validated against the ontology contract (`queryType` known, `field` a to-one
-   * relationship, `orderBy` supported).
-   * On a validation failure NOTHING is registered and the error is delivered to the
-   * client keyed by the (locally-computed) `queryHash` so its handle rejects (an
-   * unknown `queryType` thus fails CLOSED). On success the membership-delivery
-   * routine runs scoped to JUST this new subscriber.
+   * Register a query subscriber and push its first result.
+   *
+   * **Registration never fails for permissions.** The subscriber is told what it can read and
+   * which nodes it cannot, update by update. A query is refused for what it is: a filter the engine
+   * refuses, one no index can look up, or one more distinct query than its type may have live.
+   * Nothing is registered for a refused query, and the refusal goes to the client under the
+   * `queryHash` it computed, so its handle rejects.
    */
   doSubscribeQuery(query: QueryDescriptor, clientAddress: string): void {
+    const log = debug('nebula.Resources.query');
+    let queryHash = '';
     try {
-      this.#validateQuery(query);
+      const compiled = this.#compile(query);
+      queryHash = canonicalQueryHash(query);
+      const live = this.#liveQueries();
+      if (!live.has(queryHash) && [...live.values()].filter((each) => each.query.typeName === query.typeName).length >= MAX_LIVE_QUERIES_PER_TYPE) {
+        throw new Error(
+          `${query.typeName} already has ${MAX_LIVE_QUERIES_PER_TYPE} different live queries here, which is the most a type may have. ` +
+          'Reuse a query another page already holds, or filter one of them further in the page');
+      }
+      if (compiled.scans) {
+        log.info('query scans', { instanceName: this.#lmz().instanceName, typeName: query.typeName, queryHash, allowScan: query.allowScan === true });
+      }
     } catch (err) {
-      const queryHash = canonicalQueryHash(query);
-      debug('nebula.Resources.doSubscribeQuery').warn('query rejected', {
-        clientAddress, queryType: query.queryType, typeName: query.typeName, field: query.field,
-        error: err,
-      });
-      this.#sendQueryUpdate([splitAddress(clientAddress)], queryHash,
-        err instanceof Error ? err : new Error(String(err)));
+      if (!queryHash) {
+        try { queryHash = canonicalQueryHash(query); } catch { /* a descriptor too malformed to hash has no handle to reject */ }
+      }
+      log.warn('query rejected', { clientAddress, typeName: query?.typeName, queryHash, error: err });
+      if (queryHash) {
+        this.#sendQueryUpdate([splitAddress(clientAddress)], queryHash, err instanceof Error ? err : new Error(String(err)));
+      }
       return;
     }
-    const { row, queryHash, isNewSub } = this.#subscriptions.registerQuery(query, clientAddress);
-    // Initial push — scoped to the one new subscriber (mirrors single-resource
-    // subscribe, which pushes the first snapshot rather than returning it).
+    const { row, isNewSub } = this.#subscriptions.registerQuery(query, clientAddress);
+    // The first push goes to the one new subscriber, as a single-resource subscribe pushes its
+    // first snapshot rather than returning it.
     this.#broadcastQueries(query, [row]);
-    // Subscriber-list roster: a data-subscriber join that is a distinct-by-`sub` GAIN (`isNewSub`) grew
-    // the roster → re-push it to the query's WATCHERS. A non-`isNewSub` join (reconnect / 2nd tab of an
-    // already-present `sub`) did NOT change the roster → fire NOTHING (no else-push: the joining
-    // DATA-subscriber is not a watcher and has no binding for a roster; the reconnect-storm guard +
-    // Decision 1's roster⇒watchers-only — tasks/nebula-subscriber-lists.md).
+    // The roster goes to the query's watchers only when this `sub` was not among its subscribers
+    // before. A reconnect or a second tab changes nothing a watcher sees, so it sends nothing.
     debug('nebula.Resources.subscribers').debug('subscribe', {
       event: 'subscribe', queryHash, clientAddress, mode: isNewSub ? 'broadcast' : 'noop',
     });
@@ -1285,53 +1341,52 @@ export class Resources {
   }
 
   /**
-   * Validate a query against the ontology contract. Throws on:
-   *   - an unknown `queryType` (v1 supports only `'parentChild'` — fail closed so an
-   *     app on a newer type gets a clean error, not garbage);
-   *   - a `field` that isn't a to-one relationship on `typeName` (per the seam's
-   *     `relationships` metadata);
-   *   - an unsupported `orderBy` (v1 only `'validFrom'`).
+   * Compile a query against the installed ontology and this host's indexes. Throws the engine's
+   * refusal, or a plain one for a descriptor that is not a type and a filter, or for a row
+   * compiled before queries took a filter.
    */
-  #validateQuery(query: QueryDescriptor): void {
-    if (query.queryType !== 'parentChild') {
-      throw new Error(`Unsupported queryType '${query.queryType}' — v1 supports only 'parentChild'`);
+  #compile(query: QueryDescriptor): CompiledQuery {
+    if (typeof query !== 'object' || query === null || typeof query.typeName !== 'string') {
+      throw new Error('A query names a type and a filter: { typeName, filter }');
     }
-    const rels = this.installedOntology().relationships;
-    const rel = rels[query.typeName]?.[query.field];
-    if (!rel || rel.cardinality !== 'one') {
-      throw new Error(
-        `Query field '${query.typeName}.${query.field}' must be a to-one relationship`,
-      );
+    const { row } = this.#ensureFacetOrGate();
+    if (!row.fields) {
+      throw new Error('This app was built before queries could filter. Build it again, and its queries will run');
     }
-    if (query.orderBy !== undefined && query.orderBy !== 'validFrom') {
-      throw new Error(`Unsupported orderBy '${query.orderBy}' — v1 supports only 'validFrom'`);
-    }
+    return compileQuery(row.fields, query.typeName, query.filter, row.indexes ?? [], { allowScan: query.allowScan === true });
+  }
+
+  /** The installed row, by the version rule's path when nothing is installed yet. */
+  #ensureFacetOrGate(): { row: OntologyVersionRow } {
+    this.installedOntology();
+    return this.#ensureFacet();
   }
 
   /**
-   * The one queryType-specific step (D-generic routine): evaluate a query to its
-   * current ordered result set. v1 `parentChild` → `enumerateCurrentByField` over
-   * current snapshots (a full scan, while an index stays deferred).
+   * A query's current result, in the order of each resource's latest write, and whether it matched
+   * more than {@link QUERY_RESULT_CAP}. This is the one place a query reads `Snapshots`.
    */
-  #evaluateQuery(query: QueryDescriptor): Array<{ resourceId: string; nodeId: string }> {
-    return this.#snapshots.enumerateCurrentByField(query.typeName, query.field, query.value);
+  #evaluateQuery(query: QueryDescriptor): { matches: Array<{ resourceId: string; nodeId: string }>; more: boolean } {
+    const { where, params } = this.#compile(query);
+    const rows = this.#ctx.storage.sql.exec<{ resourceId: string; nodeId: string }>(
+      `SELECT resourceId, nodeId FROM Snapshots WHERE ${where} ORDER BY validFrom, resourceId LIMIT ${QUERY_RESULT_CAP + 1}`,
+      ...params,
+    ).toArray();
+    return { matches: rows.slice(0, QUERY_RESULT_CAP), more: rows.length > QUERY_RESULT_CAP };
   }
 
   /**
-   * The single membership-delivery primitive (generic over `queryType`) — called by
-   * Flow 1 (the one new subscriber) and Flow 3 (each query's subscribers, on commit).
-   * Evaluates the query to its current result set, evaluates each target's read
-   * permission (no short-circuit), then PARTITIONS:
-   *   - **no-denial** targets (can read every match) share ONE identical payload
-   *     (the full `resourceIds`) in one `lmz.broadcast`;
-   *   - **has-denial** targets each get an individualized update to their own tab:
-   *     the ids they can read, and the nodes they can't (`{ resourceIds, deniedNodes }`).
-   * The client REPLACES its set on every push (idempotent, self-healing — no delta).
+   * Send a query's current result to `targets`: to the one new subscriber, or to every subscriber
+   * of a query a commit touched. It evaluates each target's `read` on every result, then sends:
+   *   - the targets who can read every result **one shared payload**, in one `lmz.broadcast`;
+   *   - each other target **its own**: the ids it can read, and the nodes it cannot.
+   * The client replaces its list on every push, so a push is idempotent and carries no delta.
    */
   #broadcastQueries(query: QueryDescriptor, targets: QuerySubscriberRow[]): void {
     if (targets.length === 0) return;
     const queryHash = canonicalQueryHash(query);
-    const matches = this.#evaluateQuery(query); // ordered by (validFrom, resourceId)
+    const { matches, more } = this.#evaluateQuery(query); // ordered by (validFrom, resourceId)
+    const flag = more ? { more: true as const } : {};
     const allResourceIds = matches.map((m) => m.resourceId);
     const matchNodeIds = matches.map((m) => m.nodeId);
 
@@ -1344,17 +1399,18 @@ export class Resources {
         noDenial.push(t);
         continue;
       }
-      // Has-denial → individualized: what it can read, and which nodes it can't.
+      // Has a denial, so its own payload: what it can read, and which nodes it cannot.
       const result: QueryUpdatePayload = {
         resourceIds: matches.filter((m) => allowed.has(m.nodeId)).map((m) => m.resourceId),
         deniedNodes: [...denied],
+        ...flag,
       };
       this.#sendQueryUpdate([splitAddress(t.clientAddress)], queryHash, result);
     }
 
     if (noDenial.length > 0) {
       const noDenialTargets = noDenial.map((t) => (splitAddress(t.clientAddress)));
-      this.#sendQueryUpdate(noDenialTargets, queryHash, { resourceIds: allResourceIds });
+      this.#sendQueryUpdate(noDenialTargets, queryHash, { resourceIds: allResourceIds, ...flag });
     }
   }
 
@@ -1365,42 +1421,68 @@ export class Resources {
       this.#ctn<ResourcesHost>().resourcesResults.onQueryBroadcastResult(queryHash, new Date().toISOString()));
   }
 
-  /**
-   * Flow 3 trigger A (on commit): rerun every live query whose `typeName` was
-   * touched by the commit, re-pushing its full membership. The query channel
-   * re-delivers by RERUNNING queries (not by mapping mutations to resources) — an
-   * unchanged result is replaced with itself (a client-side no-op). Reruns more than
-   * strictly necessary on purpose (the affected-resource filter + deltas are deferred,
-   * over-the-wire cost dominates). A mutation to an unrelated `typeName` triggers NO
-   * push here (the touched-type filter). `onMutations` provides the touched snapshots.
-   */
-  #rerunQueriesForCommit(mutations: Map<string, Snapshot>): void {
-    const touched = new Set<string>();
-    for (const snap of mutations.values()) touched.add(snap.meta.typeName);
-    this.#rerunQueries((q) => touched.has(q.typeName));
+  /** Every live query, by `queryHash`, with its subscribers. */
+  #liveQueries(): Map<string, { query: QueryDescriptor; rows: QuerySubscriberRow[] }> {
+    const groups = new Map<string, { query: QueryDescriptor; rows: QuerySubscriberRow[] }>();
+    for (const row of this.#subscriptions.allQueries()) {
+      let group = groups.get(row.queryHash);
+      if (!group) {
+        group = { query: parse(row.query) as QueryDescriptor, rows: [] };
+        groups.set(row.queryHash, group);
+      }
+      group.rows.push(row);
+    }
+    return groups;
   }
 
   /**
-   * Rerun the live queries matching `shouldRerun`, grouped by `queryHash` (all rows
-   * sharing a hash are one query + its subscribers). Selection is a SCAN of the
-   * query rows (a decomposed-column index is the deferred optimization), not a
-   * per-mutation match. Only a commit triggers it: a permission change re-runs
-   * nothing, since a loss shows at the next update and a client watching the tree
-   * re-subscribes whatever it was denied.
+   * After a commit, rerun each live query the commit touched, and no other.
+   *
+   * A written resource touches a query when its new snapshot matches the query's clause, or the
+   * snapshot it replaced did: it entered the result, left it, or sits in it with a later write,
+   * which moves its place in the order. Both are read in one statement, by the resource's key:
+   * the new snapshot is the row whose `validFrom` is the commit's moment, and the one it replaced
+   * is the row whose `validTo` is. A delete's new row is a tombstone holding the value it
+   * replaced, so it answers as that row does.
+   *
+   * A permission change reruns nothing: a loss shows at the next update, and a client watching the
+   * tree subscribes again to whatever it was denied.
    */
-  #rerunQueries(shouldRerun: (q: QueryDescriptor) => boolean): void {
-    const groups = new Map<string, { query: QueryDescriptor; rows: QuerySubscriberRow[] }>();
-    for (const row of this.#subscriptions.allQueries()) {
-      let g = groups.get(row.queryHash);
-      if (!g) {
-        g = { query: parse(row.query) as QueryDescriptor, rows: [] };
-        groups.set(row.queryHash, g);
-      }
-      g.rows.push(row);
+  #rerunQueriesForCommit(mutations: Map<string, Snapshot>): void {
+    const written = new Map<string, Array<{ resourceId: string; moment: string }>>();
+    for (const [resourceId, snapshot] of mutations) {
+      const list = written.get(snapshot.meta.typeName) ?? [];
+      list.push({ resourceId, moment: snapshot.meta.validFrom });
+      written.set(snapshot.meta.typeName, list);
     }
-    for (const { query, rows } of groups.values()) {
-      if (shouldRerun(query)) this.#broadcastQueries(query, rows);
+    for (const { query, rows } of this.#liveQueries().values()) {
+      const resources = written.get(query.typeName);
+      if (resources && this.#touches(query, resources)) this.#broadcastQueries(query, rows);
     }
+  }
+
+  /** Whether any of `resources`, each written at `moment`, matches `query` now or did before. */
+  #touches(query: QueryDescriptor, resources: Array<{ resourceId: string; moment: string }>): boolean {
+    let clause: CompiledWhere;
+    try {
+      clause = compileWhere(this.#ensureFacet().row.fields ?? {}, query.typeName, query.filter);
+    } catch (err) {
+      // A query the installed version no longer compiles is dropped with its subscribers when that
+      // version installs, so this is a query registered in the gap. Rerun it, and its subscribers
+      // are sent the refusal.
+      debug('nebula.Resources.query').warn('a live query no longer compiles', { typeName: query.typeName, error: err });
+      return true;
+    }
+    // No conditions: every write of the type changes the result or its order.
+    if (!clause.sql) return true;
+    for (const { resourceId, moment } of resources) {
+      const hit = this.#ctx.storage.sql.exec(
+        `SELECT 1 FROM Snapshots WHERE resourceId = ? AND (validFrom = ? OR validTo = ?) AND ${clause.sql} LIMIT 1`,
+        resourceId, moment, moment, ...clause.params,
+      ).toArray();
+      if (hit.length > 0) return true;
+    }
+    return false;
   }
 
   /**

@@ -80,7 +80,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(seeded.kind, 'committed', `seed transaction should commit, got kind=${seeded.kind}`);
 
     const chatQuery = {
-      queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: chatId,
+      typeName: 'Message', filter: { chat: chatId },
     };
 
     // ── SUBSCRIBERS: one person, many tabs, all held by the Galaxy ──

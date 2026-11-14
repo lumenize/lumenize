@@ -25,7 +25,7 @@ const adminOf = (scope: string) => `admin-${scope.split('.')[0]}@example.com`;
 const VERSION = 'v1';
 const TYPES = [
   'interface Parent { name: string }',
-  'interface Child { parent: Parent; label: string }',
+  'interface Child {\n/** @index */\nparent: Parent; label: string }',
 ].join('\n');
 const uuid = () => crypto.randomUUID();
 const uniqueStar = () => `subt-${uuid().slice(0, 8)}.app.tenant-a`;
@@ -126,7 +126,7 @@ describe('storage the four old registries left behind', () => {
       inst.onStart();
     });
 
-    const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P };
+    const query: QueryDescriptor = { typeName: 'Child', filter: { parent: P } };
     await admin.resources.subscribe('Parent', P).snapshot;
     await admin.resources.subscribeQuery(query).ready;
     await admin.subscribeQuerySubscribers(query).ready;
@@ -144,7 +144,7 @@ describe('each kind hears only its own updates', () => {
     const star = uniqueStar();
     const admin = await starAdmin(star);
     const P = uuid();
-    const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P };
+    const query: QueryDescriptor = { typeName: 'Child', filter: { parent: P } };
     const topic = canonicalQueryHash(query); // the resource shares the query's topic, so a missing kind filter shows
     await commit(admin, star, {
       [P]: { op: 'create', typeName: 'Parent', nodeId: ROOT_NODE_ID, value: { name: 'p' } },
@@ -208,7 +208,7 @@ describe('each kind hears only its own updates', () => {
 async function holdEveryKind() {
   const star = uniqueStar();
   const admin = await starAdmin(star);
-  const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: uuid() };
+  const query: QueryDescriptor = { typeName: 'Child', filter: { parent: uuid() } };
   const topic = canonicalQueryHash(query);
   await commit(admin, star, { [topic]: { op: 'create', typeName: 'Parent', nodeId: ROOT_NODE_ID, value: { name: 'h' } } });
 

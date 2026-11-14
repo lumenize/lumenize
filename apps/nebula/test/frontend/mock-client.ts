@@ -197,7 +197,7 @@ export class MockClient implements StoreClient {
 
   /** Test helper: simulate a subscriber-list roster delivery (drives the store landing). */
   simulateRoster(query: QueryDescriptor, roster: SubscriberEntry[]): void {
-    const queryHash = `${query.typeName}.${query.field}.${query.value}`;
+    const queryHash = `${query.typeName}.${JSON.stringify(query.filter)}`;
     this.#querySubscribersHandler?.({ queryHash, query, roster });
   }
 

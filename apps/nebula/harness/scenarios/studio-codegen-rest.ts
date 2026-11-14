@@ -70,7 +70,7 @@ export async function run(stack: DevStack): Promise<void> {
   try {
     // Subscribe FIRST (the product's shape), then post — the reply arrives on the query.
     using sub = driver.client.resources.subscribeQuery({
-      queryType: 'parentChild', typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID,
+      typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID },
     });
     await sub.ready;
 

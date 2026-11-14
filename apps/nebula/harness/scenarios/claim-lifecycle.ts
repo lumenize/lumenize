@@ -74,7 +74,7 @@ async function refusal(op: Promise<unknown>): Promise<string | null> {
 type Mail = Parameters<typeof extractMagicLink>[0];
 
 const chatQuery = (chatId: string) =>
-  ({ queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: chatId });
+  ({ typeName: 'Message', filter: { chat: chatId } });
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');

@@ -67,7 +67,7 @@ describe('a client with no ontology version', () => {
   // Mutation: drop `requireOntologyVersion` from any of the three in `client-resources.ts`.
   it('refuses a list subscription, a roster subscription and a node invite BY NAME too', async () => {
     const client = await versionlessClientAt(uniqueStar());
-    const query = { queryType: 'parentChild' as const, typeName: 'TestResource', field: 'parent', value: crypto.randomUUID() };
+    const query = { typeName: 'TestResource', filter: { parent: crypto.randomUUID() } };
     const caught = (fn: () => unknown): unknown => { try { fn(); return undefined; } catch (err) { return err; } };
 
     const list = caught(() => client.resources.subscribeQuery(query));

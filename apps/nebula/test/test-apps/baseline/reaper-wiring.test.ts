@@ -58,7 +58,7 @@ import { rawRpcStub } from '@lumenize/mesh/raw-rpc';
 const VERSION = 'v1';
 const TYPES = [
   'interface Parent { name: string }',
-  'interface Child { parent: Parent; label: string }',
+  'interface Child {\n/** @index */\nparent: Parent; label: string }',
 ].join('\n');
 
 // ── Compile time: a continuation naming a reaper `ResourcesHost` lacks does not compile ──────
@@ -104,7 +104,7 @@ async function starWithParent() {
   expect(admin.lastError).toBeUndefined();
   const parent = uuid();
   await commit(admin, star, { [parent]: { op: 'create', typeName: 'Parent', nodeId: ROOT_NODE_ID, value: { name: 'p' } } });
-  const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: parent };
+  const query: QueryDescriptor = { typeName: 'Child', filter: { parent: parent } };
   return { star, admin, accessToken, parent, query };
 }
 
@@ -224,7 +224,7 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
     const { client: admin, accessToken } = await universeAdminClient(
       NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
     const chat = uuid();
-    const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'chat', value: chat };
+    const query: QueryDescriptor = { typeName: 'Message', filter: { chat: chat } };
     const message = (nodeId: string) => ({ op: 'create' as const, typeName: 'Message', nodeId, value: { chat, content: 'm' } });
     const nodeA = await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'a', 'A');
     const nodeB = await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'b', 'B');

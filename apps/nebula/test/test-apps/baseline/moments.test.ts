@@ -18,7 +18,7 @@ import { NebulaClientTest } from './index';
 import type { StarTest } from './index';
 
 const uuid = () => crypto.randomUUID();
-const TYPES = 'interface TestResource { title: string }\ninterface Parent { name: string }\ninterface Child { parent: Parent; label: string }';
+const TYPES = 'interface TestResource { title: string }\ninterface Parent { name: string }\ninterface Child {\n/** @index */\nparent: Parent; label: string }';
 const COMPILE_TIMEOUT_MS = 60_000;
 const LATEST_MOMENT_KEY = 'resources:latestMoment';
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -165,7 +165,7 @@ describe('a read that history does not slow', () => {
     try {
       await a.lmz.callAsync('STAR', dev, door(a).read('v1', child));
       await a.lmz.callAsync('STAR', dev, door(a).subscribeQuery('v1',
-        { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: parent }));
+        { typeName: 'Child', filter: { parent: parent } }));
     } finally {
       await (runInDurableObject as any)(stub(dev), (_i: unknown, c: DurableObjectState) => {
         const sql = c.storage.sql as any;
@@ -175,11 +175,11 @@ describe('a read that history does not slow', () => {
     }
 
     const read = seen.filter((s) => /^\s*SELECT resourceId, nodeId, typeName[\s\S]*FROM Snapshots\s+WHERE resourceId = \?/.test(s.sql));
-    const query = seen.filter((s) => /WHERE typeName = \? AND validTo = \?/.test(s.sql));
+    const query = seen.filter((s) => /FROM Snapshots WHERE typeName = 'Child' AND validTo = '/.test(s.sql));
     expect(read.length).toBeGreaterThan(0); // the instrument saw the read at all
     expect(query.length).toBeGreaterThan(0); // and the query
     for (const s of read) expect(s.cursor.rowsRead).toBeLessThanOrEqual(2);
-    // A scan of the current rows reads one entry past its last (measured: 3 for 2 current, 4 for 3).
+    // The query looks its parent up in the index on `Child.parent`, among current rows alone.
     for (const s of query) expect(s.cursor.rowsRead).toBeLessThanOrEqual(rows.current + 1);
     a[Symbol.dispose]();
   }, 120_000);

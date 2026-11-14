@@ -72,7 +72,7 @@ describe('ClientResources restores its subscriptions', { timeout: 60000 }, () =>
     const { boardId, noteId } = await boardWithNote(client);
     using note = client.resources.subscribe('Note', noteId);
     await note.snapshot;
-    const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Note', field: 'board', value: boardId };
+    const query: QueryDescriptor = { typeName: 'Note', filter: { board: boardId } };
     using notes = client.resources.subscribeQuery(query);
     await notes.ready;
     using roster = client.subscribeQuerySubscribers(query);

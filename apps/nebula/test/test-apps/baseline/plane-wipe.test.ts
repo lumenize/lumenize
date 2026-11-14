@@ -30,8 +30,8 @@ import { NebulaClientTest } from './index';
 import type { StarTest } from './index';
 
 const uuid = () => crypto.randomUUID();
-const V1 = 'interface TestResource { title: string }\ninterface Parent { name: string }\ninterface Child { parent: Parent; label: string }';
-const V2 = 'interface TestResource { title: string; note?: string }\ninterface Parent { name: string }\ninterface Child { parent: Parent; label: string }';
+const V1 = 'interface TestResource { title: string }\ninterface Parent { name: string }\ninterface Child {\n/** @index */\nparent: Parent; label: string }';
+const V2 = 'interface TestResource { title: string; note?: string }\ninterface Parent { name: string }\ninterface Child {\n/** @index */\nparent: Parent; label: string }';
 const GALAXY_PAIR = (_scope: string) => ({ resourceHostBinding: 'GALAXY' });
 const COMPILE_TIMEOUT_MS = 60_000;
 
@@ -94,6 +94,13 @@ const heardNotice = (c: NebulaClientTest) => c.lastErrorObject?.name === 'Ontolo
 /** Studio's Wipe, as its button sends it. */
 const resetDev = (a: NebulaClientTest, dev: string) => a.lmz.callAsync('STAR', dev, a.ctn<StarTest>().resetDevData());
 
+/** The names of a host's query indexes, from its catalogue. */
+function queryIndexes(instance: string): Promise<string[]> {
+  return (runInDurableObject as any)((env as any).STAR.getByName(instance), (_i: any, c: any) =>
+    c.storage.sql.exec(`SELECT name FROM sqlite_master WHERE type = 'index' AND name GLOB 'idx_Snapshots_q_*' ORDER BY name`)
+      .toArray().map((row: { name: string }) => row.name));
+}
+
 describe('Studio\'s Wipe on the .dev Star', () => {
   it('completes, sends its notice, and leaves no plane row but the org tree\'s root', async () => {
     const { galaxy, dev } = newDev();
@@ -107,10 +114,18 @@ describe('Studio\'s Wipe on the .dev Star', () => {
     expect(out.ok).toBe(true);
     const listener = await admin(galaxy, dev);
     await listener.lmz.callAsync('STAR', dev, door(listener).subscribeTree());
+    // The installed version's indexes: the app's, and the platform's own on an invite's node.
+    const declared = ['idx_Snapshots_q_Child:parent', 'idx_Snapshots_q__InviteStatus:node'];
+    expect(await queryIndexes(dev)).toEqual(declared);
 
     await resetDev(a, dev);
 
     expect(wipes(dev).map((e) => e.data!.cause)).toEqual(['reset']);
+    // The wipe records no installed version, so it leaves no index, and the next install makes
+    // them again.
+    expect(await queryIndexes(dev)).toEqual([]);
+    await install(a, dev, { version: 'v1', types: V1 });
+    expect(await queryIndexes(dev)).toEqual(declared);
     // A send straight after the wipe goes through: the tree subscriber hears the notice.
     await vi.waitFor(() => expect(heardNotice(listener)).toBe(true));
     // Nothing the plane owned survives but the root the rebuilt tree seeds.
@@ -123,7 +138,7 @@ describe('Studio\'s Wipe on the .dev Star', () => {
     const a = await admin(galaxy, dev);
     await install(a, dev, { version: 'v1', types: V1 });
     const { rid } = await create(a, dev, 'v1');
-    const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: uuid() };
+    const query: QueryDescriptor = { typeName: 'Child', filter: { parent: uuid() } };
     // One client per kind, each subscribed to that kind only: the capture dedups by client, so one
     // client holding several kinds would hide a kind the capture dropped.
     const resource = await admin(galaxy, dev);
@@ -327,7 +342,7 @@ describe('an answer that installs nothing new changes nothing', () => {
     const resource = listener.resources.subscribe('TestResource', rid);
     await resource.snapshot;
     const parent = uuid();
-    const query = listener.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Child', field: 'parent', value: parent });
+    const query = listener.resources.subscribeQuery({ typeName: 'Child', filter: { parent: parent } });
     await query.ready;
 
     await a.lmz.callAsync('STAR', star, a.ctn<StarTest>().deliverOntologyAnswerForTest(kind));

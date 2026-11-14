@@ -14,7 +14,7 @@ import { adminClientAt, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
-const TYPES = ['interface Parent { name: string }', 'interface Child { parent: Parent; label: string }'].join('\n');
+const TYPES = ['interface Parent { name: string }', 'interface Child {\n/** @index */\nparent: Parent; label: string }'].join('\n');
 const uniqueStar = () => `c2w-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 
 async function waitForResult(c: NebulaClientTest) { await vi.waitFor(() => expect(c.callCompleted).toBe(true)); }
@@ -45,7 +45,7 @@ describe('child2 client window management (Phase 6)', () => {
     if (!((await waitForSuccess(a)) as TransactionResult).ok) throw new Error('seed failed');
 
     using sub = a.resources.subscribeQuery(
-      { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P },
+      { typeName: 'Child', filter: { parent: P } },
       { renderGraceMs: 150 },
     );
     await sub.ready;

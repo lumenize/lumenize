@@ -157,7 +157,7 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── LIMB 5: the _InviteStatus row reached `sent` (the public query + read path) ─────────────
     const sub = invitee.resources.subscribeQuery({
-      queryType: 'parentChild', typeName: '_InviteStatus', field: 'node', value: ROOT_NODE_ID,
+      typeName: '_InviteStatus', filter: { node: ROOT_NODE_ID },
     });
     await sub.ready;
     assert.ok(sub.resourceIds.length >= 1, 'no _InviteStatus row visible at the node');

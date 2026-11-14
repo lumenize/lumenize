@@ -44,7 +44,7 @@ export const needsContainer = false;
 const SCOPE = `${testSlug('moved')}.app`;
 /** A real generation fits well inside this; silence past it is the failure. */
 const TURN_TIMEOUT_MS = 240_000;
-const chatQuery = { queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
+const chatQuery = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 const LOOP_TOOLS = ['read_file', 'write_file', 'edit_file', 'build', 'invite'];
 const MOVED = 'The post I was working on was changed while I worked';
 

@@ -115,7 +115,7 @@ export interface Deal {
 `;
 const DEAL_OWNER = DEAL_STAGE.replace('  stage?: string;\n', '  stage?: string;\n  /** @title Owner */\n  owner?: string;\n');
 const DEAL_STAGE_NUMBER = DEAL_OWNER.replace('  stage?: string;', '  stage?: number;');
-const DEAL_PIPELINE = `${DEAL_OWNER.replace('  owner?: string;\n', '  owner?: string;\n  /** @title Pipeline */\n  pipeline?: Pipeline;\n')}
+const DEAL_PIPELINE = `${DEAL_OWNER.replace('  owner?: string;\n', '  owner?: string;\n  /**\n   * @title Pipeline\n   * @index\n   */\n  pipeline?: Pipeline;\n')}
 /** @title Pipeline */
 export interface Pipeline {
   /** @title Name */
@@ -150,7 +150,7 @@ import { client } from './nebula';
 
 const deals = ref(-1);
 onMounted(() => {
-  const list = client.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Deal', field: 'pipeline', value: '${pipelineId}' });
+  const list = client.resources.subscribeQuery({ typeName: 'Deal', filter: { pipeline: '${pipelineId}' } });
   list.onChange(() => { deals.value = list.resourceIds.length; });
 });
 </script>
@@ -517,7 +517,7 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── LIMB 6: a page current at the new version waits out the change without reloading ─────
     const pipelineId = crypto.randomUUID();
-    const pipelineQuery = { queryType: 'parentChild' as const, typeName: 'Deal', field: 'pipeline', value: pipelineId };
+    const pipelineQuery = { typeName: 'Deal', filter: { pipeline: pipelineId } };
     /** A `Pipeline` at `pipeline` and one `Deal` in it, from `client`; returns the Deal's id and outcome. */
     const writePiped = async (client: NebulaClient, pipeline = pipelineId): Promise<[string, string]> => {
       const deal = crypto.randomUUID();
@@ -571,7 +571,7 @@ export async function run(stack: DevStack): Promise<void> {
     // wipe's restore sends the rows, which the wiped Star refuses as missing once it installs, and
     // the established lists, which are answered `checking` until then and sent again.
     const pipeline2 = crypto.randomUUID();
-    const list2 = current.resources.subscribeQuery({ ...pipelineQuery, value: pipeline2 });
+    const list2 = current.resources.subscribeQuery({ typeName: 'Deal', filter: { pipeline: pipeline2 } });
     const [first2] = await writePiped(writer, pipeline2);
     const list2Ready = await within(30_000, list2.ready);
     const list2Saw = await until(15_000, () => list2.resourceIds.includes(first2));
@@ -673,7 +673,7 @@ export async function run(stack: DevStack): Promise<void> {
     // ── LIMB 10: a held-back build changes nothing anyone sees ──────────────────────────────
     // Last, because a build left with a finding holds back every build after it.
     const served = studio.client.resources.subscribeQuery({
-      queryType: 'parentChild', typeName: 'ServedBuild', field: 'chat', value: DEFAULT_CHAT_ID,
+      typeName: 'ServedBuild', filter: { chat: DEFAULT_CHAT_ID },
     });
     disposers.push(() => served[Symbol.dispose]());
     await within(30_000, served.ready);

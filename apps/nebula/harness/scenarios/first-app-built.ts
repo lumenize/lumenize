@@ -98,7 +98,7 @@ function galaxyMarkers(raw: string): GalaxyMarker[] {
   return markers;
 }
 
-const chatQuery = { queryType: 'parentChild' as const, typeName: 'Message', field: 'chat', value: DEFAULT_CHAT_ID };
+const chatQuery = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 
 /** The latest durable agent reply and its manifest — what the model's turn actually did — for
  *  attributing a red: a stop with no successful build is the model's; a refreshed preview
