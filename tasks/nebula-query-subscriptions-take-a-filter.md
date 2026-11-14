@@ -1,6 +1,6 @@
 # Query subscriptions take a filter
 
-**Status:** Pass 1, written 2026-11-14 for Larry's hand review; no phases yet. It wires the engine of [nebula-query-engine.md](nebula-query-engine.md) into the Resources plane, and it gates [nebula-personas-are-real-members.md](nebula-personas-are-real-members.md).
+**Status:** Pass 1 read by Larry on 2026-11-14, who answered its open questions and asked for the build to run to completion from there. Pass 2 is below. It wires the engine of [nebula-query-engine.md](nebula-query-engine.md) into the Resources plane, and it gates [nebula-personas-are-real-members.md](nebula-personas-are-real-members.md).
 
 ## Conventions
 
@@ -115,8 +115,8 @@ The rest of this file says what a query is, where its indexes come from, what a 
 ### What bounds the cost
 
 - **DI12. A query no index can look up is refused,** unless its descriptor allows the scan. The Star logs each query that scans, with its type, so the ones worth an index can be found.
-- **DI13. The live queries of one type are bounded,** because DI10 costs two reads for each of them on every write. A subscribe past the bound is refused by a message that names it. Q3 sets the number.
-- **DI14. A result is bounded.** Q4 says how.
+- **DI13. The live queries of one type are bounded,** because DI10 costs two reads for each of them on every write. A subscribe past the bound is refused by a message that names it. The bound is 200 distinct queries for each type until C4 is measured deployed.
+- **DI14. A result is bounded.** A push carries at most 1,000 ids, the first by the result's order, with `more: true` when the query matched more.
 
 ### Claims this rests on
 
@@ -145,20 +145,68 @@ The rest of this file says what a query is, where its indexes come from, what a 
 - **Rebuilding indexes on a tenant Star that holds real data.** ⚠️ Design consideration: after pre-alpha, a migration (C5).
 - **Reads across relationships in one call.** The on-hold file's Part C.
 
-## Open questions
+## Decisions
 
-- **Q1. Does `queryType` leave the descriptor, as DI2 says?** It was kept as a seam for later kinds of query.
-  - *Options:* drop it, so a query is a type and a filter; or keep it with `filter` as its one value.
-  - *Recommendation:* drop it. Nothing published depends on it, and a second kind of query can add a field when one exists.
-- **Q2. Is the JSDoc tag of DI5 the right way to declare an index?**
-  - *Options:* `@index` on a field and on a type, as shown; or a separate exported list in the ontology file; or the agent creating indexes through a tool.
-  - *Recommendation:* the tag. It keeps an index beside the field it serves, in the one file that is the schema.
-- **Q3. What bounds the live queries of one type (DI13)?**
-  - *Options:* a fixed number of distinct live queries for each type; or none, with the cost logged.
-  - *Recommendation:* a fixed number, set after measuring C4. At 20 µs a test, 200 queries cost a write about 8 ms.
-- **Q4. What bounds a result (DI14)?** A filter can match every resource of a type, and each rerun sends every id again.
-  - *Options:* refuse a result over a fixed size; or send the first so many with a flag saying more exist; or leave it unbounded until paging is built.
-  - *Recommendation:* send the first 1,000 with a flag. A refusal would break a page that worked yesterday.
-- **Q5. Does a relationship a generated app queries by get its index from the model, or from us?** DI8 says the model declares it.
-  - *Options:* the model declares `@index` on each relationship it queries by, taught by the guidance; or every to-one relationship is indexed without being asked.
-  - *Recommendation:* the model declares it. A refused query names the missing index, so a forgotten one is found at the first run.
+Larry's answers of 2026-11-14 to the questions Pass 1 asked, and what the builder settled writing the phases.
+
+| ID | Decision | Rejected alternative, and why |
+|---|---|---|
+| D1 | The filter form replaces the parent-and-child query outright, with no period where both are answered. (Larry: "this will deprecate our current parent-child approach?" Yes.) | Answering both: nothing published uses the old form, and code that answers only it would sit beside its successor. |
+| D2 | `queryType` leaves the descriptor. (was Q1) | Keeping it with one value: a second kind of query can add a field when one exists. |
+| D3 | An index is declared by `@index`, on a field or on a type. (was Q2) | A separate list, or a tool the agent calls: the tag keeps an index beside the field it serves, in the one file that is the schema. |
+| D4 | The live queries of one type are bounded at a fixed number, 200 until the cost is measured deployed. (was Q3) | No bound with the cost logged: each live query costs every write of its type two reads. |
+| D5 | A result carries its first 1,000 ids and a flag when there are more. Paging is not built here. (was Q4; Larry left the call to the builder.) | Paging now: ordering by a field comes first and is its own design, which the Resource Events work may shape. A refusal over the size would break a page that worked yesterday. |
+| D6 | The model declares `@index` on each relationship it queries by. (was Q5) | Indexing every to-one relationship unasked: each index adds a row to every write of its type. |
+| D7 | A version's row whose compile predates this carries no fields. A Star holding one refuses every query by a message saying the app needs a build. | Compiling fields in the Star: the compiler never runs in a Worker. |
+| D8 | The platform's own types declare their indexes the same way: `Message.chat`, `ServedBuild.chat` and `_InviteStatus.node`. | Allowing their scans: the chat's Messages are the largest type a Galaxy holds. |
+| D9 | A wipe drops a Star's query indexes with its data, and the next install creates them again. | Keeping them: the wipe records no installed version, so nothing would say which indexes are right. |
+
+## Phases
+
+Each phase ends with its package's suite green and its mutations caught. The whole file has one deployed gate, at the end.
+
+1. **The extractor reads index declarations.** `extractTypeMetadata` returns `indexes`, a list of `{ type, fields }`, from `@index` on a field and `@index a, b` on an interface.
+   - **Success criteria:** each form is read; a type may declare several; a declaration naming a field the type lacks, an object, an array, a field twice, or nothing is refused at extraction by a message naming the type; `@index` with text on a field is refused.
+   - **Mutation note:** drop each refusal in turn, and return a field's index under another type.
+
+2. **A version's row carries its fields and indexes.** `OntologyVersionRow` gains both, `compileOntologyVersion` fills them, and the platform's types declare their indexes (D8). The committed validator seeds are regenerated.
+   - **Success criteria:** a compiled row holds the fields of an app's type and of `_InviteStatus`, and each declared index; `gen-validator-seeds.ts --check` passes; the chat's row declares an index on `Message.chat`.
+   - **Mutation note:** leave `fields` off the row, and the Phase 4 query on that Star is refused by D7's message.
+
+3. **A Star makes its indexes match what it installs.** On install it creates the indexes the row declares and drops the query indexes it does not, and a wipe drops them all (D9).
+   - **Success criteria:** after an install, the catalogue holds exactly the declared indexes; after a second version that drops one and adds one, exactly the new set; after a wipe, none, and after the next install, the set again. Read from `sqlite_master` on a real host.
+   - **Mutation note:** skip the drop, skip the create, and skip the wipe's drop, each alone.
+
+4. **A query is a type and a filter.** The descriptor, its hash, the plane's validation and evaluation, the client's `subscribeQuery`, the factory's `children` helper, Studio's two subscriptions and the Galaxy's own query all take the filter form. `enumerateCurrentByField` and the plane's `enumerateByField` are deleted, and every test that named the old form is rewritten.
+   - **Success criteria:** a subscribe with a filter delivers the matching ids a subscriber may read and the nodes they may not; a filter the engine refuses rejects the handle with the engine's message; a query no index serves is refused unless it allows the scan; two filters that differ only in key order share one subscription; `grep -rn "parentChild\|queryType\|enumerateCurrentByField" packages apps --include='*.ts' --include='*.vue'` prints nothing outside `platform-embed.ts`.
+   - **Mutation note:** evaluate without the filter's clause; drop the permission partition; hash without sorting keys; answer a refused filter with an empty result.
+
+5. **A write holding a value a query would read wrongly is refused.** The transaction runs `assertQueryable` on each value it is about to store, and a failure is a validation refusal carrying the engine's message.
+   - **Success criteria:** a create holding `Infinity` in a number field ends as today's validation refusal does, names the field, and writes no row; the same value in a `Map` field is written.
+   - **Mutation note:** skip the check; run it on the value before defaults are filled.
+
+6. **A write is tested against each live query of its type.** For each written resource and each distinct live query of its type, the Star tests the new snapshot and the one it replaced, and reruns the query when either matches.
+   - **Success criteria,** each read from what a subscriber is sent: a write that enters a query's result reruns it; one that leaves it reruns it; one that stays in it reruns it; a write of the same type that matches neither before nor after sends that query's subscribers nothing; a delete of a matching resource reruns it.
+   - **Mutation note:** test only the new snapshot, and the leaving case sends nothing; test only the old, and the entering case sends nothing; rerun always, and the unrelated write sends a push.
+
+7. **The bounds.** A subscribe that would make a type's distinct live queries exceed the bound is refused by name; a push carries at most 1,000 ids and `more: true` past that; each query that scans is logged with its type.
+   - **Success criteria:** the subscribe at the bound succeeds and the next distinct one is refused, while one more subscriber to an existing query is admitted; a result of 1,001 sends 1,000 ids and the flag, and one of 1,000 sends no flag; the client's handle exposes the flag; an allowed scan logs one line.
+   - **Mutation note:** count subscribers where queries are meant; cap at 1,001; drop the flag.
+
+8. **The running system shows it.** A `/live` scenario with two real members of one Star: Sally creates two Deals under two nodes, and Gerry, who may read one node, subscribes with a filter.
+   - **Success criteria,** each limb reddened alone: Gerry receives the Deal he may read and is told of the node he may not; Sally's edit moving that Deal out of the filter removes it from his list without his asking; a filter on an unindexed field is refused by the engine's message, and admitted with `allowScan`; a Deal written with `Infinity` is refused.
+   - **Mutation note:** one for each limb, as Phase 4 to 6 name them, run against the scenario.
+
+9. **The guidance teaches it.** The Nebula docs teach a filter, `@index`, and when to allow a scan and when to add an index, and the platform embed is regenerated.
+   - **Success criteria:** `gen-platform.mjs --check` passes; the docs' examples pass the example checker; no doc teaches `queryType`.
+
+10. **Close-out.** Every affected suite, the whole scenario registry, then a deployed pass of the new scenario and a reading of the test Worker's Issues. C4 and C5 are measured there or recorded as unmeasured.
+
+## Non-goals
+
+- **Ordering by a field and paging.** § *Beyond this task*.
+- **Comparing a union of string literals by declared order.** Larry's to design.
+- **Reads across relationships, join tables and aggregates.** [nebula-orm-and-queries.md](on-hold/nebula-orm-and-queries.md) § *Part C*.
+- **Rebuilding indexes on a tenant Star with real data.** After pre-alpha.
+
+## Build notes
