@@ -30,6 +30,9 @@ export {
   decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS,
   type PreviewFrameState, type PreviewFrameEvent, type PreviewFrameAction, type PendingRequest,
 } from './preview-frame';
+// The cast an app's `docs/personas.md` names, and how Studio carries a run request to a tab.
+export { parseCast, type CastEntry } from './cast';
+export { TabRunner, ME_TAB, TAB_RUN_BOUND_MS, NO_SESSION_RETRY_MS, type TabPort, type TabMessage } from './tab-runner';
 export type { ParticipantKind, ParticipantRef } from './participants';
 
 // Studio's own Client — a generated app's `NebulaClient` is `@lumenize/resources`'s.

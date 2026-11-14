@@ -115,6 +115,7 @@ import * as logoutEverywhere from './scenarios/logout-everywhere';
 import * as studioAppSettings from './scenarios/studio-app-settings';
 import * as hostRule from './scenarios/host-rule';
 import * as personaHost from './scenarios/persona-host';
+import * as personaTabs from './scenarios/persona-tabs';
 import * as certificateWake from './scenarios/certificate-wake';
 import * as deletedOnCloudflare from './scenarios/deleted-on-cloudflare';
 import * as eachTransactionGetsOneMoment from './scenarios/each-transaction-gets-one-moment';
@@ -247,6 +248,7 @@ const SCENARIOS: Record<string, Scenario> = {
   // ── passage and dominion read the host's scope ──────────────────────────────────────────────
   'host-rule': hostRule, // a token acts from its host: dominion down, passage up, the facade refuses below the parent (no Docker)
   'persona-host': personaHost, // a persona is invited by mail, accepted by the Worker's handler, and opened by an admin through the impersonation mint (no Docker)
+  'persona-tabs': personaTabs, // Studio's tabs from docs/personas.md; the me tab builds the cast, and each persona's tab is that member's own page
   'certificate-wake': certificateWake, // a create or acceptance wakes its galaxy's certificate order by name; nothing else does (no Docker)
   'deleted-on-cloudflare': deletedOnCloudflare, // a deletion leaves no pack and no stored data, read from Cloudflare's API; deployed only (no Docker)
 };

@@ -290,3 +290,13 @@ Each phase ends with its tests mutation-checked and its notes in § *Build notes
 - **Not covered here.** `client.personaAddress` and the meta that feeds it are first exercised by phase 5's scenario, on a real page. Its refusals have no test yet.
 - **Close-out.** `security.md`'s derived-session rule now names both places `logout()` enforces it.
 
+### Phase 5: Studio shows the cast as tabs and carries a run request to one
+
+- **For Larry.** The strip, its URL parameters and their tests are the reverted build's, applied as a patch, with the cast's source changed. It now comes from `docs/personas.md` through `Galaxy.readCast`, which stores nothing.
+- **For Larry.** Studio reads the cast again after every agent message, and reloads the persona frames it holds. It cannot tell which message changed the file or accepted an invite, and reading again costs one call.
+- **For Larry.** An uninvited persona's tab says "sally is not a member of the workspace yet. Ask in the chat for the cast to be built."
+- **Retro.** What Studio does with a run request is a class of its own, `TabRunner`, with the frames behind a small port, so its arms are unit tests and App.vue only loads, posts and listens. A page with no session now says so in its answer, which is how the runner knows to load it again later and not report a failure.
+- **Retro.** Two mutations deleted code: a check that an echo of a reload request is no fresh load, since either means a client is there, and the factory's own frame check (phase 4).
+- **Not driven here.** `persona-tabs` posts the run request from Studio's own page, as `TabRunner`'s port does. The path from a turn to that post, `StudioClient.runInTab` and App.vue's wiring of the runner, is phase 6's scenario, which needs the model.
+- **Close-out.** `persona-tabs` passes locally in 22 s, with a mutation caught at each of its seven limbs. C5 holds on a real page: Gerry's tab wrote his own Profile.
+

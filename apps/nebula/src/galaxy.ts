@@ -55,6 +55,7 @@ import type { NodeInviteOutcome, OntologySource, ResourcesHost, ResourcesRequest
 import type { QueryDescriptor } from '@lumenize/resources';
 import { chatOntologySeedRow } from './chat-ontology';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID, GALAXY_TREE_SEED } from './chat-constants';
+import { parseCast, type CastEntry } from './cast';
 import { serveApp } from './serve';
 import { afterCall, cloudflareCertificateApi, isFinalStatus, nextCall, onWake, packHosts, packNamesGalaxy, teardownSteps } from './certificate';
 import type { CertificateApi, CertificateState } from './certificate';
@@ -403,6 +404,9 @@ export const LOOP_TOOL_ENTRIES = {
  *  for a layer that does not exist yet and answers this error until it does. */
 export const UNIVERSE_RESERVED_MESSAGE = '.universe/ is reserved — no Universe layer exists yet';
 
+/** Where an app's cast is written: Studio's tabs and `run_in_tab` read it through {@link Galaxy.readCast}. */
+const CAST_FILE = 'docs/personas.md';
+
 /** A Workspace read that found no file, as the model should see it: the path, not a
  *  VFS error code. Any other read failure passes through unchanged. */
 function noSuchFile(path: string, e: unknown): Error {
@@ -667,6 +671,23 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   async readSource(path: string): Promise<string> {
     const rel = assertModelPath(path, { write: false });
     return (await this.#workspace()).fs.readFile(wsPath(rel), 'utf8');
+  }
+
+  /**
+   * The cast `docs/personas.md` names, for Studio's tabs and the agent's `run_in_tab`: each
+   * persona's slug and name ({@link parseCast}). The file is the one place a cast is written, so
+   * this reads it each time and stores nothing. An app whose file names no cast, or has no such
+   * file, answers an empty list. Chat floor, as everyone who sees the tabs is there.
+   */
+  @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
+  async readCast(): Promise<CastEntry[]> {
+    let text: string;
+    try {
+      text = await (await this.#workspace()).fs.readFile(wsPath(CAST_FILE), 'utf8');
+    } catch {
+      return [];
+    }
+    return parseCast(text);
   }
 
   /**

@@ -17,7 +17,7 @@ export * from './client-index';
 
 // Vue-reactive factory + helpers (this entry pulls in `vue`).
 export { createNebulaClient } from './frontend/create-nebula-client';
-export type { CreateNebulaClientConfig, FactoryResult, NebulaClientClass } from './frontend/create-nebula-client';
+export type { CreateNebulaClientConfig, FactoryResult, NebulaClientClass, RunAnswer } from './frontend/create-nebula-client';
 export type { Middleware, WriteContext } from './frontend/types';
 export { textMerge, makeLongformResolver } from './frontend/text-merge';
 export type { ConflictResolverVerdict } from './frontend/text-merge';

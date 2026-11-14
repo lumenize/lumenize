@@ -1,4 +1,7 @@
 import { NebulaClient } from '@lumenize/resources/client';
+import { mesh } from '@lumenize/mesh/client';
+import type { RunAnswer } from '@lumenize/resources/frontend';
+import type { CastEntry } from './cast';
 import type { NebulaClientConfig } from '@lumenize/resources/client';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID } from './chat-constants';
 import type { TransactionResult } from '@lumenize/resources/client';
@@ -39,6 +42,8 @@ export class StudioClient extends NebulaClient {
   /** The page this client was built for; `undefined` when the browser auto-detected it, and an
    *  upload then falls back to the current origin. */
   #baseUrl?: string;
+  /** How this Studio runs code in one of its preview tabs, set by the page that holds the frames. */
+  #runInTab?: (tab: string, code: string) => Promise<RunAnswer>;
 
   constructor(config: StudioClientConfig) {
     const { chatHostBinding, chatScope, ...nebulaConfig } = config;
@@ -51,6 +56,36 @@ export class StudioClient extends NebulaClient {
   /** A child from `impersonate()` chats where its parent does. */
   protected override childConfig(): StudioClientConfig {
     return { ...super.childConfig(), chatHostBinding: this.#chatHostBinding, chatScope: this.#chatScope };
+  }
+
+  /**
+   * The cast the app's `docs/personas.md` names: each persona's slug and name, which Studio's
+   * preview turns into a tab per persona. Read at the chat floor, as everyone who sees the tabs is
+   * there; an app whose file names no cast answers an empty list.
+   */
+  async readCast(): Promise<CastEntry[]> {
+    const { binding, scope } = this.#chatHost();
+    return await this.lmz.callAsync(binding, scope, this.ctn<Galaxy>().readCast()) as CastEntry[];
+  }
+
+  /** Say how this Studio runs code in a preview tab. The page holding the frames calls it once. */
+  setRunInTab(handler: (tab: string, code: string) => Promise<RunAnswer>): void {
+    this.#runInTab = handler;
+  }
+
+  /**
+   * Run `code` in one of this Studio's preview tabs and answer with what the page said. The
+   * Galaxy calls it for the agent's `run_in_tab`, on a Studio tab of the person whose post the
+   * turn took up, so the code runs with that person's own session, or a persona's they opened.
+   *
+   * `@mesh()`-decorated because a node calls it. No other Client can: a Client refuses a call whose
+   * last hop is a Client (`MeshClient.onBeforeCall`). It throws, which the Galaxy hears as the
+   * call's failure, when this Studio has no preview or the tab does not answer in time.
+   */
+  @mesh()
+  runInTab(tab: string, code: string): Promise<RunAnswer> {
+    if (!this.#runInTab) throw new Error('This Studio tab is not showing a preview, so it has no tab to run code in');
+    return this.#runInTab(tab, code);
   }
 
   /**

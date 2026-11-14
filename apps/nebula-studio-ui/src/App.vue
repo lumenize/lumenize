@@ -1,19 +1,18 @@
 <script setup lang="ts">
-import { viewState, navigate, leaveTo, pageScope, scopeUrl, platformUrl } from "./view-state";
+import { viewState, navigate, leaveTo, pageScope, scopeUrl, personaUrl, platformUrl } from "./view-state";
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
-import { Send, RotateCw, Eraser, Loader2, User, UserRound, LogOut, Home, Mail, Settings } from "lucide-vue-next";
+import { Send, RotateCw, Loader2, User, UserRound, LogOut, Home, Mail, Settings, X, Plus, ExternalLink, Copy, Check } from "lucide-vue-next";
 import UniverseView from "./UniverseView.vue";
 import AppSettings from "./AppSettings.vue";
 import ConfirmDelete from "./ConfirmDelete.vue";
 import HostWait from "./HostWait.vue";
 import { needsFreshLogin } from "./auth/home-logic";
 import { createNebulaClient } from "@lumenize/resources/frontend";
-import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, toolCallMarks, postAnswered, messageByline, startTurn, signalTurn, signalOtherTurn, settleTurn, evaluateTurn, deriveTurnDisplay, decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS } from "@lumenize/nebula/client";
+import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, toolCallMarks, postAnswered, messageByline, startTurn, signalTurn, signalOtherTurn, settleTurn, evaluateTurn, deriveTurnDisplay, decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS, TabRunner, ME_TAB } from "@lumenize/nebula/client";
 import type { StoredMessage } from "@lumenize/nebula/client";
 import type { FactoryResult } from "@lumenize/resources/frontend";
-import type { TurnLiveness, PreviewFrameState, PreviewFrameEvent, PreviewFrameAction } from "@lumenize/nebula/client";
+import type { TurnLiveness, PreviewFrameState, PreviewFrameEvent, PreviewFrameAction, CastEntry, TabMessage } from "@lumenize/nebula/client";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
-import type { Star } from "@lumenize/nebula";
 
 // The scope this Studio works in is its HOST's: `crm.acme.lumenize.dev` is the galaxy `acme.crm`,
 // and `acme.lumenize.dev` the universe `acme`, whose page lists its apps (ADR-021). Its tier picks
@@ -92,12 +91,16 @@ function openChatThread(client: { resources: { subscribeQuery(q: unknown): unkno
     if (streaming.value && sub.resourceIds.includes(streaming.value.id)) streaming.value = null;
   };
   sub.onChange(sync);
-  sub.ready.then(sync).catch(() => { /* denied/failed — the thread just stays empty */ });
+  sub.ready.then(() => {
+    threadBaseline = new Set(sub.resourceIds);
+    sync();
+  }).catch(() => { /* denied/failed — the thread just stays empty */ });
   chatSub = sub;
 }
 function closeChatThread() {
   try { chatSub?.[Symbol.dispose](); } catch { /* already released */ }
   chatSub = null;
+  threadBaseline = null;
   messageIds.value = [];
   streaming.value = null;
   lastPostedId.value = null;
@@ -267,7 +270,6 @@ onUnmounted(() => clearInterval(elapsedTicker));
 const elapsedSec = computed(() =>
   turnStartedAt.value === null ? 0 : Math.max(0, Math.floor((nowTick.value - turnStartedAt.value) / 1000)),
 );
-const previewSrc = ref("");
 const nebula = shallowRef<FactoryResult<StudioClient> | null>(null);
 
 // account / hierarchy
@@ -400,50 +402,198 @@ const stageMode = computed<"preview" | "universe" | "connecting">(() =>
     : "universe",
 );
 
-/** The dev Star's own host — the as-you dev tab this Studio frames, and the only page it frames. */
-const devTabUrl = (galaxy: string) => scopeUrl(previewStar(galaxy));
-const devTabOrigin = activeScope && isWorkspace(activeScope) ? new URL(devTabUrl(activeScope)).origin : undefined;
+// ── The preview's tabs ────────────────────────────────────────────────────────────────────────
+// `Me` frames the dev Star's own host under this person's own session. Each persona the app's
+// `docs/personas.md` names frames its own host, `mary--dev.crm.acme.lumenize.dev`, whose refresh
+// mints that member's token for this browser's session. Which tab is in view, and which personas
+// the person closed, ride the URL (`view-state.ts`); every other persona is open. A tab's frame
+// first loads when the tab comes into view, or when the agent asks it to run code, and stays
+// loaded after.
+const ME = ME_TAB;
+/** The cast `readCast` answered: each persona's slug and name. */
+const cast = ref<CastEntry[]>([]);
+const castRead = ref(false);
+const tabsInUrl = computed(() => viewState.value.tabs);
+const openPersonas = computed(() => cast.value.filter((c) => !tabsInUrl.value.closed.includes(c.slug)));
+const closedPersonas = computed(() => cast.value.filter((c) => tabsInUrl.value.closed.includes(c.slug)));
+/** The tab in view: the URL's while the cast holds it open, else `Me`. Until the cast has been read
+ *  the URL's is taken as given, so a reload opens the tab it names and not `Me` first. */
+const inView = computed(() => {
+  const named = tabsInUrl.value.tab;
+  if (!named || tabsInUrl.value.closed.includes(named)) return ME;
+  if (!castRead.value) return named;
+  return openPersonas.value.some((c) => c.slug === named) ? named : ME;
+});
 
-// ── The frame ─────────────────────────────────────────────────────────────────────────────────
-// Studio asks its frame to reload, naming the build, and the frame decides, so the frame keeps its
-// URL (ADR-017); `decidePreviewFrame` (src/preview-frame.ts in apps/nebula) says when to ask, when
-// to ask again and when no client is there to ask, and this part only posts, times and navigates.
-let frameState: PreviewFrameState = {};
-/** Bumped to replace the iframe element, which navigates it even to the address it holds. */
-const frameKey = ref(0);
-const newRequestId = () => crypto.randomUUID().slice(0, 8);
-function onFrame(event: PreviewFrameEvent) {
-  const { state, action } = decidePreviewFrame(frameState, event);
-  frameState = state;
-  actOnFrame(action);
+/** Read the cast again. Everyone who sees the strip is at the chat floor, which `readCast` checks. */
+async function readCast(): Promise<void> {
+  const n = nebula.value;
+  if (!n || !activeScope || !isWorkspace(activeScope)) return;
+  try {
+    cast.value = await n.client.readCast();
+  } catch (e) {
+    log("error", `Could not read the app's personas: ${(e as Error).message}`);
+  }
+  castRead.value = true;
 }
-function actOnFrame(action: PreviewFrameAction) {
+// A persona the cast no longer holds loses its frame, and its slug leaves the URL.
+watch(cast, (next) => {
+  const slugs = new Set(next.map((c) => c.slug));
+  for (const tab of Object.keys(loadedFrames.value)) if (tab !== ME && !slugs.has(tab)) unloadFrame(tab);
+  const { tab, closed } = tabsInUrl.value;
+  const keptClosed = closed.filter((s) => slugs.has(s));
+  const keptTab = tab && slugs.has(tab) ? tab : undefined;
+  if (keptTab !== tab || keptClosed.length !== closed.length) navigate({ tab: keptTab, closed: keptClosed }, { replace: true });
+});
+
+function selectTab(tab: string) {
+  navigate({ tab: tab === ME ? undefined : tab }, { replace: true });
+}
+function closeTab(slug: string) {
+  unloadFrame(slug);
+  navigate({ closed: [...tabsInUrl.value.closed, slug], ...(tabsInUrl.value.tab === slug ? { tab: undefined } : {}) }, { replace: true });
+}
+function reopenTab(slug: string) {
+  navigate({ closed: tabsInUrl.value.closed.filter((s) => s !== slug) }, { replace: true });
+}
+/** The persona whose link was just copied, shown as a check for a moment. */
+const copiedFor = ref<string | undefined>();
+async function copyPersonaLink(slug: string) {
+  try {
+    await navigator.clipboard.writeText(tabUrl(slug));
+    copiedFor.value = slug;
+    setTimeout(() => { if (copiedFor.value === slug) copiedFor.value = undefined; }, 2_000);
+  } catch (e) {
+    log("error", `Could not copy the link: ${(e as Error).message}`);
+  }
+}
+
+/** The dev Star's own host, `Me`'s, or a persona's host in that Star. */
+const tabUrl = (tab: string) => tab === ME ? scopeUrl(previewStar(activeScope!)) : personaUrl(previewStar(activeScope!), tab);
+const tabOrigin = (tab: string) => new URL(tabUrl(tab)).origin;
+
+// ── The frames ────────────────────────────────────────────────────────────────────────────────
+// Studio asks a frame to reload, naming the build, and the frame decides, so the frame keeps its
+// URL (ADR-017); `decidePreviewFrame` (src/preview-frame.ts in apps/nebula) says when to ask, when
+// to ask again and when no client is there to ask, and this part only posts, times and navigates,
+// one state per frame. A landed build reloads the frame in view at once, and each other loaded
+// frame when it next comes into view.
+/** Each loaded frame, as the template renders it; `key` replaces the element to navigate it. */
+const loadedFrames = ref<Record<string, { url: string; key: number }>>({});
+/** What each frame's page said about its session, shown while its tab is in view. */
+const frameNotices = ref<Record<string, string | undefined>>({});
+const frameStates = new Map<string, PreviewFrameState>();
+const frameEls = new Map<string, HTMLIFrameElement>();
+/** Persona frames an outcome left with a stale token, reloaded when each next comes into view. */
+const reloadOnView = new Set<string>();
+const newRequestId = () => crypto.randomUUID().slice(0, 8);
+function setFrameEl(tab: string, el: unknown) {
+  if (el instanceof HTMLIFrameElement) frameEls.set(tab, el); else frameEls.delete(tab);
+}
+function onFrame(tab: string, event: PreviewFrameEvent) {
+  const { state, action } = decidePreviewFrame(frameStates.get(tab) ?? {}, event);
+  frameStates.set(tab, state);
+  actOnFrame(tab, action);
+}
+function actOnFrame(tab: string, action: PreviewFrameAction) {
   if (action.kind === "set-address") {
-    setFrameAddress();
-  } else if (action.kind === "ask" && devTabOrigin) {
+    setFrameAddress(tab);
+  } else if (action.kind === "ask") {
     const { request } = action;
-    previewFrame.value?.contentWindow?.postMessage(
-      { type: "lumenize:reload", id: request.id, ...(request.build ? { build: request.build } : {}) }, devTabOrigin);
-    setTimeout(() => onFrame({ type: "no-echo", id: request.id }),
+    frameEls.get(tab)?.contentWindow?.postMessage(
+      { type: "lumenize:reload", id: request.id, ...(request.build ? { build: request.build } : {}) }, tabOrigin(tab));
+    setTimeout(() => onFrame(tab, { type: "no-echo", id: request.id }),
       request.kind === "button" ? BUTTON_ECHO_MS : LANDING_ECHO_MS);
   }
 }
-/** Point the frame at the Star's root, for a frame with no client to ask and after a wipe. */
-function setFrameAddress() {
-  if (!activeScope || !isWorkspace(activeScope)) return;
-  frameState = { ...frameState, pending: undefined }; // the navigation answers any request in flight
-  previewSrc.value = devTabUrl(activeScope);
-  frameKey.value++;
+/** Point a frame at its host's root, for a frame with no client to ask. */
+function setFrameAddress(tab: string) {
+  const frame = loadedFrames.value[tab];
+  if (!frame) return;
+  frameStates.set(tab, { ...(frameStates.get(tab) ?? {}), pending: undefined }); // the navigation answers any request in flight
+  loadedFrames.value = { ...loadedFrames.value, [tab]: { url: tabUrl(tab), key: frame.key + 1 } };
 }
-function onFrameLoad() {
+function unloadFrame(tab: string) {
+  const { [tab]: _gone, ...rest } = loadedFrames.value;
+  loadedFrames.value = rest;
+  tabRunner.forget(tab);
+  frameStates.delete(tab);
+  reloadOnView.delete(tab);
+  frameNotices.value = { ...frameNotices.value, [tab]: undefined };
+}
+function onFrameLoad(tab: string) {
   const loadAt = Date.now();
-  setTimeout(() => onFrame({ type: "load-settled", loadAt }), LOAD_SILENCE_MS);
+  setTimeout(() => onFrame(tab, { type: "load-settled", loadAt }), LOAD_SILENCE_MS);
 }
-/** The Reload button: the frame reloads whatever build it runs, since the person asked. */
+// ── Running code in a tab ─────────────────────────────────────────────────────────────────────
+// The agent's `run_in_tab` reaches this Studio through its client, and `TabRunner`
+// (src/tab-runner.ts in apps/nebula) decides what to load, post and wait for. This part only
+// creates a frame, navigates it and posts to it. A frame the agent loads stays out of view until
+// the person picks its tab.
+const tabRunner = new TabRunner({
+  isLoaded: (tab) => loadedFrames.value[tab] !== undefined,
+  load: (tab) => { loadedFrames.value = { ...loadedFrames.value, [tab]: { url: tabUrl(tab), key: 0 } }; },
+  reload: (tab) => setFrameAddress(tab),
+  post: (tab, message) => frameEls.get(tab)?.contentWindow?.postMessage(message, tabOrigin(tab)),
+}, { tabs: () => [ME, ...cast.value.map((c) => c.slug)] });
+/** Run `code` in `tab`, reading the cast first so a persona a turn has just named has its tab. */
+async function runInTab(tab: string, code: string) {
+  if (tab !== ME && !cast.value.some((c) => c.slug === tab)) await readCast();
+  return tabRunner.run(tab, code);
+}
+
+/** The Reload button: the frame in view reloads whatever build it runs, since the person asked. */
 function onReloadButton() {
-  onFrame({ type: "button", id: newRequestId() });
+  onFrame(inView.value, { type: "button", id: newRequestId() });
 }
-watch(servedBuild, (build) => { if (build) onFrame({ type: "value", build, id: newRequestId() }); });
+/** Bring the tab in view up to date: load its frame the first time, reload it when an outcome left
+ *  it a stale token, and otherwise ask it for the build `.dev` serves. */
+function showTab(tab: string) {
+  if (!connected.value || !activeScope || !isWorkspace(activeScope)) return;
+  if (!loadedFrames.value[tab]) {
+    loadedFrames.value = { ...loadedFrames.value, [tab]: { url: tabUrl(tab), key: 0 } };
+    reloadOnView.delete(tab); // a first load mints a fresh token
+  } else if (reloadOnView.delete(tab)) {
+    onFrame(tab, { type: "button", id: newRequestId() }); // the reload loads what `.dev` serves now
+    return;
+  }
+  if (servedBuild.value) onFrame(tab, { type: "value", build: servedBuild.value, id: newRequestId() });
+}
+watch([inView, connected], ([tab]) => showTab(tab));
+watch(servedBuild, (build) => { if (build && loadedFrames.value[inView.value]) onFrame(inView.value, { type: "value", build, id: newRequestId() }); });
+
+// ── What an agent message may have changed ───────────────────────────────────────────────────
+// A turn can rewrite `docs/personas.md`, invite a persona or change its grants, and Studio cannot
+// tell which a message was about. So each agent message reads the cast again and reloads every
+// loaded persona frame: a persona just accepted has a page where it had none, and one made an
+// admin carries that in a new token. Only a message that arrives after the thread first answered
+// counts.
+let threadBaseline: Set<string> | null = null;
+const handledNotices = new Set<string>();
+const agentNotices = computed<string[]>(() => {
+  const store = nebula.value?.store;
+  if (!store) return [];
+  const messages = (store.resources as Record<string, Record<string, { value?: { answers?: string[] }; meta?: { recordedClaims?: Parameters<typeof deriveParticipants>[0] } }>>).Message;
+  return messageIds.value.filter((id) => {
+    const snap = messages?.[id];
+    if (!snap?.value || !snap.meta?.recordedClaims) return false;
+    const parties = deriveParticipants(snap.meta.recordedClaims);
+    return parties.length === 1 && parties[0]!.kind === "agent";
+  });
+});
+watch(agentNotices, (ids) => {
+  const fresh = threadBaseline ? ids.filter((id) => !threadBaseline!.has(id) && !handledNotices.has(id)) : [];
+  if (fresh.length === 0) return;
+  for (const id of fresh) handledNotices.add(id);
+  void readCast().then(reloadPersonaFrames);
+});
+function reloadPersonaFrames() {
+  for (const tab of Object.keys(loadedFrames.value)) {
+    if (tab === ME) continue;
+    if (tab === inView.value) onFrame(tab, { type: "button", id: newRequestId() });
+    else reloadOnView.add(tab);
+  }
+}
 
 // ── session ──────────────────────────────────────────────────────────────────
 // ⚠️ **There is deliberately no login code here.** Signing in lives on the platform host, which
@@ -458,23 +608,26 @@ function goHome() {
 }
 
 /**
- * What the dev tab inside this Studio says about its session. The frame's client posts when it has
- * no token for the dev Star, or when someone logs out inside it; either way Studio's own session is
- * untouched, and the stage says so. ⚠️ Only a message from the frame this page created, at the
- * origin it framed, is read — any other page could post the same shape.
+ * What a frame inside this Studio says about its session. A frame's client posts when it has no
+ * token for its host, or when someone logs out inside it; either way Studio's own session is
+ * untouched, and the stage says so. ⚠️ Only a message from a frame this page created, at the origin
+ * it framed, is read — any other page could post the same shape.
  */
-const previewNotice = ref<string | undefined>();
-const previewFrame = ref<HTMLIFrameElement | null>(null);
 function onFrameMessage(e: MessageEvent) {
-  if (!devTabOrigin || e.origin !== devTabOrigin || e.source !== previewFrame.value?.contentWindow) return;
+  const tab = [...frameEls].find(([, el]) => el.contentWindow === e.source)?.[0];
+  if (tab === undefined || e.origin !== tabOrigin(tab)) return;
   const type = (e.data as { type?: unknown } | null)?.type;
-  if (type === "lumenize:login-required") previewNotice.value = "The preview has no session for its workspace.";
-  else if (type === "lumenize:logout") previewNotice.value = "You logged out inside the preview. Your Studio session is unchanged.";
+  if (type === "lumenize:loaded" || type === "lumenize:login-required" || type === "lumenize:ran") tabRunner.onMessage(tab, e.data as TabMessage);
+  const notice = (text: string | undefined) => { frameNotices.value = { ...frameNotices.value, [tab]: text }; };
+  if (type === "lumenize:login-required") notice(tab === ME
+    ? "The preview has no session for its workspace."
+    : `${tab} is not a member of the workspace yet. Ask in the chat for the cast to be built.`);
+  else if (type === "lumenize:logout") notice("You logged out inside the preview. Your Studio session is unchanged.");
   else if (type === "lumenize:loaded") {
     const id = (e.data as { id?: unknown }).id;
     // A fresh load posts this before any login notice of its own, so it clears the last load's.
-    if (id === undefined) previewNotice.value = undefined;
-    onFrame({ type: "loaded", id: typeof id === "string" ? id : undefined, at: Date.now(), resendId: newRequestId() });
+    if (id === undefined) notice(undefined);
+    onFrame(tab, { type: "loaded", id: typeof id === "string" ? id : undefined, at: Date.now(), resendId: newRequestId() });
   }
 }
 onMounted(() => window.addEventListener("message", onFrameMessage));
@@ -506,12 +659,13 @@ async function connect() {
         turn.value = replyTo === lastPostedId.value ? signalTurn(turn.value, Date.now()) : signalOtherTurn(turn.value, Date.now());
       }
     });
+  n.client.setRunInTab(runInTab);
   nebula.value = n;
   connected.value = true;
   if (isWorkspace(activeScope)) {
-    previewSrc.value = devTabUrl(activeScope!); // render now; each landing asks the frame to reload
     openChatThread(n.client);
     openServedBuilds(n.client);
+    void readCast();
   }
   await nudgeNextStep();
 }
@@ -559,24 +713,6 @@ async function send() {
     nowTick.value = turnStartedAt.value;
   } catch (e) {
     log("error", `send failed: ${(e as Error).message}`);
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function wipe() {
-  if (!nebula.value || busy.value || !isWorkspace(activeScope)) return;
-  busy.value = true;
-  try {
-    const client = nebula.value.client;
-    // Awaited, so the log says what the Star answered: a collaborator with no passage into
-    // `.dev`, or no dominion over it, is refused, and saying it worked would be false.
-    await client.lmz.callAsync("STAR", previewStar(activeScope!), client.ctn<Star>().resetDevData());
-    log("studio", "Wiped the development test data.");
-    // Set the address rather than asking: the URL the frame was on may name data the wipe deleted.
-    setFrameAddress();
-  } catch (e) {
-    log("error", `Wipe refused: ${(e as Error).message}`);
   } finally {
     busy.value = false;
   }
@@ -784,15 +920,6 @@ const confirmingAccount = ref(false);
     <section v-if="connected && isWorkspace(activeScope)" class="w-112 shrink-0 flex flex-col border-r border-base-300 bg-base-200">
       <header class="p-4 border-b border-base-300 flex items-center justify-between">
         <h1 class="text-lg font-bold">Lumenize Studio</h1>
-        <button
-          v-if="isWorkspace(activeScope)"
-          class="btn btn-sm btn-ghost"
-          :disabled="busy || !connected"
-          title="Wipe the development test data"
-          @click="wipe"
-        >
-          <Eraser class="size-4" /> Wipe
-        </button>
       </header>
 
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
@@ -971,10 +1098,33 @@ const confirmingAccount = ref(false);
           @delete-account="confirmingAccount = true"
         />
 
-        <!-- Live preview: the dev Star's own host, the one page this Studio frames. -->
+        <!-- Live preview: a tab for Me, on the dev Star's own host, and one for each persona of the
+             cast, on its own host. A tab's frame loads when the tab first comes into view. -->
         <div v-else class="w-full h-full flex flex-col">
-          <p v-if="previewNotice" class="alert alert-info text-sm rounded-none" data-testid="preview-notice">{{ previewNotice }}</p>
-          <iframe :key="frameKey" ref="previewFrame" :src="previewSrc" class="w-full flex-1 border-0" title="Preview" @load="onFrameLoad" />
+          <div class="flex items-center gap-1 px-2 border-b border-base-300" data-testid="preview-tabs">
+            <div role="tablist" class="tabs tabs-border tabs-sm">
+              <button role="tab" class="tab" :class="{ 'tab-active': inView === ME }" data-testid="tab-me" @click="selectTab(ME)">Me</button>
+              <template v-for="c in openPersonas" :key="c.slug">
+                <button role="tab" class="tab" :class="{ 'tab-active': inView === c.slug }" :data-testid="`tab-${c.slug}`"
+                  :title="c.name || c.slug" @click="selectTab(c.slug)">{{ c.slug }}</button>
+                <button class="btn btn-ghost btn-xs btn-square" :data-testid="`close-${c.slug}`" :title="`Close ${c.slug}'s tab`"
+                  @click="closeTab(c.slug)"><X class="size-3" /></button>
+              </template>
+            </div>
+            <button v-for="c in closedPersonas" :key="c.slug" class="btn btn-ghost btn-xs gap-1 opacity-70" :data-testid="`open-${c.slug}`"
+              :title="`Open ${c.slug}'s tab`" @click="reopenTab(c.slug)"><Plus class="size-3" />{{ c.slug }}</button>
+            <span class="flex-1"></span>
+            <template v-if="inView !== ME">
+              <a class="btn btn-ghost btn-xs btn-square" :href="tabUrl(inView)" target="_blank" rel="noopener"
+                :title="`Open ${inView}'s page in a new tab`" data-testid="persona-open"><ExternalLink class="size-3" /></a>
+              <button class="btn btn-ghost btn-xs btn-square" :title="`Copy the link to ${inView}'s page`" data-testid="persona-copy"
+                @click="copyPersonaLink(inView)"><Check v-if="copiedFor === inView" class="size-3" /><Copy v-else class="size-3" /></button>
+            </template>
+          </div>
+          <p v-if="frameNotices[inView]" class="alert alert-info text-sm rounded-none" data-testid="preview-notice">{{ frameNotices[inView] }}</p>
+          <iframe v-for="(frame, tab) in loadedFrames" v-show="tab === inView" :key="`${tab}:${frame.key}`"
+            :ref="(el) => setFrameEl(String(tab), el)" :src="frame.url" class="w-full flex-1 border-0"
+            :title="tab === ME ? 'Preview' : `Preview as ${tab}`" @load="onFrameLoad(String(tab))" />
         </div>
       </div>
     </section>

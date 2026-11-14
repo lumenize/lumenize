@@ -2,8 +2,8 @@
  * THE URL — read in one place, written by one function (ADR-017; `.claude/rules/ui-routing.md`).
  *
  * What a person is LOOKING AT rides the URL: the scope in the HOST (`crm.acme.lumenize.dev` is
- * `acme.crm`, ADR-021), and the overlays in the query (`?profile`, `?transcript={messageId}`,
- * `?create`, `?app`). An overlay someone would send a
+ * `acme.crm`, ADR-021), the overlays in the query (`?profile`, `?transcript={messageId}`,
+ * `?create`, `?app`), and the preview's tabs (`?tab=mary&closed=gerry`). An overlay someone would send a
  * link to has the URL as its ONLY opener: a button navigates, Back closes, a reload keeps it, and
  * the page renders it from the URL — or declines it when the state does not allow. What a person
  * is DOING — a menu, a confirmation, a toast, work in flight — never touches the URL.
@@ -18,10 +18,11 @@
  *    the honest move. It exists so those moves are visible and countable, not scattered.
  *
  * Nothing outside this file touches `location` or `history`; `npm run audit:urls` proves it.
- * The decision of which overlays exist is `parseOverlay`, one pure function a test can flip.
+ * The decision of which overlays exist is `parseOverlay`, and of which tabs are open
+ * `parsePreviewTabs`, pure functions a test can flip.
  */
 import { readonly, shallowRef } from 'vue';
-import { deploymentOriginOfPage, hostOrigin, parseHost, type HostTarget } from '@lumenize/mesh/client';
+import { deploymentOriginOfPage, hostOrigin, isPersonaSlug, parseHost, type HostTarget } from '@lumenize/mesh/client';
 
 /** Every overlay the shell knows. `transcript` carries the message id whose stream it shows. */
 export interface Overlay {
@@ -32,13 +33,28 @@ export interface Overlay {
   app: boolean;
 }
 
+/**
+ * The preview's tabs: which one is in view, and which personas the person closed from the strip.
+ * Every persona the cast holds is open unless it is named in `closed`, so a persona a later
+ * provisioning run adds opens by default. The URL names slugs and never a token (ADR-017).
+ */
+export interface PreviewTabs {
+  /** The persona slug in view; absent is `Me`, the person's own session. */
+  tab?: string;
+  closed: string[];
+}
+
 /** The URL as view state. Derive from it with `computed`; never read `location` directly. */
 export interface ViewState {
   pathname: string;
   /** The whole query, for a page that reads a parameter no overlay carries (`token`, `return_to`). */
   search: string;
   overlay: Overlay;
+  tabs: PreviewTabs;
 }
+
+/** What `navigate` may change: overlays, and the preview's tabs. */
+export type ViewPatch = Partial<Overlay> & Partial<PreviewTabs>;
 
 const FLAGS = ['profile', 'create', 'app'] as const;
 
@@ -53,8 +69,18 @@ export function parseOverlay(search: string): Overlay {
   };
 }
 
-/** The query string with `patch` applied: `false`/`undefined` removes a parameter. */
-export function withOverlay(search: string, patch: Partial<Overlay>): string {
+/**
+ * The preview's tabs a URL's query names. Only a persona slug counts, since each one is spelled into
+ * a host Studio frames: `?tab=evil.example%2Fx%23` names no tab, rather than a frame on another site.
+ */
+export function parsePreviewTabs(search: string): PreviewTabs {
+  const q = new URLSearchParams(search);
+  const tab = q.get('tab') ?? '';
+  return { tab: isPersonaSlug(tab) ? tab : undefined, closed: (q.get('closed') ?? '').split(',').filter(isPersonaSlug) };
+}
+
+/** The query string with `patch` applied: `false`, `undefined` or an empty list removes a parameter. */
+export function withView(search: string, patch: ViewPatch): string {
   const q = new URLSearchParams(search);
   for (const k of FLAGS) {
     if (!(k in patch)) continue;
@@ -63,13 +89,20 @@ export function withOverlay(search: string, patch: Partial<Overlay>): string {
   if ('transcript' in patch) {
     if (patch.transcript) q.set('transcript', patch.transcript); else q.delete('transcript');
   }
-  // `profile=` reads worse than `profile`; the parser treats both alike.
-  const s = q.toString().replace(/=(?=&|$)/g, '');
+  if ('tab' in patch) {
+    if (patch.tab) q.set('tab', patch.tab); else q.delete('tab');
+  }
+  if ('closed' in patch) {
+    if (patch.closed?.length) q.set('closed', patch.closed.join(',')); else q.delete('closed');
+  }
+  // `profile=` reads worse than `profile`, and `%2C` worse than the comma a slug list is joined
+  // by; the parsers treat both alike.
+  const s = q.toString().replace(/=(?=&|$)/g, '').replace(/%2C/g, ',');
   return s ? `?${s}` : '';
 }
 
 /** True when `patch` opens something (as opposed to only closing). */
-export function opensSomething(patch: Partial<Overlay>): boolean {
+export function opensSomething(patch: ViewPatch): boolean {
   return Object.values(patch).some((v) => v !== false && v !== undefined);
 }
 
@@ -78,6 +111,7 @@ const read = (): ViewState => ({
   pathname: hasWindow ? location.pathname : '/',
   search: hasWindow ? location.search : '',
   overlay: parseOverlay(hasWindow ? location.search : ''),
+  tabs: parsePreviewTabs(hasWindow ? location.search : ''),
 });
 
 // ── The host: which page this is, and how to spell another one ──────────────────────────────────
@@ -94,6 +128,11 @@ export const pageScope: string | undefined = pageHost?.kind === 'scope' ? pageHo
 /** A URL on `scope`'s own host. */
 export function scopeUrl(scope: string, path = '/'): string {
   return `${hostOrigin({ kind: 'scope', scope }, deployment ?? '', hasWindow ? location.origin : undefined)}${path}`;
+}
+
+/** A URL on the host of `persona` in the Star `scope`: `mary--dev.crm.acme.lumenize.dev`. */
+export function personaUrl(scope: string, persona: string, path = '/'): string {
+  return `${hostOrigin({ kind: 'persona', persona, scope }, deployment ?? '', hasWindow ? location.origin : undefined)}${path}`;
 }
 
 /** A URL on the platform host, where every session's routes and pages live. */
@@ -115,20 +154,23 @@ export const viewState = readonly(state);
 let pushed = 0;
 
 /**
- * Change the overlays in the SAME document — the ONLY same-document writer. Opening pushes a
- * history entry so Back closes it; closing goes back over an entry this page pushed, and otherwise
+ * Change the view in the SAME document — the ONLY same-document writer. Opening pushes a history
+ * entry so Back closes it; closing goes back over an entry this page pushed, and otherwise
  * rewrites in place (a direct arrival at `?profile` has no entry of ours beneath it). `replace`
- * opens without an entry — for a state the page derives rather than a person chooses, such as the
- * empty account's create form, where Back over a pushed entry would only reopen it.
+ * rewrites in place whatever the patch does — for a state the page derives rather than a person
+ * chooses, such as the empty account's create form, where Back over a pushed entry would only
+ * reopen it, and for the preview's tabs, which a person moves between rather than opens.
  */
-export function navigate(patch: Partial<Overlay>, opts: { replace?: boolean } = {}): void {
-  const next = withOverlay(location.search, patch);
+export function navigate(patch: ViewPatch, opts: { replace?: boolean } = {}): void {
+  const next = withView(location.search, patch);
   if (next === location.search) return;
   const url = location.pathname + next + location.hash;
-  if (opensSomething(patch) && !opts.replace) {
+  if (opts.replace) {
+    history.replaceState(null, '', url);
+  } else if (opensSomething(patch)) {
     history.pushState(null, '', url);
     pushed++;
-  } else if (!opensSomething(patch) && pushed > 0) {
+  } else if (pushed > 0) {
     pushed--;
     history.back(); // popstate re-reads the URL
     return;

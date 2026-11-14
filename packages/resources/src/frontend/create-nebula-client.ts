@@ -974,7 +974,7 @@ export function answerReloadRequests(opts: {
   return () => window.removeEventListener('message', listener);
 }
 
-/** What a framed page answers Studio's `lumenize:run` with: the code's value, or why there is none. */
+/** What a framed page answers Studio's `lumenize:run` with: the code's value, or the error it threw. */
 export type RunAnswer = { ok: true; value: unknown } | { ok: false; error: string };
 
 /**
@@ -991,9 +991,11 @@ export type RunAnswer = { ok: true; value: unknown } | { ok: false; error: strin
  * Nothing asks the person: the code can do what they can do on this page, in a Star whose data can
  * be wiped, and its record names them (`docs/vision/_ai-security.md`).
  *
- * The code waits for the client's `ready` first, so it runs connected. A value the browser cannot
- * copy across windows, a Vue proxy say, comes back as an error that says to return plain data.
- * Returns the listener's removal.
+ * The code waits for the client's `ready` first, so it runs connected. A page that never connects,
+ * for want of a session, answers `noSession: true` beside the reason and runs nothing, which tells
+ * Studio to load it again later: a persona's page is like that until its invite is accepted. A
+ * value the browser cannot copy across windows, a Vue proxy say, comes back as an error that says
+ * to return plain data. Returns the listener's removal.
  */
 export function answerRunRequests(opts: {
   parentOrigin: string;
@@ -1010,11 +1012,17 @@ export function answerRunRequests(opts: {
     const data = e.data as { type?: unknown; id?: unknown; code?: unknown } | null;
     if (data?.type !== 'lumenize:run' || typeof data.code !== 'string') return;
     const { id, code } = data;
-    const answer = (body: RunAnswer) => window.parent.postMessage({ type: 'lumenize:ran', id, ...body }, parentOrigin);
+    const answer = (body: RunAnswer & { noSession?: true }) =>
+      window.parent.postMessage({ type: 'lumenize:ran', id, ...body }, parentOrigin);
     void (async () => {
-      let body: RunAnswer;
       try {
         await ready;
+      } catch (err) {
+        answer({ ok: false, noSession: true, error: describe(err) });
+        return;
+      }
+      let body: RunAnswer;
+      try {
         body = { ok: true, value: await new AsyncFunction('client', 'store', code)(client, store) };
       } catch (err) {
         body = { ok: false, error: describe(err) };

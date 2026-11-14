@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { importPrivateKey, signJwt } from '@lumenize/crypto';
-import { parseHost, personaAddress, personaSlugOfAddress, platformOrigin } from '../../src/auth/hosts';
+import { hostOrigin, isPersonaSlug, parseHost, personaAddress, personaSlugOfAddress, platformOrigin } from '../../src/auth/hosts';
 import { buildAuthClaims } from '../../src/auth/access-claims';
 import { verifyAccessToken } from '../../src/auth/verify';
 
@@ -80,6 +80,36 @@ describe("a plain membership's token is built only for its own scope's host", ()
       .toThrow('A plain membership at "acme.crm" mints only for its own scope, not "acme.crm.tenant1"');
     expect(build('acme.crm.tenant1', true)).not.toThrow();
     expect(build('acme.crm', false)).not.toThrow(); // the positive control: its own scope
+  });
+});
+
+describe('a persona host is spelled as it is read', () => {
+  // Studio spells each persona tab's host with hostOrigin, and the Worker reads it with parseHost,
+  // so each target must come back as itself. Mutation: spell a persona's host as its Star's, and the
+  // persona row comes back as a scope.
+  it.each([
+    [{ kind: 'platform' } as const, 'http://platform.lumenize.localhost:5174'],
+    [{ kind: 'scope', scope: 'acme.crm.dev' } as const, 'http://dev.crm.acme.lumenize.localhost:5174'],
+    [{ kind: 'persona', persona: 'manny', scope: 'acme.crm.dev' } as const, 'http://manny--dev.crm.acme.lumenize.localhost:5174'],
+  ])('hostOrigin spells %j, and parseHost reads it back', (target, spelled) => {
+    const origin = hostOrigin(target, LOCAL, 'http://platform.lumenize.localhost:5174');
+    expect(origin).toBe(spelled);
+    expect(parseHost(new URL(origin).host, LOCAL)).toEqual(target);
+  });
+
+  // A persona's label is spelled from the slug, so anything else would spell another site's origin.
+  // Mutation: drop the check, and hostOrigin answers https://evil.example.
+  it('hostOrigin refuses a persona that is not a persona slug', () => {
+    expect(() => hostOrigin({ kind: 'persona', persona: 'evil.example/x#', scope: 'acme.crm.dev' }, PROD)).toThrow(/^Not a persona slug/);
+  });
+
+  // Mutations: drop the length floor, and `ed` passes; drop `isValidSlug`, and `Mary` passes.
+  it.each([
+    ['mary', true], ['abc', true], ['a'.repeat(30), true],
+    ['ed', false], ['a'.repeat(31), false], ['Mary', false], ['ma.ry', false], ['ma~ry', false],
+    ['ma@ry', false], ['-mary', false], ['mary-', false], ['ma--ry', false], ['', false],
+  ])('isPersonaSlug(%j) is %s', (slug, expected) => {
+    expect(isPersonaSlug(slug)).toBe(expected);
   });
 });
 

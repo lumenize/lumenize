@@ -17,6 +17,15 @@ import { RESERVED_UNIVERSE_SLUGS } from './types';
 const MIN_PERSONA_SLUG_LENGTH = 3;
 
 /**
+ * Whether `slug` can name a persona: a slug of 3 to 30 characters, so `mary--dev` is one DNS label
+ * whose persona part no reader takes for punycode. The one grammar a persona's host, its address
+ * and a cast's slug all answer to.
+ */
+export function isPersonaSlug(slug: string): boolean {
+  return typeof slug === 'string' && slug.length >= MIN_PERSONA_SLUG_LENGTH && isValidSlug(slug);
+}
+
+/**
  * The Stars a persona may live in: ones with no real users, so a test user is never beside a real
  * one. Only `dev` today. This is the one place that says which, and {@link parseHost} reads it, so a
  * persona's labels under any other Star are no host, and so no address, page or token.
@@ -61,7 +70,7 @@ export function parseHost(host: string, origin: string): HostTarget | null {
   if (parts.length === 2) {
     // A persona joins its Star's label, and that Star is one with no real users.
     if (labels.length !== 3 || !PERSONA_STAR_SLUGS.has(parts[1])) return null;
-    if (parts[0].length < MIN_PERSONA_SLUG_LENGTH || !isValidSlug(parts[0])) return null;
+    if (!isPersonaSlug(parts[0])) return null;
     [persona, leftmost] = parts;
   }
   const scopeLabels = [leftmost, ...rest].reverse();
@@ -81,22 +90,30 @@ export function platformOrigin(origin: string): string {
 }
 
 /**
- * The origin of one of this deployment's hosts: the platform host, or a scope's own host, its labels
- * the scope's read right to left. The port is the request's, since a local stack answers every host
- * on one port, and production's requests carry none.
+ * The origin of one of this deployment's hosts: the platform host, a scope's own host, its labels
+ * the scope's read right to left, or a persona's, whose first label is `{persona}--{star slug}`. The
+ * port is the request's, since a local stack answers every host on one port, and production's
+ * requests carry none. {@link parseHost} reads each back to the target it was spelled from.
+ *
+ * @throws for a persona that is not a persona slug (`isPersonaSlug`), so no input spells another
+ *   site's origin through a persona's label.
  *
  * @example hostOrigin({ kind: 'scope', scope: 'acme.crm' }, 'http://lumenize.localhost', 'http://platform.lumenize.localhost:5174')
  *          // → 'http://crm.acme.lumenize.localhost:5174'
  */
 export function hostOrigin(
-  target: { kind: 'platform' } | { kind: 'scope'; scope: string },
+  target: { kind: 'platform' } | { kind: 'scope'; scope: string } | { kind: 'persona'; persona: string; scope: string },
   origin: string,
   requestOrigin?: string,
 ): string {
   const deployment = new URL(origin);
   const port = requestOrigin ? new URL(requestOrigin).port : '';
-  const label = target.kind === 'platform' ? 'platform' : target.scope.split('.').reverse().join('.');
-  return `${deployment.protocol}//${label}.${deployment.hostname}${port ? `:${port}` : ''}`;
+  const labels = target.kind === 'platform' ? ['platform'] : target.scope.split('.').reverse();
+  if (target.kind === 'persona') {
+    if (!isPersonaSlug(target.persona)) throw new Error(`Not a persona slug: ${JSON.stringify(target.persona)}`);
+    labels[0] = `${target.persona}--${labels[0]}`;
+  }
+  return `${deployment.protocol}//${labels.join('.')}.${deployment.hostname}${port ? `:${port}` : ''}`;
 }
 
 /**
@@ -161,8 +178,7 @@ export function personaSlugOfAddress(address: string, mailDomain: string): strin
   if (at < 1 || address.slice(at + 1).toLowerCase() !== mailDomain.toLowerCase()) return null;
   const match = /^([^.]+)--([^.]+)\.(.+)$/.exec(address.slice(0, at).toLowerCase());
   if (!match || !PERSONA_STAR_SLUGS.has(match[2]!)) return null;
-  const persona = match[1]!;
-  return persona.length >= MIN_PERSONA_SLUG_LENGTH && isValidSlug(persona) ? persona : null;
+  return isPersonaSlug(match[1]!) ? match[1]! : null;
 }
 
 /**

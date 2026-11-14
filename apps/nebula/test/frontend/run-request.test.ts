@@ -17,9 +17,9 @@ const post = (origin: string, data: unknown, source: unknown = window.parent) =>
 
 /** Every `lumenize:ran` the page posted to its parent, in order. */
 function answers() {
-  const ran: Array<{ id: unknown; ok: boolean; value?: unknown; error?: string; to: string }> = [];
+  const ran: Array<{ id: unknown; ok: boolean; value?: unknown; error?: string; noSession?: boolean; to: string }> = [];
   const spy = vi.spyOn(window.parent, 'postMessage').mockImplementation(((msg: any, to: string) => {
-    if (msg?.type === 'lumenize:ran') ran.push({ id: msg.id, ok: msg.ok, value: msg.value, error: msg.error, to });
+    if (msg?.type === 'lumenize:ran') ran.push({ id: msg.id, ok: msg.ok, value: msg.value, error: msg.error, noSession: msg.noSession, to });
   }) as never);
   return { ran, spy };
 }
@@ -41,7 +41,7 @@ describe('answerRunRequests', () => {
         code: "await new Promise((r) => setTimeout(r, 5)); return { sub: client.claims.sub, four: client.double(2), types: Object.keys(store.resources) }",
       });
       await vi.waitFor(() => expect(ran).toHaveLength(1));
-      expect(ran[0]).toEqual({ id: 'r1', ok: true, value: { sub: 'gerry-sub', four: 4, types: ['Deal'] }, error: undefined, to: STUDIO });
+      expect(ran[0]).toEqual({ id: 'r1', ok: true, value: { sub: 'gerry-sub', four: 4, types: ['Deal'] }, error: undefined, noSession: undefined, to: STUDIO });
     } finally {
       remove();
     }
@@ -54,14 +54,15 @@ describe('answerRunRequests', () => {
       post(STUDIO, { type: 'lumenize:run', id: 'r2', code: "throw new TypeError('no such deal')" });
       post(STUDIO, { type: 'lumenize:run', id: 'r3', code: 'return nope.field' });
       await vi.waitFor(() => expect(ran).toHaveLength(2));
-      expect(ran.find((a) => a.id === 'r2')).toMatchObject({ ok: false, error: 'TypeError: no such deal' });
+      // A throw is the code's own answer, so it is no sign the page lacks a session.
+      expect(ran.find((a) => a.id === 'r2')).toMatchObject({ ok: false, error: 'TypeError: no such deal', noSession: undefined });
       expect(ran.find((a) => a.id === 'r3')).toMatchObject({ ok: false, error: 'ReferenceError: nope is not defined' });
     } finally {
       remove();
     }
   });
 
-  it('runs only once the client is ready, and answers with why when it never will be', async () => {
+  it('runs only once the client is ready, and says it has no session when it never will be', async () => {
     // Mutation: drop the wait on `ready` → the code runs before the client connects → red.
     const { ran } = answers();
     let connect!: () => void;
@@ -82,7 +83,8 @@ describe('answerRunRequests', () => {
     try {
       post(STUDIO, { type: 'lumenize:run', id: 'w2', code: 'return 1' });
       await vi.waitFor(() => expect(ran).toHaveLength(2));
-      expect(ran[1]).toMatchObject({ id: 'w2', ok: false, error: 'Error: No refresh cookie covers this host' });
+      // `noSession` is what tells Studio to load the page again later, as for a persona not yet accepted.
+      expect(ran[1]).toMatchObject({ id: 'w2', ok: false, noSession: true, error: 'Error: No refresh cookie covers this host' });
     } finally {
       failed();
     }
@@ -172,7 +174,7 @@ describe('createNebulaClient answers a run request only on a framed dev Star pag
       await vi.waitFor(() => expect(ran.some((a) => a.id === 'p')).toBe(true));
       // One answer to `p`, from the listening page alone, and none to `n` from either.
       expect(ran.map((a) => a.id)).toEqual(['p']);
-      expect(ran[0]).toMatchObject({ ok: false, to: STUDIO });
+      expect(ran[0]).toMatchObject({ ok: false, noSession: true, to: STUDIO });
     } finally {
       await refusing.dispose();
       await listening.dispose();
