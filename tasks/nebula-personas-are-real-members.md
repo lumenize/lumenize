@@ -1,6 +1,6 @@
 # Personas are real members of the dev Star
 
-**Status:** Pass 1, written 2026-11-14 for Larry's hand review; no phases yet. It replaces [nebula-testing-with-personas.md](archive/nebula-testing-with-personas.md), whose build was reverted on 2026-11-13 and is kept under the tag `personas-v1-built`. It is item ② of [nebula-pre-alpha.md](nebula-pre-alpha.md).
+**Status:** Larry answered the open questions on 2026-11-14 and asked for the build to run to completion on its own, as the query work did. One fact found since changes Pass 1: Cloudflare gives a catch-all rule only to a zone's own name, so a persona's address is at a mail domain each deployment names, not at `personas.lumenize.io` (D17). It replaces [nebula-testing-with-personas.md](archive/nebula-testing-with-personas.md), whose build was reverted on 2026-11-13 and is kept under the tag `personas-v1-built`. It is item ② of [nebula-pre-alpha.md](nebula-pre-alpha.md).
 
 ## Conventions
 
@@ -14,7 +14,7 @@ Take the app `acme.crm`, with a cast of Mary, the account's admin, and Sally and
 
 | | |
 |---|---|
-| Gerry's address | `gerry--dev.crm.acme@personas.lumenize.io` |
+| Gerry's address | `gerry--dev.crm.acme@lumenize.dev` |
 | Gerry's membership | an ordinary accepted one at `acme.crm.dev`, made by an ordinary invite |
 | Gerry's tab in Studio | `https://gerry--dev.crm.acme.lumenize.dev/`, holding a token for the member Gerry |
 | Who invited him | whoever asked for the cast, from their own tab on the dev Star |
@@ -31,7 +31,7 @@ These things in today's tree belong to the old design:
 - **B2.** ADR-022 § *A persona's host*, and the persona sentences in ADR-010, ADR-013, ADR-016 and ADR-025, describe a persona with no address and no membership.
 - **B3.** `docs/vision/auth.md` § *A Galaxy's `.dev` Star* says a persona's token rests on no membership, and that provisioning writes there as the cast.
 - **B4.** The scaffold's `docs/personas.md` and the `define-the-cast` skill teach a `mint` step and an address composed when the cast is provisioned.
-- **B5.** The Worker has no `email()` handler, and `personas.lumenize.io` is not an Email Routing subdomain.
+- **B5.** The Worker has no `email()` handler, and no zone routes mail to it.
 
 The rest of this file says how a persona becomes a member, how its tab gets a token, how the agent gets persona work done, and what stays particular to the dev Star.
 
@@ -76,8 +76,8 @@ The rest of this file says how a persona becomes a member, how its tab gets a to
 
 ### A persona is a member with an address we receive
 
-- **DI1. A persona's address is its host's own labels at the persona mail domain.** The host `gerry--dev.crm.acme.lumenize.dev` gives `gerry--dev.crm.acme@personas.lumenize.io`. Nothing stores the pairing, so nothing can drift from it.
-- **DI2. The Worker's mail handler accepts a persona's invite, in plain code.** It reads the invite link from a message sent to the persona domain and accepts it, as the consent screen would, with the persona's slug as its nickname. It acts only when the invite is into the Star the address spells, and only for an environment Star such as `dev` ([ADR-021](../docs/adr/021-every-scope-has-its-own-host.md)). It keeps no cookie. A login link sent to a persona's address is dropped, so nobody signs in as one.
+- **DI1. A persona's address is its host's own labels at the deployment's persona mail domain.** The host `gerry--dev.crm.acme.lumenize.dev` gives `gerry--dev.crm.acme@lumenize.dev`. Nothing stores the pairing, so nothing can drift from it. The domain is a zone whose catch-all rule sends its mail to the Worker, named once in the deployment's `PERSONA_MAIL_DOMAIN`.
+- **DI2. The Worker's mail handler accepts a persona's invite, in plain code.** It reads the invite link from a message sent to a persona's address and accepts it, as the consent screen would, with the persona's slug as its nickname. It acts only when the invite is into the Star the address spells, and only for an environment Star such as `dev` ([ADR-021](../docs/adr/021-every-scope-has-its-own-host.md)). It keeps no cookie. A login link sent to a persona's address is dropped, so nobody signs in as one.
 - **DI3. A user-developer may give a real address in place of a persona's.** Its owner clicks their own Accept and signs in as themselves, and no tab in the strip opens as them.
 
 ### A persona's tab holds that member's token
@@ -133,28 +133,17 @@ The rest of this file says how a persona becomes a member, how its tab gets a to
 
 ## Open questions
 
-- **Q1. Does this task teach seeding at all?** The tool can create a resource from a persona's tab, and since the query work an app can find it: asked of Sally's tab, the tool creates Sally's Deal as Sally, and Gerry's page finds it by a filter. So seeding needs no mechanism beyond DI5's tool. What is open is whether this task's guidance teaches it.
-  - *Options:* teach none, and leave seeding to a later task; teach per-person data only, such as each persona's own list; teach team data too, each record made from the tab of the persona who would have made it.
-  - *Recommendation:* teach team data too. A cast with nothing to find in each other's work shows little of a shared app, and each record then carries the right author. It costs a section of guidance and one limb of a scenario: Sally's tab makes a Deal, and Gerry's page lists it.
-- **Q2. How does a stack other than production receive a persona's mail?** `personas.lumenize.io` routes to one Worker. The test deploy and a local `wrangler dev` each send invites of their own, whose links point at their own hosts.
-  - *Options:* a persona mail domain for each deployment, with a local stack's mail arriving at the test mailbox and the harness passing the raw message to the local Worker's mail handler; or persona scenarios that run deployed only.
-  - *Recommendation:* a domain for each deployment, and the relay for local runs. The handler's own code runs in every venue, and only the delivery differs. `live-scenarios.md` forbids a helper that makes up for the environment, so this needs Larry's yes.
-- **Q3. What does `docs/personas.md` hold?** The agent rebuilds the cast from it after a wipe.
-  - *Options:* the cast and the steps in plain words, with the agent writing the code each time; or the code itself.
-  - *Recommendation:* plain words. The file is read by people too, and the client API can change under stored code.
-- **Q4. Does a wipe rebuild the cast's grants, or wait to be asked?**
-  - *Options:* Studio asks the agent to rebuild after every wipe; or the person asks.
-  - *Recommendation:* the person asks, and the agent's guidance tells it to offer when it sees a wiped Star with a cast.
+None are open. Q1 to Q4 were answered on 2026-11-14 and are D16 to D19.
 
 ## Decisions
 
-Settled with Larry on 2026-11-13 and 14.
+D1 to D15 were settled with Larry on 2026-11-13 and 14, and D16 to D19 are his answers to the open questions. From D20 on the builder decided alone, during the build Larry asked to run on its own, and each is reversible.
 
 | ID | Decision | Rejected alternative, and why |
 |---|---|---|
 | D1 | A persona is a real member of the dev Star. | A persona with no address or membership, the reverted design: each shortcut needed a rule to contain it. |
 | D2 | Each persona keeps a host of its own. | One host for every tab: the tabs would share browser storage, and an unmodified app could not tell whose token to ask for. |
-| D3 | A persona's address is at a domain we receive mail for, and the Worker accepts its invite. | The user-developer's own plus-addresses: a click for each persona, and each Accept leaves that persona's cookie in their browser, so Home lists it as theirs. A membership born accepted: a second way to accept. |
+| D3 | A persona's address is at a domain we receive mail for, and the Worker accepts its invite. D17 says which domain. | The user-developer's own plus-addresses: a click for each persona, and each Accept leaves that persona's cookie in their browser, so Home lists it as theirs. A membership born accepted: a second way to accept. |
 | D4 | The mail handler accepts in plain code. | The agent reading the mail: the step needs no judgment, and inbound mail is a place for text to steer a model. |
 | D5 | The host finds its member by deriving the address. | A cast record on the Galaxy: a second copy that can go stale, and a Galaxy wake on every refresh. A lookup by nickname: mutable and not unique. |
 | D6 | A persona's tab gets its token from the impersonation mint. | A mint of its own for personas: the branch only personas reach is what drifted. |
@@ -167,3 +156,51 @@ Settled with Larry on 2026-11-13 and 14.
 | D13 | One tool that runs code, not a list of calls. | A fixed list: more to build, and it cannot read the page. Security and the record matter little in the dev Star (Larry). |
 | D14 | The agent acting as a persona on the server is not built. | It needs a new way to build claims, and a persona's own tab does the same work as a real Client. |
 | D15 | The dev Star keeps its workshop rules and loses its identity ones. | Dropping the wipe: a breaking change to the data would have no clean way out. Personas in tenant Stars: test users beside real ones. |
+| D16 | The guidance teaches seeding, team data included: each record is made from the tab of the persona who would have made it. (was Q1) | Per-person data only: a cast with nothing to find in each other's work shows little of a shared app. |
+| D17 | Each deployment names its persona mail domain, a zone whose catch-all rule sends mail to that deployment's Worker: `lumenize.dev` in production, `lumenize.io` for the test deploy, and `lumenize-test.dev` for a local stack, whose mail the harness passes on. (was Q2; Larry said yes to the relay.) | `personas.lumenize.io`, Larry's first choice: Cloudflare gives a catch-all rule only to a zone's own name, and a subdomain takes one rule for each address. A rule made for each persona: an API token in the Worker and a rule to reap. The test mailbox's Worker passing mail on to the test deploy: production's code would carry an entry only test code calls. |
+| D18 | `docs/personas.md` holds the cast and the steps in plain words. Each persona's line opens with its slug in backticks, which Studio reads for its tabs. (was Q3) | Stored code: the client API can change under it, and people read the file too. |
+| D19 | The dev Star is kept matching `docs/personas.md` without the person asking twice. A wipe from Studio's button is followed by a post, in the person's name, asking the agent to rebuild the cast as the file has it. A turn that changes the file applies the change in that turn. (was Q4; Larry: it depends on whether the cast changes. This is the builder's reading of that, and the first thing for him to check.) | Rebuilding only when asked: an unchanged cast needs no decision, so asking is a step with no answer. |
+| D20 | The handler reads the link from a header, `X-Lumenize-Auth-Link`, which the sender stamps on every message that carries a link. | Parsing the body: it needs a MIME parser in the Worker, and breaks when a provider changes how it encodes the HTML. |
+| D21 | Mail to an address that is no persona's is rejected, so its sender hears there is no such mailbox. Mail to a persona's address that carries no invite into that persona's Star is dropped. | Dropping everything: a person who mistypes an address at the domain would never learn it. |
+| D22 | On a persona's host the refresh hands the impersonation mint the claims it would have minted for the opener on that host, built from the opener's cookie record. | A second authorize step written for cookies: the mint's own check is the one every impersonation meets. |
+| D23 | The tool's call to the poster's Studio tab names a result handler, and the handler wakes the turn, which waits in memory as it does for the model. A turn whose Galaxy is evicted is lost as before. | A turn that can resume after eviction: a larger change to the loop than this task. |
+| D24 | The page spells a persona's address with `client.personaAddress('gerry')`, from its own host and a mail domain the served page names. | An address written into `docs/personas.md` or composed by the model: a mistyped scope is a different person. |
+| D25 | The tool runs in one Studio tab of the poster's, the first by id among those connected. | The tab that posted: nothing records it, and any of the person's tabs holds the same session. Every tab: the code would run once in each. |
+| D26 | A persona's tab opened outside Studio logs out as any page does, ending the opener's sessions in that browser. | Teardown only, as an impersonated child does: the page holds the opener's cookies, and they are the opener's to end. |
+
+## Phases
+
+Each phase ends with its tests mutation-checked and its notes in § *Build notes*. Nothing replaced survives beside its replacement: `personaId`, `PERSONA_NAMESPACE`, the refresh's own persona mint and the `mint` verb in the cast's procedure all go in the phase that replaces them.
+
+1. **A persona's host mints for the member its address names.** `personaAddress` and its inverse in `hosts.ts`; a Registry read from an address and a Star to the accepted member's `sub`; the refresh's persona branch through `mintImpersonationToken` (DI4, D22). `personaId` and `PERSONA_NAMESPACE` are deleted.
+   - **Success criteria:** on Gerry's host, a browser holding an admin cookie over the Star gets a token whose `sub` is Gerry's membership's, with the opener in `act` and Gerry's own admin bit; a plain member's cookie gets 401; a host whose address nobody holds, or holds unaccepted, gets 401; no source names `personaId`.
+   - **Mutation note:** minting the opener's own `sub`; skipping the acceptance read; reading the admin bit from the opener; accepting a plain member as opener.
+2. **The Worker accepts a persona's invite by mail.** The sender's link header (D20); `acceptPersonaInvite` beside the other acceptance writers, with `mail` as its credential; the Worker's `email()` export (DI2, D21); `PERSONA_MAIL_DOMAIN` in each deployment's config; the test mailbox keeps each message as it arrived, and the harness passes a local stack's on (D17).
+   - **Success criteria:** an invite into `acme.crm.dev` sent to Gerry's address is accepted, with `gerry` as nickname and no session recorded; a login link sent there is dropped and stays unspent; an invite into another Star sent to Gerry's address is dropped; mail for an address that is no persona's is rejected; a second delivery of the same message changes nothing.
+   - **Mutation note:** accepting without comparing the link's scope with the address's Star; accepting a login link; recording a session; accepting for an address other than the link's.
+3. **A page can be asked to run code.** The dev page's meta names the persona mail domain; `client.personaAddress` (D24); the factory answers a run request from Studio's origin, on an environment Star's page, in a frame, and nowhere else (DI5, DI7).
+   - **Success criteria:** code handed to a framed dev page runs with `client` and `store` and its value comes back; a throw comes back as an error with its message; a page that is top-level, or not an environment Star's, or asked from another origin, runs nothing.
+   - **Mutation note:** each of DI7's conditions removed in turn; the value returned without waiting for the code's Promise.
+4. **Studio shows the cast as tabs and carries a run request to one.** The Galaxy reads the cast from `docs/personas.md` (D18); the strip of tabs, "Me" first; `StudioClient.runInTab`, which loads the tab's frame if need be, posts the request and answers with the page's answer (DI5).
+   - **Success criteria:** the strip lists each slug the file names; a persona's frame holds that member's token; a run request for a tab the cast does not name, or whose page stays silent, answers with a failure that says which.
+   - **Mutation note:** the request posted to the wrong frame; a silent page answered as success.
+5. **The agent has one tool that runs code in a tab.** `run_in_tab` in the loop; the Galaxy's entry, which finds the poster's Studio tab (D25) and waits on its answer (D23); the Mesh addition that lists a host's connected Clients.
+   - **Success criteria:** a turn's `run_in_tab` reaches the poster's own Studio tab and no other person's, and the code's value is the tool's result; with no Studio tab open the tool fails within its bound and says so; the record of what the code wrote names the tab's person, or the persona with that person in `act`, and never the agent (DI8).
+   - **Mutation note:** picking any connected tab; resolving the wait without the handler; the bound removed.
+6. **The guidance teaches the cast this way.** The scaffold's `docs/personas.md`, the `define-the-cast` skill, the tool's description, and the reference docs (D16, D18). The `mint` verb goes.
+   - **Success criteria:** the generators' checks pass; no guidance names `mint` or a provisioning step outside the chat; the `/live` guidance scenarios this touches still pass.
+7. **A wipe is followed by the cast's rebuild** (D19).
+   - **Success criteria:** Studio's Wipe, on an app whose file names a cast, leaves a post asking for the rebuild; on an app with no cast it leaves none.
+   - **Mutation note:** posting when the file names no cast.
+8. **The standing text describes a persona as a member.** B2 and B3: ADR-022 § *A persona's host*, the persona sentences of ADR-010, ADR-013, ADR-016 and ADR-025, `docs/vision/auth.md`, and the rules that quote them. It is the last phase because every phase before it changes what these describe.
+   - **Success criteria:** `grep -rniE 'persona' docs/adr docs/vision .claude/rules CLAUDE.md` holds no sentence saying a persona has no membership, no address or an id spelled from its host.
+
+**Scenarios.** `persona-host` is rewritten on phase 1 and 2: a real invite, accepted by the handler, then the host's refresh. `persona-tabs` drives phases 3 and 4 in a browser. `cast-from-a-tab` drives phase 5 with the real model, gating only on what holds whatever the model chooses, and the tool's own choices gate in the lane behind the real commit path (`live.md`). The build closes with a deployed pass of all three, since mail, tokens and frames are what only a deploy shows.
+
+## Non-goals
+
+- **Seeding at scale.** § *Beyond this task*.
+- **The agent acting as a persona on the server.** D14.
+- **Personas outside environment Stars, and pages for an environment Star other than `dev`.** The Galaxy serves only `dev`.
+- **Production's mail routing.** Email Routing on `lumenize.dev` is turned on at the production deploy; § *Build notes* has the steps.
+
