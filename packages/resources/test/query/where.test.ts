@@ -68,8 +68,9 @@ describe('compileWhere: the SQL and the bound values', () => {
 
   it('compileQuery opens with the type\'s current rows, as literals', () => {
     const rows = `typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0`;
-    expect(compileQuery(fields(), 'Deal', {})).toEqual({ where: rows, params: [] });
-    expect(compileQuery(fields(), 'Deal', { stage: 'open' })).toEqual({ where: `${rows} AND ${STAGE} = ?`, params: ['open'] });
+    expect(compileQuery(fields(), 'Deal', {}, [])).toEqual({ where: rows, params: [] });
+    expect(compileQuery(fields(), 'Deal', { stage: 'open' }, [{ type: 'Deal', fields: ['stage'] }]))
+      .toEqual({ where: `${rows} AND ${STAGE} = ?`, params: ['open'] });
   });
 
   it('is pure: the same filter compiles to the same text twice, and leaves the filter as it was', () => {
@@ -77,6 +78,65 @@ describe('compileWhere: the SQL and the bound values', () => {
     const before = JSON.stringify(filter);
     expect(where(filter)).toEqual(where(filter));
     expect(JSON.stringify(filter)).toBe(before);
+  });
+});
+
+describe('compileQuery: a filter must give an index something to look up', () => {
+  const INDEXES = [
+    { type: 'Deal', fields: ['stage', 'amount'] }, { type: 'Deal', fields: ['title'] }, { type: 'Task', fields: ['owner'] },
+  ];
+  const served = (filter: Filter, indexes = INDEXES): string => {
+    try { compileQuery(fields(), 'Deal', filter, indexes); } catch (e) { expect((e as Error).name).toBe('QueryError'); return (e as Error).message; }
+    return 'served';
+  };
+
+  it.each<[string, Filter]>([
+    ['equality on an index\'s first field', { stage: 'open' }],
+    ['$eq', { stage: { $eq: 'open' } }],
+    ['$in with values', { stage: { $in: ['open'] } }],
+    ['a range', { title: { $gte: 'A', $lt: 'B' } }],
+    ['one end of a range', { title: { $gt: 'A' } }],
+    ['a prefix', { title: { $startsWith: 'Ac' } }],
+    ['a lookup beside conditions no index can look up', { stage: 'open', owner: { $ne: 'p1' }, note: null, due: { $exists: false } }],
+    ['a lookup beside a negative on the same field', { title: { $gt: 'A', $ne: 'B' } }],
+    ['a lookup inside a top-level $and', { $and: [{ note: null }, { stage: 'open' }] }],
+    ['a lookup inside a nested $and', { $and: [{ $and: [{ stage: 'open' }] }] }],
+    ['no conditions at all, which asks for every Deal', {}],
+  ])('serves %s', (_name, filter) => {
+    expect(served(filter)).toBe('served');
+  });
+
+  const REFUSED = 'This filter would read every current Deal. Give it a condition an index can look up';
+  it.each<[string, Filter]>([
+    ['a field with no index', { owner: 'p1' }],
+    ['an index\'s second field alone', { amount: 5 }],
+    ['a field only another type indexes', { owner: { $in: ['p1'] } }],
+    ['null alone', { stage: null }],
+    ['$exists alone, true or false', { stage: { $exists: true } }],
+    ['$ne alone', { stage: { $ne: 'open' } }],
+    ['$nin alone', { stage: { $nin: ['open'] } }],
+    ['$in with no values', { stage: { $in: [] } }],
+    ['$not on the field', { title: { $not: { $gt: 'A' } } }],
+    ['$endsWith alone', { title: { $endsWith: 'x' } }],
+    ['$contains alone', { title: { $contains: 'x' } }],
+    ['a prefix of nothing', { title: { $startsWith: '' } }],
+    ['a prefix past the range form', { title: { $startsWith: 'A😀' } }],
+    ['a lookup only inside $or', { $or: [{ stage: 'open' }, { stage: 'won' }] }],
+    ['a lookup only inside $not', { $not: { stage: 'open' } }],
+    ['a lookup only inside $nor', { $nor: [{ stage: 'open' }] }],
+    ['a lookup inside an $or inside $and', { $and: [{ $or: [{ stage: 'open' }] }] }],
+  ])('refuses %s', (_name, filter) => {
+    expect(served(filter)).toContain(REFUSED);
+  });
+
+  it('says which fields the type\'s indexes start with, or that it has none', () => {
+    expect(served({ owner: 'p1' })).toContain(`Deal's indexes start with "stage", "title"`);
+    expect(served({ owner: 'p1' }, [{ type: 'Task', fields: ['owner'] }])).toContain('Deal has no index');
+    expect(served({ owner: 'p1' }, [])).toContain('Deal has no index');
+  });
+
+  it('still refuses what compileWhere refuses, before it looks at the indexes', () => {
+    expect(served({ nope: 1 })).toBe('Deal has no field "nope"');
   });
 });
 

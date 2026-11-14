@@ -29,7 +29,7 @@ describe('compileIndex', () => {
       const { createSql } = compileIndex(fields(), { type: 'Deal', fields: [path] });
       const expression = createSql.slice(createSql.indexOf('ON Snapshots(') + 'ON Snapshots('.length, createSql.indexOf(') WHERE '));
       expect(compileWhere(fields(), 'Deal', { [path]: { $exists: true } }).sql).toContain(expression.replace('json_extract', 'json_type'));
-      expect(createSql.endsWith(` WHERE ${compileQuery(fields(), 'Deal', {}).where}`)).toBe(true);
+      expect(createSql.endsWith(` WHERE ${compileQuery(fields(), 'Deal', {}, []).where}`)).toBe(true);
     });
 
   it('gives one specification one name, and another order another', () => {

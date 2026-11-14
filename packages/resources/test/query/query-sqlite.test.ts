@@ -11,7 +11,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { stringify } from '@lumenize/structured-clone';
 import { END_OF_TIME, ROOT_NODE_ID } from '../../src/index';
-import { compileIndex, compileQuery, compileWhere, findUnqueryable, MAX_BOUND_PARAMS, QUERY_INDEX_PREFIX } from '../../src/query';
+import { compileIndex, compileQuery, compileWhere, currentRowsSql, findUnqueryable, MAX_BOUND_PARAMS, QUERY_INDEX_PREFIX } from '../../src/query';
 import type { Filter } from '../../src/query';
 import { fields } from './fixture';
 
@@ -49,8 +49,13 @@ async function seed(name: string): Promise<void> {
   });
 }
 
+/**
+ * Every current Deal `filter` matches. It joins the clause to the type's current rows itself, so a
+ * filter is judged for what it selects whether or not an index could look anything up for it.
+ */
 async function select(name: string, filter: Filter): Promise<string[]> {
-  const { where, params } = compileQuery(fields(), 'Deal', filter);
+  const { sql: clause, params } = compileWhere(fields(), 'Deal', filter);
+  const where = clause ? `${currentRowsSql(fields(), 'Deal')} AND ${clause}` : currentRowsSql(fields(), 'Deal');
   return inHost(name, (sql) =>
     sql.exec(`SELECT resourceId FROM Snapshots WHERE ${where} ORDER BY resourceId`, ...params).toArray().map((row) => row.resourceId as string));
 }
@@ -145,8 +150,9 @@ describe('an index compiled from the same ontology serves the query', () => {
   beforeAll(() => seed(host));
 
   it('is created, used by a query on its leading field, and dropped', async () => {
-    const index = compileIndex(fields(), { type: 'Deal', fields: ['stage', 'amount'] });
-    const { where, params } = compileQuery(fields(), 'Deal', { stage: 'open', amount: { $gt: 1000 } });
+    const spec = { type: 'Deal', fields: ['stage', 'amount'] };
+    const index = compileIndex(fields(), spec);
+    const { where, params } = compileQuery(fields(), 'Deal', { stage: 'open', amount: { $gt: 1000 } }, [spec]);
     const query = `SELECT resourceId FROM Snapshots WHERE ${where}`;
 
     expect(await plan(host, query, ...params)).not.toContain(QUERY_INDEX_PREFIX);
@@ -161,10 +167,12 @@ describe('an index compiled from the same ontology serves the query', () => {
 
     // The leading field alone is looked up. The second field alone is not: SQLite may still walk
     // the index, since it holds only current Deals, but it cannot look a key up in it.
-    const leading = compileQuery(fields(), 'Deal', { stage: 'lead' });
+    const leading = compileQuery(fields(), 'Deal', { stage: 'lead' }, [spec]);
     expect(await plan(host, `SELECT resourceId FROM Snapshots WHERE ${leading.where}`, ...leading.params)).toContain(served);
-    const second = compileQuery(fields(), 'Deal', { amount: 1000 });
-    expect(await plan(host, `SELECT resourceId FROM Snapshots WHERE ${second.where}`, ...second.params)).not.toContain('SEARCH');
+    const second = compileWhere(fields(), 'Deal', { amount: 1000 });
+    expect(await plan(host, `SELECT resourceId FROM Snapshots WHERE ${currentRowsSql(fields(), 'Deal')} AND ${second.sql}`, ...second.params)).not.toContain('SEARCH');
+    // Which is why the compiler refuses that filter with this index alone.
+    expect(() => compileQuery(fields(), 'Deal', { amount: 1000 }, [spec])).toThrow('This filter would read every current Deal');
 
     // The drop is read from the catalogue: asked again in the same words, EXPLAIN here answers
     // with the plan it gave before the drop.
@@ -181,10 +189,38 @@ describe('an index compiled from the same ontology serves the query', () => {
     ] as Array<[string, Filter]>) {
       const index = compileIndex(fields(), { type: 'Deal', fields: [path] });
       await inHost(host, (sql) => { sql.exec(index.createSql); });
-      const { where, params } = compileQuery(fields(), 'Deal', filter);
+      const { where, params } = compileQuery(fields(), 'Deal', filter, [{ type: 'Deal', fields: [path] }]);
       expect(await plan(host, `SELECT resourceId FROM Snapshots WHERE ${where}`, ...params), path).toContain(`SEARCH Snapshots USING INDEX ${index.name}`);
       await inHost(host, (sql) => { sql.exec(index.dropSql); });
     }
+  });
+});
+
+// The rule `compileQuery` holds: every filter it accepts gives SQLite a key to look up, whatever
+// else the filter carries, so none of them reads every current Deal.
+describe('every filter compileQuery accepts is looked up in an index', () => {
+  const host = `lookup-${crypto.randomUUID().slice(0, 8)}`;
+  const specs = [{ type: 'Deal', fields: ['stage', 'amount'] }, { type: 'Deal', fields: ['title'] }, { type: 'Deal', fields: ['owner'] }];
+  beforeAll(async () => {
+    await seed(host);
+    await inHost(host, (sql) => { for (const spec of specs) sql.exec(compileIndex(fields(), spec).createSql); });
+  });
+
+  it.each<[string, Filter, string[]]>([
+    ['equality', { stage: 'open' }, ['acme', 'initech']],
+    ['$in', { stage: { $in: ['lead', 'won'] } }, ['globex', 'infinite', 'upsell']],
+    ['a prefix', { title: { $startsWith: 'Acme' } }, ['acme']],
+    ['a range on a string', { title: { $gte: 'Globex' } }, ['globex', 'infinite', 'initech', 'upsell']],
+    ['equality beside $ne', { stage: 'open', amount: { $ne: 1500 } }, ['initech']],
+    ['equality beside null', { stage: 'lead', budget: null }, ['globex', 'infinite']],
+    ['equality beside $exists false', { owner: 'p2', amount: { $exists: false } }, ['initech']],
+    ['equality beside $nin and $not', { owner: 'p1', amount: { $nin: [1000] }, $not: { won: true } }, ['acme']],
+    ['equality beside $nor and $contains', { owner: 'p2', $nor: [{ stage: 'lead' }], title: { $contains: 'tech' } }, ['initech']],
+    ['equality inside $and', { $and: [{ owner: 'p1' }, { $or: [{ won: true }, { amount: { $gt: 1200 } }] }] }, ['acme', 'upsell']],
+  ])('%s', async (_name, filter, expected) => {
+    const { where, params } = compileQuery(fields(), 'Deal', filter, specs);
+    expect(await plan(host, `SELECT resourceId FROM Snapshots WHERE ${where}`, ...params)).toContain('SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:');
+    expect(await select(host, filter)).toEqual(expected);
   });
 });
 

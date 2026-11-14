@@ -22,10 +22,19 @@
  * Everything the engine cannot do is refused here, by message, before any SQL exists: a field the
  * type does not declare, an array or a `Map`, an ordering comparison on a union of string
  * literals, a value of the wrong type.
+ *
+ * **A query must give an index something to look up.** {@link compileQuery} refuses a filter that
+ * would read every current resource of the type. A condition an index can look up is equality,
+ * `$in`, a range or `$startsWith`, on the first field of one of the type's indexes, standing at the
+ * filter's top level or inside a top-level `$and`. The rest of the filter then tests only the rows
+ * that lookup found, so `$ne`, `$nin`, `$not`, `$nor`, `$exists`, `null`, `$endsWith` and
+ * `$contains` are all fine beside one, and refused alone. `{}` is the one exception: it asks for
+ * every resource of the type, and says so.
  */
 import { QueryError } from './errors';
 import { currentRowsSql, resolveField } from './fields';
 import type { FieldsMap, ResolvedField, ScalarKind } from './fields';
+import type { IndexSpec } from './indexes';
 
 /** A filter: field paths and `$and` / `$or` / `$nor` / `$not`, each mapped to a condition. */
 export type Filter = { [pathOrOperator: string]: unknown };
@@ -46,6 +55,9 @@ export interface CompiledWhere {
 export const MAX_BOUND_PARAMS = 100;
 
 const ORDERING: Record<string, string> = { $gt: '>', $gte: '>=', $lt: '<', $lte: '<=' };
+
+/** The last UTF-16 unit a prefix may end in and still be a key range: below the surrogates. */
+const RANGE_PREFIX_LIMIT = 0xd7ff;
 const ARRAY_OPERATORS = new Set(['$elemMatch', '$size', '$all']);
 const FIELD_OPERATORS = [
   '$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin', '$exists', '$not',
@@ -160,7 +172,7 @@ class Compilation {
     if (operator === '$contains') return `(instr(${field.sql}, ${this.push(operand)}) > 0 AND ${field.holdsValueSql})`;
     if (operator === '$endsWith') return `(substr(${field.sql}, -${this.push(length)}) = ${this.push(operand)} AND ${field.holdsValueSql})`;
     const last = operand.charCodeAt(operand.length - 1);
-    if (last < 0xd7ff) {
+    if (last < RANGE_PREFIX_LIMIT) {
       // A prefix is a key range, which an index can serve: from the prefix up to, and not including,
       // the prefix with its last character raised by one.
       const upper = operand.slice(0, -1) + String.fromCharCode(last + 1);
@@ -226,12 +238,58 @@ export function compileWhere(fields: FieldsMap, typeName: string, filter: Filter
   return compilation.done(compilation.filter(filter, 'the filter'));
 }
 
+/** Whether `condition` on a field is one an index on that field can look up. */
+function looksUp(condition: unknown): boolean {
+  if (condition === null) return false;
+  if (!isPlainObject(condition)) return true;
+  return Object.entries(condition).some(([operator, operand]) => {
+    if (operator === '$eq' || operator in ORDERING) return true;
+    if (operator === '$in') return Array.isArray(operand) && operand.length > 0;
+    if (operator === '$startsWith') {
+      // An empty prefix has no last character, so its code is NaN and this is false.
+      return typeof operand === 'string' && operand.charCodeAt(operand.length - 1) < RANGE_PREFIX_LIMIT;
+    }
+    return false;
+  });
+}
+
+/** The fields `filter` gives an index something to look up on: its top level, and through `$and`. */
+function lookedUpFields(filter: Filter, into = new Set<string>()): Set<string> {
+  for (const [key, condition] of Object.entries(filter)) {
+    if (key === '$and' && Array.isArray(condition)) {
+      for (const each of condition) if (isPlainObject(each)) lookedUpFields(each, into);
+    } else if (!key.startsWith('$') && looksUp(condition)) {
+      into.add(key);
+    }
+  }
+  return into;
+}
+
 /**
  * The whole WHERE for a type's current resources that match `filter`: the type's current rows, in
  * the exact text an index from {@link compileIndex} carries, then the filter's clause.
+ *
+ * `indexes` is every index the host has created. A filter none of them can look anything up for is
+ * refused, since it would read every current resource of the type; the file's header says what
+ * counts. `{}` is allowed, as the request for all of them.
+ *
+ * @throws QueryError for a filter {@link compileWhere} refuses, and for one no index serves.
  */
-export function compileQuery(fields: FieldsMap, typeName: string, filter: Filter): { where: string; params: SqlParam[] } {
+export function compileQuery(
+  fields: FieldsMap, typeName: string, filter: Filter, indexes: readonly IndexSpec[],
+): { where: string; params: SqlParam[] } {
   const { sql, params } = compileWhere(fields, typeName, filter);
   const rows = currentRowsSql(fields, typeName);
-  return { where: sql ? `${rows} AND ${sql}` : rows, params };
+  if (!sql) return { where: rows, params };
+  const leading = [...new Set(indexes.filter((index) => index.type === typeName && index.fields.length > 0).map((index) => index.fields[0]!))];
+  const lookedUp = lookedUpFields(filter);
+  if (!leading.some((field) => lookedUp.has(field))) {
+    const have = leading.length > 0
+      ? `${typeName}'s indexes start with ${leading.map((field) => `"${field}"`).join(', ')}`
+      : `${typeName} has no index`;
+    throw new QueryError(
+      `This filter would read every current ${typeName}. Give it a condition an index can look up, which is equality, $in, ` +
+      `a range or $startsWith on the first field of an index, at the filter's top level or inside a top-level $and. ${have}`);
+  }
+  return { where: `${rows} AND ${sql}`, params };
 }
