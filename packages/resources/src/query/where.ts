@@ -30,6 +30,10 @@
  * that lookup found, so `$ne`, `$nin`, `$not`, `$nor`, `$exists`, `null`, `$endsWith` and
  * `$contains` are all fine beside one, and refused alone. `{}` is the one exception: it asks for
  * every resource of the type, and says so.
+ *
+ * A caller that means to read them all passes `allowScan: true`, which is right for a type that
+ * will only ever hold a few resources: an index costs one more row written on every write of the
+ * type, and a write costs a thousand times a read. The answer's `scans` says which queries did.
  */
 import { QueryError } from './errors';
 import { currentRowsSql, resolveField } from './fields';
@@ -46,6 +50,14 @@ export interface CompiledWhere {
   /** The clause, or `''` for a filter with no conditions. */
   sql: string;
   params: SqlParam[];
+}
+
+export interface CompiledQuery {
+  /** The whole WHERE: the type's current rows, then the filter's clause. */
+  where: string;
+  params: SqlParam[];
+  /** True when the query reads every current resource of the type, with no index lookup. */
+  scans: boolean;
 }
 
 /**
@@ -271,25 +283,32 @@ function lookedUpFields(filter: Filter, into = new Set<string>()): Set<string> {
  *
  * `indexes` is every index the host has created. A filter none of them can look anything up for is
  * refused, since it would read every current resource of the type; the file's header says what
- * counts. `{}` is allowed, as the request for all of them.
+ * counts. `{}` is allowed, as the request for all of them, and so is any filter under
+ * `allowScan: true`.
+ *
+ * `scans` in the answer is true when the query reads every current resource of the type, so a host
+ * can count or log the ones that do.
  *
  * @throws QueryError for a filter {@link compileWhere} refuses, and for one no index serves.
  */
 export function compileQuery(
   fields: FieldsMap, typeName: string, filter: Filter, indexes: readonly IndexSpec[],
-): { where: string; params: SqlParam[] } {
+  options: { allowScan?: boolean } = {},
+): CompiledQuery {
   const { sql, params } = compileWhere(fields, typeName, filter);
   const rows = currentRowsSql(fields, typeName);
-  if (!sql) return { where: rows, params };
+  if (!sql) return { where: rows, params, scans: true };
   const leading = [...new Set(indexes.filter((index) => index.type === typeName && index.fields.length > 0).map((index) => index.fields[0]!))];
   const lookedUp = lookedUpFields(filter);
   if (!leading.some((field) => lookedUp.has(field))) {
+    if (options.allowScan === true) return { where: `${rows} AND ${sql}`, params, scans: true };
     const have = leading.length > 0
       ? `${typeName}'s indexes start with ${leading.map((field) => `"${field}"`).join(', ')}`
       : `${typeName} has no index`;
     throw new QueryError(
       `This filter would read every current ${typeName}. Give it a condition an index can look up, which is equality, $in, ` +
-      `a range or $startsWith on the first field of an index, at the filter's top level or inside a top-level $and. ${have}`);
+      `a range or $startsWith on the first field of an index, at the filter's top level or inside a top-level $and. ${have}. ` +
+      `For a type that will only ever hold a few resources, allow the scan instead`);
   }
-  return { where: `${rows} AND ${sql}`, params };
+  return { where: `${rows} AND ${sql}`, params, scans: false };
 }

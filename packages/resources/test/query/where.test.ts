@@ -68,9 +68,9 @@ describe('compileWhere: the SQL and the bound values', () => {
 
   it('compileQuery opens with the type\'s current rows, as literals', () => {
     const rows = `typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0`;
-    expect(compileQuery(fields(), 'Deal', {}, [])).toEqual({ where: rows, params: [] });
+    expect(compileQuery(fields(), 'Deal', {}, [])).toEqual({ where: rows, params: [], scans: true });
     expect(compileQuery(fields(), 'Deal', { stage: 'open' }, [{ type: 'Deal', fields: ['stage'] }]))
-      .toEqual({ where: `${rows} AND ${STAGE} = ?`, params: ['open'] });
+      .toEqual({ where: `${rows} AND ${STAGE} = ?`, params: ['open'], scans: false });
   });
 
   it('is pure: the same filter compiles to the same text twice, and leaves the filter as it was', () => {
@@ -137,6 +137,18 @@ describe('compileQuery: a filter must give an index something to look up', () =>
 
   it('still refuses what compileWhere refuses, before it looks at the indexes', () => {
     expect(served({ nope: 1 })).toBe('Deal has no field "nope"');
+    expect(() => compileQuery(fields(), 'Deal', { nope: 1 }, [], { allowScan: true })).toThrow('Deal has no field "nope"');
+  });
+
+  it('compiles a filter no index serves when the scan is allowed, and says it scans', () => {
+    const rows = `typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0`;
+    expect(compileQuery(fields(), 'Deal', { owner: 'p1' }, INDEXES, { allowScan: true }))
+      .toEqual({ where: `${rows} AND json_extract(value, '$.owner') = ?`, params: ['p1'], scans: true });
+    // Only `true` allows it, and a filter an index serves is still reported as looked up.
+    expect(() => compileQuery(fields(), 'Deal', { owner: 'p1' }, INDEXES, { allowScan: false })).toThrow(REFUSED);
+    expect(() => compileQuery(fields(), 'Deal', { owner: 'p1' }, INDEXES, { allowScan: 'yes' as never })).toThrow(REFUSED);
+    expect(compileQuery(fields(), 'Deal', { stage: 'open' }, INDEXES, { allowScan: true }).scans).toBe(false);
+    expect(served({ owner: 'p1' })).toContain('For a type that will only ever hold a few resources, allow the scan instead');
   });
 });
 

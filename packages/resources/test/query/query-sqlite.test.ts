@@ -11,7 +11,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { stringify } from '@lumenize/structured-clone';
 import { END_OF_TIME, ROOT_NODE_ID } from '../../src/index';
-import { compileIndex, compileQuery, compileWhere, currentRowsSql, findUnqueryable, MAX_BOUND_PARAMS, QUERY_INDEX_PREFIX } from '../../src/query';
+import { compileIndex, compileQuery, compileWhere, findUnqueryable, MAX_BOUND_PARAMS, QUERY_INDEX_PREFIX } from '../../src/query';
 import type { Filter } from '../../src/query';
 import { fields } from './fixture';
 
@@ -50,12 +50,11 @@ async function seed(name: string): Promise<void> {
 }
 
 /**
- * Every current Deal `filter` matches. It joins the clause to the type's current rows itself, so a
- * filter is judged for what it selects whether or not an index could look anything up for it.
+ * Every current Deal `filter` matches. It allows the scan, so a filter is judged for what it
+ * selects whether or not an index could look anything up for it.
  */
 async function select(name: string, filter: Filter): Promise<string[]> {
-  const { sql: clause, params } = compileWhere(fields(), 'Deal', filter);
-  const where = clause ? `${currentRowsSql(fields(), 'Deal')} AND ${clause}` : currentRowsSql(fields(), 'Deal');
+  const { where, params } = compileQuery(fields(), 'Deal', filter, [], { allowScan: true });
   return inHost(name, (sql) =>
     sql.exec(`SELECT resourceId FROM Snapshots WHERE ${where} ORDER BY resourceId`, ...params).toArray().map((row) => row.resourceId as string));
 }
@@ -169,9 +168,10 @@ describe('an index compiled from the same ontology serves the query', () => {
     // the index, since it holds only current Deals, but it cannot look a key up in it.
     const leading = compileQuery(fields(), 'Deal', { stage: 'lead' }, [spec]);
     expect(await plan(host, `SELECT resourceId FROM Snapshots WHERE ${leading.where}`, ...leading.params)).toContain(served);
-    const second = compileWhere(fields(), 'Deal', { amount: 1000 });
-    expect(await plan(host, `SELECT resourceId FROM Snapshots WHERE ${currentRowsSql(fields(), 'Deal')} AND ${second.sql}`, ...second.params)).not.toContain('SEARCH');
-    // Which is why the compiler refuses that filter with this index alone.
+    const second = compileQuery(fields(), 'Deal', { amount: 1000 }, [spec], { allowScan: true });
+    expect(second.scans).toBe(true);
+    expect(await plan(host, `SELECT resourceId FROM Snapshots WHERE ${second.where}`, ...second.params)).not.toContain('SEARCH');
+    // Which is why the compiler refuses that filter with this index alone, unless the scan is allowed.
     expect(() => compileQuery(fields(), 'Deal', { amount: 1000 }, [spec])).toThrow('This filter would read every current Deal');
 
     // The drop is read from the catalogue: asked again in the same words, EXPLAIN here answers
@@ -218,7 +218,8 @@ describe('every filter compileQuery accepts is looked up in an index', () => {
     ['equality beside $nor and $contains', { owner: 'p2', $nor: [{ stage: 'lead' }], title: { $contains: 'tech' } }, ['initech']],
     ['equality inside $and', { $and: [{ owner: 'p1' }, { $or: [{ won: true }, { amount: { $gt: 1200 } }] }] }, ['acme', 'upsell']],
   ])('%s', async (_name, filter, expected) => {
-    const { where, params } = compileQuery(fields(), 'Deal', filter, specs);
+    const { where, params, scans } = compileQuery(fields(), 'Deal', filter, specs);
+    expect(scans).toBe(false);
     expect(await plan(host, `SELECT resourceId FROM Snapshots WHERE ${where}`, ...params)).toContain('SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:');
     expect(await select(host, filter)).toEqual(expected);
   });

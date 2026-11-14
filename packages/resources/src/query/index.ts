@@ -9,10 +9,10 @@
  * storage; a host runs the SQL they return.
  */
 export { QueryError } from './errors';
-export { resolveField, currentRowsSql, fieldsOfType } from './fields';
+export { resolveField, fieldsOfType } from './fields';
 export type { FieldInfo, FieldsMap, ResolvedField, ScalarKind } from './fields';
 export { compileWhere, compileQuery, MAX_BOUND_PARAMS } from './where';
-export type { Filter, CompiledWhere, SqlParam } from './where';
+export type { Filter, CompiledWhere, CompiledQuery, SqlParam } from './where';
 export { compileIndex, QUERY_INDEX_PREFIX, MAX_INDEX_FIELDS } from './indexes';
 export type { IndexSpec, CompiledIndex } from './indexes';
 export { findUnqueryable, assertQueryable } from './queryable';
