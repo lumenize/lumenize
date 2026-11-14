@@ -219,8 +219,8 @@ export function buildAuthRouteTable(env: Env, hooks: ScopeLifecycleHooks): Route
       // same-origin rule; it decides by `Origin` itself and answers CORS for that origin alone.
       { path: `${P}/refresh-token`, method: 'POST', steps: [connectionRateLimitGuard, refreshTokenStep] },
       { path: `${P}/home-summary`, method: 'POST', steps: [sameOriginGuard, connectionRateLimitGuard, homeSummaryStep] },
-      // Home's consent card and its Accept, the second of two acceptance writers; the link page's
-      // `POST` is the first. Both call the Registry's one acceptance method.
+      // Home's consent card and its Accept, an acceptance writer beside the link page's `POST`.
+      // Every writer calls the Registry's one acceptance method.
       { path: `${P}/pending-membership`, method: 'POST', steps: [sameOriginGuard, connectionRateLimitGuard, pendingMembershipStep] },
       { path: `${P}/accept-membership`, method: 'POST', steps: [sameOriginGuard, connectionRateLimitGuard, acceptMembershipStep] },
       { path: `${P}/logout`, method: 'POST', steps: [sameOriginGuard, connectionRateLimitGuard, logoutStep] },

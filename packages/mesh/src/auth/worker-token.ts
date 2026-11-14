@@ -566,11 +566,12 @@ export async function wakeCertificates(
   }
 }
 
-// ── acceptance: one helper, two writers ─────────────────────────────────────────────────────────
+// ── acceptance: one helper, every writer ─────────────────────────────────────────────────────────
 
 /**
- * Accept a membership and carry out what the Registry answered — the one helper both acceptance
- * writers call, the link page's `POST` and Home's `accept-membership`. On `accepted` it re-puts every
+ * Accept a membership and carry out what the Registry answered — the one helper every acceptance
+ * writer calls: the link page's `POST`, Home's `accept-membership`, and the mail handler's
+ * {@link acceptPersonaInvite}. On `accepted` it re-puts every
  * session's KV record with the reap, then wipes the scopes a claim's first acceptance names through
  * `hooks.teardown` before it returns: the request is the person's own, so that teardown is the first
  * call to reach those Durable Objects and places them near them, which is why it must never move into

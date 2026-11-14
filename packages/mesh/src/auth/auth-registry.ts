@@ -1412,11 +1412,13 @@ export class AuthRegistry extends DurableObject {
   }
 
   /**
-   * **The one writer of `acceptedAt`**, called by the Worker's two acceptance writers: the link
-   * page's Accept, authenticated by the link it consumes, and Home's Accept, authenticated by the
-   * membership's own refresh cookie. Each resolves the `sub` before calling and names its credential.
-   * Taking up a membership is a deliberate act by the person it belongs to, and this is where that act
-   * is recorded.
+   * **The one writer of `acceptedAt`**, called by the Worker's acceptance writers: the link
+   * page's Accept, authenticated by the link it consumes; Home's Accept, authenticated by the
+   * membership's own refresh cookie; and the mail handler, for a persona's invite, authenticated by
+   * the link in the message it received. Each resolves the `sub` before calling and names its
+   * credential. Taking up a membership is a deliberate act by the person it belongs to, and this is
+   * where that act is recorded. A persona has nobody behind its address, so the Worker presses its
+   * Accept.
    *
    * ⚠️ **Why no `GET` writes it.** Loading a link is not consent: corporate mail scanners fetch and
    * follow links, so a load-time flip lets a stranger's guessed-address invite be "accepted" by the

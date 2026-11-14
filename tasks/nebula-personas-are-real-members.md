@@ -44,7 +44,7 @@ The rest of this file says how a persona becomes a member, how its tab gets a to
 
 ## Relationships
 
-- **[nebula-pre-alpha.md](nebula-pre-alpha.md)** lists this as item ②. Its uncommitted edit still describes the reverted design in a few lines, and links the archived file at its old path.
+- **[nebula-pre-alpha.md](nebula-pre-alpha.md)** lists this as item ②.
 - **[nebula-pre-alpha.md](nebula-pre-alpha.md) § *The preview's error channel*** plans a tool for the model to read a blank preview's log. DI5's tool is how the agent reaches a tab, so that section keeps its log buffer and uses this tool to read it (D30). [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 10* builds on the same tool.
 - **[nebula-query-subscriptions-take-a-filter.md](archive/nebula-query-subscriptions-take-a-filter.md)** was built on 2026-11-14, so an app can now find what a teammate made. Gerry's page subscribes to `{ typeName: 'Deal', filter: { stage: 'open' } }` and holds the open Deals he may read, Sally's among them, with the nodes he may not read named. A field the ontology marks `@index` can be filtered on, and a stage declared `'lead' | 'open' | 'won'` compares in that order, so `{ stage: { $gte: 'open' } }` is `open` and `won`. Q1 is rewritten on that footing.
 
@@ -273,4 +273,12 @@ Each phase ends with its tests mutation-checked and its notes in § *Build notes
 - **Retro.** The whole mail round trip, send to acceptance, took under two seconds in every local run. The scenario runs in 8 s.
 - **Not driven.** A rejected message's bounce is not asserted anywhere. The lane tests cover the handler's answer, and the Worker's one line that turns it into a rejection is untested.
 - **Close-out.** `persona-host` is rewritten and passes locally with a mutation caught at each of its first five limbs. Its deployed pass is phase 8's.
+
+### Phase 3: the standing text describes a persona as a member
+
+- **For Larry, to read in his own voice.** ADR-022 § *A persona's host* is rewritten, and its *Alternatives* now rejects the design it first chose. ADR-010 loses its persona exception, and ADR-013, ADR-021 and ADR-025 each lose or change a sentence. ADR-016 loses its *Today's code differs* note. In `auth.md`: § *A Galaxy's `.dev` Star*, § *How the claims travel*, which now has one case of a node building claims, § *Identity and membership*, § *Impersonation*, which gains a paragraph on a persona's tab, and § *When the agent acts*.
+- **For Larry.** [nebula-pre-alpha.md](nebula-pre-alpha.md) and [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) carry the other session's uncommitted edits. Their persona lines are updated in place and left uncommitted with the rest, as he asked.
+- **Rules, the builder's to own.** `workflow.md`'s index lines for ADR-010 and ADR-022, and `security.md`: the refresh on a persona's host is the mint's second caller and adds no rule of its own.
+- **Left for the closing pass.** `auth.md` § *When the agent acts* still says in its *Today's code differs* note that an invite is the one thing the agent does that changes who can do what. Phase 6's tool makes that false, so the note is rewritten there.
+- **Routing by config.** Wrangler's own command cannot point a catch-all rule at a Worker, so the rule is declared: `addresses` in `wrangler.jsonc`, which a deploy applies. The test deploy's was applied on 2026-11-14, and `persona-host` then passed against the deployed Worker with mail routed by Cloudflare, in 169 s.
 

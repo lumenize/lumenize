@@ -48,8 +48,6 @@ These depend on it:
 
 **One difference is accepted.** The mint issues only to a token with no `act`, so an admin persona's tab cannot impersonate, where the real admin's own page can (Larry, 2026-11-14).
 
-> **Today's code differs.** A persona's host still mints a token with no `act`, for an id computed from the host ([ADR-022](022-every-session-lives-on-the-platform-host.md) § *A persona's host*). That section is rewritten when personas become real members.
-
 ### In scope today
 
 Scope deletion (`executeScopeDeletion`) · identity-authority changes (`setIdentityAdmin`) · scope and data wipes (`resetDevData` and any teardown) · scope creation and claim (`claimUniverse`, `claimStar`, `createGalaxy`) · establishing a session. Creation is an authority event: a claim mints an admin identity, and an admin-gated create hands its caller a scope they administer. A login moves no authority, but it is the first thing a post-incident reader asks about, and the moment a principal starts acting. Anything later that **deletes, wipes, moves authority, or establishes a session** joins by construction.
