@@ -1543,7 +1543,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   // ─── The agent runs code in a tab ───────────────────────────────────
 
   /** The calls to Studio tabs a turn is waiting on, each by the id its result handler carries.
-   *  In memory, as the turn itself is: a Galaxy evicted mid-turn loses both. */
+   *  In memory, as the turn itself is: a Galaxy evicted mid-turn loses both.
+   *  TEMP → target: a turn stored round by round, where the tab call's result handler continues
+   *  the loop from storage. The Gateway already holds that handler, so this map is a second copy
+   *  of its wait (`mesh.md` § *`call()` + a continuation is the ONLY cross-node call surface*). */
   #tabAnswers = new Map<string, (answer: unknown) => void>();
 
   /**
