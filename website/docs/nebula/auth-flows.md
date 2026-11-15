@@ -194,7 +194,7 @@ Studio shows the app as Gerry sees it by framing his page, `https://gerry--dev.c
 - **Whoever may impersonate Gerry may open it.** The refresh hands the impersonation mint the claims it would have minted for the visitor on that host, so the mint's own rule decides. The browser must hold a cookie whose accepted membership has dominion over `acme.crm.dev`: a Galaxy or Universe admin's, or the `.dev` admin membership an app's invite co-mints. Anyone else gets 401.
 - **Gerry's token is his membership's, with the opener in `act`.** `sub` and `profileId` are Gerry's own, `aud` and `authScope` are `acme.crm.dev`, and `scopeAdmin` is there only if his membership carries it. Every record his tab leaves names Gerry and the person who opened it.
 - **Until his invite is accepted the refresh answers 401**, which is how Studio knows to say he is not a member yet.
-- **Each refresh reads the Registry twice:** for who holds the address, and for the mint's own check. Every other host's refresh is a KV read.
+- **The first refresh opens Gerry a session of his own.** It sets a cookie on the platform host, `__Host-refresh-token.acme.crm.gerry--dev`, whose record names the opener. Each later refresh reads that record and the opener's own from Workers KV, as every other host's refresh does. The session lasts a day, or until the opener's own ends, and the opener's logout ends it.
 - **Only the `dev` Star has personas.** `gerry--staging.crm.acme.lumenize.dev` is not a host the platform serves, and a refresh from it is refused.
 - **His tab logs out by disconnecting.** It holds no cookie of its own, so its logout ends that tab and leaves the opener's sessions alone.
 

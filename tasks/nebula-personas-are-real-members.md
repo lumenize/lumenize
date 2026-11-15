@@ -90,7 +90,7 @@ The rest of this file says how a persona becomes a member, how its tab gets a to
 
 ### A persona's tab holds that member's token
 
-- **DI4. The refresh on a persona's host mints through the impersonation mint.** It derives the address from the host, asks the Registry who holds it at that Star, and mints for that member with the opener in `act`. The opener needs dominion over the Star, which a Galaxy invite gives every collaborator (C2). A host whose address nobody holds, or whose invite is not yet accepted, answers 401.
+- **DI4. A persona's host holds a session of its own, opened through the impersonation mint.** The first refresh derives the address from the host, asks the Registry who holds it at that Star, and mints for that member with the opener in `act`. It records a session for the persona that names the opener, and sets its cookie on the platform host, `__Host-refresh-token.acme.crm.gerry--dev`. Each later refresh reads that session and the opener's own from Workers KV, as any member's refresh does (D36). The opener needs dominion over the Star, which a Galaxy invite gives every collaborator (C2). A host whose address nobody holds, or whose invite is not yet accepted, answers 401.
 
   ```
   { sub: <Gerry's sub>, aud: 'acme.crm.dev', access: { authScope: 'acme.crm.dev' },
@@ -98,7 +98,7 @@ The rest of this file says how a persona becomes a member, how its tab gets a to
   ```
 
   Mary's token carries `scopeAdmin: true` because her membership does. No check reads `act` ([ADR-016](../docs/adr/016-record-the-acting-principal.md) § *`act` is recorded, and never decides what a call may do*), so each tab behaves as that member's own page would. The one accepted difference is that Mary's tab cannot impersonate.
-- **DI14. Logging out of a persona's tab ends that tab and nothing else.** Its token came from the opener's session and it holds no cookie of its own, so its logout disconnects it, as an impersonated client's does (`security.md`, the derived-session rule). The opener's sessions are untouched.
+- **DI14. Logging out of a persona's tab ends that tab and nothing else.** Its session was opened from the opener's, and the logout route ends every session a browser holds, so its logout disconnects it, as an impersonated client's does (`security.md`, the derived-session rule). The opener's sessions are untouched. The opener's own logout ends the persona sessions that browser holds.
 
 ### Studio shows the cast as tabs
 
@@ -180,7 +180,7 @@ D1 to D15 were settled with Larry on 2026-11-13 and 14, and D16 to D18 are his a
 | D3 | A persona's address is at a domain we receive mail for, and the Worker accepts its invite. D17 says which domain. | The user-developer's own plus-addresses: a click for each persona, and each Accept leaves that persona's cookie in their browser, so Home lists it as theirs. A membership born accepted: a second way to accept. |
 | D4 | The mail handler accepts in plain code. | The agent reading the mail: the step needs no judgment, and inbound mail is a place for text to steer a model. |
 | D5 | The host finds its member by deriving the address. | A cast record on the Galaxy: a second copy that can go stale, and a Galaxy wake on every refresh. A lookup by nickname: mutable and not unique. |
-| D6 | A persona's tab gets its token from the impersonation mint. | A mint of its own for personas: the branch only personas reach is what drifted. |
+| D6 | A persona's tab gets its token from the impersonation mint, at the refresh that opens its session (D36). | A mint of its own for personas: the branch only personas reach is what drifted. |
 | D7 | `act` is recorded and never decides what a call may do, in ADR-016. | Leaving it a rule in `security.md` alone: persona tabs now depend on it. |
 | D8 | An admin persona's tab cannot impersonate. Accepted. | Letting a token with `act` mint: a chain of actors would grow past one person acting for another. |
 | D9 | A Galaxy's chain has no exception into its dev Star. Deleted from ADR-015 and `auth.md`. | Keeping it: no code implemented it, and nothing in this design uses it. |
@@ -209,6 +209,9 @@ D1 to D15 were settled with Larry on 2026-11-13 and 14, and D16 to D18 are his a
 | D33 | A wipe's turn builds the cast and its sample data again from `docs/personas.md`, unasked, and says what it did. A turn that changes the file applies its own change (was Q5; Larry, 2026-11-15). | Wipe only, with the cast built again on request: every persona's tab would open on an app that refuses them. Wipe, then ask: a second turn every time. |
 | D34 | The wipe is `client.resources.resetDevData()`, which the agent runs in the asker's "Me" tab. It is a member of the plane's request surface and checks dominion over its host itself, so the Star's own `resetDevData` entry is gone. | A loop tool of its own: a second wait in memory on a Studio tab, which `mesh.md` refuses. The client calling the Star's entry: a host's method the library's client would have to name. The raw mesh call in the guidance: a binding name the model has no other use for. |
 | D35 | After a wipe Studio no longer moves each frame to the Star's root. A frame left on a URL that names a deleted record shows what the app shows for any deleted record. | Keeping it: Studio does not hear of a wipe a tab ran, and reloading the frames mid-turn would cut off the runs that build the cast again. |
+| D36 | A persona's tab holds an ordinary session: a cookie on the platform host, backed by a KV record, that lasts a day or until its opener's session ends. The first refresh opens it through the impersonation mint, and each later one reads it and the opener's own record from Workers KV, with no read of the Registry (Larry, 2026-11-15). | Two Registry reads on every refresh, as built on 2026-11-14: the one refresh that read the singleton, on a path that grows with open persona tabs (ADR-018). A KV record of a kind only personas have, or one read in place of two: each kept a persona apart from a member. |
+| D37 | A session's record names who opened it, as `actor` on the Registry's index row, and every token minted from the record carries that actor as `act`. | Taking `act` from whichever admin cookie the browser sends: the session's value under the Star's own cookie name would then mint the persona's token naming nobody else. |
+| D38 | A held session answers only the opener it names, and only while that opener's own record holds dominion over the Star. Another admin's browser opens a session of its own. | Checking the opener only when the session opens: a demoted or logged-out opener's persona tabs would last the day. |
 
 ## Phases
 
@@ -358,3 +361,16 @@ Built the day after the phases, from Larry's answers to Q5 and Q6.
 - **Retro.** The request surface is frozen in three tests, one of which asks for a written reason a descendant Star may reach each member. All three failed on the new member, which is what they are for.
 - **Retro.** `cast-from-a-tab`'s new limb has the real model wipe and build the cast again from a collaborator's "Wipe the test data". It read `define-the-cast`, ran the reset in `me`, and built the cast again in three more runs. That it does so unasked is the model's choice, gated as that scenario's other limbs gate theirs.
 - **Close-out.** `security.md` and `mesh.md` named `Star.resetDevData`, as did two backlog rows, two comments in Mesh's auth layer and the smoke test. Each now names the plane's member. `dev-star-follows-the-build` limb 4 drives a collaborator's wipe from their own "Me" tab in place of the button.
+
+### After the phases: a persona's tab holds a session of its own (2026-11-15)
+
+Built from Larry's answer to the two Registry reads per persona refresh: "This feels like we're going back to the situation where personas are too special. What would it take for it to have a cookie?"
+
+- **For Larry.** ADR-022 and `auth.md` describe the session, for your pen. ADR-022 was at its size budget, so the sentence "An admin of the Star can impersonate him too." went, and the rejected alternative is in D36 here and not in the ADR.
+- **For Larry.** The Registry's `RefreshTokenIndex` gains two columns, in migrations 26 and 27. The test target and production get them at their next deploy.
+- **For Larry.** A developer's browser holds a cookie for each persona it opened that day, in the jar every refresh cookie shares.
+- **Retro.** Three conditions on a held session could not be made to fail and were removed. The Star's name: dominion is read from the host asked on, which covers its own Star alone. Acceptance: a session opens only for an accepted member. The opener's root identity: the mint required it at the open.
+- **Retro.** The Registry composed a KV record in three places, each carrying fields by hand. They are one function now, `#recordOf`, so no writer can drop the actor.
+- **Retro.** Two `persona-mail` tests counted a persona's sessions after a page had opened one. Each now counts before.
+- **Not driven.** Nothing ran deployed. A refresh at a colo that has not yet received the session's KV record reads the Registry once and heals, as any member's does, and no test here makes that happen.
+- **Close-out.** ADR-022's exception, `raw-comm.md`, `security.md`, the website's `auth-flows.md` and `workflow.md`'s ADR-022 line each said a persona's refresh reads the Registry. None does now. `persona-host` limb 7 and `persona-tabs` limb 3 drive the session, the second in a real browser.

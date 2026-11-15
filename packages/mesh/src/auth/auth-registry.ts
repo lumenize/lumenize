@@ -473,7 +473,7 @@ export class AuthRegistry extends DurableObject {
 
   /** {@link getRefreshRecord}'s body, synchronous so `setIdentityAdmin`'s reap can read it locally. */
   #currentRefreshRecord(tokenHash: string): RefreshTokenKV | null {
-    const rows = this.#sql`SELECT sub, expiresAt FROM RefreshTokenIndex WHERE tokenHash = ${tokenHash}`;
+    const rows = this.#sql`SELECT sub, expiresAt, actorSub, actorProfileId FROM RefreshTokenIndex WHERE tokenHash = ${tokenHash}`;
     if (rows.length === 0) return null;
     const sub = rows[0].sub as string;
     const expiresAt = rows[0].expiresAt as string;
@@ -483,14 +483,10 @@ export class AuthRegistry extends DurableObject {
     // KV propagation gap into "identity deleted".
     const scope = this.getIdentityScopeIncludingPending(sub);
     if (!scope) return null; // identity deleted
-    const record: RefreshTokenKV = {
-      sub, universeGalaxyStarId: scope.universeGalaxyStarId, scopeAdmin: scope.scopeAdmin, expiresAt,
-      profileId: scope.profileId, // writer (c): self-heal must carry profileId or the claim vanishes for the token's life
-      // ⚠️ DERIVED from the membership row, never carried over from a stale copy and never written
-      // back into `Memberships`. This arm is a reader: it reconstructs what the KV record should say,
-      // so acceptance keeps exactly one writer on both the hit and the miss path.
-      accepted: scope.accepted,
-    };
+    // Writer (c), the self-heal: every field is DERIVED from the membership row and the index row,
+    // never carried over from a stale copy and never written back into `Memberships`. This arm is a
+    // reader, so acceptance keeps exactly one writer on both the hit and the miss path.
+    const record = this.#recordOf(rows[0], sub, scope);
     return record;
   }
 
@@ -1385,10 +1381,11 @@ export class AuthRegistry extends DurableObject {
       const accepted = scope.accepted;
       puts.push(this.#recordRefreshToken(
         r.sub, scope.universeGalaxyStarId, scope.scopeAdmin, scope.profileId, r.tokenHash, expiresAt,
-        accepted,
+        accepted, r.actor,
       ));
       established.push({
         sub: r.sub,
+        ...(r.actor ? { actor: r.actor } : {}),
         universeGalaxyStarId: scope.universeGalaxyStarId,
         scopeAdmin: scope.scopeAdmin,
         profileId: scope.profileId,
@@ -1491,17 +1488,11 @@ export class AuthRegistry extends DurableObject {
     for (const s of flipped) {
       const identity = this.getIdentityScopeIncludingPending(s);
       if (!identity) continue;
-      const tokens = this.#sql`SELECT tokenHash, expiresAt FROM RefreshTokenIndex WHERE sub = ${s}`;
+      const tokens = this.#sql`SELECT tokenHash, expiresAt, actorSub, actorProfileId FROM RefreshTokenIndex WHERE sub = ${s}`;
       for (const tk of tokens) {
-        sessions.push({
-          tokenHash: tk.tokenHash as string,
-          record: {
-            sub: s, universeGalaxyStarId: identity.universeGalaxyStarId, scopeAdmin: identity.scopeAdmin,
-            // The row this read just returned rather than a literal `true`, so the record has ONE
-            // source — the same reason the pending-aware read exists.
-            accepted: identity.accepted, expiresAt: tk.expiresAt as string, profileId: identity.profileId,
-          },
-        });
+        // The row this read just returned rather than a literal `true`, so the record has ONE
+        // source — the same reason the pending-aware read exists.
+        sessions.push({ tokenHash: tk.tokenHash as string, record: this.#recordOf(tk, s, identity) });
       }
     }
 
@@ -1937,13 +1928,33 @@ export class AuthRegistry extends DurableObject {
    */
   #recordRefreshToken(
     sub: string, universeGalaxyStarId: string, scopeAdmin: boolean, profileId: string, tokenHash: string,
-    expiresAt: string, accepted: boolean,
+    expiresAt: string, accepted: boolean, actor?: { sub: string; profileId: string },
   ): RefreshPut {
     this.ctx.storage.sql.exec(
-      'INSERT OR REPLACE INTO RefreshTokenIndex (tokenHash, sub, expiresAt) VALUES (?, ?, ?)',
-      tokenHash, sub, expiresAt,
+      'INSERT OR REPLACE INTO RefreshTokenIndex (tokenHash, sub, expiresAt, actorSub, actorProfileId) VALUES (?, ?, ?, ?, ?)',
+      tokenHash, sub, expiresAt, actor?.sub ?? null, actor?.profileId ?? null,
     );
-    return { tokenHash, record: { sub, universeGalaxyStarId, scopeAdmin, accepted, expiresAt, profileId } };
+    return {
+      tokenHash,
+      record: { sub, universeGalaxyStarId, scopeAdmin, accepted, expiresAt, profileId, ...(actor ? { actor } : {}) },
+    };
+  }
+
+  /**
+   * The KV record an index row stands for, from its membership as it is now. The one place a
+   * record is composed from stored state, so the self-heal, the admin bit's convergence and
+   * acceptance's re-puts cannot each drop a field: a record that lost its `actor` would mint a
+   * persona's token naming the persona alone.
+   */
+  #recordOf(
+    row: Record<string, unknown>, sub: string,
+    membership: { universeGalaxyStarId: string; scopeAdmin: boolean; profileId: string; accepted: boolean },
+  ): RefreshTokenKV {
+    return {
+      sub, universeGalaxyStarId: membership.universeGalaxyStarId, scopeAdmin: membership.scopeAdmin,
+      accepted: membership.accepted, expiresAt: row.expiresAt as string, profileId: membership.profileId,
+      ...(row.actorSub ? { actor: { sub: row.actorSub as string, profileId: row.actorProfileId as string } } : {}),
+    };
   }
 
   /**
@@ -2095,13 +2106,12 @@ export class AuthRegistry extends DurableObject {
     // that could not resolve them would strand every cookie the click placed.
     const scope = this.getIdentityScopeIncludingPending(sub);
     if (!scope) return;
-    const tokens = this.#sql`SELECT tokenHash, expiresAt FROM RefreshTokenIndex WHERE sub = ${sub}`;
+    const tokens = this.#sql`SELECT tokenHash, expiresAt, actorSub, actorProfileId FROM RefreshTokenIndex WHERE sub = ${sub}`;
     for (const t of tokens) {
-      const record: RefreshTokenKV = {
-        sub, universeGalaxyStarId: scope.universeGalaxyStarId, scopeAdmin, expiresAt: t.expiresAt as string,
-        profileId: scope.profileId, // writer (b): re-put must carry profileId forward or the claim vanishes after an admin change
-        accepted: scope.accepted, // likewise — a re-put that dropped this would silently deaden the session
-      };
+      // Writer (b): the membership as the UPDATE above left it, so the re-put carries the new bit
+      // and everything else forward. A re-put that dropped `profileId` or `accepted` would lose the
+      // claim or deaden the session.
+      const record = this.#recordOf(t, sub, scope);
       // Re-apply the ORIGINAL absolute expiry as the ttl — never a fresh TTL (M4).
       await this.#refreshKv.put(`refresh:${t.tokenHash as string}`, JSON.stringify(record), {
         expirationTtl: kvTtlSeconds(t.expiresAt as string),

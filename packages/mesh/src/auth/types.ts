@@ -181,6 +181,13 @@ export interface RefreshTokenKV {
    *  without a registry read. Written by all three record writers (record/converge/self-heal);
    *  ADR-013's licensed self-healing KV copy. */
   profileId: string;
+  /**
+   * Who opened this session, when its holder did not: a persona's session names the admin whose
+   * own session it was opened from. Every token minted from the record carries it as `act`, so a
+   * session opened for someone else cannot mint a token that names them alone (ADR-016). Pinned
+   * when the session opens, on the index row, which every writer of this record reads it from.
+   */
+  actor?: { sub: string; profileId: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -452,6 +459,8 @@ export interface ConsumeMembership {
 export interface SessionRecord {
   sub: string;
   tokenHash: string;
+  /** Who opened the session for `sub`, when `sub` did not. See {@link RefreshTokenKV.actor}. */
+  actor?: { sub: string; profileId: string };
 }
 
 /**
@@ -484,7 +493,8 @@ export function sameRefreshRecord(a: RefreshTokenKV | null, b: RefreshTokenKV | 
   if (!a || !b) return false;
   return a.sub === b.sub && a.universeGalaxyStarId === b.universeGalaxyStarId
     && a.scopeAdmin === b.scopeAdmin && a.accepted === b.accepted
-    && a.expiresAt === b.expiresAt && a.profileId === b.profileId;
+    && a.expiresAt === b.expiresAt && a.profileId === b.profileId
+    && a.actor?.sub === b.actor?.sub && a.actor?.profileId === b.actor?.profileId;
 }
 
 /**
@@ -640,6 +650,13 @@ export const RECOMMENDED_MIN_TTL_SECONDS = 4 * TOKEN_REFRESH_AHEAD_SECONDS;
 
 /** Refresh token lifetime in seconds (30 days) */
 export const REFRESH_TOKEN_TTL = 2592000;
+
+/**
+ * How long a persona's session lasts, in seconds (1 day), unless its opener's own session ends
+ * sooner. Short, so the cookies a developer's browser holds for personas are the ones opened that
+ * day. The next refresh after it lapses opens another.
+ */
+export const PERSONA_SESSION_TTL = 86400;
 
 /** Magic link lifetime in seconds (30 minutes) */
 export const MAGIC_LINK_TTL = 1800;

@@ -37,8 +37,13 @@
  *     from the Star the link names.*
  *  6. **The cookie's record decides, not its name.** E's own refresh value, sent under O's
  *     universe's cookie name, gets 401 on Gerry's host.
+ *  7. **Gerry's host keeps a session of its own, and a later refresh asks the Registry nothing.**
+ *     A refresh with O's cookie alone sets a cookie named as the host spells Gerry, a day long.
+ *     Sent back beside O's, it gets Gerry's token again and no new cookie, and the Worker logs
+ *     that it read a held session and missed Workers KV for nothing. *Reds if the refresh opens a
+ *     session every time.*
  *
- * Limbs 4 and 5 read the Worker's logs, in both venues.
+ * Limbs 4, 5 and 7 read the Worker's logs, in both venues.
  *
  * `needsContainer = false` — auth, the mail handler, the refresh and one Star only.
  */
@@ -194,4 +199,28 @@ export async function run(stack: DevStack): Promise<void> {
   const evil = await provisionAndLogin({ baseUrl: origin, scope: testSlug('phe'), testToken });
   await refused(hostOf('gerry'), refreshCookie(universe, evil.session.refreshToken), "E's value under O's cookie name");
   console.error("  ✓ limb 6 — E's refresh value under O's universe cookie name minted nothing");
+
+  // ── LIMB 7: Gerry's host keeps a session of its own ─────────────────────────────────────
+  const opening = await refreshOn(hostOf('gerry'), ownerCookie);
+  assert.equal(opening.status, 200, "Gerry's host must open for O");
+  const sessionName = `__Host-refresh-token.${galaxy}.gerry--dev`;
+  const set = setCookieHeaders(opening).find((h) => h.startsWith(`${sessionName}=`));
+  assert.ok(set, `the first refresh must set Gerry's own cookie, ${sessionName}`);
+  assert.match(set, /; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400$/, "Gerry's cookie is the platform host's alone and lasts a day");
+  const later = await refreshOn(hostOf('gerry'), `${ownerCookie}; ${set.split(';')[0]}`);
+  assert.equal(later.status, 200, "Gerry's host must open again for O with Gerry's session");
+  assert.deepEqual(setCookieHeaders(later).filter((h) => h.startsWith(sessionName)), [], 'a refresh that reads a held session sets no new one');
+  const again = claimsOf((await later.json() as { access_token: string }).access_token);
+  assert.deepEqual([again.sub, again.act, again.access, again.aud], [gerrySub, fromO.claims.act, fromO.claims.access, dev],
+    "the held session mints the same token: Gerry's own, with O in act");
+  // The refresh's own lines: which path it took, and whether it reached past Workers KV.
+  const isHeld = (l: DebugLine) => l.namespace === 'nebula-auth.worker.refresh' && l.message === 'minted'
+    && l.data.host === dev && l.data.persona === 'gerry' && l.data.session === 'held';
+  const lines = await waitForDebugLines(stack, (all) => all.some(isHeld), "the refresh that read Gerry's held session");
+  const held = lines.filter(isHeld);
+  assert.equal(held.length, 1, 'exactly one refresh in this run read a held session');
+  const misses = lines.filter((l) => l.namespace === 'nebula-auth.worker.refresh' && l.message === 'kv miss'
+    && l.data.operationId === held[0]!.data.operationId);
+  assert.deepEqual(misses, [], 'the refresh that read the held session missed Workers KV for nothing, so it asked the Registry nothing');
+  console.error("  ✓ limb 7 — Gerry's host set a day-long cookie of his own, and the next refresh read it from Workers KV alone");
 }

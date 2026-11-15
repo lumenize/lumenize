@@ -232,7 +232,13 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(new URL(gerryFrame.origin).hostname, personaHost('gerry'), "Gerry's frame must be on his own host");
     assert.notEqual(gerryFrame.sub, oToken.sub, "Gerry's frame's token must not be its opener's");
     assert.equal(gerryFrame.actSub, oToken.sub, 'the opener rides in act');
-    console.error("  ✓ limb 3 — Gerry's tab opened on his own host, as Gerry, with O in act and nobody clicking a link");
+    // The frame's refresh also opened Gerry a session: the browser took the cookie its answer set,
+    // from a fetch a framed page on another host made, and holds it for the platform host alone.
+    const gerryCookie = (await o.page.context().cookies()).find((c) => c.name === `__Host-refresh-token.${galaxy}.gerry--dev`);
+    assert.ok(gerryCookie, "O's browser must hold Gerry's own session cookie once his tab has opened");
+    assert.deepEqual([gerryCookie.httpOnly, gerryCookie.secure, gerryCookie.domain.startsWith('.')], [true, true, false],
+      "Gerry's cookie is HttpOnly and Secure, and belongs to one host");
+    console.error("  ✓ limb 3 — Gerry's tab opened on his own host, as Gerry, with O in act and nobody clicking a link, and O's browser holds his session");
 
     // ── LIMB 4: Gerry's own tab names him and writes as him ───────────────────────────────────
     const open = crypto.randomUUID();

@@ -127,6 +127,15 @@ export const REFRESH_TOKEN_INDEX_SUB_INDEX = `
 CREATE INDEX IF NOT EXISTS idx_RefreshTokenIndex_sub ON RefreshTokenIndex(sub)
 `;
 
+/** Who opened a session its holder did not, pinned at the open: a persona's session names the
+ *  admin it was opened from (`RefreshTokenKV.actor`). Both absent on a person's own session. */
+export const REFRESH_TOKEN_INDEX_ACTOR_SUB = `
+ALTER TABLE RefreshTokenIndex ADD COLUMN actorSub TEXT
+`;
+export const REFRESH_TOKEN_INDEX_ACTOR_PROFILE_ID = `
+ALTER TABLE RefreshTokenIndex ADD COLUMN actorProfileId TEXT
+`;
+
 /** Magic-link login channel, first shape (migration 15). Token stored HASHED. `MAGIC_LINKS_SCHEMA_V3`
  *  is the live shape, where a link is spent once its page `POST`s.
  *
@@ -272,4 +281,6 @@ export const REGISTRY_MIGRATIONS: SQLSchemaMigration[] = [
   { idMonotonicInc: 23, description: 'Drop MagicLinks (ephemera; rebuilt at 24 with returnTo, spentAt and invites)', sql: 'DROP TABLE IF EXISTS MagicLinks' },
   { idMonotonicInc: 24, description: 'MagicLinks rebuilt — returnTo, spentAt, purpose admits invite', sql: MAGIC_LINKS_SCHEMA_V3 },
   { idMonotonicInc: 25, description: 'Drop InviteTokens (an invite is a 7-day magic link)', sql: 'DROP TABLE IF EXISTS InviteTokens' },
+  { idMonotonicInc: 26, description: 'RefreshTokenIndex.actorSub (who opened a session its holder did not)', sql: REFRESH_TOKEN_INDEX_ACTOR_SUB },
+  { idMonotonicInc: 27, description: 'RefreshTokenIndex.actorProfileId (the same actor, for the `act` claim)', sql: REFRESH_TOKEN_INDEX_ACTOR_PROFILE_ID },
 ];

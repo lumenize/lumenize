@@ -67,9 +67,12 @@ describe("a persona's invite is accepted from its mail", () => {
     expect(await c.opens('gerry')).toBe(false); // pending: the control the acceptance must move
     expect(await mailboxProved(c.address('gerry'))).toBe(false);
     expect(await c.mail(c.address('gerry'), gerry.link)).toEqual({ outcome: 'accepted', scope: c.dev, sub: gerry.sub });
-    expect(await c.opens('gerry')).toBe(true);
-    expect(await c.spent(gerry.link)).toBe(true);
+    // Counted before any page opens: the acceptance places no session, since no browser took the
+    // link. The first refresh from the persona's host opens one, which the next line's does.
     expect(await sessionsOf(gerry.sub)).toBe(0);
+    expect(await c.opens('gerry')).toBe(true);
+    expect(await sessionsOf(gerry.sub)).toBe(1);
+    expect(await c.spent(gerry.link)).toBe(true);
     // The message arrived at the address, which proves the mailbox as a followed link does.
     expect(await mailboxProved(c.address('gerry'))).toBe(true);
     const identity = await registryStub().getIdentityScope(gerry.sub) as { profileId: string };
@@ -102,8 +105,8 @@ describe("a persona's invite is accepted from its mail", () => {
     const gerry = await c.invite(c.address('gerry'));
     await c.mail(c.address('gerry'), gerry.link);
     expect(await c.mail(c.address('gerry'), gerry.link)).toEqual({ outcome: 'dropped', reason: 'the link was already used' });
+    expect(await sessionsOf(gerry.sub)).toBe(0); // before the page below opens its own
     expect(await c.opens('gerry')).toBe(true);
-    expect(await sessionsOf(gerry.sub)).toBe(0);
   });
 
   it('drops a login link, leaves it unspent, and accepts nothing by it', async () => {

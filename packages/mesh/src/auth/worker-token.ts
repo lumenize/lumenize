@@ -28,7 +28,7 @@ import { hasDominionOver, isAtOrAbove, isPlatformScope, parseId } from './parse-
 import { verifyAccessToken } from './verify';
 import {
   AUTH_PREFIX, REGISTRY_INSTANCE_NAME, MINT_ALL_COOKIE_CAP,
-  ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL, MAGIC_LINK_TTL, RECOMMENDED_MIN_TTL_SECONDS,
+  ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL, PERSONA_SESSION_TTL, MAGIC_LINK_TTL, RECOMMENDED_MIN_TTL_SECONDS,
   SIGNUP_TICKET_TTL, SIGNUP_TICKET_COOKIE, COMING_SOON_TAGS, kvTtlSeconds, sameRefreshRecord,
 } from './types';
 import type {
@@ -159,8 +159,27 @@ export const REFRESH_COOKIE_PREFIX = '__Host-refresh-token.';
  * `SameSite=Lax` lets a person arriving from an email or another site be recognised. `Max-Age` is the
  * FIXED refresh TTL; nothing slides it.
  */
-function refreshCookie(scope: string, token: string): string {
-  return `${REFRESH_COOKIE_PREFIX}${scope}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${REFRESH_TOKEN_TTL}`;
+function refreshCookie(scope: string, token: string, maxAge = REFRESH_TOKEN_TTL): string {
+  return `${REFRESH_COOKIE_PREFIX}${scope}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+}
+
+/**
+ * What a persona's session cookie is named after the prefix: its Star's scope, with the last
+ * segment spelled as the host spells the persona — `acme.crm.gerry--dev` for `gerry` in
+ * `acme.crm.dev`. A slug refuses consecutive hyphens, so no scope has this name: it cannot collide
+ * with a person's own cookie for the Star, and {@link refreshCookies} drops it as no scope, which
+ * keeps a persona off Home and out of every route that reads a person's own cookies.
+ */
+function personaCookieName(star: string, persona: string): string {
+  const segments = star.split('.');
+  return `${segments.slice(0, -1).join('.')}.${persona}--${segments[segments.length - 1]}`;
+}
+
+/** The value of every persona session cookie a request carries, whatever persona each names. */
+function personaSessionTokens(cookieHeader: string): string[] {
+  return cookiesOf(cookieHeader)
+    .filter(({ name, value }) => value && name.startsWith(REFRESH_COOKIE_PREFIX) && name.slice(name.lastIndexOf('.') + 1).includes('--'))
+    .map(({ value }) => value);
 }
 
 /** The same cookie, expired. The attributes are the set-side ones: a browser discards a `__Host-`
@@ -873,6 +892,44 @@ export async function handleComingSoon(request: Request, _env: Env): Promise<Res
 // ── refresh-token: the one route a page on another host calls ───────────────────────────────────
 
 /**
+ * The record behind one refresh cookie's value, or `null` when nothing stands behind it. Workers KV
+ * answers; the Registry is read only on a miss or for a copy still pending.
+ *
+ * - **A KV miss** is a propagation gap or a revoked record, and the Registry's strongly consistent
+ *   index tells them apart. A healed record is put here, where the person is, and reaped if orphaned.
+ * - **A pending copy** may be one an accept has already replaced: a colo that read the record before
+ *   the accept can serve it for up to KV's ~60 s window. Refusing on it would tell someone who has
+ *   just accepted that they have not, so the Registry's index decides. Staleness that permits is
+ *   accepted (`security.md`) and staleness that refuses is not. The accepted record a page refreshes
+ *   every 15 minutes never pays this read, and a page stops at the 401, so it is one read per page
+ *   load by someone not yet accepted.
+ */
+async function sessionRecord(env: Env, token: string, mark: { operationId: string; scope: string }): Promise<RefreshTokenKV | null> {
+  const log = debug('nebula-auth.worker.refresh');
+  const tokenHash = await hashString(token);
+  const raw = await (env as any).REFRESH_TOKEN_KV.get(`refresh:${tokenHash}`);
+  let record: RefreshTokenKV | null = raw ? JSON.parse(raw) as RefreshTokenKV : null;
+  if (!record) {
+    const healed = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
+    // Every miss reaches the singleton, so this line counts them. A miss on a record older than
+    // KV's ~60 s propagation window, with the record still live, means KV is not keeping the
+    // refresh off the Registry; `ageSeconds` is how long ago a 30-day session logged in.
+    log.debug('kv miss', {
+      ...mark, healed: healed !== null,
+      ageSeconds: healed
+        ? Math.round((Date.now() - (Date.parse(healed.expiresAt) - REFRESH_TOKEN_TTL * 1000)) / 1000)
+        : undefined,
+    });
+    if (healed) [record] = await putRefreshRecords(env, [{ tokenHash, record: healed }]);
+  } else if (!record.accepted) {
+    const current = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
+    log.debug('kv pending', { ...mark, healed: current?.accepted === true });
+    if (current?.accepted) [record] = await putRefreshRecords(env, [{ tokenHash, record: current }]);
+  }
+  return record;
+}
+
+/**
  * `POST /auth/refresh-token` — a page on a scope host gets its access token (ADR-022 § *Getting an
  * access token*). It reads no body and no `Content-Type`, so it is a simple request a page's
  * credentialed `fetch` sends without a preflight.
@@ -890,12 +947,13 @@ export async function handleComingSoon(request: Request, _env: Env): Promise<Res
  *    record still pending asks the Registry too, since KV can serve a copy an accept has replaced:
  *    staleness may permit for KV's window, but never refuses.
  * 5. **It answers CORS for that origin alone**, with credentials; no other route answers CORS.
- * 6. **A persona's host mints for the member its address names**, through the impersonation mint
+ * 6. **A persona's host holds a session of its own, opened through the impersonation mint**
  *    (ADR-022 § *A persona's host*). `manny--dev.crm.acme` spells an address, and whoever holds an
  *    accepted membership under it at that Star is Manny. The opener is the browser's ACCEPTED admin
- *    cookie at or above the Star, never a plain one, and the mint is handed the claims this refresh
- *    would have minted for that opener on this host. So the token is Manny's own, with the opener in
- *    `act`, and the mint's checks and its ADR-016 record are the ones every impersonation gets.
+ *    cookie at or above the Star, never a plain one. The first refresh hands the mint the claims
+ *    this refresh would have minted for that opener on this host, records a session for Manny that
+ *    names the opener, and sets its cookie. Each later one reads that session and the opener's
+ *    own from Workers KV, and mints Manny's token with the opener in `act`.
  */
 export async function handleRefreshToken(request: Request, env: Env): Promise<Response> {
   const log = debug('nebula-auth.worker.refresh');
@@ -931,36 +989,8 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
   for (const candidate of refreshCookies(request.headers.get('Cookie') || '')) {
     if (!isAtOrAbove(candidate.scope, hostScope)) continue;
     log.debug('read', { operationId, scope: candidate.scope });
-    const tokenHash = await hashString(candidate.token);
-    const raw = await (env as any).REFRESH_TOKEN_KV.get(`refresh:${tokenHash}`);
-    let record: RefreshTokenKV | null = raw ? JSON.parse(raw) as RefreshTokenKV : null;
-    if (!record) {
-      // KV miss: a propagation gap, or a revoked record. The Registry's strongly consistent index
-      // tells them apart; a healed record is put here, where the person is, and reaped if orphaned.
-      const healed = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
-      // Every miss reaches the singleton, so this line counts them. A miss on a record older than
-      // KV's ~60 s propagation window, with the record still live, means KV is not keeping the
-      // refresh off the Registry; `ageSeconds` is time since the session's login.
-      log.debug('kv miss', {
-        operationId, scope: candidate.scope, healed: healed !== null,
-        ageSeconds: healed
-          ? Math.round((Date.now() - (Date.parse(healed.expiresAt) - REFRESH_TOKEN_TTL * 1000)) / 1000)
-          : undefined,
-      });
-      if (healed) [record] = await putRefreshRecords(env, [{ tokenHash, record: healed }]);
-      if (!record) { expired.push(candidate.scope); continue; }
-    } else if (!record.accepted) {
-      // A pending copy may be one an accept has already replaced: a colo that read the record before
-      // the accept can serve it for up to KV's ~60 s window. Refusing on it would tell someone who has
-      // just accepted that they have not, so the Registry's index decides. Staleness that permits is
-      // accepted (`security.md`) and staleness that refuses is not. The accepted record a page
-      // refreshes every 15 minutes never pays this read, and a page stops at the 401, so it is one
-      // read per page load by someone not yet accepted.
-      const current = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
-      log.debug('kv pending', { operationId, scope: candidate.scope, healed: current?.accepted === true });
-      if (current?.accepted) [record] = await putRefreshRecords(env, [{ tokenHash, record: current }]);
-      if (!record) { expired.push(candidate.scope); continue; }
-    }
+    const record = await sessionRecord(env, candidate.token, { operationId, scope: candidate.scope });
+    if (!record) { expired.push(candidate.scope); continue; }
     if (now > record.expiresAt) continue;
     if (record.universeGalaxyStarId !== candidate.scope) {
       log.warn('cookie name disagrees with its record', { operationId, name: candidate.scope, sub: record.sub });
@@ -984,26 +1014,58 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
       : errorResponse(401, 'invalid_token', 'No refresh cookie covers this host'));
   }
   if (persona) {
-    // The host spells an address, and its accepted member at this Star is the persona.
+    // The claims this refresh would have minted for the opener on this host, which is what the
+    // opener's own page here would have called `impersonate` under. A record that names an actor
+    // is itself a session opened for someone, so its claims carry `act` and open nothing.
+    const opener = buildAuthClaims({
+      issuer: platformOrigin(deploymentOrigin(env)), sub: picked.sub, instanceName: picked.universeGalaxyStarId,
+      activeScope: hostScope, scopeAdmin: picked.scopeAdmin, profileId: picked.profileId, actor: picked.actor,
+      ttlSeconds: accessTokenCeiling(env as Env & { AUTH_ACCESS_TOKEN_TTL?: string }),
+    }) as AuthClaims;
+    const cookieName = personaCookieName(hostScope, persona);
+
+    // The persona's own session, when this browser holds one this opener opened. Its record is the
+    // persona's membership as Workers KV holds it, so this path reads nothing from the Registry.
+    const heldToken = cookiesOf(request.headers.get('Cookie') || '')
+      .find(({ name, value }) => value && name === `${REFRESH_COOKIE_PREFIX}${cookieName}`)?.value;
+    const held = heldToken === undefined ? null
+      : await sessionRecord(env, heldToken, { operationId, scope: cookieName });
+    if (held && holdsPersonaSession(opener, held, now)) {
+      const session = await mintAccessToken(env, {
+        sub: held.sub, universeGalaxyStarId: held.universeGalaxyStarId, scopeAdmin: held.scopeAdmin,
+        profileId: held.profileId, activeScope: hostScope, actor: held.actor,
+      });
+      log.debug('minted', { operationId, host: hostScope, sub: held.sub, persona, session: 'held' });
+      return withExpiries(Response.json({
+        access_token: session.accessToken, token_type: 'Bearer', expires_in: session.effectiveTtlSeconds, sub: held.sub,
+      }));
+    }
+
+    // No session to read, so open one. The host spells an address, its accepted member at this
+    // Star is the persona, and the impersonation mint decides whether this opener may act as them.
     const mailDomain = personaMailDomain(env);
     const member = mailDomain === undefined ? null
       : await identityReads(env).getAcceptedSubAt(await personaAddress({ persona, scope: hostScope }, mailDomain), hostScope);
     if (!member) {
       return withExpiries(errorResponse(401, 'invalid_token', 'No member of this Star holds this persona\'s address yet'));
     }
-    // The claims this refresh would have minted for the opener on this host, which is what the
-    // opener's own page here would have called `impersonate` under.
-    const opener = buildAuthClaims({
-      issuer: platformOrigin(deploymentOrigin(env)), sub: picked.sub, instanceName: picked.universeGalaxyStarId,
-      activeScope: hostScope, scopeAdmin: picked.scopeAdmin, profileId: picked.profileId,
-      ttlSeconds: accessTokenCeiling(env as Env & { AUTH_ACCESS_TOKEN_TTL?: string }),
-    });
-    const minted = await mintImpersonationToken(env, opener as AuthClaims, member, undefined, operationId);
+    const minted = await mintImpersonationToken(env, opener, member, undefined, operationId);
     if (!minted.ok) return withExpiries(errorResponse(401, 'invalid_token', minted.message));
-    log.debug('minted', { operationId, host: hostScope, sub: member, persona });
-    return withExpiries(Response.json({
+    // The session the next refresh reads: the persona's, naming this opener, and ending no later
+    // than the opener's own. The raw value goes only into the cookie.
+    const rawToken = generateRandomString(32);
+    const lapses = new Date(Date.now() + PERSONA_SESSION_TTL * 1000).toISOString();
+    const puts = await registry(env).recordSessions(
+      [{ sub: member, tokenHash: await hashString(rawToken), actor: { sub: picked.sub, profileId: picked.profileId } }],
+      lapses < picked.expiresAt ? lapses : picked.expiresAt, operationId,
+    ) as RefreshPut[];
+    await putRefreshRecords(env, puts);
+    log.debug('minted', { operationId, host: hostScope, sub: member, persona, session: 'opened' });
+    const opened = withExpiries(Response.json({
       access_token: minted.accessToken, token_type: 'Bearer', expires_in: minted.expiresIn, sub: member,
     }));
+    opened.headers.append('Set-Cookie', refreshCookie(cookieName, rawToken, PERSONA_SESSION_TTL));
+    return opened;
   }
   const { accessToken, effectiveTtlSeconds } = await mintAccessToken(env, {
     sub: picked.sub,
@@ -1011,6 +1073,9 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
     scopeAdmin: picked.scopeAdmin,
     profileId: picked.profileId,
     activeScope: hostScope,
+    // A session opened for its holder by someone else mints with that actor wherever its cookie
+    // is presented, so it can never mint a token that names its holder alone (ADR-016).
+    actor: picked.actor,
   });
   // The completion line, by which a reader finds this refresh's `read` markers: the host and the
   // `sub` it minted are what a caller holding the answer knows.
@@ -1059,6 +1124,14 @@ export async function handleLogout(request: Request, env: Env): Promise<Response
   } catch (err) {
     log.warn('revoke failed (continuing)', { operationId, error: err });
   }
+  // A persona's session this browser opened ends with it, by its own hash and never `everywhere`:
+  // that would end the same persona's sessions in every other developer's browser.
+  const personaHashes = await Promise.all(personaSessionTokens(cookieHeader).slice(0, RESOLVE_BOUND).map((t) => hashString(t)));
+  try {
+    if (personaHashes.length > 0) await registry(env).logoutSessions(personaHashes, false, operationId);
+  } catch (err) {
+    log.warn('persona revoke failed (continuing)', { operationId, error: err });
+  }
   log.info('logged out', { operationId, ended: subs.length, everywhere: everywhere === true });
   return new Response(JSON.stringify({ ended: subs.length }), { status: 200, headers });
 }
@@ -1068,6 +1141,24 @@ export async function handleLogout(request: Request, env: Env): Promise<Response
 //     post-return send dispatch through `invite-entry.ts`) ─────────────────────────────────────────
 
 // ── the impersonation mint ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Whether `opener` may go on reading the persona session `held` from the host it asked on. The
+ * session was opened through {@link mintImpersonationToken}, and these are that mint's own
+ * conditions, asked again of what the edge holds:
+ *
+ *  - the opener is the one this session names: another admin's browser opens its own, so `act`
+ *    names whoever is driving the tab. That opener passed the mint's root-identity gate at the
+ *    open, which is why nothing here asks it again;
+ *  - the opener still holds dominion over the session's Star, read from their own record, which a
+ *    demotion converges and a logout removes. Dominion is read from this host, and a Star's host
+ *    covers that Star alone, so a session of another Star's persona fails here too;
+ *  - the session has not lapsed. It is an accepted membership: a session opens only for an
+ *    accepted member, and acceptance is never taken back.
+ */
+function holdsPersonaSession(opener: AuthClaims, held: RefreshTokenKV, now: string): boolean {
+  return held.actor?.sub === opener.sub && canMintFor(opener, held) && now <= held.expiresAt;
+}
 
 /**
  * May `callerClaims` mint a token wearing this subject's identity? — dominion over the SUBJECT's
