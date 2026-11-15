@@ -22,7 +22,7 @@ import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@l
 import type { Galaxy } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
 import type { RunAnswer } from '@lumenize/resources/frontend';
-import { NO_STUDIO_TAB, NO_TAB_WHEN_IMPERSONATING, TAB_STAYED_SILENT } from '../../../src/galaxy';
+import { NO_STUDIO_TAB, TAB_STAYED_SILENT } from '../../../src/galaxy';
 import { RUN_RESULT_MAX_CHARS, RUN_ERROR_MAX_CHARS } from '../../../src/codegen-loop';
 import { universeAdminClient, createSubject, createInvitedClient, addressOfClient, pageOf, ORIGIN } from '../../test-helpers';
 import { StudioClientTest } from './index';
@@ -178,7 +178,7 @@ describe('run_in_tab runs in a Studio tab of the person the turn is working for'
     c.j[Symbol.dispose](); c.a[Symbol.dispose]();
   });
 
-  // Austen posts from a client that never opened the chat, so no subscriber row is his, while
+  // Austen posts from a client that never opened the chat, so no subscriber row is hers, while
   // Jennifer's Studio is open on the same chat.
   // Mutation: fall back to any subscriber when the person has none → Jennifer's Studio runs it.
   it('with no Studio tab of the poster\'s open, the tool says so and nobody else\'s tab runs the code', async () => {
@@ -227,7 +227,7 @@ describe('run_in_tab runs in a Studio tab of the person the turn is working for'
   });
 
   // Austen has two clients on the chat. The one whose address sorts first shows no preview, as a
-  // script's client does, or one `impersonate()` made. It ran nothing, so his Studio is asked.
+  // script's client does, or one `impersonate()` made. It ran nothing, so her Studio is asked.
   // Mutation: throw on the no-preview answer where the entry passes over → the tool errors.
   it('a client that shows no preview is passed over for the person\'s Studio', async () => {
     const scope = uniqueScope();
@@ -238,9 +238,9 @@ describe('run_in_tab runs in a Studio tab of the person the turn is working for'
     using js = c.j.resources.subscribeQuery(chatQuery); await js.ready;
     const s1 = first!.resources.subscribeQuery(chatQuery); await s1.ready;
     const s2 = second!.resources.subscribeQuery(chatQuery); await s2.ready;
-    await c.seed([call('run_in_tab', { tab: 'me', code: 'return 1' }), call('mark_complete', {}, 'Ran in his Studio.')]);
+    await c.seed([call('run_in_tab', { tab: 'me', code: 'return 1' }), call('mark_complete', {}, 'Ran in Austen\'s Studio.')]);
     await second!.postUserMessage('Make my sample data.');
-    const [run] = await toolCallsOf(c.j, () => js.resourceIds, 'Ran in his Studio.');
+    const [run] = await toolCallsOf(c.j, () => js.resourceIds, 'Ran in Austen\'s Studio.');
     expect(run).toMatchObject({ name: 'run_in_tab', result: { ok: true, value: { from: 'austen-studio' } } });
     expect(c.ran).toEqual([['austen-studio', 'me', 'return 1']]);
     expect(entries.filter((e) => e.namespace === 'nebula.Galaxy.runInTab' && e.message === 'passed over a tab that ran nothing')
@@ -270,27 +270,41 @@ describe('run_in_tab runs in a Studio tab of the person the turn is working for'
     c.j[Symbol.dispose](); c.a[Symbol.dispose]();
   });
 
-  // Jennifer, an admin, impersonates Austen and posts as him, with Austen's own Studio open. The
-  // post's record names Austen, and the subscriber rows under his `sub` are his own browser's.
-  // Mutation: drop the entry's check for an actor behind the agent → the code runs in Austen's
-  // Studio, at Jennifer's asking.
-  it('a post written while impersonating runs no code, in the impersonated person\'s Studio or anywhere', async () => {
+  // Jennifer, an admin, impersonates Austen and posts as her. The post's record names Austen, so
+  // the code runs where the subscriber rows under her `sub` point: her own Studio. Jennifer's
+  // impersonating client is under that `sub` too, and shows no preview. No check reads `act`,
+  // since the mint already requires dominion over the subject's whole scope (ADR-016).
+  // Mutations: refuse a turn with an actor behind the agent → the second run errors; drop `act`
+  // from a tool call's recorded claims → the record names Austen alone.
+  it('a post written while impersonating runs in the impersonated person\'s own Studio, and its record names both', async () => {
     const scope = uniqueScope();
     const c = await cast(scope);
     using js = c.j.resources.subscribeQuery(chatQuery); await js.ready;
-    using as = c.a.resources.subscribeQuery(chatQuery); await as.ready;
     const asAusten = await c.j.impersonate(c.aSub);
     expect([asAusten.claims?.sub, asAusten.claims?.act?.sub]).toEqual([c.aSub, c.jSub]);
-    await c.seed([call('run_in_tab', { tab: 'me', code: 'return document.cookie' }), call('mark_complete', {}, 'Could not run it for an impersonated post.')]);
+    using is = asAusten.resources.subscribeQuery(chatQuery); await is.ready;
+
+    // Austen's Studio is closed: the one row under her `sub` is the impersonating client's, which
+    // ran nothing, so there is no tab to ask. Jennifer's own Studio, open, is never asked.
+    await c.seed([call('run_in_tab', { tab: 'me', code: 'return 1' }), call('mark_complete', {}, 'Her Studio is closed.')]);
     await asAusten.postUserMessage('Make my sample data.');
-    const [run] = await toolCallsOf(c.j, () => js.resourceIds, 'Could not run it for an impersonated post.');
-    expect([run!.name, run!.result, run!.error]).toEqual(['run_in_tab', undefined, NO_TAB_WHEN_IMPERSONATING]);
+    const [closed] = await toolCallsOf(c.j, () => js.resourceIds, 'Her Studio is closed.');
+    expect([closed!.name, closed!.result, closed!.error]).toEqual(['run_in_tab', undefined, NO_STUDIO_TAB]);
+    expect(entries.filter((e) => e.namespace === 'nebula.Galaxy.runInTab' && e.message === 'passed over a tab that ran nothing')
+      .map((e) => [e.data?.address, e.data?.why])).toEqual([[addressOfClient(asAusten), 'NoPreviewError']]);
     expect(c.ran).toEqual([]);
-    // The positive control: Austen's own post, in the same scene, does run in his Studio.
-    await c.seed([call('run_in_tab', { tab: 'me', code: 'return 1' }), call('mark_complete', {}, 'Ran for Austen himself.')]);
-    await c.a.postUserMessage('Now for me.');
-    await toolCallsOf(c.j, () => js.resourceIds, 'Ran for Austen himself.');
-    expect(c.ran).toEqual([['austen', 'me', 'return 1']]);
+
+    // Austen opens Studio, and the same impersonated post now runs there.
+    using as = c.a.resources.subscribeQuery(chatQuery); await as.ready;
+    await c.seed([call('run_in_tab', { tab: 'me', code: 'return 2' }), call('mark_complete', {}, 'Ran in her Studio.')]);
+    await asAusten.postUserMessage('Try again.');
+    const [open] = await toolCallsOf(c.j, () => js.resourceIds, 'Ran in her Studio.');
+    expect(open).toMatchObject({
+      name: 'run_in_tab', result: { ok: true, value: { from: 'austen' } },
+      claims: { sub: c.aSub, act: { sub: NEBULA_SUB, act: { sub: c.jSub } } },
+    });
+    expect(open!.error).toBeUndefined();
+    expect(c.ran).toEqual([['austen', 'me', 'return 2']]);
     asAusten[Symbol.dispose](); c.j[Symbol.dispose](); c.a[Symbol.dispose]();
   });
 

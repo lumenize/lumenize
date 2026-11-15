@@ -423,9 +423,6 @@ function noSuchFile(path: string, e: unknown): Error {
 /** What `run_in_tab` tells the model when the person its turn works for has no Studio tab to ask. */
 export const NO_STUDIO_TAB = 'The person this turn is working for has no Studio tab open, so there is no tab to run code in. Say so, and ask them to open Studio and ask again.';
 
-/** What `run_in_tab` tells the model when the post its turn took up was written while impersonating. */
-export const NO_TAB_WHEN_IMPERSONATING = 'This turn is working for a post written while impersonating someone, and code runs only in the tab of a person acting as themself. Say so, and ask them to post as themself.';
-
 /** What `run_in_tab` tells the model when a Studio tab held its connection and did not answer. */
 export const TAB_STAYED_SILENT = 'The Studio tab did not answer in 30 s. The code may still run there, so look at what it left before running it again.';
 
@@ -1562,11 +1559,11 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * address, and passes over one that ran nothing for the next: one its host reports gone, or
    * one that shows no preview.
    *
-   * A post written while impersonating is refused. Its recorded claims name the person acted as,
-   * whose own Studio the subscriber rows would find, and the code would run in that person's
-   * browser at the impersonator's asking. This reads whether an actor stands behind the agent
-   * and never who, the one reading of `act` ADR-016 allows: impersonation would otherwise give
-   * the actor something they could not do as themself.
+   * A post written while impersonating runs like the person's own. Its recorded claims name the
+   * person acted as, so the code runs in that person's own Studio, where the rows under their
+   * `sub` are, and never in the impersonator's client, which shows no preview. Nothing here reads
+   * `act` (ADR-016): the impersonation mint already requires dominion over the subject's whole
+   * scope, so their tab gives the impersonator nothing they lack. The call's record names both.
    *
    * It waits on no bound of its own. A tab it asks is a Client this Galaxy hosts, so the call and
    * its answer never leave this isolate, and the Gateway's own timer answers a silent tab in 30 s.
@@ -1578,7 +1575,6 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   async runInTab(tab: string, code: string): Promise<RunAnswer> {
     const claims = this.#claimsIfAny();
     if (!claims) throw new Error('run_in_tab runs in a tab of the person a turn is working for, and this call names nobody');
-    if (claims.act?.act !== undefined) throw new Error(NO_TAB_WHEN_IMPERSONATING);
     const chat: QueryDescriptor = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
     const hosted = `${this.lmz.bindingName}/${this.lmz.instanceName}/`;
     const log = debug('nebula.Galaxy.runInTab');
