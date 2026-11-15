@@ -1,6 +1,6 @@
 ---
 name: define-the-cast
-description: Elicit the app's personas and decide each relationship's sharing shape, write docs/personas.md and docs/permissions.md, then build the cast and its sample data from the preview's tabs with run_in_tab. Use when a request names more than one kind of user, when who may see or change something is unclear, when the cast or its data needs building again, or when asked to wipe, reset or clear the test data.
+description: Elicit the app's personas and decide each relationship's sharing shape, write docs/personas.md and docs/permissions.md, then build the cast and its sample data from the preview's tabs with run_in_tab. Use when a request names more than one kind of user, when who may see or change something is unclear, when the cast or its data needs building again, or when asked to wipe, reset or clear the test data, which ends with the cast built again.
 ---
 
 # Define the cast, decide how they share, and build them
@@ -71,12 +71,12 @@ The preview has a tab for the person you are working for, `me`, and a tab for ea
 
 The tool's own description says what a run returns and how to read it. `.platform/docs/api-reference.md` has every call the code may make.
 
-## Wipe the test data
+## Wipe the test data, then build the cast again
 
-Studio has no wipe button: a person who wants the workspace's test data gone asks you. Do all of it in one turn.
+Studio has no wipe button: a person who wants the workspace's test data gone asks you. **A wipe is not finished until the cast is built again.** It leaves every persona a member who holds nothing, so each persona's tab opens on an app that refuses them. A request to wipe, reset or clear the test data is therefore a request for both steps below, in one turn, even when it names only the wipe.
 
-1. **Wipe from `me`.** Run `await client.resources.resetDevData(); return 'wiped';` with tab `me`. It erases every record, node and grant in the workspace, and keeps the cast's memberships, so each persona's tab still opens as that persona, holding nothing. The app's owner and every collaborator administer the workspace and may wipe it. If the run is refused, say why and stop.
-2. **Build the cast and its data again,** by the steps in `docs/personas.md`, as the section above says. Skip this only when the person asked for the workspace left empty, or the file names no cast.
+1. **Wipe from `me`.** Run `await client.resources.resetDevData(); return 'wiped';` with tab `me`. It erases every record, node and grant in the workspace, and keeps the cast's memberships. The app's owner and every collaborator administer the workspace and may wipe it. If the run is refused, say why and stop.
+2. **Build the cast and its data again, before you answer,** by the steps in `docs/personas.md`, as the section above says: the nodes and invites from `me`, then each persona's name and sample data from that persona's tab. Skip this only when the person said to leave the workspace empty, or the file names no cast.
 3. **Say what you did:** that the test data was wiped, and what you built again.
 
 ## What not to do

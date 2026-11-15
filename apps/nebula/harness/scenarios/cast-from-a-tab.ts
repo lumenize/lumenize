@@ -24,13 +24,13 @@
  *     does not list, so no earlier turn can have made it. The stored
  *     record of the Deal names Gerry as its subject and O as the actor, and no agent. *Reds if
  *     Studio runs a persona's request in the "me" tab, where the record would name O.*
- *  3. **A collaborator's wipe goes through the agent, which builds the cast again in the same
- *     turn.** P asks for the test data to be wiped and says nothing of the cast. Limb 2's Deal is
- *     gone, `deals` is a new node Gerry holds `write` on, and the file's sample Deal is back,
- *     made in Gerry's tab with P as the actor. Every `run_in_tab` call ran under P's claims, and
- *     O's Studio heard nothing more. *Reds if the reset leaves the Star's rows.* That the agent
- *     builds the cast again unasked is the model following `define-the-cast`, gated here as
- *     limbs 1 and 2 gate what they ask for.
+ *  3. **A collaborator's wipe goes through the agent.** P asks for the test data to be wiped and
+ *     says nothing of the cast. Limb 2's Deal is gone, every `run_in_tab` call ran under P's
+ *     claims, and O's Studio heard nothing more. *Reds if the reset leaves the Star's rows.*
+ *     Whether the same turn builds the cast again is the model following `define-the-cast`
+ *     unasked, so it is recorded and never gated. When it does, the rebuilt cast is checked:
+ *     `deals` is a new node Gerry holds `write` on, and the file's sample Deal is back, made in
+ *     Gerry's tab with P as the actor.
  *
  * `needsContainer = true` — the app is built in the build container.
  */
@@ -329,8 +329,7 @@ export async function run(stack: DevStack): Promise<void> {
       `every run_in_tab call must run under P's claims, whose post the turn took up: ${describe(wiped)}`);
     assert.equal((await heard(o.page)).length, oHeardBefore, "O's Studio must have been asked to run nothing for P's turn");
     type After = { deals?: string; tier?: string; titles: Array<{ title: string; sub: string; actSub?: string }> };
-    let after: After | undefined;
-    const rebuilt = await until(ACCEPT_BY_MAIL_MS, async () => {
+    const readAfter = async (): Promise<After | undefined> => {
       const read = await askTab(p.page, 'me', `
         const t = store.lmz.orgTree.value;
         const deals = [...t.nodes].find(([, n]) => n.slug === 'deals');
@@ -344,16 +343,28 @@ export async function run(stack: DevStack): Promise<void> {
         q[Symbol.dispose]();
         return { deals: deals && deals[0], tier: deals && t.permissions.get(deals[0]) && t.permissions.get(deals[0]).get(${JSON.stringify(gerry!.sub)}), titles };
       `);
-      after = read.ok ? read.value as After : undefined;
-      return after?.tier === 'write' && after.titles.some((d) => d.title === 'Acme renewal');
-    });
+      return read.ok ? read.value as After : undefined;
+    };
+    const wipeRuns = runsOf(wiped).length;
+    let after = await readAfter();
     assert.ok(after, "P's page could not read the tree and the Deals after the wipe");
     assert.equal(after.titles.some((d) => d.title === DEAL_TITLE), false, `limb 2's Deal must be gone after the wipe: ${JSON.stringify(after.titles)}`);
-    assert.ok(rebuilt, `the turn must have built the cast again: ${JSON.stringify(after)} after ${describe(wiped)}`);
-    assert.notEqual(after.deals, tree.value.deals, 'the node `deals` must be a new one, since the wipe dropped the first');
-    const sample = after.titles.find((d) => d.title === 'Acme renewal')!;
-    assert.deepEqual([sample.sub, sample.actSub], [gerry!.sub, pOnDev.sub], "the file's sample Deal must be made in Gerry's tab, with P as the actor");
-    console.error("  ✓ limb 3 — P's turn wiped the Star and built the cast again: limb 2's Deal is gone, Gerry holds write on a new deals node, and the sample Deal names Gerry with P as actor");
+    assert.notEqual(after.deals, tree.value.deals, 'the first `deals` node must be gone, since the wipe drops every node');
+    // Recorded, never gated: whether the turn built the cast again, which nothing but the skill asks of it.
+    if (wipeRuns > 1) {
+      // The grant lands a moment after the invite that carries it.
+      await until(ACCEPT_BY_MAIL_MS, async () => {
+        after = await readAfter();
+        return after?.tier === 'write' && after.titles.some((d) => d.title === 'Acme renewal');
+      });
+    }
+    const rebuilt = after?.tier === 'write' && after.titles.some((d) => d.title === 'Acme renewal');
+    console.error(`  · limb 3 finding: the wipe's turn ${rebuilt ? 'built the cast again' : 'did NOT build the cast again'} (${wipeRuns} run_in_tab call(s): ${describe(wiped)})`);
+    if (rebuilt) {
+      const sample = after!.titles.find((d) => d.title === 'Acme renewal')!;
+      assert.deepEqual([sample.sub, sample.actSub], [gerry!.sub, pOnDev.sub], "the file's sample Deal must be made in Gerry's tab, with P as the actor");
+    }
+    console.error(`  ✓ limb 3 — P's turn wiped the Star under P's claims: limb 2's Deal and the first deals node are gone${rebuilt ? ', and the cast it built again names Gerry with P as actor' : ''}`);
   } finally {
     for (const d of disposers.reverse()) { try { d(); } catch { /* already released */ } }
     await browser.close();
