@@ -15,7 +15,7 @@
  * through its host node — nothing in this file talks HTTP to `/invite`.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { env } from 'cloudflare:test';
+import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { hasDominionOver, type InviteSummary, type AuthClaims } from '@lumenize/mesh/auth';
@@ -328,6 +328,63 @@ describe('invite facade — a collaborator invites into `.dev`, never into the a
         `Inviting into "${galaxy}" needs dominion over it, and the calling host's scope is "${dev}"`);
     } finally {
       admin.disconnect(); onApp.client.disconnect(); onDev.client.disconnect();
+    }
+  });
+});
+
+/** The scope of every membership the Registry holds for an address, accepted or not. */
+const membershipsOf = (email: string): Promise<string[]> =>
+  (runInDurableObject as any)((env as any).AUTH_REGISTRY.getByName('registry'), (_i: any, c: any) =>
+    [...c.storage.sql.exec(
+      `SELECT m.universeGalaxyStarId AS scope FROM Memberships m JOIN Emails e ON e.emailId = m.emailId WHERE e.email = ?`, email,
+    )].map((row: { scope: string }) => row.scope));
+
+describe("invite facade — a persona's address is invited only into the workspace it names", () => {
+  // A persona's address spells its workspace: `gerry--dev.{app}.{universe}@personas.example` is
+  // Gerry of `{universe}.{app}.dev`. Sent into the app instead, an invite used to make its
+  // memberships and have the mail dropped, which left a pending ADMIN membership of the workspace.
+  // The workspace's own plain invite for Gerry then took that row up, since an invite never lowers
+  // a bit, and Gerry's tab opened as an admin nobody chose.
+  // Mutations: drop the check → the app invite lands for Gerry's address;
+  // test the address's shape alone → another workspace's persona is invited into this one.
+  it('refuses it anywhere else for that invitee alone, makes no membership, and the workspace\'s own invite then lands plain', async () => {
+    const star = uniqueStar();
+    const universe = universeOf(star);
+    const galaxy = star.split('.').slice(0, 2).join('.');
+    const dev = `${galaxy}.dev`;
+    const [u, g] = galaxy.split('.');
+    const gerry = `gerry--dev.${g}.${u}@personas.example`;
+    const refusal = (email: string) =>
+      ({ email, error: `"${email}" is a persona's address, and a persona is invited only into the workspace its address names` });
+    const { client: admin } = await universeAdminClient(NebulaClientTest, new Browser(), star, universe, em('adm'));
+    try {
+      // Into the app, beside a person: the person is invited and the persona is not.
+      const friend = em('friend');
+      const intoApp = await facadeInvite(admin, galaxy, [{ email: gerry }, { email: friend }]);
+      expect(intoApp.results.map((r) => r.email)).toEqual([friend]);
+      expect(intoApp.errors).toEqual([refusal(gerry)]);
+      expect(intoApp.links![gerry]).toBeUndefined();
+      // Into the universe, and into a tenant's Star of the same app.
+      for (const elsewhere of [universe, star]) {
+        const summary = await facadeInvite(admin, elsewhere, [{ email: gerry }]);
+        expect([summary.results, summary.errors]).toEqual([[], [refusal(gerry)]]);
+      }
+      // Another app's persona, into this app's workspace: persona-shaped, and not this workspace's.
+      const stranger = `gerry--dev.other.${u}@personas.example`;
+      const wrongWorkspace = await facadeInvite(admin, dev, [{ email: stranger }]);
+      expect([wrongWorkspace.results, wrongWorkspace.errors]).toEqual([[], [refusal(stranger)]]);
+      // None of it left a row behind, pending or otherwise.
+      expect(await membershipsOf(gerry)).toEqual([]);
+      expect(await membershipsOf(stranger)).toEqual([]);
+
+      // The workspace's own invite lands, whatever its case, and Gerry is a plain member.
+      const own = await facadeInvite(admin, dev, [{ email: gerry.toUpperCase() }]);
+      expect(own.errors).toEqual([]);
+      const payload = await acceptInvite(Object.values(own.links!)[0]!, dev);
+      expect(payload.access).toEqual({ authScope: dev });
+      expect(await membershipsOf(gerry)).toEqual([dev]);
+    } finally {
+      admin.disconnect();
     }
   });
 });

@@ -26,15 +26,15 @@
  *  3. **A plain member of the Star cannot open Gerry's page,** refused in the impersonation mint's
  *     own words. Positive control: P's cookie opens the dev Star's own page. *Reds if any member
  *     may open a persona.*
- *  4. **A login link sent to a persona's address signs nobody in and accepts nothing.** Sally is
- *     invited by a link the handler must refuse (limb 5), so she is pending when a login link is
- *     mailed to her address; the handler logs that it dropped it, and her host still answers 401.
- *     *Reds if the handler accepts by any link it is sent.*
- *  5. **An invite into the app, sent to a persona's address, is dropped.** It mints a pending
- *     admin membership at the dev Star for that address, which is the membership a persona's host
- *     would open, so accepting it would make a persona an admin nobody chose. The handler logs the
- *     drop and Sally's host answers 401. *Reds if the handler does not spell the address forward
- *     from the Star the link names.*
+ *  4. **A login link sent to a persona's address signs nobody in and accepts nothing.** It is
+ *     mailed to Sally's address while nobody holds it; the handler logs that it dropped it, and
+ *     her host still answers 401. *Reds if the handler accepts by any link it is sent.*
+ *  5. **An invite into the app, sent to a persona's address, is refused, and leaves nothing
+ *     behind.** It would mint a pending admin membership of the dev Star for that address, which
+ *     the workspace's own plain invite would then take up, since an invite never lowers a bit.
+ *     The invite is answered with an error for Sally and no membership; her host answers 401; and
+ *     once the workspace invites her, her token is a plain member's. *Reds if the app invite is
+ *     let through: Sally's token then carries an admin bit nobody chose.*
  *  6. **The cookie's record decides, not its name.** E's own refresh value, sent under O's
  *     universe's cookie name, gets 401 on Gerry's host.
  *  7. **Gerry's host keeps a session of its own, and a later refresh asks the Registry nothing.**
@@ -178,22 +178,28 @@ export async function run(stack: DevStack): Promise<void> {
     `The calling host's scope "${dev}" does not administer this subject`);
   console.error("  ✓ limb 3 — P opens the dev Star's page, and is refused Gerry's by the impersonation mint");
 
-  // ── LIMB 5 first: an invite into the app, sent to a persona's address, is dropped ─────────
-  // It runs before limb 4 because it is what leaves Sally with a pending membership at the dev
-  // Star, the state in which limb 4's login link could do harm.
-  await invite(atGalaxy, galaxy, sally);
-  const appInviteDropped = await droppedLine(sally);
-  assert.equal(appInviteDropped.data.reason, "the link is no invite into this persona's Star");
-  assert.equal(await refused(hostOf('sally'), ownerCookie, 'O, on Sally, whose only invite was into the app'),
+  // ── LIMB 5, first half: an invite into the app, sent to a persona's address, is refused ───
+  const misdirected = await inviteViaMesh(stack, atGalaxy, galaxy, [{ email: sally }]);
+  assert.deepEqual(misdirected.results, [], "an app invite must not land for a persona's address");
+  assert.deepEqual(misdirected.errors,
+    [{ email: sally, error: `"${sally}" is a persona's address, and a persona is invited only into the workspace its address names` }]);
+  assert.equal(await refused(hostOf('sally'), ownerCookie, 'O, on Sally, whose only invite was refused'),
     "No member of this Star holds this persona's address yet");
-  console.error("  ✓ limb 5 — an invite into the app, mailed to Sally's address, was dropped and she is no member");
 
   // ── LIMB 4: a login link sent to a persona's address accepts nothing ──────────────────────
   await requestMagicLink({ baseUrl: origin, email: sally });
-  const loginDropped = await droppedLine(sally, appInviteDropped);
+  const loginDropped = await droppedLine(sally);
   assert.equal(loginDropped.data.reason, "the link is no invite into this persona's Star");
   await refused(hostOf('sally'), ownerCookie, 'O, on Sally, after a login link was mailed to her');
-  console.error("  ✓ limb 4 — a login link mailed to Sally's address was dropped, and her pending membership stayed pending");
+  console.error("  ✓ limb 4 — a login link mailed to Sally's address was dropped, and her host stayed shut");
+
+  // ── LIMB 5, second half: the workspace's own invite then makes her a plain member ─────────
+  // Had the app invite landed, it would have left a pending admin membership here for this
+  // invite to take up.
+  await invite(atDev, dev, sally);
+  const asSally = await opens(hostOf('sally'), ownerCookie, 'Sally');
+  assert.deepEqual(asSally.claims.access, { authScope: dev }, "Sally must be a plain member: no earlier invite left her an admin bit");
+  console.error("  ✓ limb 5 — an invite into the app for Sally's address was refused and left nothing, so the workspace's own made her a plain member");
 
   // ── LIMB 6: the cookie's record decides, not its name ───────────────────────────────────
   const evil = await provisionAndLogin({ baseUrl: origin, scope: testSlug('phe'), testToken });

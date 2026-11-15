@@ -60,7 +60,7 @@ const DEV = `${SCOPE}.dev`;
 const TURN_TIMEOUT_MS = 240_000;
 const chatQuery = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 const address = (who: string) => `test-${who}-${crypto.randomUUID().slice(0, 8)}@lumenize-test.dev`;
-type Value = { content?: string; replyTo?: string; answers?: string[]; codegen?: { toolCalls?: Array<{ name: string; error?: string; result?: unknown }> } };
+type Value = { content?: string; replyTo?: string; answers?: string[]; codegen?: { toolCalls?: Array<{ name: string; error?: string; result?: unknown; post?: string }> } };
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
@@ -207,9 +207,12 @@ export async function run(stack: DevStack): Promise<void> {
       answer = (await agentPosts()).find(({ snap }) => ((snap.value as Value).answers ?? []).includes(a1))?.snap;
       if (!answer) await new Promise((r) => setTimeout(r, 1000));
     }
-    const tried = (answer?.value as Value | undefined)?.codegen?.toolCalls?.filter((tc) => tc.name === 'invite') ?? [];
-    console.error(`  · recorded — asked by Austen, the agent ${tried.length === 0 ? 'did not call invite' : tried.some((tc) => tc.error) ? 'called invite and was refused within the turn' : 'called invite and it LANDED'}: ${JSON.stringify(((answer?.value as Value | undefined)?.content ?? '(no answer)').slice(0, 200))}`);
-    assert.ok(!tried.some((tc) => !tc.error), "an invite in Austen's turn must never land: she is no admin of the app");
+    // Only the invite calls that acted for Austen's post. One message can answer several posts:
+    // a turn still working for Jennifer when Austen posts answers both in its closing message,
+    // and its invites, which acted for Jennifer's post under her claims, are no invites of Austen's.
+    const tried = (answer?.value as Value | undefined)?.codegen?.toolCalls?.filter((tc) => tc.name === 'invite' && tc.post === a1) ?? [];
+    console.error(`  · recorded — asked by Austen, the agent ${tried.length === 0 ? 'called no invite for her post' : tried.some((tc) => tc.error) ? 'called invite for her post and was refused within the turn' : 'called invite for her post and it LANDED'}: ${JSON.stringify(((answer?.value as Value | undefined)?.content ?? '(no answer)').slice(0, 200))}`);
+    assert.ok(!tried.some((tc) => !tc.error), "an invite that acted for Austen's post must never land: she is no admin of the app");
 
   } finally {
     cast.dispose();

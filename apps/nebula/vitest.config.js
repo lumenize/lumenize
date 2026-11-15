@@ -134,6 +134,9 @@ export default defineConfig({
               TURNSTILE_SECRET_KEY: '',
               AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
               DEBUG: 'nebula',
+              // Where this lane's personas would receive mail. No mail is handled here; the
+              // invite facade reads it to tell a persona's address from a person's.
+              PERSONA_MAIL_DOMAIN: 'personas.example',
               // Shorten the Gateway grace period so
               // drop-on-failed-fanout tests can observe ClientDisconnectedError
               // settle in well under a second. Production-safe (binding only

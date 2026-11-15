@@ -688,6 +688,8 @@ await client.personaAddress('gerry');
 // on https://dev.crm.acme.lumenize.dev/  →  'gerry--dev.crm.acme@lumenize.dev'
 ```
 
+A persona's address is invited only into the workspace it names. Sent anywhere else, into the app say, the invite is refused for that invitee: its entry in `errors` says so and no membership is made.
+
 It rejects on any page but a `dev` workspace's, which alone has personas, and for a `slug` that is not 3 to 30 characters of lowercase letters, digits and single hyphens. A workspace with long names gets a shorter address than its host, which is one more reason to ask for it.
 
 ## `client.resources.resetDevData` {#resourcesresetdevdata}

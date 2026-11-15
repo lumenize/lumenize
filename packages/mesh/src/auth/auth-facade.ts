@@ -64,12 +64,12 @@ import { MeshWorker } from '../mesh-worker';
 import { mesh } from '../mesh-decorator';
 import type { OriginRequest } from '../types';
 import { hasDominionOver, parseId } from './parse-id';
-import { deploymentOrigin, platformOrigin } from './hosts';
+import { deploymentOrigin, personaAddress, personaMailDomain, personaSlugOfAddress, platformOrigin } from './hosts';
 import {
   ImpersonationRefusedError, REGISTRY_INSTANCE_NAME, sanitizeInviterName,
 } from './types';
 import type {
-  InviteMintResult, InviteSummary, InviteeRequest, AuthClaims, ScopeLifecycleHooks, ScopeNode,
+  InviteMintResult, InviteSummary, InviteeError, InviteeRequest, AuthClaims, ScopeLifecycleHooks, ScopeNode,
   ScopeTarget,
 } from './types';
 import type { AffectedScope, AuthRegistry, ScopeDeletionPlan } from './auth-registry';
@@ -197,6 +197,25 @@ export abstract class AuthFacade extends MeshWorker {
             ...(entry.scopeAdmin === true && dominionHere ? { scopeAdmin: true as const } : {}) }
         : entry);
 
+    // ── A persona's address is invited only into the workspace it names. Its mailbox is the
+    // platform's own, and the mail handler accepts an invite there only into the Star the address
+    // spells. Sent anywhere else the invite would make its memberships and have its mail dropped;
+    // into an app, that left a pending ADMIN membership of the workspace, which the workspace's
+    // own plain invite for that persona then took up, since an invite never lowers a bit. So such
+    // an invitee is answered here, with an error of its own, and never reaches the Registry.
+    const mailDomain = personaMailDomain(this.env);
+    const misdirected: InviteeError[] = [];
+    const invitable: unknown[] = [];
+    for (const entry of capped) {
+      const email = (entry !== null && typeof entry === 'object') ? (entry as InviteeRequest).email : undefined;
+      const persona = typeof email === 'string' && mailDomain !== undefined ? personaSlugOfAddress(email, mailDomain) : null;
+      if (persona !== null && await personaAddress({ persona, scope: targetScope }, mailDomain!) !== (email as string).trim().toLowerCase()) {
+        misdirected.push({ email: email as string, error: `"${email}" is a persona's address, and a persona is invited only into the workspace its address names` });
+      } else {
+        invitable.push(entry);
+      }
+    }
+
     // ── The inviter's display name, sanitized HERE because this is the ADR-001 boundary and the
     // value is the one thing on this call the CALLER asserts about themselves. It is stamped on the
     // invitee's membership and rendered in their consent modal, where the adversary that modal
@@ -209,8 +228,9 @@ export abstract class AuthFacade extends MeshWorker {
     // The one raw hop: facade → Registry DO stub. `claims` rides whole into `callerClaims` so the
     // ADR-016 record carries the full verified acting chain.
     const mint = await this.#registry().issueInvites(
-      targetScope, capped as InviteeRequest[], origin, claims, cleanName,
+      targetScope, invitable as InviteeRequest[], origin, claims, cleanName,
     ) as InviteMintResult;
+    mint.errors.push(...misdirected);
 
     const testMode = (this.env as any).AUTH_TEST_MODE === 'true';
     if (!testMode) {
