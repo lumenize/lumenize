@@ -44,7 +44,7 @@ These depend on it:
 - **Impersonation shows an admin what that person sees.** A check that treated the admin's token differently would show them something else.
 - **A persona's tab tests the app as a real member.** Studio opens `gerry--dev.crm.acme.lumenize.dev` with a token for the member Gerry, minted for whoever opened the tab, who rides in `act`. A check reading `act` would make that tab behave unlike Gerry's own page.
 
-**One exception is allowed, and it is refused until someone argues it.** A check may read whether `act` is present, never whom it names, and only where impersonation would otherwise give the actor something they could not do as themselves. No code uses it today. Whoever invokes it also says what it does to a persona's tab. `security.md` § *Delegation* holds the test, and the grep that finds every reader of `act`.
+**There is no exception.** Who may act as whom is decided where the token is minted, and the mint requires dominion over the subject's whole scope. So a check on `act` would withhold nothing the actor lacks. One kind of call would give an actor more: a call that answers for a person across scopes, with every tenancy they hold, say. Such a call reads the session's cookies, which no impersonation token presents, as Home's summary does. `security.md` § *Delegation* holds the grep that finds every reader of `act`.
 
 **One difference is accepted.** The mint issues only to a token with no `act`, so an admin persona's tab cannot impersonate, where the real admin's own page can (Larry, 2026-11-14).
 
@@ -66,6 +66,7 @@ Scope deletion (`executeScopeDeletion`) · identity-authority changes (`setIdent
 | **Record `sub` + `act.sub`, nothing else** | Fixes the wrong person but loses *what authority was asserted*, which is the question a post-incident reader has ("how was this permitted?"). It also needs a live registry hop to render a departed actor's name. |
 | **Widen the record and key on all of it** | The naive route to uniformity, and it silently breaks recognition, since a resend can carry a re-minted token. See the Corollary. |
 | **Exempt resource writes permanently** | Two record shapes and two rules to keep in sync forever, for a reason that was an implementation conflation (2026-07-28). |
+| **A check that reads whether `act` is present,** allowed where impersonation would give the actor more | Used three times and removed each time. The scope summary now reads cookies, and the mint decides for a Profile's owner branch and for the agent's `run_in_tab` (Larry, 2026-11-15). |
 | **Defer until an audit mechanism exists** | Inverts what is replaceable. It is also how the gap arose: every site reached for a debug log, and no two agreed on what a "caller" is. |
 | **Scope it to *irreversible* actions** | A loophole, per § *Context* (2026-07-28). |
 
