@@ -208,7 +208,7 @@ export const CODEGEN_TOOLS = [
         'that tab\'s person can do in the app, and nothing more. Use "me" to build the cast, ' +
         'and a persona\'s tab to make what that persona would make or to see what they see. ' +
         'Before the first run of a turn, read .platform/skills/define-the-cast/SKILL.md, which ' +
-        'has the calls to copy. The result is { ok: true, value }, with the value as JSON and a ' +
+        'has the calls to copy. The result is { ok: true, value }, shown to you as text with a ' +
         'Map as an array of its entries, or { ok: false, error } when the code threw. ok: true ' +
         'says only that the code returned, not that what it tried worked, so return what tells ' +
         'you, such as a transaction\'s outcome. The tool needs the person\'s Studio open and an ' +
@@ -322,33 +322,64 @@ export function unknownToolArgKeys(toolName: string, args: unknown): string[] {
   return Object.keys(args as Record<string, unknown>).filter((k) => !declared.has(k)).sort();
 }
 
-/** The most a `run_in_tab` value may add to the transcript, in characters of its JSON. */
+/** The most a `run_in_tab` value may add to the transcript, in characters of the text the model reads. */
 export const RUN_RESULT_MAX_CHARS = 20_000;
 /** The most of a thrown error's text a `run_in_tab` result keeps. */
 export const RUN_ERROR_MAX_CHARS = 2_000;
 
 /**
- * A `run_in_tab` result as the model and the record get it. A value is kept as its JSON has it,
- * and one whose JSON runs past {@link RUN_RESULT_MAX_CHARS} is replaced by its first characters
- * and a note; an error's text is cut at {@link RUN_ERROR_MAX_CHARS}. Either goes into every later
- * round's request and into a record every chat subscriber receives.
+ * A `run_in_tab` result as the record keeps it. The value is kept whole, as what it is: a `Map`
+ * stays a `Map` (ADR-002), and only the model's copy is text ({@link modelText}). One whose text
+ * runs past {@link RUN_RESULT_MAX_CHARS} is replaced by the first characters of that text and a
+ * note, since a value cannot be cut as text can; an error's text is cut at
+ * {@link RUN_ERROR_MAX_CHARS}. Either goes into every later round's request and into a record
+ * every chat subscriber receives.
  */
 export function clipRunResult(
   result: { ok: true; value: unknown } | { ok: false; error: string },
-): { ok: true; value: unknown } | { ok: false; error: string } | { ok: true; clipped: true; json: string; note: string } {
+): { ok: true; value: unknown } | { ok: false; error: string } | { ok: true; clipped: true; text: string; note: string } {
   if (!result.ok) {
     return result.error.length <= RUN_ERROR_MAX_CHARS ? result
       : { ok: false, error: `${result.error.slice(0, RUN_ERROR_MAX_CHARS)}… (${result.error.length} characters in all)` };
   }
-  let json: string | undefined;
-  try { json = JSON.stringify(result.value); } catch { json = undefined; }
-  if (json === undefined) return { ok: true, value: undefined };
-  // What is kept is what was measured: the value as its JSON has it.
-  if (json.length <= RUN_RESULT_MAX_CHARS) return { ok: true, value: JSON.parse(json) };
+  const text = modelText(result.value);
+  if (text.length <= RUN_RESULT_MAX_CHARS) return { ok: true, value: result.value };
   return {
-    ok: true, clipped: true, json: json.slice(0, RUN_RESULT_MAX_CHARS),
-    note: `The value was ${json.length} characters of JSON and only the first ${RUN_RESULT_MAX_CHARS} are here. Return less.`,
+    ok: true, clipped: true, text: text.slice(0, RUN_RESULT_MAX_CHARS),
+    note: `The value was ${text.length} characters as text and only the first ${RUN_RESULT_MAX_CHARS} are here. Return less.`,
   };
+}
+
+/**
+ * A value as the text a model reads, which is the one place a tool's result stops being the value
+ * it is. JSON's own rendering turns a `Map`, a `Set` or an `Error` into `{}`, which a model reads
+ * as an empty one, and throws on a cycle. So a `Map` is an array of its entries, a `Set` an array
+ * of its members, an `Error` its name, message and own fields, a `bigint` its digits, a number
+ * JSON has no word for its name (`"NaN"`), and an object met again inside itself `"[cycle]"`.
+ * Plain data comes out exactly as `JSON.stringify` has it.
+ */
+export function modelText(value: unknown): string {
+  const within = new Set<object>();
+  const plain = (v: unknown): unknown => {
+    if (typeof v === 'bigint') return v.toString();
+    if (typeof v === 'number') return Number.isFinite(v) ? v : String(v);
+    if (v === null || typeof v !== 'object') return v;
+    if (within.has(v)) return '[cycle]';
+    within.add(v);
+    try {
+      // What JSON itself asks first: a `Date` is its ISO string, a `URL` its href.
+      const toJSON = (v as { toJSON?: unknown }).toJSON;
+      if (typeof toJSON === 'function') return plain(toJSON.call(v));
+      if (v instanceof Map) return [...v].map(([key, item]) => [plain(key), plain(item)]);
+      if (v instanceof Set) return [...v].map(plain);
+      if (Array.isArray(v)) return v.map(plain);
+      const fields = Object.fromEntries(Object.entries(v).map(([key, item]) => [key, plain(item)]));
+      return v instanceof Error ? { ...fields, name: v.name, message: v.message } : fields;
+    } finally {
+      within.delete(v);
+    }
+  };
+  return JSON.stringify(plain(value)) ?? 'undefined';
 }
 
 /** Tools EXEMPT from the identical-call loop detector: `build` because fix-then-rebuild
@@ -762,7 +793,7 @@ function fnv1a(s: string): string {
 }
 
 function toolResultMessage(id: string, payload: unknown): ChatMessage {
-  return { role: 'tool', tool_call_id: id, content: JSON.stringify(payload) };
+  return { role: 'tool', tool_call_id: id, content: modelText(payload) };
 }
 
 // ─── The loop ────────────────────────────────────────────────────────────

@@ -79,6 +79,7 @@ import { servedOntologyVersion } from '../lib/own-app';
 import { clientIdIn, debugLines, loggedAfter, settleForAbsence, waitForDebugLines, type DebugLine } from '../lib/stdio';
 import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
+import { askFrame } from '../lib/ask-frame';
 import { foundTenantStar, refreshAccessToken } from '../../test/lib/email-login';
 
 export const needsContainer = true;
@@ -430,18 +431,8 @@ export async function run(stack: DevStack): Promise<void> {
     const before = await dealIs();
     // The same message Studio posts for `run_in_tab`, from the collaborator's own Studio page to
     // its "Me" frame. Asked again while the frame's page is still loading, which answers nothing.
-    const askMe = (code: string): Promise<{ ok?: boolean; value?: unknown; error?: string } | null> => austen.page.evaluate(`new Promise((resolve) => {
-      const frame = document.querySelector('iframe[title="Preview"]');
-      if (!frame || !frame.contentWindow) { resolve(null); return; }
-      const origin = new URL(frame.src).origin;
-      const id = crypto.randomUUID().slice(0, 8);
-      addEventListener('message', (e) => {
-        if (e.source === frame.contentWindow && e.origin === origin && e.data && e.data.type === 'lumenize:ran' && e.data.id === id) resolve(e.data);
-      });
-      setTimeout(() => resolve(null), 10000);
-      frame.contentWindow.postMessage({ type: 'lumenize:run', id, code: ${JSON.stringify(code)} }, origin);
-    })`) as Promise<{ ok?: boolean; value?: unknown; error?: string } | null>;
-    let ran: { ok?: boolean; value?: unknown; error?: string } | null = null;
+    const askMe = (code: string) => askFrame(austen.page, 'Preview', code, 10_000);
+    let ran: Awaited<ReturnType<typeof askMe>> = null;
     for (const deadline = Date.now() + 90_000; ran === null && Date.now() < deadline;) {
       ran = await askMe(`await client.resources.resetDevData(); return 'wiped';`);
     }

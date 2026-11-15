@@ -22,6 +22,13 @@
  *
  * Why `PERSONA_MAIL_DOMAIN` is rewritten: {@link LOCAL_PERSONA_MAIL_DOMAIN} says.
  *
+ * Why `assets.directory` is rewritten: a local stack serves no built pages. The browser reaches
+ * Studio and the auth app through vite, from source, and `nebula-studio-ui/dist` holds whatever a
+ * deploy or a hand build last left there. A page loaded from it ran that old Studio against
+ * today's Worker, and nothing said so (2026-11-15: a scenario's second browser took its invite
+ * link at the Worker's own port, and its Studio was a build from that morning). So the local
+ * config reads {@link LOCAL_PAGES_DIR}, always empty, and such a load fails where it happens.
+ *
  * Why `containers` is optional: it is the ONLY thing in the stack that needs Docker. A scenario
  * that declares `needsContainer = false` boots without the image build (~13 s instead of ~110 s).
  *
@@ -38,7 +45,7 @@
  * CLI:   node scripts/local-config.mjs [--no-containers]   → prints the derived filename
  * Import: deriveLocalConfig({ containers }) → the derived filename, relative to apps/nebula
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -54,6 +61,9 @@ export const LOCAL_ORIGIN = 'http://lumenize.localhost';
  * message there and hands it to the local `email` handler as it arrived (`persona-mail-relay.mjs`).
  */
 export const LOCAL_PERSONA_MAIL_DOMAIN = 'lumenize-test.dev';
+
+/** The directory a local stack's `assets` reads, relative to apps/nebula: created here, never filled. */
+const LOCAL_PAGES_DIR = '.wrangler/local-no-built-pages';
 
 /** Rewrite the one `"NAME": "…"` var line's value, in place. */
 function setVar(lines, name, value) {
@@ -106,6 +116,8 @@ export function deriveLocalConfig({ containers = true } = {}) {
   commentOutLine(lines, 'addresses', 'no mail is routed to a local Worker; the relay hands it its personas\' mail');
   setVar(lines, 'LUMENIZE_ORIGIN', LOCAL_ORIGIN);
   setVar(lines, 'PERSONA_MAIL_DOMAIN', LOCAL_PERSONA_MAIL_DOMAIN);
+  mkdirSync(resolve(NEBULA_DIR, LOCAL_PAGES_DIR), { recursive: true });
+  setVar(lines, 'directory', LOCAL_PAGES_DIR);
   if (!containers) commentOutArray(lines, 'containers', 'container build disabled');
   const out = containers ? 'wrangler.local.jsonc' : 'wrangler.local-no-container.jsonc';
   writeFileSync(resolve(NEBULA_DIR, out), lines.join('\n'));

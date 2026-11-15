@@ -51,6 +51,7 @@ import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
+import { askFrame } from '../lib/ask-frame';
 import { refreshAccessToken } from '../../test/lib/email-login';
 
 export const needsContainer = true;
@@ -127,29 +128,11 @@ async function readFrame(page: Page, tab: string): Promise<FrameRead | undefined
 async function stripTabs(page: Page): Promise<string[]> {
   return page.locator('[data-testid^="tab-"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')!.slice(4)));
 }
-/**
- * Ask `tab`'s frame to run `code`, as Studio does for the agent's `run_in_tab`: the same message,
- * from Studio's own page to the frame it holds, and the page's answer read back.
- */
+/** Ask `tab`'s frame to run `code`, as Studio does for the agent's `run_in_tab` (`lib/ask-frame.ts`). */
 async function askTab(page: Page, tab: string, code: string): Promise<RunAnswer> {
-  // The page's side is a string, since a function tsx compiles gains a helper the page lacks.
-  return page.evaluate(`new Promise((resolve, reject) => {
-    const title = ${JSON.stringify(frameTitle(tab))};
-    const frame = document.querySelector('iframe[title="' + title + '"]');
-    if (!frame || !frame.contentWindow) { reject(new Error('Studio holds no frame titled "' + title + '"')); return; }
-    const origin = new URL(frame.src).origin;
-    const id = crypto.randomUUID().slice(0, 8);
-    let timer;
-    function on(e) {
-      if (e.source !== frame.contentWindow || e.origin !== origin || !e.data || e.data.type !== 'lumenize:ran' || e.data.id !== id) return;
-      clearTimeout(timer);
-      removeEventListener('message', on);
-      resolve(e.data);
-    }
-    timer = setTimeout(() => { removeEventListener('message', on); reject(new Error('the frame "' + title + '" did not answer in 30 s')); }, 30000);
-    addEventListener('message', on);
-    frame.contentWindow.postMessage({ type: 'lumenize:run', id, code: ${JSON.stringify(code)} }, origin);
-  })`) as Promise<RunAnswer>;
+  const answer = await askFrame(page, frameTitle(tab), code);
+  if (!answer) throw new Error(`Studio holds no frame titled "${frameTitle(tab)}", or it did not answer in 30 s`);
+  return answer;
 }
 
 export async function run(stack: DevStack): Promise<void> {

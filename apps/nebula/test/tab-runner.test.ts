@@ -7,6 +7,7 @@
  * the same runner against real frames and real pages.
  */
 import { describe, it, expect } from 'vitest';
+import { preprocess } from '@lumenize/structured-clone';
 import { TabRunner, ME_TAB, TAB_RUN_BOUND_MS, NO_SESSION_RETRY_MS, type TabPort } from '../src/tab-runner';
 
 /** A port that records what the runner asked of the frames, and a clock the test advances. */
@@ -61,7 +62,7 @@ describe('TabRunner', () => {
     expect(h.asked).toEqual(['load gerry']);
     h.runner.onMessage('gerry', { type: 'lumenize:loaded' });
     expect(h.posts).toEqual([{ tab: 'gerry', id: 'r1', code: 'return 1 + 1' }]);
-    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: true, value: 2 });
+    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: true, encoded: preprocess(2) });
     expect(await run).toEqual({ ok: true, value: 2 });
   });
 
@@ -72,7 +73,7 @@ describe('TabRunner', () => {
     const run = h.runner.run(ME_TAB, 'return client.claims.sub');
     // Mutation: post to every ready tab, and gerry's page runs code meant for the person's own.
     expect(h.asked).toEqual(['post me']);
-    h.runner.onMessage(ME_TAB, { type: 'lumenize:ran', id: 'r1', ok: true, value: 'austen' });
+    h.runner.onMessage(ME_TAB, { type: 'lumenize:ran', id: 'r1', ok: true, encoded: preprocess('austen') });
     expect(await run).toEqual({ ok: true, value: 'austen' });
   });
 
@@ -107,7 +108,7 @@ describe('TabRunner', () => {
     // The page that comes back is asked again, with the same request.
     h.runner.onMessage('gerry', { type: 'lumenize:loaded' });
     expect(h.posts.map((p) => p.id)).toEqual(['r1', 'r1']);
-    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: true, value: 1 });
+    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: true, encoded: preprocess(1) });
     expect(await run).toEqual({ ok: true, value: 1 });
   });
 
@@ -126,7 +127,7 @@ describe('TabRunner', () => {
     expect(h.asked.slice(asked)).toEqual(['reload gerry']);
     h.runner.onMessage('gerry', { type: 'lumenize:loaded' });
     expect(h.posts.at(-1)).toMatchObject({ tab: 'gerry', id: 'r2', code: 'return 2' });
-    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r2', ok: true, value: 2 });
+    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r2', ok: true, encoded: preprocess(2) });
     expect(await second).toEqual({ ok: true, value: 2 });
   });
 
@@ -197,7 +198,7 @@ describe('TabRunner', () => {
     slow.advance(TAB_RUN_BOUND_MS);
     await expect(second).rejects.toThrow('The tab "gerry" did not answer in 20 s. The code may still be running there.');
     // A late answer to a run that has ended is dropped.
-    slow.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: true, value: 1 });
+    slow.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: true, encoded: preprocess(1) });
   });
 
   // Mutation: post every waiting run when any tab's page loads, and gerry's code is posted to a
@@ -209,7 +210,7 @@ describe('TabRunner', () => {
     expect(h.posts).toHaveLength(0);
     h.runner.onMessage('gerry', { type: 'lumenize:loaded' });
     expect(h.posts).toEqual([{ tab: 'gerry', id: 'r1', code: 'return 1' }]);
-    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: true, value: 1 });
+    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: true, encoded: preprocess(1) });
     expect(await run).toEqual({ ok: true, value: 1 });
   });
 
@@ -217,14 +218,14 @@ describe('TabRunner', () => {
     const h = harness({ loaded: [ME_TAB, 'gerry'] });
     h.runner.onMessage(ME_TAB, { type: 'lumenize:loaded' });
     const run = h.runner.run(ME_TAB, 'return 1');
-    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: true, value: 'from gerry' });
-    h.runner.onMessage(ME_TAB, { type: 'lumenize:ran', id: 'zz', ok: true, value: 'unknown id' });
+    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: true, encoded: preprocess('from gerry') });
+    h.runner.onMessage(ME_TAB, { type: 'lumenize:ran', id: 'zz', ok: true, encoded: preprocess('unknown id') });
     expect(await settled(run)).toBe('pending');
     // The page saying again that it has a client, as it does when it echoes a reload request,
     // posts nothing a second time. Mutation: drop the posted mark, and the code runs twice.
     h.runner.onMessage(ME_TAB, { type: 'lumenize:loaded', id: 'reload-7' });
     expect(h.posts).toHaveLength(1);
-    h.runner.onMessage(ME_TAB, { type: 'lumenize:ran', id: 'r1', ok: true, value: 'mine' });
+    h.runner.onMessage(ME_TAB, { type: 'lumenize:ran', id: 'r1', ok: true, encoded: preprocess('mine') });
     expect(await run).toEqual({ ok: true, value: 'mine' });
   });
 
@@ -236,7 +237,37 @@ describe('TabRunner', () => {
     expect(h.posts).toHaveLength(0);
     h.runner.onMessage('gerry', { type: 'lumenize:loaded' });
     expect(h.posts).toHaveLength(1);
-    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: true, value: 1 });
+    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: true, encoded: preprocess(1) });
     expect(await run).toEqual({ ok: true, value: 1 });
+  });
+
+  // The page sends its value in the codec's encoding, since `postMessage` cannot carry a Vue
+  // proxy. Mutation: hand the encoding on undecoded → the value is the codec's own structure.
+  it('decodes the page\'s value, so a Map, a Date and a cycle arrive as themselves', async () => {
+    const h = harness({ loaded: ['gerry'] });
+    h.runner.onMessage('gerry', { type: 'lumenize:loaded' });
+    const run = h.runner.run('gerry', 'return tree');
+    const loop: { name: string; self?: unknown } = { name: 'loop' };
+    loop.self = loop;
+    const sent = { nodes: new Map([['n1', { slug: 'deals' }]]), when: new Date(0), loop };
+    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: true, encoded: structuredClone(preprocess(sent)) });
+    const answer = await run as { ok: true; value: typeof sent };
+    expect(answer.ok).toBe(true);
+    expect(answer.value.nodes).toBeInstanceOf(Map);
+    expect([...answer.value.nodes]).toEqual([['n1', { slug: 'deals' }]]);
+    expect(answer.value.when.getTime()).toBe(0);
+    expect((answer.value.loop as { self: unknown }).self).toBe(answer.value.loop);
+  });
+
+  // A page from a build made before values came encoded sends `value` and no `encoded`.
+  // Mutation: decode whatever is there → the run answers ok with a value of `undefined`.
+  it('answers a page that sent no encoding as a failure that says to build again', async () => {
+    const h = harness({ loaded: ['gerry'] });
+    h.runner.onMessage('gerry', { type: 'lumenize:loaded' });
+    const run = h.runner.run('gerry', 'return 1');
+    h.runner.onMessage('gerry', { type: 'lumenize:ran', id: 'r1', ok: true, value: 1 } as never);
+    const answer = await run as { ok: false; error: string };
+    expect(answer.ok).toBe(false);
+    expect(answer.error).toMatch(/older build.*[Bb]uild the app again/);
   });
 });

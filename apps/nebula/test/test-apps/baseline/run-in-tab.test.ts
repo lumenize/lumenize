@@ -136,12 +136,16 @@ describe('run_in_tab runs in a Studio tab of the person the turn is working for'
   // Mutations: have `runAnswerOf` throw on `{ ok: false }` → that call carries `error` and no
   // `result`; have it pass any answer through → the malformed one is recorded as a result; drop
   // `clipRunResult` → the long value arrives whole; pass an error's text through uncut → the long
-  // error arrives whole; keep the value as sent → the Map is recorded as a Map.
+  // error arrives whole; record the value as JSON has it → the Map is recorded as `{}`; hand the
+  // model the result as JSON has it → the model reads the tree as `{}`.
   it('code that throws is a result the model reads, Studio\'s own failure is a tool error, and a long value is clipped', async () => {
     const scope = uniqueScope();
     const c = await cast(scope);
     using js = c.j.resources.subscribeQuery(chatQuery); await js.ready;
     const long = 'x'.repeat(RUN_RESULT_MAX_CHARS + 500);
+    const loop: { name: string; self?: unknown } = { name: 'loop' };
+    loop.self = loop;
+    const rich = { tree: new Map([['n1', 'deals']]), seen: new Set(['a']), when: new Date(0), big: 10n, nan: NaN, loop };
     const replies: Array<() => Promise<RunAnswer>> = [
       async () => ({ ok: false, error: 'ReferenceError: nope is not defined' }),
       async () => { throw new Error('the tab "gerry" did not answer in 20 s'); },
@@ -149,9 +153,9 @@ describe('run_in_tab runs in a Studio tab of the person the turn is working for'
       // A Studio is a person's own browser, so its answer is read as data: one in neither form
       // the page gives is refused, where passed on it would skip the clip.
       async () => ({ ok: 'yes', value: long }) as unknown as RunAnswer,
-      // A thrown error's text is cut too, and a value is kept as its JSON has it.
+      // A thrown error's text is cut too. A value is recorded whole, as what it is (ADR-002).
       async () => ({ ok: false, error: 'E'.repeat(RUN_ERROR_MAX_CHARS + 300) }),
-      async () => ({ ok: true, value: { tree: new Map([['n1', 'deals']]) } }),
+      async () => ({ ok: true, value: rich }),
     ];
     c.answers(c.j, 'jennifer', () => replies.shift()!());
     await c.seed([
@@ -168,13 +172,25 @@ describe('run_in_tab runs in a Studio tab of the person the turn is working for'
     expect([threw!.result, threw!.error]).toEqual([{ ok: false, error: 'ReferenceError: nope is not defined' }, undefined]);
     expect([silent!.result, silent!.error]).toEqual([undefined, 'the tab "gerry" did not answer in 20 s']);
     expect(clipped!.result).toMatchObject({ ok: true, clipped: true });
-    expect((clipped!.result!.json as string).length).toBe(RUN_RESULT_MAX_CHARS);
+    expect((clipped!.result!.text as string).length).toBe(RUN_RESULT_MAX_CHARS);
     expect(clipped!.result!.note).toContain(`${long.length + 2} characters`);
     expect([odd!.result, odd!.error]).toEqual([undefined, 'the Studio tab answered in a form run_in_tab does not read']);
     expect(longError!.result).toEqual({ ok: false, error: `${'E'.repeat(RUN_ERROR_MAX_CHARS)}… (${RUN_ERROR_MAX_CHARS + 300} characters in all)` });
-    // The honest page sends a Map as its entries. One sent as a Map is kept as JSON has it, so
-    // the record holds what the clip measured.
-    expect(map!.result).toEqual({ ok: true, value: { tree: {} } });
+    // The record holds the value itself. Only the model's copy is text, made where the request is
+    // built: a Map as its entries, a Set as its members, a cycle named.
+    const recorded = map!.result as unknown as { ok: true; value: typeof rich };
+    expect(recorded.ok).toBe(true);
+    expect(recorded.value.tree).toBeInstanceOf(Map);
+    expect([...recorded.value.tree]).toEqual([['n1', 'deals']]);
+    expect([...recorded.value.seen]).toEqual(['a']);
+    expect(recorded.value.when).toBeInstanceOf(Date);
+    expect(recorded.value.when.getTime()).toBe(0);
+    expect(recorded.value.big).toBe(10n);
+    expect(recorded.value.nan).toBeNaN();
+    expect((recorded.value.loop as { self: unknown }).self).toBe(recorded.value.loop);
+    const seen = await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<GalaxyTest>().takeSeenMessagesForTest()) as Array<Array<{ role: string; content?: string }>>;
+    const toolTexts = seen.flat().filter((m) => m.role === 'tool').map((m) => m.content);
+    expect(toolTexts).toContain('{"ok":true,"value":{"tree":[["n1","deals"]],"seen":["a"],"when":"1970-01-01T00:00:00.000Z","big":"10","nan":"NaN","loop":{"name":"loop","self":"[cycle]"}}}');
     c.j[Symbol.dispose](); c.a[Symbol.dispose]();
   });
 

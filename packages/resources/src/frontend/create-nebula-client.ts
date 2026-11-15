@@ -42,6 +42,7 @@ import {
 } from '@vue/reactivity';
 import { getCurrentInstance } from '@vue/runtime-core';
 import { debug } from '@lumenize/debug';
+import { preprocess } from '@lumenize/structured-clone';
 import { deepEquals } from './deep-equals';
 import type { Middleware, StoreClient, WriteContext } from './types';
 import { NebulaClient } from '../nebula-client';
@@ -974,34 +975,21 @@ export function answerReloadRequests(opts: {
   return () => window.removeEventListener('message', listener);
 }
 
-/** What a framed page answers Studio's `lumenize:run` with: the code's value, or the error it threw. */
+/**
+ * What a run in a framed page answers: the code's value, whole, or the error it threw. The page
+ * posts the value in the codec's encoding and Studio decodes it, so this is what a reader holds.
+ */
 export type RunAnswer = { ok: true; value: unknown } | { ok: false; error: string };
 
 /** How long a run waits, once the client is connected, for the org tree to reach the store. */
 export const TREE_WAIT_MS = 5_000;
 
 /**
- * `value` as the JSON a run answers with: a `Map` as an array of its entries, a `Set` as an array
- * of its members, a `bigint` as its digits, an `Error` as its name, message and own fields, and
- * everything else as `JSON.stringify` has it. Left to itself JSON turns a `Map` or an `Error` into
- * `{}`, which reads as an empty one.
- *
- * @throws what `JSON.stringify` throws, for a value with a cycle.
- */
-export function plainData(value: unknown): unknown {
-  const json = JSON.stringify(value, (_key, v: unknown) =>
-    v instanceof Map || v instanceof Set ? [...v]
-      : typeof v === 'bigint' ? v.toString()
-      : v instanceof Error ? { ...v, name: v.name, message: v.message }
-      : v);
-  return json === undefined ? undefined : JSON.parse(json);
-}
-
-/**
  * How a dev Star's page, framed in Studio, runs code Studio hands it: Studio posts
  * `{ type: 'lumenize:run', id, code }`, the page runs `code` as the body of an async function with
- * the app's own `client` and `store` in scope, and posts back `{ type: 'lumenize:ran', id, … }`
- * with a {@link RunAnswer}. It is how Studio's agent does work as the page's member: building a
+ * the app's own `client` and `store` in scope, and posts back `{ type: 'lumenize:ran', id, … }`:
+ * `ok: true` with the value `encoded`, or `ok: false` with the `error`. Studio reads it as a
+ * {@link RunAnswer}. It is how Studio's agent does work as the page's member: building a
  * cast from a person's own tab, or making what a persona would make from that persona's.
  *
  * ⚠️ **It runs arbitrary code with the page's session, so where it listens is the whole of its
@@ -1017,9 +1005,11 @@ export function plainData(value: unknown): unknown {
  * then waits for the org tree to reach the store, up to {@link TREE_WAIT_MS}, since code looks a
  * node up there and the tree arrives a moment after the connection.
  *
- * The code's value goes back as JSON ({@link plainData}), because its reader is a model, and a
- * store value is a Vue proxy the browser will not copy across windows as it is. A value JSON
- * cannot hold, a cycle say, comes back as an error that says so. Returns the listener's removal.
+ * The code's value goes back whole, in the encoding of `@lumenize/structured-clone` (ADR-002): a
+ * `Map`, a `Date` or a cycle arrives in Studio as itself. It is encoded here because a store value
+ * is a Vue proxy, which the browser will not copy across windows, and the codec reads through one.
+ * A value the codec cannot hold, a symbol say, comes back as an error that says so. Returns the
+ * listener's removal.
  */
 export function answerRunRequests(opts: {
   parentOrigin: string;
@@ -1042,7 +1032,7 @@ export function answerRunRequests(opts: {
     const data = e.data as { type?: unknown; id?: unknown; code?: unknown } | null;
     if (data?.type !== 'lumenize:run' || typeof data.code !== 'string') return;
     const { id, code } = data;
-    const answer = (body: RunAnswer & { noSession?: true }) =>
+    const answer = (body: { ok: true; encoded: unknown } | { ok: false; error: string; noSession?: true }) =>
       window.parent.postMessage({ type: 'lumenize:ran', id, ...body }, parentOrigin);
     void (async () => {
       try {
@@ -1060,9 +1050,9 @@ export function answerRunRequests(opts: {
         return;
       }
       try {
-        answer({ ok: true, value: plainData(value) });
+        answer({ ok: true, encoded: preprocess(value) });
       } catch (err) {
-        answer({ ok: false, error: `the code ran, and its value could not be sent back as JSON (${describe(err)}). Return plain data` });
+        answer({ ok: false, error: `the code ran, and its value could not be sent back (${describe(err)}). Return data without it` });
       }
     })();
   };

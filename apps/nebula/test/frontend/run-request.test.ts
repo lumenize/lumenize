@@ -8,6 +8,8 @@
  * asking a real page and a persona's tab answering, is the `/live` scenario `persona-tabs`.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import { reactive } from 'vue';
+import { postprocess } from '@lumenize/structured-clone';
 import { answerRunRequests, createNebulaClient, TREE_WAIT_MS } from '../../../../packages/resources/src/frontend/create-nebula-client';
 
 const STUDIO = 'https://crm.acme.lumenize.dev';
@@ -15,11 +17,16 @@ const STUDIO = 'https://crm.acme.lumenize.dev';
 const post = (origin: string, data: unknown, source: unknown = window.parent) =>
   window.dispatchEvent(new MessageEvent('message', { data, origin, source: source as Window }));
 
-/** Every `lumenize:ran` the page posted to its parent, in order. */
+/**
+ * Every `lumenize:ran` the page posted to its parent, in order. A value is read as Studio reads
+ * it: cloned as `postMessage` clones, which refuses a Vue proxy, then decoded by the codec.
+ */
 function answers() {
-  const ran: Array<{ id: unknown; ok: boolean; value?: unknown; error?: string; noSession?: boolean; to: string }> = [];
+  const ran: Array<{ id: unknown; ok: boolean; value?: unknown; error?: string; noSession?: boolean; to: string; sentValue: boolean }> = [];
   const spy = vi.spyOn(window.parent, 'postMessage').mockImplementation(((msg: any, to: string) => {
-    if (msg?.type === 'lumenize:ran') ran.push({ id: msg.id, ok: msg.ok, value: msg.value, error: msg.error, noSession: msg.noSession, to });
+    if (msg?.type !== 'lumenize:ran') return;
+    const value = msg.ok ? postprocess(structuredClone(msg.encoded)) : undefined;
+    ran.push({ id: msg.id, ok: msg.ok, value, error: msg.error, noSession: msg.noSession, to, sentValue: 'value' in msg });
   }) as never);
   return { ran, spy };
 }
@@ -42,7 +49,7 @@ describe('answerRunRequests', () => {
         code: "await new Promise((r) => setTimeout(r, 5)); return { sub: client.claims.sub, four: client.double(2), types: Object.keys(store.resources) }",
       });
       await vi.waitFor(() => expect(ran).toHaveLength(1));
-      expect(ran[0]).toEqual({ id: 'r1', ok: true, value: { sub: 'gerry-sub', four: 4, types: ['Deal'] }, error: undefined, noSession: undefined, to: STUDIO });
+      expect(ran[0]).toEqual({ id: 'r1', ok: true, value: { sub: 'gerry-sub', four: 4, types: ['Deal'] }, error: undefined, noSession: undefined, to: STUDIO, sentValue: false });
     } finally {
       remove();
     }
@@ -91,26 +98,51 @@ describe('answerRunRequests', () => {
     }
   });
 
-  it('answers with JSON: a Map as its entries and a Set as its members, and a value JSON cannot hold as an error', async () => {
-    // The value's reader is a model, and JSON left to itself turns a Map into `{}`, which reads as
-    // an empty tree. Mutations: answer with the value as it is → the Map arrives a Map → red; drop
-    // the replacer → `nodes` is `{}` → red.
+  it('answers with the value as it is: a Map, a Set, a Date, a bigint, an Error and a cycle arrive as themselves', async () => {
+    // The page encodes with the codec (ADR-002), since `postMessage` cannot carry a Vue proxy and
+    // JSON turns a Map into `{}`. Mutations: send the value as JSON has it → `nodes` arrives an
+    // object, not a Map → red; send it unencoded → a reactive store's value cannot be cloned → red.
+    const { ran } = answers();
+    const remove = answerRunRequests({ parentOrigin: STUDIO, client, store: reactive(store), ready: Promise.resolve() });
+    try {
+      post(STUDIO, { type: 'lumenize:run', id: 'c1', code: 'return { tree: store.lmz.orgTree.value, big: 10n, when: new Date(0), nothing: undefined, nan: NaN, failed: Object.assign(new TypeError("no such deal"), { retryable: true }) }' });
+      post(STUDIO, { type: 'lumenize:run', id: 'c2', code: 'const a = { name: "a" }; a.self = a; return a' });
+      post(STUDIO, { type: 'lumenize:run', id: 'c3', code: 'return' });
+      await vi.waitFor(() => expect(ran).toHaveLength(3));
+      const whole = ran.find((a) => a.id === 'c1')!;
+      expect([whole.ok, whole.sentValue]).toEqual([true, false]);
+      const value = whole.value as { tree: { nodes: Map<string, unknown>; edges: Set<string> }; big: bigint; when: Date; nan: number; failed: Error & { retryable?: boolean } };
+      expect(value.tree.nodes).toBeInstanceOf(Map);
+      expect([...value.tree.nodes]).toEqual([['n1', { slug: 'deals', label: 'Deals' }]]);
+      expect(value.tree.edges).toBeInstanceOf(Set);
+      expect([...value.tree.edges]).toEqual(['root:n1']);
+      expect(value.big).toBe(10n);
+      expect(value.when).toBeInstanceOf(Date);
+      expect(value.when.getTime()).toBe(0);
+      expect('nothing' in value).toBe(true);
+      expect(value.nan).toBeNaN();
+      // A transaction's `infrastructure-error` outcome carries an Error, with fields of its own.
+      expect(value.failed).toBeInstanceOf(TypeError);
+      expect([value.failed.message, value.failed.retryable]).toEqual(['no such deal', true]);
+      const cyclic = ran.find((a) => a.id === 'c2')!;
+      expect(cyclic.ok).toBe(true);
+      expect((cyclic.value as { self: unknown }).self).toBe(cyclic.value);
+      expect(ran.find((a) => a.id === 'c3')).toMatchObject({ ok: true, value: undefined });
+    } finally {
+      remove();
+    }
+  });
+
+  it('answers a value the codec cannot hold as an error that says so', async () => {
+    // A symbol has no encoding. Mutation: answer nothing when the encoding throws → the run
+    // waits out Studio's bound.
     const { ran } = answers();
     const remove = answerRunRequests({ parentOrigin: STUDIO, client, store, ready: Promise.resolve() });
     try {
-      post(STUDIO, { type: 'lumenize:run', id: 'c1', code: 'return { tree: store.lmz.orgTree.value, big: 10n, when: new Date(0), nothing: undefined, failed: Object.assign(new TypeError("no such deal"), { retryable: true }) }' });
-      post(STUDIO, { type: 'lumenize:run', id: 'c2', code: 'const a = {}; a.self = a; return a' });
-      post(STUDIO, { type: 'lumenize:run', id: 'c3', code: 'return' });
-      await vi.waitFor(() => expect(ran).toHaveLength(3));
-      expect(ran.find((a) => a.id === 'c1')).toMatchObject({ ok: true, value: {
-        tree: { nodes: [['n1', { slug: 'deals', label: 'Deals' }]], edges: ['root:n1'] }, big: '10', when: '1970-01-01T00:00:00.000Z',
-        // An Error left to JSON is `{}`: a transaction's `infrastructure-error` outcome carries one.
-        failed: { name: 'TypeError', message: 'no such deal', retryable: true },
-      } });
-      const cyclic = ran.find((a) => a.id === 'c2')!;
-      expect(cyclic.ok).toBe(false);
-      expect(cyclic.error).toContain('the code ran, and its value could not be sent back as JSON');
-      expect(ran.find((a) => a.id === 'c3')).toMatchObject({ ok: true, value: undefined });
+      post(STUDIO, { type: 'lumenize:run', id: 's1', code: 'return { tag: Symbol("x") }' });
+      await vi.waitFor(() => expect(ran).toHaveLength(1));
+      expect(ran[0]!.ok).toBe(false);
+      expect(ran[0]!.error).toContain('the code ran, and its value could not be sent back');
     } finally {
       remove();
     }

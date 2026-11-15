@@ -35,6 +35,8 @@
  * `needsContainer = true` — the app is built in the build container.
  */
 import assert from 'node:assert/strict';
+import { Browser } from '@lumenize/testing';
+import { NebulaClient } from '@lumenize/resources/client';
 import { uniqueTestEmail, waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, StudioClient } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
@@ -45,6 +47,7 @@ import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
+import { askFrame } from '../lib/ask-frame';
 import { refreshAccessToken } from '../../test/lib/email-login';
 
 export const needsContainer = true;
@@ -134,23 +137,9 @@ async function readFrame(page: Page, tab: string): Promise<FrameRead | undefined
 const heard = (page: Page) => page.evaluate('window.__ran || []') as Promise<Heard[]>;
 /** Ask `tab`'s frame to run `code` from Studio's own page, to read what a turn left behind. */
 async function askTab(page: Page, tab: string, code: string): Promise<RunAnswer> {
-  return page.evaluate(`new Promise((resolve, reject) => {
-    const title = ${JSON.stringify(frameTitle(tab))};
-    const frame = document.querySelector('iframe[title="' + title + '"]');
-    if (!frame || !frame.contentWindow) { reject(new Error('Studio holds no frame titled "' + title + '"')); return; }
-    const origin = new URL(frame.src).origin;
-    const id = 'harness-' + crypto.randomUUID().slice(0, 8);
-    let timer;
-    function on(e) {
-      if (e.source !== frame.contentWindow || e.origin !== origin || !e.data || e.data.type !== 'lumenize:ran' || e.data.id !== id) return;
-      clearTimeout(timer);
-      removeEventListener('message', on);
-      resolve(e.data);
-    }
-    timer = setTimeout(() => { removeEventListener('message', on); reject(new Error('the frame "' + title + '" did not answer in 30 s')); }, 30000);
-    addEventListener('message', on);
-    frame.contentWindow.postMessage({ type: 'lumenize:run', id, code: ${JSON.stringify(code)} }, origin);
-  })`) as Promise<RunAnswer>;
+  const answer = await askFrame(page, frameTitle(tab), code);
+  if (!answer) throw new Error(`Studio holds no frame titled "${frameTitle(tab)}", or it did not answer in 30 s`);
+  return answer;
 }
 
 export async function run(stack: DevStack): Promise<void> {
@@ -193,13 +182,26 @@ export async function run(stack: DevStack): Promise<void> {
     const waiter = waitForEmail({ testToken, to: pEmail, timeout: 120_000 });
     let inviteLink: string;
     try {
-      const ack = await galaxyCall<NodeInviteAck>(
-        driver.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, [{ email: pEmail, tier: 'write' }]));
+      // Sent from a client on Studio's own page, as a person invites from Studio, so the link
+      // names that page's origin and P's browser loads Studio from it.
+      const studioPage = vite.scopeUrl(galaxy);
+      const ctx = new Browser().context(studioPage);
+      const inviter = new NebulaClient({
+        baseUrl: studioPage, platformOrigin: vite.viteBaseUrl, ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
+        accessToken: oToken.accessToken, instanceName: `${oToken.sub}.${crypto.randomUUID().slice(0, 8)}`,
+        fetch: ctx.fetch, sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
+      });
+      disposers.push(() => { try { inviter[Symbol.dispose](); } catch { /* already disposed */ } ctx.close(); });
+      const ack = await inviter.lmz.callAsync('GALAXY', galaxy,
+        inviter.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, [{ email: pEmail, tier: 'write' }]), { timeoutMs: 30_000 }) as NodeInviteAck;
       assert.deepEqual(ack, { accepted: 1, errors: [] }, `invite ack: ${JSON.stringify(ack)}`);
       inviteLink = extractMagicLink(await waiter.emailPromise);
     } finally {
       waiter.cleanup();
     }
+    // A link at the Worker's own port would load Studio from a built copy, which a local stack
+    // does not serve: Studio is vite's, from source.
+    assert.ok(inviteLink.startsWith(vite.viteBaseUrl), `the invite links to ${new URL(inviteLink).origin}, Studio's page is ${vite.viteBaseUrl}`);
     const p = await instrumentedPage(browser);
     await p.page.context().addInitScript({ content: HEAR_RUNS });
     await p.page.goto(inviteLink, { waitUntil: 'domcontentloaded' });

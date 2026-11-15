@@ -17,6 +17,7 @@
  * finished is not known, so the run fails at once and says so, and is not posted again: code
  * that makes a record would make it twice.
  */
+import { postprocess } from '@lumenize/structured-clone';
 import type { RunAnswer } from '@lumenize/resources/frontend';
 
 /** The tab every Studio has: the person's own page on the dev Star's host. */
@@ -51,7 +52,23 @@ interface PendingRun {
 export type TabMessage =
   | { type: 'lumenize:loaded'; id?: unknown }
   | { type: 'lumenize:login-required' }
-  | { type: 'lumenize:ran'; id?: unknown; ok?: unknown; value?: unknown; error?: unknown; noSession?: unknown };
+  | { type: 'lumenize:ran'; id?: unknown; ok?: unknown; encoded?: unknown; error?: unknown; noSession?: unknown };
+
+/**
+ * The value a page sent, decoded from the codec's encoding it crossed windows in (ADR-002), so a
+ * `Map`, a `Date` or a cycle is itself again. A page from a build made before values came encoded
+ * sends none, and the run fails saying so: its value would otherwise read as `undefined`.
+ */
+function decoded(message: { encoded?: unknown }): RunAnswer {
+  if (!('encoded' in message)) {
+    return { ok: false, error: 'The tab\'s page answered in a form this Studio does not read, as a page from an older build does. Build the app again, then run this again.' };
+  }
+  try {
+    return { ok: true, value: postprocess(message.encoded as Parameters<typeof postprocess>[0]) };
+  } catch (err) {
+    return { ok: false, error: `The tab's page sent a value Studio could not decode (${err instanceof Error ? err.message : String(err)}).` };
+  }
+}
 
 export class TabRunner {
   #port: TabPort;
@@ -145,7 +162,7 @@ export class TabRunner {
     }
     this.#noSession.delete(tab);
     run.settle(message.ok === true
-      ? { ok: true, value: message.value }
+      ? decoded(message)
       : { ok: false, error: typeof message.error === 'string' ? message.error : 'the page gave no reason' });
   }
 
