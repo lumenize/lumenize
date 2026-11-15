@@ -16,8 +16,8 @@
  * there natively in the BrowserContext (no Node-`Browser`-jar → context transfer).
  *
  * Structure (per feedback_e2e_test_granularity): one cheap pre-login shell check, then
- * one narrative authenticated flow (login → connected → prompt → preview), with the
- * destructive `.dev` wipe LAST in afterAll.
+ * one narrative authenticated flow (login → connected → prompt → preview). Nothing is wiped
+ * afterwards: the global setup starts each run from an empty store.
  *
  * @see tasks/nebula-local-smoke.md
  */
@@ -31,7 +31,7 @@ import { launchChromium, loginToStudio, previewLastBuild } from './helpers';
 /** Dedicated test scope — `test-` prefix is the reaper's auto-reap marker. Must pass
  *  Mesh's `isValidSlug` (no leading, trailing or consecutive hyphens, at most 30
  *  characters), so a single hyphen — NOT `test--`. Separate from any manually-claimed scope; the working scope is the
- *  GALAXY post-collapse — the Wipe teardown targets its `.dev` star (`{scope}.dev`). */
+ *  GALAXY post-collapse. */
 const TEST_SCOPE = 'test-u0.test-g0';
 /** The account that owns the workspace; its page is where an app is created. */
 const TEST_UNIVERSE = TEST_SCOPE.split('.')[0];
@@ -43,7 +43,7 @@ describe.runIf(HAS_DOCKER)('Studio UI smoke (wrangler dev + Docker)', () => {
   let viteBaseUrl: string;
   let workerBaseUrl: string;
   let testToken: string;
-  /** Authenticated context, shared by the narrative steps + the wipe teardown. */
+  /** Authenticated context, shared by the narrative steps. */
   let authed: { ctx: BrowserContext; page: Page } | null = null;
   /** The owner's session from the claim, so the codegen step can preview a held-back build. */
   let ownerSession: { refreshToken: string; authScope: string } | null = null;
@@ -56,18 +56,7 @@ describe.runIf(HAS_DOCKER)('Studio UI smoke (wrangler dev + Docker)', () => {
   });
 
   afterAll(async () => {
-    // Destructive cleanup LAST: wipe the .dev Star data via the Studio's own "Wipe"
-    // button (Star.resetDevData). Best-effort — a leftover DO with no traffic costs
-    // ~nothing, and a chat turn regenerates source+preview over any stale state.
-    if (authed) {
-      try {
-        await authed.page.getByRole('button', { name: /Wipe/ }).click();
-        await authed.page.getByText('Wiped the development test data.').waitFor({ state: 'visible', timeout: 15_000 });
-      } catch {
-        /* best-effort */
-      }
-      await authed.ctx.close();
-    }
+    if (authed) await authed.ctx.close();
     await browser?.close();
   });
 
@@ -117,7 +106,7 @@ describe.runIf(HAS_DOCKER)('Studio UI smoke (wrangler dev + Docker)', () => {
     expect(await page.locator('iframe[title="Preview"]').getAttribute('src'))
       .toBe(`${scopeOriginFrom(viteBaseUrl, `${TEST_SCOPE}.dev`)}/`);
 
-    authed = { ctx, page }; // hand off to the prompt step + the wipe teardown
+    authed = { ctx, page }; // hand off to the prompt step
   });
 
   it("create an app from the account's page — the flow with zero automated coverage until now", async () => {

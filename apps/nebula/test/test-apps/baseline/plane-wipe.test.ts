@@ -1,11 +1,11 @@
 /**
  * The plane's wipe erases what the plane owns and rebuilds it, and runs only on the `.dev` Star.
  *
- * One path reaches it, Studio's Wipe (`resetDevData`); installing a version never wipes. Each limb
+ * One path reaches it, `resources.resetDevData`; installing a version never wipes. Each limb
  * below is one property of that:
  *   - the wipe completes, sends its notice, and leaves no plane row but the root;
  *   - every kind of subscriber hears the notice;
- *   - its ADR-016 record names who pressed Wipe;
+ *   - its ADR-016 record names who asked for it;
  *   - a grant the wipe erased stops authorizing at once, on a warm isolate;
  *   - installing a version, first or replacing, keeps the data and the tree;
  *   - a transaction or invite held at the validator's await across a wipe writes nothing;
@@ -91,8 +91,8 @@ async function planeRows(binding: 'STAR' | 'GALAXY', instance: string): Promise<
   });
 }
 const heardNotice = (c: NebulaClientTest) => c.lastErrorObject?.name === 'OntologyStaleError';
-/** Studio's Wipe, as its button sends it. */
-const resetDev = (a: NebulaClientTest, dev: string) => a.lmz.callAsync('STAR', dev, a.ctn<StarTest>().resetDevData());
+/** The reset, as a page's `client.resources.resetDevData()` sends it. */
+const resetDev = (a: NebulaClientTest, dev: string) => a.lmz.callAsync('STAR', dev, a.ctn<StarTest>().resources.resetDevData());
 
 /** The names of a host's query indexes, from its catalogue. */
 function queryIndexes(instance: string): Promise<string[]> {
@@ -101,7 +101,7 @@ function queryIndexes(instance: string): Promise<string[]> {
       .toArray().map((row: { name: string }) => row.name));
 }
 
-describe('Studio\'s Wipe on the .dev Star', () => {
+describe('a reset of the .dev Star', () => {
   it('completes, sends its notice, and leaves no plane row but the org tree\'s root', async () => {
     const { galaxy, dev } = newDev();
     const a = await admin(galaxy, dev);
@@ -118,7 +118,8 @@ describe('Studio\'s Wipe on the .dev Star', () => {
     const declared = ['idx_Snapshots_q_Child:parent', 'idx_Snapshots_q__InviteStatus:node'];
     expect(await queryIndexes(dev)).toEqual(declared);
 
-    await resetDev(a, dev);
+    // Through the client's own call, as a page's code sends it; the other limbs send the raw op.
+    await a.resources.resetDevData();
 
     expect(wipes(dev).map((e) => e.data!.cause)).toEqual(['reset']);
     // The wipe records no installed version, so it leaves no index, and the next install makes
@@ -157,7 +158,7 @@ describe('Studio\'s Wipe on the .dev Star', () => {
     for (const c of [a, resource, q, roster, tree]) c[Symbol.dispose]();
   });
 
-  it('its ADR-016 record names who pressed Wipe', async () => {
+  it('its ADR-016 record names who asked for it', async () => {
     const { galaxy, dev } = newDev();
     const presser = await admin(galaxy, dev);
     presser.callStarResetDevData(dev);
@@ -185,6 +186,22 @@ describe('Studio\'s Wipe on the .dev Star', () => {
     expect([...state.nodes.keys()]).toEqual([ROOT_NODE_ID]);
     expect(state.permissions.size).toBe(0);
     a[Symbol.dispose](); b[Symbol.dispose]();
+  });
+});
+
+describe('the reset behind a Galaxy\'s `resources` door', () => {
+  // The Galaxy composes the same plane, so its door reaches the same member. The app's owner
+  // holds dominion there, and the plane's own `.dev` check is what refuses.
+  // Mutation: drop that check → the Galaxy's tree loses its chat node.
+  it('is refused to the app\'s owner, and the Galaxy\'s plane keeps every row', async () => {
+    const { galaxy } = newDev();
+    const owner = await admin(galaxy, galaxy, CHAT_MESSAGE_ONTOLOGY_VERSION, GALAXY_PAIR(galaxy));
+    const before = await planeRows('GALAXY', galaxy);
+    expect(before.Nodes).toBe(2); // the root and the chat node
+    await expect(owner.lmz.callAsync('GALAXY', galaxy, owner.ctn<Galaxy>().resources.resetDevData()))
+      .rejects.toThrow(/only permitted on the \.dev sandbox Star/);
+    expect(await planeRows('GALAXY', galaxy)).toEqual(before);
+    owner[Symbol.dispose]();
   });
 });
 
@@ -254,7 +271,7 @@ describe('a transaction or invite held at the validator across a wipe writes not
   }, 60_000);
 });
 
-describe('the latest moment survives Studio\'s Wipe', () => {
+describe('the latest moment survives a reset', () => {
   // A pinned `Date`, because only a clock that went back across the wipe can tell the stored key
   // from the wall clock: a wipe takes longer than a millisecond, so on a clock that only moves
   // forward the next moment is later either way.
@@ -286,7 +303,7 @@ describe('the latest moment survives Studio\'s Wipe', () => {
   }, 60_000);
 });
 
-describe('Studio\'s Wipe records no ontology, so the next op installs once and wipes nothing', () => {
+describe('a reset records no ontology, so the next op installs once and wipes nothing', () => {
   it('the index is empty, the next op is first told `checking`, it installs without a second wipe, and a tree row made after the reset survives', async () => {
     const { galaxy, dev } = newDev();
     const owner = await admin(galaxy, galaxy, CHAT_MESSAGE_ONTOLOGY_VERSION, GALAXY_PAIR(galaxy));

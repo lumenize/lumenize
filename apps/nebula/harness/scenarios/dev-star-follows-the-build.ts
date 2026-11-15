@@ -23,12 +23,11 @@
  *     page's version has its op end `ontology-stale`; locally, the tenant asks its Galaxy, is
  *     answered no row, and installs nothing. *Reds when the Galaxy answers every caller with the
  *     `.dev` row.*
- *  4. **Studio's Wipe button says what the Star answered.** A chat collaborator, who has no passage
- *     into `.dev` from Studio's page, clicks Wipe and is shown the refusal; the owner's click
- *     reports success. Before the owner's Wipe the frame moves to a sub-path and takes a mark;
- *     after it, the frame sits at the Star's root with the mark gone. *Reds when the button logs
- *     success before the answer, and when the Wipe asks the frame rather than setting its
- *     address, which keeps the sub-path.*
+ *  4. **A collaborator wipes `.dev` from their own "Me" tab, and Studio has no Wipe button.** A chat
+ *     collaborator has no passage into `.dev` from Studio's page and administers it on its own
+ *     host, so a wipe is code their "Me" tab runs, as the agent's `run_in_tab` has it run. A Deal
+ *     the owner made reads back before the run and is gone after it. *Reds when Studio shows a
+ *     Wipe button, and when the reset leaves the Star's rows.*
  *  5. **A version change on `.dev` counts the rows its validator refuses.** On the wiped Star, five
  *     `Deal`s, two with a `stage`; a build adding an optional field counts 0 of 5, and a build
  *     retyping `stage` counts exactly 2 of 5 (locally, from the Star's log line). *Reds when the
@@ -163,7 +162,7 @@ const BROKEN = `\nexport interface Deal {\n  title: string\n`;
 const MARK = 'limb-two-visible-string';
 const APP_WITH_MARK = `<script setup lang="ts">
 import { client } from './nebula';
-void client; // a client, so the page answers Studio's reload requests (limb 4's Wipe check)
+void client; // a client, so the page answers Studio's requests (limb 4's run)
 </script>
 
 <template>
@@ -388,7 +387,7 @@ export async function run(stack: DevStack): Promise<void> {
       return [asked && answered && installed === 0, `asked ${asked}, answered no row ${answered}, installs ${installed}`];
     });
 
-    // ── LIMB 4: Studio's Wipe button says what the Star answered ────────────────────────────
+    // ── LIMB 4: a collaborator wipes `.dev` from their own "Me" tab ──────────────────────────
     // The collaborator is invited the way a person is invited from Studio: from a client on
     // Studio's own page, so the link names the page a person would be on, and followed as sent.
     const austenEmail = uniqueTestEmail();
@@ -419,77 +418,45 @@ export async function run(stack: DevStack): Promise<void> {
     const studioHost = new URL(vite.scopeUrl(galaxy)).hostname;
     await austen.page.waitForURL((u) => u.hostname === studioHost, { timeout: 60_000 });
 
-    const wipeOn = async (page: import('playwright').Page): Promise<{ refused: string | null; succeeded: boolean }> => {
-      const button = page.getByRole('button', { name: 'Wipe' });
-      await button.waitFor({ state: 'visible', timeout: 60_000 });
-      await button.click();
-      const refusal = page.getByText(/^Wipe refused:/);
-      const success = page.getByText('Wiped the development test data.');
-      await Promise.race([
-        refusal.first().waitFor({ state: 'visible', timeout: 30_000 }),
-        success.first().waitFor({ state: 'visible', timeout: 30_000 }),
-      ]).catch(() => { /* neither: reported below */ });
-      await sleep(1_000); // a success line logged before a refusal would arrive within this
-      return {
-        refused: (await refusal.count()) > 0 ? await refusal.first().innerText() : null,
-        succeeded: (await success.count()) > 0,
-      };
-    };
-    const austenWipe = await wipeOn(austen.page);
-    const passage = `No passage from "${galaxy}" into "${dev}"`;
-    record('limb 4 — a collaborator\'s Wipe shows the refusal, and no success',
-      austenWipe.refused !== null && austenWipe.refused.includes(passage) && !austenWipe.succeeded,
-      `refusal ${JSON.stringify(austenWipe.refused)}; success line ${austenWipe.succeeded ? 'SHOWN' : 'absent'}`);
-    // The URL the frame was on may name data the wipe deleted, so a Wipe sets the frame's address.
-    const ownerFrame = async () => (await owner.page.locator('iframe[title="Preview"]').elementHandle())?.contentFrame();
-    const frameAt = async () => (await (await ownerFrame())?.evaluate(() => ({
-      path: location.pathname, marked: (window as unknown as { __mark?: boolean }).__mark === true,
-    })).catch(() => undefined));
-    // Positive control first: the frame must hold a page with a client that answers, so a Wipe that
-    // asked it would keep the sub-path and only one that sets the address lands at the root. Limb
-    // 1's page has no client, so after limb 2's landing Studio waits out its echo window and then
-    // sets the address; the probe waits for that. It names the frame's own build, since another
-    // build would refresh the frame and none would reload it.
-    let ownBuild: string | undefined;
-    let answered = false;
-    for (const deadline = Date.now() + 30_000; !answered && Date.now() < deadline;) {
-      ownBuild = await (await ownerFrame())?.evaluate(() => {
-        const content = document.querySelector('meta[name="nebula-scope"]')?.getAttribute('content');
-        return content ? (JSON.parse(content) as { buildVersion?: string }).buildVersion : undefined;
-      }).catch(() => undefined);
-      answered = ownBuild !== undefined && await owner.page.evaluate(async ([devOrigin, build]) => {
-        const frame = document.querySelector('iframe[title="Preview"]') as HTMLIFrameElement;
-        // Inline listeners only: a named function here gains a bundler helper the page lacks.
-        return new Promise<boolean>((resolve) => {
-          const id = `wipe-control-${Math.random()}`;
-          addEventListener('message', (e) => { if ((e.data as { id?: string } | null)?.id === id) resolve(true); });
-          frame.contentWindow!.postMessage({ type: 'lumenize:reload', id, build }, devOrigin!);
-          setTimeout(() => resolve(false), 2_000);
-        });
-      }, [new URL(vite.scopeUrl(dev)).origin, ownBuild] as const);
-      if (!answered) await sleep(1_000);
+    // Studio has no Wipe button: a wipe goes through the agent, which runs it in the asker's tab.
+    await austen.page.getByRole('heading', { name: 'Lumenize Studio' }).waitFor({ state: 'visible', timeout: 60_000 });
+    const wipeButtons = await austen.page.getByRole('button', { name: 'Wipe' }).count();
+    // A Deal to lose, made and read back by the owner.
+    const witness = await openPage(dev, v3!);
+    assert.equal(await createDeal(witness, { title: 'to be wiped' }), 'committed', 'the Deal limb 4 wipes was not created');
+    const doomed = createdDeals[createdDeals.length - 1]!;
+    const dealIs = async (): Promise<string> => witness.resources.read('Deal', doomed)
+      .then((snap) => snap === null ? 'absent' : 'present', (e: Error) => `error: ${e.message}`);
+    const before = await dealIs();
+    // The same message Studio posts for `run_in_tab`, from the collaborator's own Studio page to
+    // its "Me" frame. Asked again while the frame's page is still loading, which answers nothing.
+    const askMe = (code: string): Promise<{ ok?: boolean; value?: unknown; error?: string } | null> => austen.page.evaluate(`new Promise((resolve) => {
+      const frame = document.querySelector('iframe[title="Preview"]');
+      if (!frame || !frame.contentWindow) { resolve(null); return; }
+      const origin = new URL(frame.src).origin;
+      const id = crypto.randomUUID().slice(0, 8);
+      addEventListener('message', (e) => {
+        if (e.source === frame.contentWindow && e.origin === origin && e.data && e.data.type === 'lumenize:ran' && e.data.id === id) resolve(e.data);
+      });
+      setTimeout(() => resolve(null), 10000);
+      frame.contentWindow.postMessage({ type: 'lumenize:run', id, code: ${JSON.stringify(code)} }, origin);
+    })`) as Promise<{ ok?: boolean; value?: unknown; error?: string } | null>;
+    let ran: { ok?: boolean; value?: unknown; error?: string } | null = null;
+    for (const deadline = Date.now() + 90_000; ran === null && Date.now() < deadline;) {
+      ran = await askMe(`await client.resources.resetDevData(); return 'wiped';`);
     }
-    await (await ownerFrame())?.evaluate(() => {
-      history.pushState({}, '', '/limb-four');
-      (window as unknown as { __mark?: boolean }).__mark = true;
-    });
-    const beforeWipe = await frameAt();
-    const ownerWipe = await wipeOn(owner.page);
-    record("limb 4 — the owner's Wipe reports success",
-      ownerWipe.succeeded && ownerWipe.refused === null,
-      `success line ${ownerWipe.succeeded ? 'shown' : 'absent'}; refusal ${JSON.stringify(ownerWipe.refused)}`);
-    let afterWipe = await frameAt();
-    for (const deadline = Date.now() + 15_000; !(afterWipe?.path === '/' && !afterWipe.marked) && Date.now() < deadline;) {
-      await sleep(250);
-      afterWipe = await frameAt();
+    let after = await dealIs();
+    for (const deadline = Date.now() + 30_000; after !== 'absent' && Date.now() < deadline;) {
+      await sleep(500);
+      after = await dealIs();
     }
-    record("limb 4 — the owner's Wipe moves the frame to the Star's root",
-      answered && beforeWipe?.path === '/limb-four' && beforeWipe.marked && afterWipe?.path === '/' && !afterWipe.marked,
-      `the frame ${answered ? 'answered a request' : `did NOT answer a request (its build ${ownBuild ?? 'unreadable'}, at ${(await ownerFrame())?.url()}; console: ${JSON.stringify(owner.consoleErrors.slice(-4)).slice(0, 400)})`}; ` +
-      `before ${JSON.stringify(beforeWipe)}; after ${JSON.stringify(afterWipe)}`);
+    record('limb 4 — Studio shows a collaborator no Wipe button', wipeButtons === 0, `${wipeButtons} Wipe button(s) on the collaborator's Studio`);
+    record('limb 4 — the collaborator\'s "Me" tab wiped .dev: the owner\'s Deal read back before and is gone after',
+      before === 'present' && ran?.ok === true && ran.value === 'wiped' && after === 'absent',
+      `before ${before}; the run answered ${JSON.stringify(ran)}; after ${after}`);
 
     // ── LIMB 5: a version change on `.dev` counts the rows its validator refuses ────────────
-    // The owner's Wipe left the Star empty, so these five are the only rows it holds.
+    // Limb 4's wipe left the Star empty, so these five are the only rows it holds.
     const seeded = await openPage(dev, v3!);
     for (const value of [
       { title: 'a', stage: 'won' }, { title: 'b', stage: 'lost' }, { title: 'c' }, { title: 'd' }, { title: 'e' },
@@ -577,7 +544,7 @@ export async function run(stack: DevStack): Promise<void> {
     const list2Saw = await until(15_000, () => list2.resourceIds.includes(first2));
     assert.ok(list2Ready === 'ok' && list2Saw, `the second list never took its first Deal (${list2Ready})`);
     for (const round of [1, 2]) {
-      await studio.client.lmz.callAsync('STAR', dev, studio.client.ctn<Star>().resetDevData(), { timeoutMs: 30_000 });
+      await studio.client.lmz.callAsync('STAR', dev, studio.client.ctn<Star>().resources.resetDevData(), { timeoutMs: 30_000 });
       // The wipe left no Deals, so an empty list is that list answered again.
       const wiped = Date.now();
       const retaken = await until(15_000, () => list.resourceIds.length === 0 && list2.resourceIds.length === 0);

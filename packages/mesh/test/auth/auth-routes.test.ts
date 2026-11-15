@@ -111,8 +111,8 @@ describe('@lumenize/mesh/auth — Worker Router', () => {
         const resp = await claimStar(SELF, devStar, 'squatter@example.com');
         expect(resp.status).toBe(400);
         // Assert the CODE, not just the status — that is what distinguishes this from the sibling
-        // rejects. A squatter here would 409 the user-developer's own Studio forever AND clear
-        // resetDevData's requireDominionHere, i.e. they could wipe it.
+        // rejects. A squatter here would 409 the user-developer's own Studio forever AND pass
+        // resetDevData's dominion check, i.e. they could wipe it.
         expect((await resp.json() as any).error).toBe('reserved_slug');
         // ONE scopes row and zero links: the row is the legitimate `.dev` born WITH the
         // galaxy (createGalaxy bundles it), and the refused claim added nothing — no

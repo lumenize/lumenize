@@ -1053,6 +1053,15 @@ export class ClientResources {
      */
     invite: (nodeId: string, invitees: NodeInvitee[]): Promise<NodeInviteAck> =>
       this.#inviteToNode(nodeId, invitees),
+
+    /**
+     * Erase a `.dev` Star's test data: every Resource, node, grant and subscription, and the
+     * installed ontology. Memberships survive, so a persona is still a member afterwards, with
+     * no grants. The caller needs dominion over the Star, and any other Star refuses. This
+     * client's own subscriptions are dropped with the rest, and it takes them again.
+     */
+    resetDevData: (): Promise<void> =>
+      this.#hostCallAsync<void>(this.#client.ctn<ResourcesHostNode>().resources.resetDevData()),
   };
 
   async #inviteToNode(nodeId: string, invitees: NodeInvitee[]): Promise<NodeInviteAck> {

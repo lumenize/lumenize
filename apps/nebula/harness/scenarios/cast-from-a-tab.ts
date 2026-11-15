@@ -24,6 +24,13 @@
  *     does not list, so no earlier turn can have made it. The stored
  *     record of the Deal names Gerry as its subject and O as the actor, and no agent. *Reds if
  *     Studio runs a persona's request in the "me" tab, where the record would name O.*
+ *  3. **A collaborator's wipe goes through the agent, which builds the cast again in the same
+ *     turn.** P asks for the test data to be wiped and says nothing of the cast. Limb 2's Deal is
+ *     gone, `deals` is a new node Gerry holds `write` on, and the file's sample Deal is back,
+ *     made in Gerry's tab with P as the actor. Every `run_in_tab` call ran under P's claims, and
+ *     O's Studio heard nothing more. *Reds if the reset leaves the Star's rows.* That the agent
+ *     builds the cast again unasked is the model following `define-the-cast`, gated here as
+ *     limbs 1 and 2 gate what they ask for.
  *
  * `needsContainer = true` — the app is built in the build container.
  */
@@ -222,15 +229,15 @@ export async function run(stack: DevStack): Promise<void> {
       }
       return out;
     };
-    /** O posts `text` from Studio's composer, and the agent's message replying to it comes back. */
-    const ask = async (text: string): Promise<Value> => {
-      const composer = o.page.getByPlaceholder(COMPOSER);
+    /** O, or `as`, posts `text` from Studio's composer, and the agent's message replying to it comes back. */
+    const ask = async (text: string, as: { page: Page; sub: string } = { page: o.page, sub: oToken.sub }): Promise<Value> => {
+      const composer = as.page.getByPlaceholder(COMPOSER);
       await composer.fill(text);
       await composer.press('Enter');
       let reply: Value | undefined;
       const landed = await until(TURN_TIMEOUT_MS, async () => {
         const all = await messages();
-        const post = all.find(({ snap }) => snap.meta.recordedClaims.sub === oToken.sub && (snap.value as Value).content === text);
+        const post = all.find(({ snap }) => snap.meta.recordedClaims.sub === as.sub && (snap.value as Value).content === text);
         reply = post && all.find(({ snap }) => snap.meta.recordedClaims.sub === NEBULA_SUB && (snap.value as Value).replyTo === post.id)?.snap.value as Value | undefined;
         return reply !== undefined;
       });
@@ -309,6 +316,42 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(deal.recordedClaims.act?.act, undefined, 'no agent stands behind a write a tab made');
     assert.deepEqual(await heard(p.page), [], "P's Studio must still have been asked to run nothing");
     console.error("  ✓ limb 2 — the turn made Gerry's Deal in Gerry's tab: its record names Gerry, with O as actor and no agent");
+
+    // ── LIMB 3: a collaborator's wipe goes through the agent, which builds the cast again ─────
+    const oHeardBefore = (await heard(o.page)).length;
+    const pOnDev = await readFrame(p.page, 'me');
+    assert.ok(pOnDev?.sub, "P's me tab never showed the app as P");
+    const wiped = await ask('Wipe the test data. Change no code.', { page: p.page, sub: pToken.sub });
+    record('turn 3', wiped);
+    assert.ok(runsOf(wiped).length > 0 && runsOf(wiped).every((tc) => tc.claims?.sub === pToken.sub),
+      `every run_in_tab call must run under P's claims, whose post the turn took up: ${describe(wiped)}`);
+    assert.equal((await heard(o.page)).length, oHeardBefore, "O's Studio must have been asked to run nothing for P's turn");
+    type After = { deals?: string; tier?: string; titles: Array<{ title: string; sub: string; actSub?: string }> };
+    let after: After | undefined;
+    const rebuilt = await until(ACCEPT_BY_MAIL_MS, async () => {
+      const read = await askTab(p.page, 'me', `
+        const t = store.lmz.orgTree.value;
+        const deals = [...t.nodes].find(([, n]) => n.slug === 'deals');
+        const q = client.resources.subscribeQuery({ typeName: 'Deal', filter: {}, allowScan: true });
+        await q.ready;
+        const titles = [];
+        for (const id of q.resourceIds) {
+          const snap = await client.resources.read('Deal', id);
+          if (snap) titles.push({ title: snap.value.title, sub: snap.meta.recordedClaims.sub, actSub: snap.meta.recordedClaims.act && snap.meta.recordedClaims.act.sub });
+        }
+        q[Symbol.dispose]();
+        return { deals: deals && deals[0], tier: deals && t.permissions.get(deals[0]) && t.permissions.get(deals[0]).get(${JSON.stringify(gerry!.sub)}), titles };
+      `);
+      after = read.ok ? read.value as After : undefined;
+      return after?.tier === 'write' && after.titles.some((d) => d.title === 'Acme renewal');
+    });
+    assert.ok(after, "P's page could not read the tree and the Deals after the wipe");
+    assert.equal(after.titles.some((d) => d.title === DEAL_TITLE), false, `limb 2's Deal must be gone after the wipe: ${JSON.stringify(after.titles)}`);
+    assert.ok(rebuilt, `the turn must have built the cast again: ${JSON.stringify(after)} after ${describe(wiped)}`);
+    assert.notEqual(after.deals, tree.value.deals, 'the node `deals` must be a new one, since the wipe dropped the first');
+    const sample = after.titles.find((d) => d.title === 'Acme renewal')!;
+    assert.deepEqual([sample.sub, sample.actSub], [gerry!.sub, pOnDev.sub], "the file's sample Deal must be made in Gerry's tab, with P as the actor");
+    console.error("  ✓ limb 3 — P's turn wiped the Star and built the cast again: limb 2's Deal is gone, Gerry holds write on a new deals node, and the sample Deal names Gerry with P as actor");
   } finally {
     for (const d of disposers.reverse()) { try { d(); } catch { /* already released */ } }
     await browser.close();

@@ -1,6 +1,6 @@
 # Personas are real members of the dev Star
 
-**Status:** built on 2026-11-14, in a run Larry asked to go to completion on its own, and waiting for him to evaluate it. Nothing is pushed. Q5 is open, and § *Build notes* says what each phase decided without him. It replaces [nebula-testing-with-personas.md](archive/nebula-testing-with-personas.md), reverted on 2026-11-13 and kept under the tag `personas-v1-built`, and is item ② of [nebula-pre-alpha.md](nebula-pre-alpha.md). D1 to D18 are Larry's. D20 onward are the builder's, made without him, and § *Design intent* carries each one he would see in the product. Q5 is open and waits for him; nothing built here depends on it.
+**Status:** built on 2026-11-14, in a run Larry asked to go to completion on its own, and waiting for him to evaluate it. Nothing is pushed. No question is open, and § *Build notes* says what each phase decided without him. It replaces [nebula-testing-with-personas.md](archive/nebula-testing-with-personas.md), reverted on 2026-11-13 and kept under the tag `personas-v1-built`, and is item ② of [nebula-pre-alpha.md](nebula-pre-alpha.md). D1 to D18 are Larry's. D20 onward are the builder's, made without him, and § *Design intent* carries each one he would see in the product. Q5 and Q6 are answered, as D33 and D32, and built.
 
 ## Conventions
 
@@ -134,7 +134,7 @@ The rest of this file says how a persona becomes a member, how its tab gets a to
 ### What the dev Star keeps
 
 - **DI10. The dev Star keeps what makes it a workshop.** It is born with its Galaxy under a reserved slug, a Galaxy invite makes the invitee its admin, it runs the last landed build ([ADR-024](../docs/adr/024-two-versions-keep-an-app-in-step.md)), and it is the one Star a wipe may touch. A persona lives only in a Star with no real users. Today that is `dev` alone, named once in `PERSONA_STAR_SLUGS`, which the host parser reads (D28).
-- **DI11. A wipe keeps the cast.** A membership lives in the Registry, so after a wipe Mary, Sally and Gerry are still members, with no grants and no data. `docs/personas.md` holds what the agent needs to rebuild both from the "Me" tab. What starts that rebuild is Q5.
+- **DI11. A wipe keeps the cast.** A membership lives in the Registry, so after a wipe Mary, Sally and Gerry are still members, with no grants and no data. `docs/personas.md` holds what the agent needs to rebuild both from the "Me" tab. The agent's wipe builds both again in the same turn (D33).
 
 ### Claims this rests on
 
@@ -167,11 +167,7 @@ The rest of this file says how a persona becomes a member, how its tab gets a to
 
 ## Open questions
 
-- **Q5. What starts the cast's rebuild after a wipe?** (was Q4, and for a day D19.) Larry's answer was that it should depend on whether the cast changes. The builder read that as "rebuild without asking when the file is unchanged", and a review panel pointed out that this is the option the first recommendation argued against, so nothing is built on it. The cases to decide:
-  - *A wipe with `docs/personas.md` unchanged.* Options: Studio's Wipe is followed by the rebuild with nobody asking; or the agent offers it in its next reply; or the person asks.
-  - *A wipe after the file changed,* or a change to the file with no wipe. Options: the turn that changes the file applies the change; or the change waits for a wipe.
-  - *How an automatic rebuild would start.* A post in the person's name that they did not type; or a button labelled as the request it sends.
-  - *Recommendation:* the turn that changes the file applies it, and after a wipe the agent's guidance tells it to rebuild as its first step when the person next asks for anything, saying that it did. Until Larry answers, the guidance says only that the cast can be rebuilt from the file on request.
+None is open. Q5 became D33 and Q6 became D32, both on 2026-11-15.
 
 ## Decisions
 
@@ -209,7 +205,10 @@ D1 to D15 were settled with Larry on 2026-11-13 and 14, and D16 to D18 are his a
 | D29 | The local mail relay is part of the local stack: `npm run dev` and the harness both start it with the stack, and it hands each message for a persona's address to the local Worker's `email` handler as it arrived. | A step a scenario calls: a scenario would then differ between venues, and a stack run by hand would never accept an invite. |
 | D30 | `run_in_tab` is how the agent reads a tab, its log included. The preview's error channel in [nebula-pre-alpha.md](nebula-pre-alpha.md) keeps its buffer and drops its own tool. | A second tool for reading a tab: one page reached by a second way. |
 | D31 | Each leg of a run has a bound, and each failure says where it stopped. Studio gives the frame 20 s, which covers loading it, and answers "the tab `gerry` did not answer in 20 s" or "`gerry` is not a member of the dev Star yet". The Galaxy's call to Studio is under the 30 s every call to a Client has, and says that the person has no Studio tab open, or that a tab stayed silent and the code may still run. Code that throws is `{ ok: false, error }`, which is a result and no tool error. | One bound for the whole trip: the agent could not tell a closed Studio from a slow page. |
-| D32 | A collaborator may wipe the dev Star, and a wipe always goes through the agent: Studio's Wipe button goes, and the agent wipes from the asker's "Me" tab, where a collaborator is admin (was Q6; Larry, 2026-11-15). The one line he holds for a collaborator is that they see no real tenant Star's data, which `collaborator-reaches-no-tenant-star` drives. Unbuilt. | The button asking the "Me" tab: Larry wants the agent involved in every wipe. An admin's button: a collaborator already is the dev Star's admin, and only the page the button sits on refused them. |
+| D32 | A collaborator may wipe the dev Star, and a wipe always goes through the agent: Studio's Wipe button goes, and the agent wipes from the asker's "Me" tab, where a collaborator is admin (was Q6; Larry, 2026-11-15). The one line he holds for a collaborator is that they see no real tenant Star's data, which `collaborator-reaches-no-tenant-star` drives. | The button asking the "Me" tab: Larry wants the agent involved in every wipe. An admin's button: a collaborator already is the dev Star's admin, and only the page the button sits on refused them. |
+| D33 | A wipe's turn builds the cast and its sample data again from `docs/personas.md`, unasked, and says what it did. A turn that changes the file applies its own change (was Q5; Larry, 2026-11-15). | Wipe only, with the cast built again on request: every persona's tab would open on an app that refuses them. Wipe, then ask: a second turn every time. |
+| D34 | The wipe is `client.resources.resetDevData()`, which the agent runs in the asker's "Me" tab. It is a member of the plane's request surface and checks dominion over its host itself, so the Star's own `resetDevData` entry is gone. | A loop tool of its own: a second wait in memory on a Studio tab, which `mesh.md` refuses. The client calling the Star's entry: a host's method the library's client would have to name. The raw mesh call in the guidance: a binding name the model has no other use for. |
+| D35 | After a wipe Studio no longer moves each frame to the Star's root. A frame left on a URL that names a deleted record shows what the app shows for any deleted record. | Keeping it: Studio does not hear of a wipe a tab ran, and reloading the frames mid-turn would cut off the runs that build the cast again. |
 
 ## Phases
 
@@ -248,7 +247,6 @@ Each phase ends with its tests mutation-checked and its notes in § *Build notes
 
 ## Non-goals
 
-- **What starts a rebuild after a wipe, and the agent's wipe that replaces Studio's button.** Q5 and D32.
 - **Seeding at scale.** § *Beyond this task*.
 - **The agent acting as a persona on the server.** D14.
 - **Production's mail routing.** `scripts/deploy.sh` turns Email Routing on for `lumenize.dev` and points its catch-all at the Worker when production is next deployed, at pre-alpha's wipe gate. Turning it on adds MX records and an SPF record at the zone's own name.
@@ -350,3 +348,13 @@ The verifier panel read phases 1 to 7 and passed none of them. Every blocker and
 - **Close-out, deployed.** `deploy-test.sh` ended "Test worker live and matches HEAD" at `eab02f9`, with `PERSONA_MAIL_DOMAIN` `lumenize.io`. Against it, `persona-host`, `persona-tabs`, `cast-from-a-tab` and `scope-hosts-its-clients` each passed. In `cast-from-a-tab` the model read the skill and built the cast in three runs, then made Gerry's deal in one. The test Worker's Issues since the pass began hold nothing new: `scope-deleted`, which is standing, and `teardown failed` on a Durable Object reset by the deploy, first seen on 2026-10-14.
 - **For Larry, found on the way and not this build's.** `npm run audit:ui-copy` fails on `ConfirmDelete.vue`, which says "scope" in its confirmation, and has since before this build.
 
+### After the phases: a wipe goes through the agent (2026-11-15)
+
+Built the day after the phases, from Larry's answers to Q5 and Q6.
+
+- **For Larry.** Studio's preview no longer returns to the app's first page after a wipe (D35). The button's handler did that, and the button is gone.
+- **For Larry.** `client.resources.resetDevData()` is on every app's client, since the plane's request surface is one surface. It refuses any Star but `.dev`, and a caller with no dominion there.
+- **For Larry.** The UI smoke lane's teardown clicked Wipe, best effort. It now wipes nothing, since its global setup starts from an empty store. That lane is outside `npm test` and was not run.
+- **Retro.** The request surface is frozen in three tests, one of which asks for a written reason a descendant Star may reach each member. All three failed on the new member, which is what they are for.
+- **Retro.** `cast-from-a-tab`'s new limb has the real model wipe and build the cast again from a collaborator's "Wipe the test data". It read `define-the-cast`, ran the reset in `me`, and built the cast again in three more runs. That it does so unasked is the model's choice, gated as that scenario's other limbs gate theirs.
+- **Close-out.** `security.md` and `mesh.md` named `Star.resetDevData`, as did two backlog rows, two comments in Mesh's auth layer and the smoke test. Each now names the plane's member. `dev-star-follows-the-build` limb 4 drives a collaborator's wipe from their own "Me" tab in place of the button.

@@ -424,7 +424,7 @@ export class StarTest extends Star {
   #cachedColo?: string;
 
   // --- Dev-data lifecycle inspection (moved off the deleted DevStarTest).
-  //     resetDevData lives on base Star now, hard-guarded to .dev instances — these
+  //     The plane's `resetDevData` refuses off `.dev` — these
   //     hooks run against a StarTest at a {u}.{g}.dev instance. ---
 
   /**
@@ -899,12 +899,11 @@ const withClientTestCaptures = <TBase extends new (...args: any[]) => NebulaClie
     this.lmz.call('STAR', starInstanceName, remote, this.ctn().handleResult(remote));
   }
 
-  /** Drive `Star.resetDevData` against the STAR binding (a non-`.dev`
-   *  tenant Star) so the runtime `.dev` guard can be exercised — it must throw +
-   *  wipe nothing. (`resetDevData` lives on base `Star` now; `DevStar` inherits it.) */
+  /** Drive the plane's `resetDevData` through a Star's `resources` door, so its two refusals can
+   *  be exercised: a caller with no dominion, and a Star that is not `.dev`. */
   callStarResetDevData(starInstanceName: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().resetDevData();
+    const remote = this.ctn<Star>().resources.resetDevData();
     this.lmz.call('STAR', starInstanceName, remote, this.ctn().handleResult(remote));
   }
 
@@ -1352,8 +1351,8 @@ const withClientTestCaptures = <TBase extends new (...args: any[]) => NebulaClie
   }
 
   // --- Dev-data lifecycle initiators (the .dev Star is the STAR binding at a
-  //     {u}.{g}.dev instance — resetDevData + these inspect hooks live on base
-  //     Star/StarTest, hard-guarded to .dev at runtime). ---
+  //     {u}.{g}.dev instance — these inspect hooks live on StarTest, and the plane's
+  //     `resetDevData` refuses off `.dev` at runtime). ---
 
   callStarInspectReset(starName: string): void {
     this.resetResults();

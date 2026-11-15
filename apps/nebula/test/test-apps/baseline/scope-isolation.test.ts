@@ -389,6 +389,7 @@ const REQUESTS_REASONS: Record<string, string> = {
   unsubscribeQuerySubscribers: 'drops only the caller\'s own row, by the id the door derives',
   subscribeTree: 'the tree is visible to anyone with passage (ADR-008, up the hierarchy)',
   invite: 'requires `admin` at the node',
+  resetDevData: 'requires dominion over the host, and refuses any host but a `.dev` Star',
   orgTree: 'each OrgTree method checks itself — classified below',
 };
 const ORG_TREE_REASONS: Record<string, string> = {

@@ -318,10 +318,10 @@ export const REGISTRY_INSTANCE_NAME = 'registry';
  * There is no structural separator between them — this list is the only thing keeping the two apart.
  *
  * `dev` is in use today: `nebula-client` hardcodes `${galaxy}.dev` as the user-developer's
- * authoring workspace, `Star.resetDevData` gates on `s[2] === 'dev'`, and `#parseScope`'s `isDev`
+ * authoring workspace, the Resources plane's `resetDevData` gates on `s[2] === 'dev'`, and `#parseScope`'s `isDev`
  * flags the same thing. Without the reject a stranger founds the user-developer's OWN Studio
  * workspace as `scopeAdmin: true` — their Studio then 409s forever, and the squatter's exact-star
- * admin clears `resetDevData`'s `requireDominionHere`, i.e. they can wipe it. The other seven are
+ * admin passes `resetDevData`'s dominion check, i.e. they can wipe it. The other seven are
  * reserved before anything uses them, because releasing a name later is free and reclaiming one a
  * customer holds is a migration.
  *

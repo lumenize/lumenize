@@ -154,7 +154,7 @@ describe('each host has one door, and the per-op entries are gone', () => {
       'buildNow', 'getCurrentOntology', 'getGalaxyConfig',
       'readCast', 'readSource', 'resources', 'setGalaxyConfig', 'writeSource',
     ]);
-    expect(meshSurface(Star)).toEqual(['getStarConfig', 'resetDevData', 'resources', 'setStarConfig']);
+    expect(meshSurface(Star)).toEqual(['getStarConfig', 'resources', 'setStarConfig']);
   });
 
   it.each(HOSTS)('$name: `requests` exposes exactly its members, and none of them leads back to the plane', async ({ make }) => {
@@ -162,7 +162,7 @@ describe('each host has one door, and the per-op entries are gone', () => {
     const { names, toPlane } = await surfaceOf(host, 'resources');
     // Equality, not a subset: no member beyond the row is what the check exists for.
     expect(names).toEqual([
-      'invite', 'orgTree', 'read', 'subscribe', 'subscribeQuery', 'subscribeQuerySubscribers', 'subscribeTree',
+      'invite', 'orgTree', 'read', 'resetDevData', 'subscribe', 'subscribeQuery', 'subscribeQuerySubscribers', 'subscribeTree',
       'transaction', 'unsubscribe', 'unsubscribeQuery', 'unsubscribeQuerySubscribers',
     ]);
     expect(toPlane).toEqual([]);

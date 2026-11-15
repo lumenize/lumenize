@@ -27,7 +27,7 @@
 
 import { env } from 'cloudflare:workers';
 import { debug } from '@lumenize/debug';
-import { addressOf, newContinuation, splitAddress } from '@lumenize/mesh';
+import { addressOf, newContinuation, requireDominionHere, splitAddress } from '@lumenize/mesh';
 import type { AnyContinuation, BroadcastTarget, Continuation, LmzApi } from '@lumenize/mesh';
 // Type-only: the facade continuation and the client pushes are typed without pulling a second
 // mesh entry, or the client, into this module's value graph.
@@ -127,6 +127,15 @@ export interface ResourcesRequests {
   /** The org tree, whose own methods check each op; a getter, so the chain reads `resources.orgTree.setPermission(…)`. */
   readonly orgTree: OrgTree;
   subscribeTree(): void;
+  /**
+   * Erase a `.dev` Star's test data, for a caller holding dominion over it: every Resource, node,
+   * grant and subscription, and the installed ontology. It throws on any other host, and before
+   * it changes anything. Memberships live in the Registry and survive, as does what the host
+   * keeps outside the plane, a Star's config say. The app's source is the Galaxy's, so a wipe
+   * destroys throwaway test data and never code; a breaking ontology edit is what it is for,
+   * since stored snapshots are not migrated on `.dev`.
+   */
+  resetDevData(): void;
 }
 
 /** The DAG tier vocabulary, as a runtime gate — mesh args are compile-time typed but
@@ -405,6 +414,10 @@ export class Resources {
       subscribeTree: () => {
         this.doSubscribeTree(this.#caller());
       },
+      resetDevData: () => {
+        requireDominionHere({ lmz: this.#lmz() });
+        this.#notifyStale(this.#wipe(), '');
+      },
     };
   }
 
@@ -674,17 +687,10 @@ export class Resources {
   }
 
   /**
-   * Erase everything the plane owns and rebuild it — the `.dev` sandbox reset behind Studio's
-   * Wipe (`Star.resetDevData`). Records no ontology row, so the next op's install is a first
-   * install, and tells every subscriber of every kind once. Throws, before
-   * it records or changes anything, unless the host is a `.dev` Star.
-   */
-  wipe(): void {
-    this.#notifyStale(this.#wipe(), '');
-  }
-
-  /**
-   * The wipe, all synchronous so no other event runs in between: refuse unless the host is a
+   * The wipe behind `requests.resetDevData`, which checks dominion over the host first and tells
+   * every subscriber of every kind afterwards. It erases everything the plane owns and rebuilds
+   * it, and records no ontology row, so the next op's install is a first install.
+   * All synchronous, so no other event runs in between: refuse unless the host is a
    * `.dev` Star; write one ADR-016 record of the claims in context;
    * capture every subscriber to tell; drop every table and key the plane owns and rebuild its
    * parts, so a grant the wipe erased stops authorizing at once; and bump the generation, so a

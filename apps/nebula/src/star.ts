@@ -6,8 +6,7 @@
  * {@link Resources} plane (ADR-007 — composition, not reimplementation), which the
  * Galaxy composes the same way. The plane owns the op, the ontology it validates
  * against and the one version rule; the Star keeps only where its ontology comes from
- * (its parent Galaxy's current row for it, asked by fire-back), its configuration, and the
- * `.dev` reset that runs the plane's wipe.
+ * (its parent Galaxy's current row for it, asked by fire-back) and its configuration.
  *
  * **One door.** `@mesh() get resources` returns the plane's request surface, whose
  * members derive the caller's own address and check each op; the Star has no per-op
@@ -96,20 +95,6 @@ export class Star extends ScopedMeshDO implements ResourcesHost {
    */
   get resourcesResults(): ResourcesResults {
     return this.#resources.results
-  }
-
-  /**
-   * Reset the dev sandbox to empty — the breaking-edit bargain (a breaking ontology edit
-   * invalidates stored snapshots, which we do NOT migrate; the user-developer rebuilds test
-   * data). Runs the plane's wipe, which refuses anything but the `.dev` Star, erases only what the
-   * plane owns — every Resource, grant and subscription, and the installed ontology — and tells
-   * every subscriber. The source of truth is the Galaxy's git `Workspace`, never this Star, so a
-   * wipe destroys throwaway test data, never the user's code. The Star's `config` and mesh's
-   * identity survive, and the next op installs the Galaxy's current ontology as a first install.
-   */
-  @mesh(requireDominionHere) // dominion over this Star, and the plane's wipe refuses off `.dev`
-  resetDevData(): void {
-    this.#resources.wipe()
   }
 
   // ─── Config ────────────────────────────────────────────────────────

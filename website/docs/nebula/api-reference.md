@@ -40,6 +40,7 @@ Each surface below carries one tag describing its provenance. The tags captured 
 | `client.subscribeProfile(id)` (+ auto-subscribe on read) | new-in-v3 | [subscribeProfile](#subscribeprofile) |
 | `client.updateMyProfile(fields)` | inherited from `MeshClient` | [updateMyProfile](#updatemyprofile) |
 | `client.personaAddress(slug)` (a dev workspace's page only) | new-in-v3 | [personaAddress](#clientpersonaaddress) |
+| `client.resources.resetDevData()` (a dev workspace only) | new-in-v3 | [resources.resetDevData](#resourcesresetdevdata) |
 | `store.lmz.profiles[profileId].value.{name, nickname, picture}` | new-in-v3 | [store.lmz.profiles](#lmzprofiles) |
 | `client.subscribeQuerySubscribers(query)` (+ auto-subscribe on read) | new-in-v3 | [subscribeQuerySubscribers](#subscribequerysubscribers) |
 | `store.lmz.querySubscribers.<typeName>.<field>[value]` (live roster) | new-in-v3 | [store.lmz.querySubscribers](#lmzquerysubscribers) |
@@ -677,6 +678,18 @@ await client.personaAddress('gerry');
 ```
 
 It rejects on any page but a `dev` workspace's, which alone has personas, and for a `slug` that is not 3 to 30 characters of lowercase letters, digits and single hyphens. A workspace with long names gets a shorter address than its host, which is one more reason to ask for it.
+
+## `client.resources.resetDevData` {#resourcesresetdevdata}
+
+**Tag**: `new-in-v3`
+
+```typescript @skip-check
+client.resources.resetDevData(): Promise<void>;
+```
+
+Erase the test data of an app's `dev` workspace: every record, every node of the org tree but its root, every grant, and the installed ontology, which the next operation installs again. Memberships survive, so each persona is still a member afterwards, holding no grant. The caller must administer the workspace, as the app's owner and its collaborators do.
+
+It rejects on any workspace but `dev`, so a tenant's data cannot be erased this way. Every page open on the workspace is told, and takes its subscriptions again without reloading.
 
 ## `client.subscribeQuerySubscribers` {#subscribequerysubscribers}
 

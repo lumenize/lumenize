@@ -17,7 +17,6 @@ import { ROOT_NODE_ID } from '@lumenize/resources';
 import { Star } from '@lumenize/nebula';
 import { requireDominionHere } from '@lumenize/mesh';
 import type { Snapshot, TransactionResult } from '@lumenize/resources';
-import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 import { meshEntries } from '../mesh-surface';
 import { universeAdminClient, createInvitedClient, foundAndLogin, createSubject, uniqueGalaxyScope } from '../../test-helpers';
 import { NebulaClientTest } from './index';
@@ -149,7 +148,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     // A non-admin member OF THE DEV STAR ITSELF — not of the galaxy above it. Passage is
     // computed from the caller's own `authScope`, so a galaxy-tier non-admin has no passage into a
     // Star beneath (ADR-015: upward only, without dominion) and would be refused by `onBeforeCall`
-    // before `resetDevData`'s own guard ever ran — greening this test on the wrong refusal. Being
+    // before `resetDevData`'s own check ever ran — greening this test on the wrong refusal. Being
     // a member of the Star is what "a non-admin who can reach this Star" now means.
     const adminBrowser = new Browser();
     const { accessToken } = await foundAndLogin(adminBrowser, galaxy, 'admin@example.com', galaxy);
@@ -186,9 +185,9 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     });
     expect((await waitForSuccess(client) as TransactionResult).ok).toBe(true);
 
-    // Admin caller (requireDominionHere passes) but the plane's wipe refuses off `.dev`. Capable-of-
+    // Admin caller (the dominion check passes) but the plane's wipe refuses off `.dev`. Capable-of-
     // failing: delete the check, and the Resource below is gone. This limb alone cannot tell WHERE
-    // the check lives — a copy moved into `resetDevData` would refuse the same way — so the
+    // the check lives — a copy in the request member would refuse the same way — so the
     // install-path limbs in `plane-wipe.test.ts` (off `.dev`, on a Star and a Galaxy) are the other
     // half: a check that left the plane's wipe lets an install-triggered wipe through there.
     client.callStarResetDevData(starA);
@@ -339,12 +338,11 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
   });
 });
 
-describe('resetDevData capability surface (Star.prototype)', () => {
-  it('resetDevData lives on base Star.prototype, mesh-callable + admin-gated', () => {
-    const fn = (Star.prototype as unknown as Record<string, unknown>).resetDevData as (...a: unknown[]) => unknown;
-    expect(typeof fn).toBe('function');
-    expect(isMeshCallable(fn)).toBe(true);
-    expect(getMeshGuard(fn)).toBe(requireDominionHere);
+describe('the Star\'s @mesh surface', () => {
+  // The wipe sits behind the `resources` door, where it checks dominion itself (B1 above reds
+  // when that check goes), so the Star carries no entry of its own for it.
+  it('the Star has no resetDevData of its own', () => {
+    expect((Star.prototype as unknown as Record<string, unknown>).resetDevData).toBeUndefined();
   });
 
   it('the Star\'s whole @mesh surface, by guard tier, equals the frozen allow-list', () => {
@@ -359,7 +357,7 @@ describe('resetDevData capability surface (Star.prototype)', () => {
     for (const { name, guard } of meshEntries(Star)) (byTier[tier(guard)] ??= []).push(name);
     expect(byTier).toEqual({
       bare: ['getStarConfig', 'resources'],
-      dominion: ['resetDevData', 'setStarConfig'],
+      dominion: ['setStarConfig'],
     });
   });
 });

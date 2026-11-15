@@ -131,8 +131,8 @@ export async function run(stack: DevStack): Promise<void> {
       }
     }
 
-    // (No wipe: the galaxy tier has no `resetDevData`; the deterministic local reset is the
-    // fresh boot.)
+    // (No wipe: the plane's `resetDevData` refuses off `.dev`; the deterministic local reset is
+    // the fresh boot.)
   } finally {
     driver.dispose();
   }
