@@ -38,7 +38,7 @@ Each surface below carries one tag describing its provenance. The tags captured 
 | `client.resources.invite(nodeId, invitees)` (a person onto a node, at a tier) | new-in-v3 | [resources.invite](#resourcesinvite) |
 | `client.invite(scope, invitees)` (a person into a scope) | inherited from `MeshClient` | [client.invite](#clientinvite) |
 | `client.subscribeProfile(id)` (+ auto-subscribe on read) | new-in-v3 | [subscribeProfile](#subscribeprofile) |
-| `client.updateMyProfile(fields)` | inherited from `MeshClient` | [updateMyProfile](#updatemyprofile) |
+| `client.patchMyProfile(patch)` (a merge patch: `null` removes a field) | inherited from `MeshClient` | [patchMyProfile](#patchmyprofile) |
 | `client.personaAddress(slug)` (a dev workspace's page only) | new-in-v3 | [personaAddress](#clientpersonaaddress) |
 | `client.resources.resetDevData()` (a dev workspace only) | new-in-v3 | [resources.resetDevData](#resourcesresetdevdata) |
 | `store.lmz.profiles[profileId].value.{name, nickname, picture}` | new-in-v3 | [store.lmz.profiles](#lmzprofiles) |
@@ -650,17 +650,28 @@ Subscribe to a person's **public profile** (`name` / `nickname` / `picture`) by 
 
 You rarely call this directly — **reading `store.lmz.profiles[profileId].value` inside a component auto-subscribes it** (refcounted, grace-period-aware, windowed), exactly like reading a resource. The common pattern is resolving display identity for ids you already hold (the current user's own `client.claims.profileId` for the app chrome, or each `profileId` in a roster).
 
-Profiles are read-only through the store; the owner edits their own profile with [`client.updateMyProfile`](#updatemyprofile). A profile is a **shape**, not a resource — it lives under `store.lmz.*` (never `store.resources.*`), so a dev-user ontology type named `Profile` does **not** collide with it.
+Profiles are read-only through the store; the owner edits their own profile with [`client.patchMyProfile`](#patchmyprofile). A profile is a **shape**, not a resource — it lives under `store.lmz.*` (never `store.resources.*`), so a dev-user ontology type named `Profile` does **not** collide with it.
 
-## `client.updateMyProfile` {#updatemyprofile}
+## `client.patchMyProfile` {#patchmyprofile}
 
 **Tag**: inherited from `MeshClient`
 
 ```typescript @skip-check
-client.updateMyProfile(fields: { name?: string; nickname?: string; picture?: string }): Promise<void>;
+client.patchMyProfile(patch: { name?: string | null; nickname?: string | null; picture?: string | null }): Promise<void>;
 ```
 
-Write the public fields of the signed-in person's own profile, the one `client.claims.profileId` names. The write **replaces all three**: a field left out is cleared, so pass every one that should stay, as `{ nickname: 'pat', name: 'Pat Participant' }` does. The change reaches every subscriber of the profile, this page included.
+Change public fields of the signed-in person's own profile, the one `client.claims.profileId` names, by a merge patch ([RFC 7396](https://www.rfc-editor.org/rfc/rfc7396)):
+
+- **A field given a string is set.**
+- **A field given `null` is removed.**
+- **A field left out is kept.**
+
+```typescript @skip-check
+await client.patchMyProfile({ name: 'Pat Participant' });          // nickname and picture stay
+await client.patchMyProfile({ nickname: 'pat', picture: null });   // sets the nickname, removes the picture
+```
+
+A field given `undefined` is refused with a `TypeError`, because it reads as either "keep" or "remove": leave the field out, or give it `null`. A key that is not one of the three is refused too. The change reaches every subscriber of the profile, this page included, and a patch that changes nothing sends nothing.
 
 ## `client.personaAddress` {#clientpersonaaddress}
 

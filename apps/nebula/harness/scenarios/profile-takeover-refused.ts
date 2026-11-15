@@ -75,7 +75,7 @@ export async function run(stack: DevStack): Promise<void> {
   // ── The attacker: claims a Universe of their own. Open self-signup, no approval, real login ──
   const attacker = await connectDriver(stack, { scope: evilUniverse, email: uniqueTestEmail() });
   const writeVictim = () => attacker.client.lmz.callAsync(
-    'PROFILE', victimProfileId, attacker.client.ctn<Profile>().writeProfile({ name: 'pwned' }),
+    'PROFILE', victimProfileId, attacker.client.ctn<Profile>().patchProfile({ name: 'pwned' }),
   );
   const readVictimNotes = () => attacker.client.lmz.callAsync(
     'PROFILE', victimProfileId, attacker.client.ctn<Profile>().readPrivateNotes(),

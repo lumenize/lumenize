@@ -123,8 +123,8 @@ beforeEach(() => { sink = []; setDebugSink((e) => sink.push(e)); });
 afterEach(() => clearDebugSink());
 
 const read = (c: MeshClient<any>, pid: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().read());
-const write = (c: MeshClient<any>, pid: string, f: { name?: string; nickname?: string; picture?: string }) =>
-  c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().writeProfile(f));
+const write = (c: MeshClient<any>, pid: string, patch: unknown) =>
+  c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().patchProfile(patch as Parameters<Profile['patchProfile']>[0]));
 const readNotes = (c: MeshClient<any>, pid: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().readPrivateNotes());
 const writeNotes = (c: MeshClient<any>, pid: string, n: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().writePrivateNotes(n));
 
@@ -415,15 +415,72 @@ describe('Profile DO', () => {
     ownerClient.disconnect();
   });
 
-  it('LWW + forward-only eTag: a second write REPLACES fields and advances the eTag; no OCC (#9)', async () => {
+  // A merge patch, by RFC 7396's rule for the profile's one level of fields. Last writer wins,
+  // with no conflict check.
+  // Mutations: write every public field from the patch, the absent ones as NULL → the nickname
+  // is gone; leave the eTag alone → the second snapshot carries the first's.
+  it('a patch changes the fields it names and keeps the rest, and each change advances the forward-only eTag', async () => {
     const pid = uuid();
     using owner = await makeClient({ profileId: pid });
     await write(owner, pid, { name: 'A', nickname: 'aa' });
     const s1 = await read(owner, pid);
-    await write(owner, pid, { name: 'B' });                          // REPLACES — nickname drops (LWW, not merge)
+    await write(owner, pid, { name: 'B' });
     const s2 = await read(owner, pid);
-    expect(s2.value).toEqual({ name: 'B' });                        // replaced, not merged
-    expect(s2.meta.eTag).not.toBe(s1.meta.eTag);
+    expect(s2.value).toEqual({ name: 'B', nickname: 'aa' });
     expect(s2.meta.eTag > s1.meta.eTag).toBe(true);                 // forward-only (monotonic ULID)
+  });
+
+  // Mutation: treat null as a field left out → the picture is still there.
+  it('null removes a field, which the snapshot then does not carry at all', async () => {
+    const pid = uuid();
+    using owner = await makeClient({ profileId: pid });
+    await write(owner, pid, { name: 'A', picture: 'https://img.example/a.png' });
+    await write(owner, pid, { picture: null });
+    const snap = await read(owner, pid);
+    expect(snap.value).toEqual({ name: 'A' });
+    expect('picture' in snap.value).toBe(false);
+  });
+
+  // The third write is a real change, so a subscriber's count shows what the two before it sent.
+  // Mutation: write whatever the patch names without comparing → the eTag advances on the same
+  // name, and the subscriber hears three pushes after its first.
+  it('a patch that changes nothing writes nothing and pushes nothing', async () => {
+    const pid = uuid();
+    await seedIdentity(pid, 'acme.app.tenant');
+    using owner = await makeClient({ profileId: pid });
+    using watcher = await makeClient({ activeScope: 'acme.app.tenant' });
+    await write(owner, pid, { name: 'A' });
+    await watcher.lmz.callAsync('PROFILE', pid, watcher.ctn<Profile>().subscribe());
+    await vi.waitFor(() => expect(watcher.profileUpdates.length).toBe(1));
+    const s1 = await read(owner, pid);
+    await write(owner, pid, { name: 'A' });            // the same name
+    await write(owner, pid, { nickname: null });       // removing what is not there
+    expect((await read(owner, pid)).meta.eTag).toBe(s1.meta.eTag);
+    await write(owner, pid, { name: 'B' });
+    await vi.waitFor(() => expect(watcher.profileUpdates.length).toBe(2));
+    expect((await read(owner, pid)).value).toEqual({ name: 'B' });
+  });
+
+  // Each refusal is a patch that could be read two ways, or that names what a patch may not
+  // touch. The profile is one nobody has written, so "nothing was written" is that it still is.
+  // Mutations, one per branch: let an undefined field through as left out → that patch resolves;
+  // let any key through → `privateNotes` is written by a public write; let any value through → a
+  // number is stored as a name; let an array through → it is refused for its key `0` instead.
+  it('refuses a field given undefined, a key that is no public field and a value that is no string, and writes nothing', async () => {
+    const pid = uuid();
+    using owner = await makeClient({ profileId: pid });
+    const never = (await read(owner, pid)).meta.eTag;
+    await expect(write(owner, pid, { picture: undefined }))
+      .rejects.toThrow('patchProfile: "picture" is undefined. Leave a field out to keep it, or give it null to remove it');
+    await expect(write(owner, pid, { privateNotes: 'mine' }))
+      .rejects.toThrow('patchProfile: "privateNotes" is not a public profile field. They are name, nickname, picture');
+    await expect(write(owner, pid, { name: 7 }))
+      .rejects.toThrow('patchProfile: "name" must be a string, or null to remove it');
+    await expect(write(owner, pid, ['name']))
+      .rejects.toThrow('patchProfile: the patch must be an object naming public profile fields');
+    // A good field beside a bad one is not written either.
+    await expect(write(owner, pid, { name: 'A', picture: undefined })).rejects.toThrow('"picture" is undefined');
+    const after = await read(owner, pid);
+    expect([after.value, after.meta.eTag]).toEqual([{}, never]);
   });
 });

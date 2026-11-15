@@ -230,7 +230,7 @@ export async function run(stack: DevStack): Promise<void> {
   try {
     await superDriver.client.lmz.callAsync(
       'PROFILE', strangerProfileId,
-      superDriver.client.ctn<Profile>().writeProfile({ name: 'seen-by-the-superuser' }),
+      superDriver.client.ctn<Profile>().patchProfile({ name: 'seen-by-the-superuser' }),
     );
   } finally {
     superDriver.dispose();
@@ -250,7 +250,7 @@ export async function run(stack: DevStack): Promise<void> {
     await assert.rejects(
       besideDriver.client.lmz.callAsync(
         'PROFILE', strangerProfileId,
-        besideDriver.client.ctn<Profile>().writeProfile({ name: 'not-from-here' }),
+        besideDriver.client.ctn<Profile>().patchProfile({ name: 'not-from-here' }),
       ),
       /does not cover/i,
       "a superuser on a page beside the stranger must not write the stranger's profile",

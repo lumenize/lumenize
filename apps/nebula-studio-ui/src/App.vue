@@ -327,13 +327,12 @@ async function saveProfile() {
   profileSaving.value = true;
   try {
     const name = profileFullName.value.trim();
-    // ⚠️ `writeProfile` REPLACES the whole public set — an omitted field is written as NULL, not
-    // left alone — so the picture always rides: the one just uploaded, else the one on file.
-    const picture = profilePicture.value ?? myProfile.value?.picture;
-    await nebula.value!.client.updateMyProfile({
+    // A merge patch: a field left out is kept, and `null` removes one. So an emptied full name
+    // removes it, and the picture rides only when one was just uploaded.
+    await nebula.value!.client.patchMyProfile({
       nickname: profileNickname.value.trim(),
-      ...(name ? { name } : {}),
-      ...(picture ? { picture } : {}),
+      name: name || null,
+      ...(profilePicture.value ? { picture: profilePicture.value } : {}),
     });
     closeProfile();
   } catch (e) {

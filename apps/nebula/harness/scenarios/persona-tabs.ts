@@ -227,7 +227,7 @@ export async function run(stack: DevStack): Promise<void> {
     const open = crypto.randomUUID();
     const lead = crypto.randomUUID();
     const wrote = await askTab(o.page, 'gerry', `
-      await client.updateMyProfile({ nickname: 'gerry', name: 'Gerry Salesperson' });
+      await client.patchMyProfile({ nickname: 'gerry', name: 'Gerry Salesperson' });
       const outcome = await client.resources.transaction({
         ${JSON.stringify(open)}: { op: 'create', typeName: 'Deal', nodeId: ${JSON.stringify(dealsNode)}, value: { title: 'Acme renewal', stage: 'open' } },
         ${JSON.stringify(lead)}: { op: 'create', typeName: 'Deal', nodeId: ${JSON.stringify(dealsNode)}, value: { title: 'Initech', stage: 'lead' } },

@@ -531,7 +531,7 @@ export interface ProfileSubscription extends Disposable {
   /**
    * The first push: the public fields, or, for a profile nobody has written, `{}` under the eTag
    * `NEVER_WRITTEN_ETAG`. A never-written answer registers nothing, so the Client sends the subscribe
-   * again on its next new socket, and, for its own profile, after its own `updateMyProfile`. A page
+   * again on its next new socket, and, for its own profile, after its own `patchMyProfile`. A page
    * watching someone else's profile hears their first write at its next new socket or reload.
    */
   readonly snapshot: Promise<ProfileChannelSnapshot>;
@@ -544,7 +544,7 @@ export interface ProfileSubscription extends Disposable {
 interface ProfileTarget {
   subscribe(): void;
   unsubscribe(): void;
-  writeProfile(fields: { name?: string; nickname?: string; picture?: string }): Promise<void>;
+  patchProfile(patch: { name?: string | null; nickname?: string | null; picture?: string | null }): Promise<void>;
 }
 
 // ============================================
@@ -1247,16 +1247,21 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
   }
 
   /**
-   * Write the public fields of this session's own profile, the one its `profileId` claim names.
+   * Change public fields of this session's own profile, the one its `profileId` claim names, by a
+   * merge patch (RFC 7396): a field given a string is set, a field given `null` is removed, and a
+   * field left out is kept. `patchMyProfile({ name: 'Pat Participant' })` leaves the nickname and
+   * the picture as they were. A field given `undefined` is refused, and so is a key that is no
+   * public field, by a `TypeError` that says which.
+   *
    * The Profile allows its owner or an admin; under impersonation the claim names the subject, so
    * the child edits the subject's profile as they would. The change reaches every subscriber. A
    * subscribe of this Client's own that was answered never-written registered nothing, so once the
    * write lands it is sent again, and this Client hears its own change.
    */
-  async updateMyProfile(fields: { name?: string; nickname?: string; picture?: string }): Promise<void> {
+  async patchMyProfile(patch: { name?: string | null; nickname?: string | null; picture?: string | null }): Promise<void> {
     const profileId = this.claims?.profileId;
-    if (!profileId) throw new Error('updateMyProfile: this session has no profileId yet');
-    await this.lmz.callAsync('PROFILE', profileId, this.ctn<ProfileTarget>().writeProfile(fields));
+    if (!profileId) throw new Error('patchMyProfile: this session has no profileId yet');
+    await this.lmz.callAsync('PROFILE', profileId, this.ctn<ProfileTarget>().patchProfile(patch));
     if (this.#profilesNeverWritten.has(profileId)) this.#sendProfileSubscribe(profileId);
   }
 

@@ -45,7 +45,7 @@ The preview has a tab for the person you are working for, `me`, and a tab for ea
 
    An invite makes the persona a member of the workspace and grants the tier on that node. Inviting a persona who is already a member onto another node adds that grant. To find a node made in an earlier run, read the tree: `[...store.lmz.orgTree.value.nodes].find(([, node]) => node.slug === 'lists')[0]`.
    - **A persona who administers the whole workspace**, as the app's owner does, is invited into the workspace itself with the admin bit: `await client.invite(client.claims.aud, [{ email: await client.personaAddress('manny'), scopeAdmin: true }])`.
-2. **From each persona's own tab, set their name.** `await client.updateMyProfile({ nickname: 'ollie', name: 'Ollie Organizer' }); return client.claims.sub;`, run with tab `ollie`. The write replaces every profile field, so pass the nickname, which is the slug, beside the name. If the run says the persona is not a member yet, run it again.
+2. **From each persona's own tab, set their name.** `await client.patchMyProfile({ name: 'Ollie Organizer' }); return client.claims.sub;`, run with tab `ollie`. The patch changes only the field it names, so the nickname the invite gave them, their slug, stays. If the run says the persona is not a member yet, run it again.
 3. **Make each record from the tab of the persona who would have made it.** The record then names that persona, so what the others see of it is what the app's real users would see. A node is named by its id, never its slug, so find it in the tree first, and return the transaction's outcome:
 
    ```js

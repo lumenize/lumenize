@@ -243,7 +243,24 @@ export async function run(stack: DevStack): Promise<void> {
       'the avatar beside my message must be the uploaded picture, stored as the relative path');
     assert.equal(await myChat.locator('[data-testid="byline"]').first().getAttribute('title'), 'Robin Q. Newcomer',
       'hovering a byline must reveal the full name; the byline itself stays the nickname');
-    console.error('  ✓ limb 8 — the profile editor renames an existing byline live, and the uploaded picture reaches the avatar');
+    // An emptied full name removes it, and the save keeps what it did not change: the write is a
+    // merge patch, where `null` removes a field and a field left alone stays. Reds if the editor
+    // leaves an emptied name out of its patch, which keeps the old one.
+    await page.locator('button[title="Account"]').click();
+    await page.getByTestId('menu-profile').click();
+    await page.getByTestId('profile-name').waitFor({ state: 'visible', timeout: 20_000 });
+    assert.equal(await page.getByTestId('profile-name').inputValue(), 'Robin Q. Newcomer', 'the editor must reopen with the full name on file');
+    await page.getByTestId('profile-name').fill('');
+    await page.getByTestId('profile-save').click();
+    const byline = myChat.locator('[data-testid="byline"]').first();
+    const nameGone = await page.waitForFunction(
+      (el) => el !== null && el.getAttribute('title') !== 'Robin Q. Newcomer', await byline.elementHandle(), { timeout: 20_000 },
+    ).then(() => true, () => false);
+    assert.ok(nameGone, `an emptied full name must leave the byline's hover: it still reads ${JSON.stringify(await byline.getAttribute('title'))}`);
+    assert.equal(await byline.innerText().then((t) => t.includes(RENAMED)), true, 'the nickname must stay when only the full name was removed');
+    assert.equal(await myChat.locator('[data-testid="party-avatar-img"]').first().getAttribute('src'), pictureSrc,
+      'the picture must stay when only the full name was removed');
+    console.error('  ✓ limb 8 — the profile editor renames an existing byline live, the uploaded picture reaches the avatar, and an emptied full name is removed alone');
 
     // ── LIMB 4: the Universe page lists the app the claim wrote, with NOTHING blocking it ──────
     // No name modal here — the nickname was taken at consent, so a person arrives ready to work. The

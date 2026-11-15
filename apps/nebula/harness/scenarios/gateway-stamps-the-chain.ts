@@ -294,7 +294,7 @@ export async function run(stack: DevStack): Promise<void> {
     const honestChat = honest.client.resources.subscribe('Chat', chatId);
     // The writer's profile is written first: a Profile nobody has written registers no subscriber,
     // and a row is what each limb below forges a hop onto.
-    await step('the writer names itself', 30_000, () => writer.client.updateMyProfile({ nickname: 'chain-0' }));
+    await step('the writer names itself', 30_000, () => writer.client.patchMyProfile({ nickname: 'chain-0' }));
     const honestProfile = honest.client.subscribeProfile(profileId);
     disposers.push(
       () => writerChat[Symbol.dispose](), () => honestChat[Symbol.dispose](), () => honestProfile[Symbol.dispose](),
@@ -309,7 +309,7 @@ export async function run(stack: DevStack): Promise<void> {
     const subscribeChat = () => forger.client.lmz.callAsync('GALAXY', SCOPE,
       forger.client.ctn<Galaxy>().resources.subscribe(CHAT_MESSAGE_ONTOLOGY_VERSION, 'Chat', chatId), { timeoutMs: 15_000 });
     let edits = 0;
-    const writeProfile = () => writer.client.updateMyProfile({ nickname: `chain-${++edits}` });
+    const patchProfile = () => writer.client.patchMyProfile({ nickname: `chain-${++edits}` });
     const renameChat = () => writer.client.resources.transaction({
       [chatId]: { op: 'put', typeName: 'Chat', value: { title: `chain-${++edits}` } } as any,
     });
@@ -330,7 +330,7 @@ export async function run(stack: DevStack): Promise<void> {
     from = forger.client.chatPushes;
     controlSubs.push(await outcomeOf(subscribeChat));
     await moved(() => forger.client.chatPushes, from);
-    const controlProfile = await writeAndHear('control: profile write', writeProfile, profileCounters);
+    const controlProfile = await writeAndHear('control: profile write', patchProfile, profileCounters);
     const controlChat = await writeAndHear('control: chat rename', renameChat, chatCounters);
     record('control: with the rewrite off, every delivery below can happen',
       controlSubs.every((o) => o === 'ok')
@@ -345,7 +345,7 @@ export async function run(stack: DevStack): Promise<void> {
     from = forger.client.profilePushes;
     const profileForged = await forging(forge, ABSENT_BINDING_HOP, subscribeProfile);
     const profileSnapshot = await moved(() => forger.client.profilePushes, from);
-    const profileAfter = await writeAndHear('profile write after the forged subscribe', writeProfile, profileCounters);
+    const profileAfter = await writeAndHear('profile write after the forged subscribe', patchProfile, profileCounters);
     record('Profile: a forged hop leaves every subscriber hearing the next update',
       profileForged.rewrote > 0 && profileAfter.outcome === 'ok'
         && profileAfter.heard.get('forger') === true && profileAfter.heard.get('honest') === true,

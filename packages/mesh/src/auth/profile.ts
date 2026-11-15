@@ -61,6 +61,44 @@ export interface ProfilePublicFields {
 }
 
 /**
+ * A merge patch of the public fields, by RFC 7396's rule: a field given a string is set, a field
+ * given `null` is removed, and a field left out is kept. `{ name: 'Pat Participant', picture: null }`
+ * sets the name, removes the picture and leaves the nickname as it was. `null` is the patch's word
+ * for "remove" and is never stored: a profile without a picture has no `picture` at all.
+ */
+export type ProfilePatch = { [K in keyof ProfilePublicFields]?: string | null };
+
+/**
+ * A patch's changes, field by field, or a throw that says what is wrong with it. A patch is the
+ * validation boundary for code a model wrote, so nothing is dropped quietly:
+ *
+ *  - a key that is no public field is refused, since a private field has its own gated write;
+ *  - a field given `undefined` is refused. JSON would drop it and keep the field, a caller who
+ *    wrote it may have meant to remove the field, and `{ picture: maybe }` writes it by accident,
+ *    so no reading of it is safe;
+ *  - a value that is neither a string nor `null` is refused.
+ */
+function changesOf(patch: unknown): Array<[keyof ProfilePublicFields, string | null]> {
+  if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
+    throw new TypeError('patchProfile: the patch must be an object naming public profile fields');
+  }
+  const changes: Array<[keyof ProfilePublicFields, string | null]> = [];
+  for (const [key, value] of Object.entries(patch)) {
+    if (!(PUBLIC_FIELDS as readonly string[]).includes(key)) {
+      throw new TypeError(`patchProfile: "${key}" is not a public profile field. They are ${PUBLIC_FIELDS.join(', ')}`);
+    }
+    if (value === undefined) {
+      throw new TypeError(`patchProfile: "${key}" is undefined. Leave a field out to keep it, or give it null to remove it`);
+    }
+    if (value !== null && typeof value !== 'string') {
+      throw new TypeError(`patchProfile: "${key}" must be a string, or null to remove it`);
+    }
+    changes.push([key as keyof ProfilePublicFields, value]);
+  }
+  return changes;
+}
+
+/**
  * The delivery shape the client's reactive store consumes — a LOCAL structural mirror of apps/nebula's
  * `Snapshot` (Mesh must NOT import apps/nebula — mesh.md § *Package dependency direction*). The client
  * engine dereferences only `value` + `meta.eTag` (verified 2026-07-14), so this minimal meta suffices.
@@ -215,17 +253,24 @@ export class Profile extends UnscopedMeshDO<Env> {
   // ── Writes (gated by requireOwnerOrAdmin) ────────────────────────────────────────────────────────
 
   /**
-   * Replace the PUBLIC fields (last-writer-wins — NO ADR-004 history, NO ADR-005 OCC conflict-check),
-   * advance the forward-only `eTag`, and push the new snapshot to every subscriber. Owner/admin only.
+   * Change the PUBLIC fields a patch names and keep the rest ({@link ProfilePatch}): a string sets
+   * a field, `null` removes it. Owner/admin only, and last-writer-wins, with NO ADR-004 history
+   * and NO ADR-005 conflict check. A write that changes something advances the forward-only
+   * `eTag` and pushes the new snapshot to every subscriber. A patch that changes nothing writes
+   * nothing and pushes nothing, so sending one again is free.
+   *
+   * @throws TypeError for a patch {@link changesOf} refuses, before anything is written.
    */
   @mesh()
-  async writeProfile(fields: ProfilePublicFields): Promise<void> {
+  async patchProfile(patch: ProfilePatch): Promise<void> {
     await this.#requireOwnerOrAdmin();
+    const stored = this.#publicSnapshot().value;
+    const changes = changesOf(patch).filter(([field, value]) => (stored[field] ?? null) !== value);
+    if (changes.length === 0) return;
     this.#create();
-    for (const f of PUBLIC_FIELDS) {
-      this.ctx.storage.sql.exec(
-        `INSERT OR REPLACE INTO ProfileFields (field, value) VALUES (?, ?)`, f, fields[f] ?? null,
-      );
+    for (const [field, value] of changes) {
+      if (value === null) this.ctx.storage.sql.exec(`DELETE FROM ProfileFields WHERE field = ?`, field);
+      else this.ctx.storage.sql.exec(`INSERT OR REPLACE INTO ProfileFields (field, value) VALUES (?, ?)`, field, value);
     }
     this.ctx.storage.sql.exec(
       `INSERT OR REPLACE INTO ProfileFields (field, value) VALUES ('eTag', ?)`, this.#ulid(),

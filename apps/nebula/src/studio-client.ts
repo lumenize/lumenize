@@ -99,8 +99,8 @@ export class StudioClient extends NebulaClient {
    * Upload a profile picture — the platform's first blob — and return its public URL.
    *
    * Upload ONLY, on purpose: the caller then writes the URL into the Profile with
-   * {@link NebulaClient.updateMyProfile}, which REPLACES the public set, so the caller carries
-   * nickname/name through (App.vue's editor does). Two steps rather than one keeps the write on the
+   * {@link NebulaClient.patchMyProfile}, which changes only the fields it names (App.vue's
+   * editor does). Two steps rather than one keeps the write on the
    * one owner-authorized path that already exists, instead of widening the auth Worker's seam.
    * The bearer never leaves the client (`authedFetch`); the server derives WHOSE picture from the
    * verified claims and sniffs the bytes — the Content-Type sent here is a courtesy.

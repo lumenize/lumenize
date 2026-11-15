@@ -293,7 +293,7 @@ export async function run(stack: DevStack): Promise<void> {
     limb('limb 7 — a subscribe there is admitted', inventedSubscribe.ok, said(inventedSubscribe));
     const inventedUnsubscribe = await send('PROFILE', invented, op('unsubscribe'));
     limb('limb 7 — an unsubscribe there is admitted', inventedUnsubscribe.ok, said(inventedUnsubscribe));
-    const inventedWrite = await send('PROFILE', invented, op('writeProfile', { nickname: 'not mine' }));
+    const inventedWrite = await send('PROFILE', invented, op('patchProfile', { nickname: 'not mine' }));
     limb('limb 7 — the caller\'s write there is refused by the owner-or-admin check',
       refusedWith(inventedWrite, /^Forbidden: /), said(inventedWrite));
     if (!local) {
@@ -308,7 +308,7 @@ export async function run(stack: DevStack): Promise<void> {
         madeByTheUuid.length === 0, `changed: ${JSON.stringify(madeByTheUuid)}`);
       console.log(`  · ${after.size - before.size} new Profile file(s) under the invented id's frames`);
       // The reader can see a Profile's storage: the caller's own first write creates its table.
-      const ownWrite = await send('PROFILE', profileId, op('writeProfile', { nickname: 'Routes' }));
+      const ownWrite = await send('PROFILE', profileId, op('patchProfile', { nickname: 'Routes' }));
       limb('limb 7 — the caller\'s write of its own Profile is admitted', ownWrite.ok, said(ownWrite));
       const written = [...profileFiles()].some(([file, s]) =>
         s.tables.includes('ProfileFields') && !(after.get(file)?.tables.includes('ProfileFields') ?? false));

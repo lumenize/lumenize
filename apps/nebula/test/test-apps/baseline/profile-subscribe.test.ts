@@ -129,8 +129,8 @@ async function subscriberCount(profileId: string): Promise<number> {
 
 const subscribe = (c: SubscriberProbe, pid: string) =>
   c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().subscribe());
-const writeProfile = (c: SubscriberProbe, pid: string, f: { name?: string }) =>
-  c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().writeProfile(f));
+const patchProfile = (c: SubscriberProbe, pid: string, f: { name?: string }) =>
+  c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().patchProfile(f));
 
 describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
   it('HEADLINE — a subscriber in another universe receives the UPDATE; the initial snapshot answers its own call (#2)', async () => {
@@ -139,7 +139,7 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
     const x = await meshClient({ activeScope: 'universe-x.app.tenant' });
     // Written first: a Profile nobody has written registers no subscriber for the update to reach.
-    await writeProfile(owner, pid, { name: 'Ada' });
+    await patchProfile(owner, pid, { name: 'Ada' });
 
     // X subscribes → the INITIAL snapshot is delivered inside X's own subscribe call, carrying X's
     // own claims (asserted here as the open-read demonstration).
@@ -152,7 +152,7 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     // ⚠️ MUTATION-CHECK: in the host node's `requirePassageIntoSender`, refuse a node sender whose name
     // is no scope, and nothing from the Profile arrives — the initial snapshot is the Profile's call
     // to X too, so profileUpdates stays empty.
-    await writeProfile(owner, pid, { name: 'Grace' });
+    await patchProfile(owner, pid, { name: 'Grace' });
     await vi.waitFor(() => expect(x.profileUpdates.length).toBe(2));
     expect(x.profileUpdates[1].snapshot.value).toEqual({ name: 'Grace' });
   });
@@ -165,7 +165,7 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     await owner.lmz.callAsync('PROFILE', pid, owner.ctn<Profile>().writePrivateNotes(SENTINEL));
 
     await subscribe(x, pid);
-    await writeProfile(owner, pid, { name: 'Grace' });
+    await patchProfile(owner, pid, { name: 'Grace' });
     await vi.waitFor(() => expect(x.profileUpdates.length).toBe(2));
     expect(JSON.stringify(x.profileUpdates)).not.toContain(SENTINEL); // the blob never rides a pushed snapshot
   });
@@ -174,19 +174,19 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     const pid = uuid();
     const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
     const x = await meshClient({ activeScope: 'universe-x.app.tenant' });
-    await writeProfile(owner, pid, { name: 'Ada' });         // created, so a subscribe stores a row
+    await patchProfile(owner, pid, { name: 'Ada' });         // created, so a subscribe stores a row
     await subscribe(x, pid);
     await vi.waitFor(async () => expect(await subscriberCount(pid)).toBe(1)); // row present
 
     x[Symbol.dispose]();                                     // X disconnects
-    await writeProfile(owner, pid, { name: 'Grace' });       // fanout push to X fails → ClientDisconnectedError
+    await patchProfile(owner, pid, { name: 'Grace' });       // fanout push to X fails → ClientDisconnectedError
     await vi.waitFor(async () => expect(await subscriberCount(pid)).toBe(0)); // onProfileBroadcastResult dropped it
   });
 
   it('client subscribeProfile routes to PROFILE/profileId (≠ activeScope) and resolves with the snapshot (#1/#5)', async () => {
     const pid = uuid();
     const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
-    await writeProfile(owner, pid, { name: 'Ada' });
+    await patchProfile(owner, pid, { name: 'Ada' });
 
     // A real NebulaClient in a DIFFERENT scope subscribes by profileId (instance ≠ its activeScope).
     const client = await nebulaClient({ activeScope: 'universe-x.app.tenant' });
@@ -200,13 +200,13 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     // override needed); the host node's passage check is the cross-scope boundary.
     const pid = uuid();
     const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
-    await writeProfile(owner, pid, { name: 'Ada' });
+    await patchProfile(owner, pid, { name: 'Ada' });
 
     const client = await nebulaClient({ activeScope: 'universe-x.app.tenant' });
     expect((await client.subscribeProfile(pid).snapshot)?.value).toEqual({ name: 'Ada' });
     const baseline = client.profileUpdateCount;
 
-    await writeProfile(owner, pid, { name: 'Grace' });      // cross-scope UPDATE (owner in scope Y)
+    await patchProfile(owner, pid, { name: 'Grace' });      // cross-scope UPDATE (owner in scope Y)
     await vi.waitFor(() => expect(client.profileUpdateCount).toBeGreaterThan(baseline));
     expect(client.lastProfileUpdate).toMatchObject({ profileId: pid });
     expect((client.lastProfileUpdate?.snapshot as ProfileSnapshot | null)?.value).toEqual({ name: 'Grace' });
@@ -215,7 +215,7 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
   it('the re-subscribe walk sends a Profile entry to PROFILE, not STAR — the binding-agnostic branch (#5)', async () => {
     const pid = uuid();
     const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
-    await writeProfile(owner, pid, { name: 'Ada' });
+    await patchProfile(owner, pid, { name: 'Ada' });
     const client = await nebulaClient({ activeScope: 'universe-x.app.tenant' });
     await client.subscribeProfile(pid).snapshot;
     await vi.waitFor(async () => expect(await subscriberCount(pid)).toBe(1));
@@ -235,7 +235,7 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
   it('subscribeProfile is refcounted — 2 handles share ONE server sub; Profile.unsubscribe fires only on the LAST dispose', async () => {
     const pid = uuid();
     const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
-    await writeProfile(owner, pid, { name: 'Ada' });
+    await patchProfile(owner, pid, { name: 'Ada' });
     const client = await nebulaClient({ activeScope: 'universe-x.app.tenant' });
 
     // Two handles for the same profile — the 2nd coalesces (refcount++), NOT a duplicate server sub.
@@ -248,7 +248,7 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     // signal: a subsequent write still fans out to this client (proves the subscriber row survived).
     h1[Symbol.dispose]();
     const baseline = client.profileUpdateCount;
-    await writeProfile(owner, pid, { name: 'Grace' });
+    await patchProfile(owner, pid, { name: 'Grace' });
     await vi.waitFor(() => expect(client.profileUpdateCount).toBeGreaterThan(baseline)); // reds if h1 dispose unsubscribed early
 
     // Release the LAST handle → Profile.unsubscribe fires (refcount 0) → the DO row drops.
@@ -256,7 +256,7 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     await vi.waitFor(async () => expect(await subscriberCount(pid)).toBe(0));
   });
 
-  it('updateMyProfile writes MY profile, and a subscriber answered never-written hears it on its next socket — the back-fill leg', async () => {
+  it('patchMyProfile writes MY profile, and a subscriber answered never-written hears it on its next socket — the back-fill leg', async () => {
     const pid = uuid();
     // The thread-rendering side: a client holding the per-author Profile subscription the byline
     // rides, subscribed before the author has written anything. The Profile answers never-written and
@@ -272,12 +272,12 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     expect((await handle.snapshot).meta.eTag).toBe(NEVER_WRITTEN_ETAG);
 
     // The completing owner: a REAL NebulaClient whose claims carry profileId = pid.
-    // ⚠️ `updateMyProfile` routes on the CLAIM, not a parameter, which is what makes it safe to
+    // ⚠️ `patchMyProfile` routes on the CLAIM, not a parameter, which is what makes it safe to
     // expose to a client at all — a caller cannot name someone else's profile. MUTATION-CHECKED:
-    // route updateMyProfile at `this.#activeScope` instead of the profileId claim → the write lands
+    // route patchMyProfile at `this.#activeScope` instead of the profileId claim → the write lands
     // on the wrong Profile instance and the heal below never brings the name.
     const owner = await nebulaClient({ activeScope: 'universe-y.app.tenant', profileId: pid });
-    await owner.updateMyProfile({ name: 'Sydney' });
+    await owner.patchMyProfile({ name: 'Sydney' });
 
     // A token rotation opens a new socket that supersedes the old one, which its host reports as
     // nothing lost. The re-send of the never-written subscribe there is what heals the byline.
@@ -297,7 +297,7 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     const pid = uuid();
     const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
     const x = await meshClient({ activeScope: 'universe-x.app.tenant' });
-    await writeProfile(owner, pid, { name: 'Ada' });         // created, so a subscribe stores a row
+    await patchProfile(owner, pid, { name: 'Ada' });         // created, so a subscribe stores a row
 
     // POSITIVE CONTROL: the initial snapshot rides X's OWN subscribe call, so X's own claims arrive on
     // it — which shows the probe records `originAuth` at all.
@@ -308,7 +308,7 @@ describe('Profile DO — subscribe + cross-scope delivery + fanout', () => {
     // The update is a Profile push, not the writer's call, so the writer's `sub`, `aud` and `access`
     // stop at the Profile. MUTATION: pass `newChain: false` in `Profile.#fanout` and the owner's
     // claims arrive here.
-    await writeProfile(owner, pid, { name: 'Grace' });
+    await patchProfile(owner, pid, { name: 'Grace' });
     await vi.waitFor(() => expect(x.profileUpdates.length).toBe(2));
     expect(x.profileUpdates[1].originAuth).toBeUndefined();
   });

@@ -223,7 +223,7 @@ describe('the Profile channel', { timeout: 30000 }, () => {
   // The Client's own profile, never written: the Profile answers never-written and stores no row,
   // so the Client hears its own first write only because it sends that subscribe again after the
   // write lands. MUTATIONS: drop the listener call in `handleProfileUpdate`, or drop the re-send
-  // after `updateMyProfile`, and the write reaches nothing.
+  // after `patchMyProfile`, and the write reaches nothing.
   it('subscribes by profileId, is answered never-written, and hears its own first write', async () => {
     using client = await connectClient(SessionClient, uniqueScope('s'));
     const profileId = client.claims!.profileId;
@@ -234,7 +234,7 @@ describe('the Profile channel', { timeout: 30000 }, () => {
     const first = await handle.snapshot;
     expect(first.meta.eTag).toBe(NEVER_WRITTEN_ETAG);
 
-    await client.updateMyProfile({ nickname: 'Ada' });
+    await client.patchMyProfile({ nickname: 'Ada' });
     await vi.waitFor(() => expect(heard.map((s) => (s?.value as { nickname?: string })?.nickname)).toContain('Ada'));
   });
 
@@ -255,7 +255,7 @@ describe('the Profile channel', { timeout: 30000 }, () => {
       using handle = watcher.subscribeProfile(profileId);
       expect((await handle.snapshot).meta.eTag).toBe(NEVER_WRITTEN_ETAG);
     }
-    await owner.updateMyProfile({ nickname: 'written after the dispose' });
+    await owner.patchMyProfile({ nickname: 'written after the dispose' });
 
     // A new socket inside the grace period, which the host reports as nothing lost.
     watcher.lmz.call('CLIENT_HOST_DO', host, watcher.ctn<ClientHostDO>().closeEveryClient(4000),
@@ -286,7 +286,7 @@ describe('the Profile channel', { timeout: 30000 }, () => {
     });
     // Written first, so the subscribe registers a row for the loss to take away: a never-written
     // Profile stores none, and the Client's own write would re-send that subscribe by itself.
-    await client.updateMyProfile({ nickname: 'before the loss' });
+    await client.patchMyProfile({ nickname: 'before the loss' });
     using handle = client.subscribeProfile(profileId);
     expect((await handle.snapshot).meta.eTag).not.toBe(NEVER_WRITTEN_ETAG);
 
@@ -299,7 +299,7 @@ describe('the Profile channel', { timeout: 30000 }, () => {
     await vi.waitFor(() => expect(client.connectionState).toBe('reconnecting'), { timeout: 5000 });
     await vi.waitFor(() => expect(client.connectionState).toBe('connected'), { timeout: 10000 });
 
-    await client.updateMyProfile({ nickname: 'after the loss' });
+    await client.patchMyProfile({ nickname: 'after the loss' });
     await vi.waitFor(() => expect(heard).toContain('after the loss'), { timeout: 5000 });
   });
 });

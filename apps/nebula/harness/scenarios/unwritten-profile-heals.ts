@@ -5,12 +5,12 @@
  * A Profile nobody has written answers a subscribe with the empty profile, eTag
  * `00000000000000000000000000`, and stores no subscriber, so its first write pushes to no one. A
  * Client remembers each profile whose last answer was never-written, and sends that subscribe again
- * after its own successful `updateMyProfile` and on every new socket. Two pages show it:
+ * after its own successful `patchMyProfile` and on every new socket. Two pages show it:
  *
  *  1. **Bob's own page.** Bob founds his Star through the real signup's links, with an Accept that
  *     carries no nickname, which no consent screen sends, so his Profile stays unwritten. His page subscribes to his own profile and is answered never-written; he
  *     sets his nickname, and his page hears it within a few seconds, far inside his token's life, so
- *     no new socket can have healed it. Mutation: drop the re-send after `updateMyProfile`.
+ *     no new socket can have healed it. Mutation: drop the re-send after `patchMyProfile`.
  *  2. **Alice's page.** An admin impersonates Bob with a 45-second token, and that child subscribes
  *     to Bob's profile before he writes. After his write it still hears nothing. Once its token has
  *     really lapsed (calibration §13) it sends a call, which renews the token and opens a new socket
@@ -132,7 +132,7 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── LIMB 1: Bob writes, and his own page hears it ───────────────────────────────────────────
     const tokenExp = (bobClient.claims as unknown as { exp: number }).exp;
-    await bobClient.updateMyProfile({ nickname });
+    await bobClient.patchMyProfile({ nickname });
     const bobHealed = await waitFor('Bob hears his name', () =>
       (bobHeard.get(profileId) ?? []).some((s) => nicknameOf(s) === nickname), PUSH_MS);
     limb('limb 1 — Bob\'s page shows his nickname after his own write', bobHealed,

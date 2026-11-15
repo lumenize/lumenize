@@ -350,12 +350,12 @@ export async function run(stack: DevStack): Promise<void> {
         if (id === profileId) heard.push((snapshot?.value as { nickname?: string } | undefined)?.nickname ?? '');
       });
       // Written first: a Profile nobody has written registers no subscriber, so its push could not fail.
-      await writer.updateMyProfile({ nickname: 'before' });
+      await writer.patchMyProfile({ nickname: 'before' });
       await watcher.subscribeProfile(profileId).snapshot;
       log.holdMs = 8_000;
       log.current!.drop();
       await until(() => watcher.connectionState === 'reconnecting', 5_000, 'limb 8: the tab never saw its socket drop');
-      await writer.updateMyProfile({ nickname: 'changed-while-away' }); // fails once the grace period runs out
+      await writer.patchMyProfile({ nickname: 'changed-while-away' }); // fails once the grace period runs out
       await until(() => watcher.connectionState === 'connected', 20_000, 'limb 8: the tab never came back');
       await until(() => log.statuses.length === 2, 5_000, 'limb 8: no connection_status on the reconnect');
       const id = watcher.lmz.instanceName!;
@@ -364,7 +364,7 @@ export async function run(stack: DevStack): Promise<void> {
       await waitForDebugLines(stack, (all) => all.some(isReap), 'limb 8\'s reap').catch(() => {});
       const reaped = debugLines(stack.logs()).some(isReap);
       await new Promise((r) => setTimeout(r, 1_000));
-      await writer.updateMyProfile({ nickname: 'changed-after' });
+      await writer.patchMyProfile({ nickname: 'changed-after' });
       await until(() => heard.includes('changed-after'), 10_000, '').catch(() => {});
       limb('limb 8 — the Profile channel, past the grace period',
         log.statuses.at(-1) === true && heard.includes('changed-after') && reaped,
