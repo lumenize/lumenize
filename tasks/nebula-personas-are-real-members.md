@@ -1,6 +1,6 @@
 # Personas are real members of the dev Star
 
-**Status:** built on 2026-11-14, in a run Larry asked to go to completion on its own, and waiting for him to evaluate it. Nothing is pushed. Q5 and Q6 are open, and § *Build notes* says what each phase decided without him. It replaces [nebula-testing-with-personas.md](archive/nebula-testing-with-personas.md), reverted on 2026-11-13 and kept under the tag `personas-v1-built`, and is item ② of [nebula-pre-alpha.md](nebula-pre-alpha.md). D1 to D18 are Larry's. D20 onward are the builder's, made without him, and § *Design intent* carries each one he would see in the product. Q5 and Q6 are open and wait for him; nothing built here depends on either.
+**Status:** built on 2026-11-14, in a run Larry asked to go to completion on its own, and waiting for him to evaluate it. Nothing is pushed. Q5 is open, and § *Build notes* says what each phase decided without him. It replaces [nebula-testing-with-personas.md](archive/nebula-testing-with-personas.md), reverted on 2026-11-13 and kept under the tag `personas-v1-built`, and is item ② of [nebula-pre-alpha.md](nebula-pre-alpha.md). D1 to D18 are Larry's. D20 onward are the builder's, made without him, and § *Design intent* carries each one he would see in the product. Q5 is open and waits for him; nothing built here depends on it.
 
 ## Conventions
 
@@ -141,7 +141,7 @@ The rest of this file says how a persona becomes a member, how its tab gets a to
 - **C1. No code reads `act` to decide what a call may do.** Checked 2026-11-14: the readers are the mint's root-identity gate and its client mirror. The build added a client's logout, which reads only whether `act` is there and decides no access. `run_in_tab`'s refusal of an impersonated post, which read it too, was removed 2026-11-15 (D25).
 - **C2. A collaborator's `.dev` membership carries the admin bit.** Checked in the Registry's invite, which mints the sibling with `scopeAdmin` set.
 - **C3. An address differing only in its local part is its own identity.** Checked: `normalizeEmail` lowercases and trims, nothing more.
-- **C4. From the Galaxy's page, a plain collaborator's claims reach nothing in the dev Star.** Derived from `hasPassageInto`, and seen in Studio's own Wipe, whose comment says a collaborator is refused (Q6).
+- **C4. From the Galaxy's page, a plain collaborator's claims reach nothing in the dev Star.** Derived from `hasPassageInto`, and seen in Studio's own Wipe, whose comment says a collaborator is refused (D32).
 - **C5. A token minted for Gerry may write Gerry's own Profile.** ADR-012 says the owner branch fires for an impersonation token. Phase 5's scenario runs it.
 - **C6. A dev Star's page may run code handed to it.** Checked 2026-11-14: the page step sets `frame-ancestors` and no other content security policy (`framed` in `apps/nebula/src/entrypoint.ts`).
 - **C7. A local stack can run the mail handler.** Checked 2026-11-14 in Cloudflare's docs: `wrangler dev` answers `POST /cdn-cgi/local/email` with a raw message by running the Worker's `email` handler. Phase 2's scenario runs it.
@@ -172,7 +172,6 @@ The rest of this file says how a persona becomes a member, how its tab gets a to
   - *A wipe after the file changed,* or a change to the file with no wipe. Options: the turn that changes the file applies the change; or the change waits for a wipe.
   - *How an automatic rebuild would start.* A post in the person's name that they did not type; or a button labelled as the request it sends.
   - *Recommendation:* the turn that changes the file applies it, and after a wipe the agent's guidance tells it to rebuild as its first step when the person next asks for anything, saying that it did. Until Larry answers, the guidance says only that the cast can be rebuilt from the file on request.
-- **Q6. May a collaborator wipe the dev Star, and from where?** Studio's Wipe calls the Star from Studio's own page, on the Galaxy's host, and a collaborator's claims there reach nothing in the dev Star (C4), so their Wipe is refused today. The reverted build had made it work. Options: Studio asks the "Me" tab to wipe, through DI5's channel, which works for anyone who is the dev Star's admin; or the agent wipes with its tool when asked; or it stays an admin's button. *Recommendation:* Studio asks the "Me" tab, so the button means the same for everyone it is shown to. It is outside this file's phases.
 
 ## Decisions
 
@@ -210,6 +209,7 @@ D1 to D15 were settled with Larry on 2026-11-13 and 14, and D16 to D18 are his a
 | D29 | The local mail relay is part of the local stack: `npm run dev` and the harness both start it with the stack, and it hands each message for a persona's address to the local Worker's `email` handler as it arrived. | A step a scenario calls: a scenario would then differ between venues, and a stack run by hand would never accept an invite. |
 | D30 | `run_in_tab` is how the agent reads a tab, its log included. The preview's error channel in [nebula-pre-alpha.md](nebula-pre-alpha.md) keeps its buffer and drops its own tool. | A second tool for reading a tab: one page reached by a second way. |
 | D31 | Each leg of a run has a bound, and each failure says where it stopped. Studio gives the frame 20 s, which covers loading it, and answers "the tab `gerry` did not answer in 20 s" or "`gerry` is not a member of the dev Star yet". The Galaxy's call to Studio is under the 30 s every call to a Client has, and says that the person has no Studio tab open, or that a tab stayed silent and the code may still run. Code that throws is `{ ok: false, error }`, which is a result and no tool error. | One bound for the whole trip: the agent could not tell a closed Studio from a slow page. |
+| D32 | A collaborator may wipe the dev Star, and a wipe always goes through the agent: Studio's Wipe button goes, and the agent wipes from the asker's "Me" tab, where a collaborator is admin (was Q6; Larry, 2026-11-15). The one line he holds for a collaborator is that they see no real tenant Star's data, which `collaborator-reaches-no-tenant-star` drives. Unbuilt. | The button asking the "Me" tab: Larry wants the agent involved in every wipe. An admin's button: a collaborator already is the dev Star's admin, and only the page the button sits on refused them. |
 
 ## Phases
 
@@ -248,7 +248,7 @@ Each phase ends with its tests mutation-checked and its notes in § *Build notes
 
 ## Non-goals
 
-- **What starts a rebuild after a wipe, and who may wipe.** Q5 and Q6.
+- **What starts a rebuild after a wipe, and the agent's wipe that replaces Studio's button.** Q5 and D32.
 - **Seeding at scale.** § *Beyond this task*.
 - **The agent acting as a persona on the server.** D14.
 - **Production's mail routing.** `scripts/deploy.sh` turns Email Routing on for `lumenize.dev` and points its catch-all at the Worker when production is next deployed, at pre-alpha's wipe gate. Turning it on adds MX records and an SPF record at the zone's own name.
@@ -332,6 +332,7 @@ The verifier panel read phases 1 to 7 and passed none of them. Every blocker and
 
 - **For Larry.** Phase 5 deleted Studio's Wipe button. The strip came in as a patch from the reverted build, whose design had no wipe, and I did not read what the patch removed. `dev-star-follows-the-build` found it in the sweep. The button and its call are back, and a wipe now sets every loaded frame's address.
 - **Decided with Larry, 2026-11-15.** `run_in_tab` was built refusing a post written while impersonating, as the first use of the one reading of `act` ADR-016 allows. The refusal is removed. The impersonation mint requires dominion over the subject's whole scope, so code running in that person's tab gives the impersonator nothing they lack, and `act` stays attribution only. Such a post now runs in the impersonated person's own Studio, or finds no tab when theirs is closed, and the tool call's record names both people. ADR-016 is unchanged.
+- **Decided with Larry, 2026-11-15.** A collaborator may wipe the dev Star, through the agent and never a button (D32). What he holds for a collaborator is that they see no real tenant Star's data. No test had a real collaborator try, so `collaborator-reaches-no-tenant-star` now does, from `.dev`'s host, the app's page and the tenant Star's own host, with one mutation caught per limb.
 - **Decided with Larry, 2026-11-14.** The Galaxy waits in memory on a Studio tab's answer (D23), which `mesh.md` forbade for any node. The wait stays as a temporary one, marked TEMP in `mesh.md` and at `#tabAnswers`, until a turn is stored round by round. ADR-003 is unchanged.
 - **For Larry.** A persona's refresh reads the Registry twice on every refresh, where ADR-022, `raw-comm.md` and the website said a KV hit reads nothing. Each now names the exception. ADR-018 asks that no per-request path on the singleton scale with user activity: this one scales with developers' open persona tabs, each refreshing every fifteen minutes.
 - **For Larry.** `client.updateMyProfile` replaces all three public fields, so the skill's `updateMyProfile({ name })` erased the nickname the acceptance set. The reference said a field left out is kept. Both are corrected, and the skill passes the nickname. A write that clears what it does not name is awkward to call from an app.
