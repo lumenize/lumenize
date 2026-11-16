@@ -17,7 +17,7 @@ There is **no per-scope auth DO**. Identity and all durable auth state live in o
 
 A scope's host spells it with the labels reversed, so `https://tenant1.crm.acme.lumenize.dev/` is the scope `acme.crm.tenant1`. The app `acme.crm` is Studio, at `https://crm.acme.lumenize.dev/`, and the account `acme` has its page at `https://acme.lumenize.dev/`. A page acts only at the scope its host spells.
 
-The platform host, `https://platform.lumenize.dev/`, is where login, Home and a link's page live, and every `/auth/*` route answers there and nowhere else. `https://lumenize.dev/` redirects to it.
+The platform host, `https://platform.lumenize.dev/`, is where login, Home and a link's page live, and every `/auth/*` route answers there and nowhere else. `https://lumenize.dev/` redirects to it for now, until the landing page for user-developers that belongs there is built.
 
 - **Each membership has its own cookie**, `__Host-refresh-token.{scope}`, set `HttpOnly; Secure; SameSite=Lax; Path=/` on the platform host alone.
 - **The refresh is the one route a page on another host calls.** A page sends `POST https://platform.lumenize.dev/auth/refresh-token` with `credentials: 'include'` and no body. The refresh reads the page's host from `Origin`, and answers CORS for that origin alone.

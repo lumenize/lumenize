@@ -8,10 +8,11 @@
  *     `/auth/*`, which every host but the platform host answers with a 404, so a page step's
  *     single-page fallback never answers it with a 200. On a scope's host or a persona's,
  *     `/gateway/{id}` is a Client's upgrade to the node that host spells, which hosts it.
- *  3. **A page chosen by host.** The apex redirects to the platform host; the platform host serves
- *     the auth app's static files; a universe or galaxy host serves Studio; a Star's or persona's
- *     host serves its galaxy's built app through the page track (`page-forward.ts`). A page loads
- *     without a session, so this step never asks the Registry whether a host's scope exists.
+ *  3. **A page chosen by host.** The apex redirects to the platform host, which is TEMP: ADR-021
+ *     puts a landing page for user-developers there. The platform host serves the auth app's
+ *     static files; a universe or galaxy host serves Studio; a Star's or persona's host serves
+ *     its galaxy's built app through the page track (`page-forward.ts`). A page loads without a
+ *     session, so this step never asks the Registry whether a host's scope exists.
  *
  * Every page answer carries `Content-Security-Policy: frame-ancestors`: `'none'` on the platform
  * host, a universe page and Studio, and the galaxy's Studio origin on a Star's or persona's host,
@@ -117,6 +118,8 @@ async function servePage(request: Request, url: URL, target: HostTarget | null, 
   if (target === null) return new Response('Not Found', { status: 404 });
   switch (target.kind) {
     case 'apex':
+      // TEMP → target = a landing page for user-developers, served here (ADR-021). Until it is
+      // built the apex sends a visitor on to the platform host, where login and Home are.
       return Response.redirect(`${hostOrigin({ kind: 'platform' }, deployment, url.origin)}${url.pathname}${url.search}`, 302);
     case 'platform': {
       // Every page here is a route the platform entrypoint serves, so what reaches this step is the
