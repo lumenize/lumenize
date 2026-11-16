@@ -836,7 +836,7 @@ interface Snapshot {
 
 interface SnapshotMeta {
   validFrom: string;   // the resource's version: ISO 8601, the moment the write that produced this snapshot committed
-  nodeId?: number;     // org/permission-tree node the resource is attached to (present on every resource snapshot)
+  nodeId?: string;     // org/permission-tree node the resource is attached to (present on every resource snapshot)
   typeName?: string;   // ontology type name
   deleted?: boolean;   // true for soft-deleted (tombstoned) resources
   mimeType?: string;   // IETF media type, set where MIME is meaningful (file resources, blobs)
@@ -845,6 +845,7 @@ interface SnapshotMeta {
 
 - **User code reads `meta`; only the framework writes it.** Writes to `meta.*` pass through middleware unchanged but are warned-on in debug builds.
 - **Tombstones are real snapshots.** A deleted resource keeps its last `value`; `meta.deleted: true` is the only deletion signal — check it *before* any `value` truthiness test (see [Coding your UI § Loading and first paint](./coding-your-ui.md#loading-and-first-paint)). A `null` from `read` means "never created", not "deleted".
+- `meta.nodeId` and `meta.typeName` are on a resource the page has just created too: the store writes them from the create's own op, before any push arrives.
 - `meta.nodeId` is how UI code attaches new resources next to existing ones — [Coding your UI § Atomic append](./coding-your-ui.md#atomic-append--adding-to-a-collection) creates a todo at the list's `meta.nodeId`.
 - Additional framework-owned fields (`validTo`, `recordedClaims`, `ontologyVersion`) exist server-side and may appear; treat `meta` as an open, read-only shape.
 

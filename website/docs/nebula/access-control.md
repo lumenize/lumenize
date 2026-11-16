@@ -64,6 +64,35 @@ graph TD
 
 Alice has `admin` on `user-alice`; that grant cascades to both her lists and to every todo attached under them. Bob has `admin` on `user-bob` only — by default he can't see anything in Alice's subtree.
 
+### Every box in that tree is a node
+
+The lists are nodes, as the users are. A grant is made on a node and reaches everything beneath it, so a thing someone may share on its own needs a node of its own. Were Alice's lists resources attached straight to `user-alice`, the only node to grant Bob anything on would be `user-alice`, and he would get every list she has.
+
+So creating a list is two steps: make the list's node under its owner's, then attach the list resource to that node. Its todos attach there too.
+
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
+// A list someone may share on its own gets a node of its own, under its owner's.
+const listWorkNodeId = crypto.randomUUID();
+await client.orgTree.createNode(listWorkNodeId, userAliceNodeId, 'list-work', 'Work');
+
+// The list, and everything in it, attaches to that node.
+const listWorkId = crypto.randomUUID();
+await client.resources.transaction({
+  [listWorkId]: { op: 'create', typeName: 'todoList', nodeId: listWorkNodeId, value: { items: [] } },
+});
+
+// Sharing this one list is a grant on its node, which the list's own meta names.
+const listNodeId = store.resources.todoList[listWorkId].meta.nodeId;
+await client.orgTree.setPermission(listNodeId, bobsSub, 'read');
+
+// Who the list is shared with is read back from the tree, never kept in the list's value.
+const sharedWith = store.lmz.orgTree.value.permissions.get(listNodeId);
+```
+
+- **The tree is the only record of who has access.** Keep no `members` or `sharedWith` field in a resource's value. A second copy drifts from the grants, and it is the grants that are enforced.
+- **`meta.nodeId` is on every store entry**, a resource the page has just created included, so the page never stores a node's id in a value either.
+- **When you have a person's address and not their `sub`**, `client.resources.invite(nodeId, [{ email, tier }])` makes the same grant, and makes them a member of the app first if they are not one.
+
 Now Alice wants to share `list-shopping` with Bob. There are **two ways** to express that — each illustrates a property of the underlying structure.
 
 ### Approach 1: Grant a permission on the shared node — for limited-access sharing

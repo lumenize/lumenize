@@ -386,6 +386,28 @@ It is exploratory in both of its halves, and neither can be specified up front:
 
 **Ontology annotations come with it:** `@title`, `@description` and `@inverse`, which data-bound generation needs. They add to `extractTypeMetadata` and change nothing that exists.
 
+### A hand-driven turn, traced from its record (2026-11-16)
+
+Larry asked a new app for shopping lists that a user shares with others, read-only or with write access. The turn ran 13 minutes and stopped at the 32-round cap with its last edit unbuilt. Its record is the agent's stored message in the Galaxy: 50 tool calls, with each `run_in_tab`'s code and result.
+
+- **The agent planned a node per list and did not build one.** Its `docs/permissions.md` said a sharee is granted a tier "directly on the list node". Its `App.vue` attached every list to the owner's node and never called `createNode` for a list. `access-control.md` drew the lists as boxes in the tree and never said in words that a list is a node.
+- **`meta.nodeId` was missing on a resource the page had just created.** The store painted a create's value and `validFrom` only, so the share read `undefined`. `api-reference.md` said the field is on every snapshot. This was a defect in the client, and a generated app's own Share button would have met it.
+- **A run that failed halfway left its first half behind.** The agent ran it again, found four lists where it wanted two, and wiped the dev Star, which meant building the cast again. It did that twice, so the cast was built three times.
+- **A put built from a store value could not be cloned.** `{ ...list, members }` holds the store's proxies for `list`'s nested arrays, and `structuredClone` refused them. Also a defect in the client.
+- **It kept a `members` array in each list**, a second record of who has access beside the tree's grants, and a `nodeId` field in the list's value.
+- **It built four times before any data existed,** once on an unchanged tree only to land it. Its last build landed with four type findings, by asking for the preview.
+- **Its closing message was "I couldn't finish cleanly — see the thought process"**, which says nothing of what is left to do. Not addressed.
+- **Each full `App.vue`, about 15 KB, took about two and a half minutes to write,** and nothing streams while a tool call's arguments are generated. That is the silence in T4 of [small-ui-tweaks-from-driving.md](small-ui-tweaks-from-driving.md). Not addressed.
+
+Changed the same day:
+
+- **The client:** a create's `meta` holds the `nodeId` and `typeName` its op named, and an op's value is detached from the store before it is cloned. A create or move with no `nodeId` is refused by name; before, it read "Node undefined not found".
+- **`access-control.md` § *Every box in that tree is a node*** says the rule, with code a test runs: a node for the list, the list attached to it, a grant on that node, and the roster read back from the tree.
+- **The `wire-a-view` skill** gives the node rule at the create handler, and forbids a `members` field and a node id kept in a value.
+- **The `define-the-cast` skill** asks for a node for each thing shared on its own, small runs that return what they made, a look before a failed run is repeated, and no wipe unless asked.
+
+No turn has been run against the new guidance yet, so none of it is known to change what the model does.
+
 ### Findings — the model in the loop, observed
 
 One line per observation, appended and never edited: `date · limb · pass|fail · one sentence`. The limbs are the `/live` scenarios that watch the real model: `studio-guidance-loop` reports (a) (b) (c) (d) (f), `four-party-chat` reports (e), and `first-app-built` reports (g). A limb never gates a sweep. A fail is a finding for capture and for the platform file's next edit, and this item's loop restarts from the last line here. The log is appended now, before any invite, by every sweep that runs the model.

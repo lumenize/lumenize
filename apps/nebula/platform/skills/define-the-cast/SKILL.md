@@ -21,6 +21,7 @@ Read `.platform/docs/access-control.md` — *Worked example: sharing in a todo-l
 5. **Write the cast and its steps.** In `docs/personas.md`, with `edit_file`. A data wipe keeps the cast's memberships and drops their grants and data, and these steps are what give both back:
    - Under *The cast*, one list line for each persona, opening with its slug in backticks: `` - `ollie` — Ollie Organizer. Runs the exchange and sees every list. `` Studio shows a tab for each such line.
    - Under *Building the cast*, numbered steps in plain words: the nodes to create, and which persona is invited onto which node at which tier.
+   - A limited share is a grant on a node, so each thing shared on its own needs its own node: one per list, not one per person holding every list. Say so in the steps, as "create a node for the list under `user-sally`".
    - Under *Sample data*, numbered steps in plain words, each naming the persona whose tab makes the record.
 6. **Build the cast and its data,** as the next section says, following the steps you wrote.
 7. **When a later request changes the cast or its steps, apply the change in the same turn.** Invite the new persona, add the grant or make the record from the tabs as you edit the file. Do not leave it for a wipe.
@@ -56,6 +57,9 @@ The preview has a tab for the person you are working for, `me`, and a tab for ea
    });
    return outcome.kind; // 'committed'
    ```
+
+   - **Keep each run small, and return what it made.** A run is not one transaction: when its fifth line fails, the first four have already happened. So make the nodes in one run, the records in the next and the shares in a third, and return the ids each made so the next run names them.
+   - **After a run fails, look before running it again.** Return what the tab holds, `Object.keys(store.resources.Wish ?? {})` and the tree's slugs, and make only what is missing. A stray record is removed with `{ op: 'delete', typeName }` at its id. Wipe only when asked to: a wipe drops every grant too, and the whole cast has to be built again.
 
 4. **Look through another persona's tab.** Read what `ollie` sees and compare it with the decisions in `docs/permissions.md`. A persona who sees what they should not, or cannot see what they should, is a grant to fix:
 

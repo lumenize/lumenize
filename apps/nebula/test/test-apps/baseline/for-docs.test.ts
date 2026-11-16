@@ -128,6 +128,31 @@ describe('for-docs runtime examples (real Star)', () => {
     await client.orgTree.removeEdge(userBobNodeId, listShoppingId);
     // @end-doc
 
+    // ── access-control § Every box in that tree is a node ──
+    // @doc access-control.md § Every box in that tree is a node
+    // A list someone may share on its own gets a node of its own, under its owner's.
+    const listWorkNodeId = crypto.randomUUID();
+    await client.orgTree.createNode(listWorkNodeId, userAliceNodeId, 'list-work', 'Work');
+
+    // The list, and everything in it, attaches to that node.
+    const listWorkId = crypto.randomUUID();
+    await client.resources.transaction({
+      [listWorkId]: { op: 'create', typeName: 'todoList', nodeId: listWorkNodeId, value: { items: [] } },
+    });
+
+    // Sharing this one list is a grant on its node, which the list's own meta names.
+    const listNodeId = store.resources.todoList[listWorkId].meta.nodeId;
+    await client.orgTree.setPermission(listNodeId, bobsSub, 'read');
+
+    // Who the list is shared with is read back from the tree, never kept in the list's value.
+    const sharedWith = store.lmz.orgTree.value.permissions.get(listNodeId);
+    // @end-doc
+    expect(listNodeId).toBe(listWorkNodeId);
+    expect(sharedWith).toBeInstanceOf(Map);
+    await vi.waitFor(() => {
+      expect(store.lmz.orgTree.value.permissions.get(listNodeId)?.get(bobsSub)).toBe('read');
+    });
+
     // ── Setup a 'task-42' todo so the put / subscribe examples have a target ──
     const seed = await client.resources.transaction({
       'task-42': { op: 'create', typeName: 'todo', nodeId: ROOT_NODE_ID,
