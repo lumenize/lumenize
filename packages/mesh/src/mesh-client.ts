@@ -992,10 +992,11 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
    * page is sent to the platform host's logout page, which says what is about to end and posts the
    * logout there, `everywhere` preselected when asked. A framed page, the dev tab inside Studio,
    * holds its parent's session, so it disconnects and tells its parent instead. A derived session
-   * holds no cookie of its own and only tears down, so that it never ends the session it came
-   * from: an impersonated child, and a page whose own token carries `act`, as a persona's tab's
-   * does (`security.md`, the derived-session rule). Without a window (a script, the `/live`
-   * harness) it disconnects only; the caller ends the session itself.
+   * only tears down, since the platform's logout ends every session the browser holds and would
+   * end the one it came from: an impersonated child, which holds no cookie, and a page whose own
+   * token carries `act`, as a persona's tab's does (`security.md`, the derived-session rule). A
+   * persona's own cookie stays until it lapses or its opener logs out. Without a window (a
+   * script, the `/live` harness) it disconnects only; the caller ends the session itself.
    *
    * @see https://lumenize.com/docs/nebula/api-reference#clientlogout
    */
@@ -1007,9 +1008,10 @@ export abstract class MeshClient<TClaims extends AuthClaims = AuthClaims> {
       await this.dispose();
       return;
     }
-    // A token carrying `act` was minted for someone else's session, so the page that holds it has
-    // no session of its own to end. Kept once seen: this call drops the token, and a second
-    // click, which is likely when the first shows nothing, must not go on to end the opener's.
+    // A token carrying `act` was minted through someone else's session, which the platform's
+    // logout would end with every other the browser holds. Kept once seen: this call drops the
+    // token, and a second click, which is likely when the first shows nothing, must not go on to
+    // end the opener's.
     if (this.claims?.act !== undefined) this.#heldActToken = true;
     const derived = this.#heldActToken;
     this.clearAccessToken();

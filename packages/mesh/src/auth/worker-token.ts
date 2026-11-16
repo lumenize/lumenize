@@ -656,8 +656,9 @@ export type PersonaMailOutcome =
  * into the Star the address spells. A login link has no pending membership at a scope, so it is
  * dropped unspent and nobody signs in as a persona. An invite into any other scope is dropped too.
  *
- * It records no session, so no cookie exists for the persona: its page gets its token from an
- * admin's own session, through the impersonation mint. The persona's slug becomes its nickname.
+ * It records no session. A persona's session is opened later, by the first refresh on its host,
+ * through the impersonation mint under an admin's own session ({@link handleRefreshToken}). The
+ * persona's slug becomes its nickname.
  */
 export async function acceptPersonaInvite(
   env: Env, hooks: ScopeLifecycleHooks, mail: { to: string; link: string | null },
@@ -1097,10 +1098,12 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
  * the revocations are bounded at {@link RESOLVE_BOUND}, and a truncation is logged at warn. With
  * `everywhere`, every session of each address those cookies name ends, on every device.
  *
- * ⚠️ **A DERIVED session never reaches here.** An impersonated client holds no refresh cookie of its
- * own, so this call would spend the ORIGINATOR's — `security.md`'s derived-session rule. The client's
- * guards are in `MeshClient.logout()`: its `#mintedFrom` branch, which ends an impersonation by
- * teardown, and its return for a page whose own token carries `act`, as a persona's does.
+ * ⚠️ **A DERIVED session never reaches here.** This call ends every cookie it receives, so from a
+ * derived session it would end the ORIGINATOR's: an impersonated client holds no refresh cookie of
+ * its own, and a persona's tab sends its opener's beside its own (`security.md`'s derived-session
+ * rule). The client's guards are in `MeshClient.logout()`: its `#mintedFrom` branch, which ends an
+ * impersonation by teardown, and its return for a page whose own token carries `act`, as a
+ * persona's does.
  */
 export async function handleLogout(request: Request, env: Env): Promise<Response> {
   const operationId = crypto.randomUUID();

@@ -9,7 +9,7 @@ Nebula's authentication is passwordless, through Mesh's auth layer, `@lumenize/m
 
 :::info[Where the pieces live]
 
-There is **no per-scope auth DO**. Identity and all durable auth state live in one **singleton Registry DO** (the identity authority + single writer). The session routes run in the **default Worker** (`routeAuthRequest`) on the platform host: `email-magic-link`, the link page's `magic-link/lookup` and `magic-link`, `refresh-token`, `home-summary`, `pending-membership`, `accept-membership` and `logout`. What a session does — inviting, creating and deleting scopes, impersonating — is a mesh call to **`NebulaAuthFacade`**. The refresh record lives in **Workers KV** (`refresh:{tokenHash}`), read at the edge on refresh, with **one Registry read only when KV's answer would refuse**: a miss, or a membership still pending. A persona's host is the exception, with two reads on every refresh (§ *A persona's page*). Identity is keyed by a registry-minted surrogate **`sub`** (never the email). Diagrams reference `NebulaClient`, the client-side class that manages connections.
+There is **no per-scope auth DO**. Identity and all durable auth state live in one **singleton Registry DO** (the identity authority + single writer). The session routes run in the Worker's **`PlatformHost` entrypoint** (`routeAuthRequest`), which answers on the platform host alone: `email-magic-link`, the link page's `magic-link/lookup` and `magic-link`, `refresh-token`, `home-summary`, `pending-membership`, `accept-membership` and `logout`. What a session does — inviting, creating and deleting scopes, impersonating — is a mesh call to **`NebulaAuthFacade`**. The refresh record lives in **Workers KV** (`refresh:{tokenHash}`), read at the edge on refresh, with **one Registry read only when KV's answer would refuse**: a miss, or a membership still pending. A persona's host reads the Registry once more, on the refresh that opens its session (§ *A persona's page*). Identity is keyed by a registry-minted surrogate **`sub`** (never the email). Diagrams reference `NebulaClient`, the client-side class that manages connections.
 
 :::
 
@@ -25,12 +25,12 @@ The platform host, `https://platform.lumenize.dev/`, is where login, Home and a 
 
 ## Who can create a scope (identity is minted only at mint points)
 
-Login **never mints** a membership. A magic-link login *verifies* an already-existing one — recording that the mailbox is proved and that this membership has been taken up — and finds nothing to sign in to if none exists — this is what closes stranger-self-join. Memberships are minted only at mint points:
+Login **never mints** a membership, with one exception: an address the deployment names as its bootstrap admin gets the platform's own membership, not yet taken up, when a login proves its mailbox. A magic-link login *verifies* an already-existing one — recording that the mailbox is proved and that this membership has been taken up — and finds nothing to sign in to if none exists — this is what closes stranger-self-join. Memberships are minted only at mint points:
 
 - **Universe** — open self-signup: `claim-universe` mints the claiming admin identity (`scopeAdmin=true`), the universe, and its first app with that app's `.dev` Star.
 - **Galaxy** — a universe admin creates it through the facade's `createGalaxy`, which writes it together with its `.dev` Star; both are **parent-managed** (no local admin stamped — the parent admin's own scope is at or above them, so their token reaches them). The new Galaxy orders its host's certificate, and the host answers only once that is issued, two and a half to four minutes later, so the universe page counts the seconds up and enters Studio when the host answers.
 - **Star** — a tenant Star is claimed by its own open self-signup, `claim-star`, which mints its claimer's admin membership at the Star.
-- **Invite** — an admin invites an email into an existing scope; issuance pre-creates the invitee's membership (`scopeAdmin=false`, not yet taken up) and emails a magic link that lives 7 days, and Accept on its page records the take-up. Proving the mailbox is a property of the **address**, so someone who already proved it in another scope does not re-prove it here — only the new membership's take-up is recorded.
+- **Invite** — someone already in a scope invites an email into it. An admin with dominion over the scope may invite anyone, and may ask that the invitee be an admin too. A plain member of a Star or a Universe may invite a peer into their own scope, as a plain member. Into an app, only an admin with dominion invites, and that invite also makes the invitee the admin of the app's `.dev` Star. Issuance pre-creates the invitee's membership, not yet taken up, and emails a magic link that lives 7 days, and Accept on its page records the take-up. Proving the mailbox is a property of the **address**, so someone who already proved it in another scope does not re-prove it here — only the new membership's take-up is recorded.
 
 ## First-time login (self-signup — founding a Universe)
 
@@ -47,7 +47,7 @@ sequenceDiagram
 
     rect rgba(220, 220, 255, 0.3)
         Note over P,R: 1. Name the account and its first app — MINTS the claiming admin identity
-        P->>W: POST /auth/claim-universe { slug, appSlug, email, cf-turnstile-response }
+        P->>W: POST /auth/claim-universe { slug, appSlug, email }
         W->>R: claimUniverse(slug, appSlug, email)
         Note over R: register the universe, its first app and that app's .dev Star<br/>mint the admin membership (scopeAdmin, NOT yet taken up)<br/>create a MagicLink returning to the app's Studio host
         R-->>W: send magic-link email
@@ -69,11 +69,12 @@ sequenceDiagram
         P->>W: POST /auth/magic-link { token, nickname, name }
         W->>R: consumeLink(tokenHash)
         Note over R: prove the mailbox once, globally<br/>return EVERY membership this address holds
-        W->>R: recordSessions, then acceptMembership
+        W->>R: recordSessions
+        Note over R: record one session per membership, 24 at most<br/>spend the link, so a replay signs nobody in
+        W->>KV: put refresh:{tokenHash} per session
+        W->>R: acceptMembership
         Note over W: the acceptance wakes the claim's Galaxy, which orders its certificate
-        W->>KV: put refresh:{tokenHash} per membership
-        Note over R: spend the link, so a replay signs nobody in
-        W-->>P: one Set-Cookie per membership + { redirect: the Studio host }
+        W-->>P: one Set-Cookie per session + { redirect: the Studio host }
     end
 
     rect rgba(200, 240, 200, 0.3)
@@ -131,7 +132,7 @@ sequenceDiagram
     end
 ```
 
-Home, at `https://platform.lumenize.dev/`, lists every membership the browser's cookies hold. It reads them by cookie through `POST /auth/home-summary`, never by token, and each row links to the host that can act on it. An account claimed from the signup page with a ticket is accepted here, and Home's move into its new app waits on the same count-up as the link page.
+Home, at `https://platform.lumenize.dev/`, lists every membership of each person the browser's cookies name, whichever browser accepted it. It reads them by cookie through `POST /auth/home-summary`, never by token, and each row links to its scope's host. A row no cookie in this browser covers is marked "Sign in again", and goes through login on its way to that host. An account claimed from the signup page with a ticket is accepted here, and Home's move into its new app waits on the same count-up as the link page.
 
 :::tip[Bookmarked URLs]
 
@@ -141,7 +142,7 @@ A URL names its scope by its host, so a bookmark or a shared link lands on the p
 
 :::note[Refresh is a KV read]
 
-The refresh token gets a fixed 30-day TTL at login — there is no per-refresh rotation and no slide, so `refresh-token` is a Workers-KV read plus a JWT mint, with **zero writes**. On a KV miss the Worker falls back once to the Registry's strongly-consistent index, which mints and heals the KV record; a miss on both answers with the cookie expired. A record still pending asks the index too, since a colo can serve a copy from before the accept: KV's lag may let a revoked session work for its window, but never refuses someone who has accepted. `logout` deletes the KV record + its index entry; because KV is eventually consistent, revocation propagates within the KV window plus the short access-token TTL.
+The refresh token gets a fixed 30-day TTL at login — there is no per-refresh rotation and no slide, so `refresh-token` is a Workers-KV read plus a JWT mint, with **zero writes**. On a KV miss the Worker asks the Registry's strongly consistent index once, and puts the record it answers back into KV; a miss on both answers with the cookie expired. A record still pending asks the index too, since a colo can serve a copy from before the accept: KV's lag may let a revoked session work for its window, but never refuses someone who has accepted. `logout` deletes the KV record + its index entry; because KV is eventually consistent, revocation propagates within the KV window plus the short access-token TTL.
 
 :::
 
@@ -196,7 +197,7 @@ Studio shows the app as Gerry sees it by framing his page, `https://gerry--dev.c
 - **Until his invite is accepted the refresh answers 401**, which is how Studio knows to say he is not a member yet.
 - **The first refresh opens Gerry a session of his own.** It sets a cookie on the platform host, `__Host-refresh-token.acme.crm.gerry--dev`, whose record names the opener. Each later refresh reads that record and the opener's own from Workers KV, as every other host's refresh does. The session lasts a day, or until the opener's own ends, and the opener's logout ends it.
 - **Only the `dev` Star has personas.** `gerry--staging.crm.acme.lumenize.dev` is not a host the platform serves, and a refresh from it is refused.
-- **His tab logs out by disconnecting.** It holds no cookie of its own, so its logout ends that tab and leaves the opener's sessions alone.
+- **His tab logs out by disconnecting.** A logout on the platform host ends every session the browser holds, the opener's included, so his tab never goes there. It drops its token and disconnects, and inside Studio's frame it tells Studio, which leaves its own session alone. Gerry's cookie stays until it lapses or the opener logs out, so reloading his page signs him back in.
 
 A page spells a persona's address with [`client.personaAddress`](./api-reference.md#clientpersonaaddress), so nothing else composes one.
 
@@ -208,7 +209,7 @@ Opening a Star's page gives the admin a token whose **`aud`** is that Star, but 
 
 ## Security layers during connection
 
-Every `NebulaClient` call passes through five security layers before a method on a Nebula DO runs: two when the connection opens, and three for each `lmz.call()`. This diagram shows what happens at each layer for a single connection and one call. (These are the mesh **connection** layers, independent of the token flow above.)
+A `NebulaClient` call to a scoped node other than its own host's passes through five security layers before the method runs: two when the connection opens, and three for each `lmz.call()`. A call to the node the page's own host names runs in place, so it has no route to check and skips layer 3. `Profile` and `NebulaAuthFacade` are not scoped nodes and have no passage step: layer 3 checks only the shape of the name the call gives, and each of their methods decides who may call it. This diagram shows what happens at each layer for a single connection and one call sent on to another scoped node. (These are the mesh **connection** layers, independent of the token flow above.)
 
 ```mermaid
 sequenceDiagram
