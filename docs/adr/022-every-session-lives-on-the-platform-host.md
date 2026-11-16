@@ -60,23 +60,18 @@ The rest of this ADR covers where sessions live, how a page gets and uses an acc
 - **Lateral movement stays refused.** `aud` must sit at or below `authScope`, and for a plain membership equal to it, so no page carries a membership from another branch of the scope tree.
 - **No token carries dominion over the whole platform.** A superuser's membership sits at the root, but no page does.
 - **Every call from a browser carries an access token, and passage upward comes from its `aud`.** A member of `acme.crm.tenant1` can call its galaxy and its universe from the Star's host. A call chain a node started carries none, and [ADR-015](015-passage-and-dominion.md) says where it may go.
-- **Every access token rests on an accepted membership** ([ADR-012](012-global-profile-visibility.md)): the person's own, or for a persona's tab the persona's own, minted for whoever opened it.
+- **Every access token rests on an accepted membership** ([ADR-012](012-global-profile-visibility.md)): the person's own, or for a persona, that of whoever opened its tab.
 
 ### A persona's host
 
-**A page on a persona's host gets an access token as that persona.** Studio frames `manny--dev.crm.acme.lumenize.dev` to show the app exactly as Manny sees it. Manny is a member of `acme.crm.dev` like any other. What sets him apart is his address, `manny--dev.crm.acme@lumenize.dev`, his host's own labels. Nobody sits behind that mailbox, so the Worker's mail handler accepts his invite ([auth.md](../vision/auth.md) § *A Galaxy's `.dev` Star*).
-
-The first refresh from Manny's host finds the accepted member under the address the host spells, and mints through the impersonation mint: Manny's own `sub`, `profileId`, `authScope` and admin bit, his Star as `aud`, and the opener in `act`. It also records Manny's own session, naming that opener, and sets its cookie: `__Host-refresh-token.acme.crm.manny--dev`. Later refreshes read both sessions from Workers KV.
-
-A refresh answers 401, or 403 for the first, unless all of these hold:
+**A page on a persona's host gets an access token as that persona, and nothing else can.** Studio frames `manny--dev.crm.acme.lumenize.dev` to show the app exactly as Manny sees it. Manny has no email address, membership or cookie, so his tab refreshes off the cookies of whoever opened it. The token is plain: Manny's `sub` and `profileId`, his Star `acme.crm.dev` as `authScope` and `aud`, and no `act`. It carries `scopeAdmin` only when the Galaxy's record of its cast marks Manny as the account's admin, which the refresh asks the Galaxy. The refresh mints it only when both hold, and otherwise answers 401:
 
 1. **The host names a persona in a Star with no real users**, today only `dev`: `manny--dev.crm.acme` names `manny` in `acme.crm.dev`.
-2. **An accepted member of that Star holds the address the host spells.**
-3. **The browser holds a refresh cookie with dominion over that Star**, which the mint asks of every impersonation.
+2. **The browser holds a refresh cookie that would open that Star's own page**: a membership at the Star, or one with dominion over it.
 
-**No check reads `act`** ([ADR-016](016-record-the-acting-principal.md)), so Manny's tab behaves as his own page would, except that an admin persona's tab cannot impersonate in turn.
+**Manny's `sub` and `profileId` are one name-based UUID computed from his host**, so every refresh mints the same value and nothing stores it. A slug nobody provisioned is a persona too, with no grants and an empty profile. Nothing reaps a persona's Profile: anyone can compute its id from the host, so its public fields are readable already.
 
-**Only the address is particular to a persona.** His ids are random, like any member's. A login link mailed to his address is dropped, so nobody signs in as him. A real address invited in a persona's place signs in as its owner, and no persona's host opens as them.
+**Three things keep this to personas.** A persona has no email address, so no login leads to it and this refresh is the only way to its token. Its ids carry version digit 5 where a person's random ones carry 4, so this path never mints a token for a real person. And the token names only the persona and Star its host spells; nothing the page sends is an input.
 
 ### A customer's own domain
 
@@ -89,7 +84,7 @@ A refresh answers 401, or 403 for the first, unless all of these hold:
 - **Each host holding its own session, set by a top-level redirect through the platform host.** It would survive a Public Suffix List entry, which we do not plan, but costs every host a cookie, a callback, a signed code and a `state` cookie, and a frame its code passed in by `postMessage`.
 - **Dominion and passage reading `authScope`, as this ADR first said.** A page's code would act with its visitor's broadest membership, a superuser's platform membership included, and could outlive the visit by inviting its author as an admin (Larry, 2026-09-19).
 - **Narrowing `authScope` to the page's host, or picking the nearest scopeAdmin membership.** The checks read the page either way, so only the membership the token rests on changes, and with it a person's `sub` as they walk down into a scope where they hold a nearer one.
-- **A persona with no address and no membership,** its id computed from its host, which this ADR first decided. Each shortcut then needed a rule to contain it: a second place to refuse a persona's admin bit, and seeding that could not put a resource where a member's app looks (Larry, 2026-11-13). ADR-016 closes the objection it answered: no check may read `act`.
+- **A persona through impersonation, or as a member of its Star at an address no human receives.** The first makes every check reading `act` treat the tab unlike a real Manny. The second needs a membership born accepted, and guards keeping humans out of that namespace (Larry, 2026-09-17 and 18).
 - **Cookies with a `Domain`, cascading down a scopeAdmin's subtree or set on all of `lumenize.dev`.** Either gives up `__Host-`, so a generated app could overwrite a person's refresh cookie with its own.
 - **One cookie per person rather than per membership.** Fewer cookies, but the refresh would have to find the person's memberships, in the singleton Registry or in a KV list every invite and removal keeps current.
 
@@ -107,7 +102,7 @@ A refresh answers 401, or 403 for the first, unless all of these hold:
 - **Every universe shares one site**, since a Public Suffix List entry would make the refresh's cookies third-party ([ADR-021](021-every-scope-has-its-own-host.md)). Our rules keep universes apart instead: `__Host-` names for cookies, and the `Sec-Fetch-Site` check for posts.
 - **All of `lumenize.dev` shares one cookie jar.** A generated app can fill it until the browser evicts refresh cookies, signing people out. `HttpOnly` and `__Host-` stop a script replacing or planting ours, not that eviction. The cost is a new login, never a takeover.
 - **Requests to the platform host carry every refresh cookie**, because `__Host-` fixes `Path=/`. They are `HttpOnly` and never logged.
-- **A persona's tab first opens once its invite's mail has arrived,** about two seconds after it is sent. Until then the host answers 401.
+- **A persona's identity comes back with its name.** Whoever re-claims a deleted `acme.crm` gets the old Manny at `manny--dev`, Profile included, until their own provisioning writes his name again.
 
 ### Deliberately open
 

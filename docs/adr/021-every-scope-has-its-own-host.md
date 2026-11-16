@@ -19,15 +19,15 @@ Two things push against one host:
 
 The rest of this ADR says what each domain is for, how a host spells a scope, and what that spelling costs in certificates.
 
-> **Today's code differs.** `lumenize.dev` has no DNS records until the wipe deploys the hosts. [The domain-allocation record](../../tasks/archive/decision-domain-allocation.md) § *What changes in today's code* lists the sites.
+> **Today's code differs.** `lumenize.dev` has no DNS records until the wipe deploys the hosts, and no persona slug check exists. [The domain-allocation record](../../tasks/archive/decision-domain-allocation.md) § *What changes in today's code* lists the sites.
 
 ## Decision
 
 ### What each domain is for
 
-- **`lumenize.dev` is everything a user-developer or their users see.** The apex is a landing page for user-developers. `platform.lumenize.dev` holds every session and serves login, the magic-link consume, and Home, where a person chooses which scope to work in. It is a host and not a scope. The root of the scope tree, where superusers hold their membership, is `_platform`, and no host label can start with its underscore. Every universe, galaxy, Star and persona has a host beneath it. A persona also receives mail at it, as `manny--dev.crm.acme@lumenize.dev`, through the zone's catch-all rule ([ADR-022](022-every-session-lives-on-the-platform-host.md)).
+- **`lumenize.dev` is everything a user-developer or their users see.** The apex is a landing page for user-developers. `platform.lumenize.dev` holds every session and serves login, the magic-link consume, and Home, where a person chooses which scope to work in. It is a host and not a scope. The root of the scope tree, where superusers hold their membership, is `_platform`, and no host label can start with its underscore. Every universe, galaxy, Star and persona has a host beneath it.
 - **`lumenize.com` is the brand, human mail, and the package docs.** Its apex mail belongs to Google Workspace, and its apex site is today's docs and blog, whose inbound links cannot be edited. At beta it is expected to become the product's marketing site, with the `@lumenize/*` package docs staying on it at `lumenize.com/docs` or `docs.lumenize.com` (Larry, 2026-09-14).
-- **`lumenize.io` is the platform's own mail.** Nebula sends as `noreply@lumenize.io`, and a Cloudflare Worker reads named inboxes such as `claude@lumenize.io`. Mail to any other name there goes to the test deployment, for its personas.
+- **`lumenize.io` is the platform's own mail.** Nebula sends as `noreply@lumenize.io`, and a Cloudflare Worker reads named inboxes such as `claude@lumenize.io`.
 - **"Nebula" is retired.** It was the product's code name during development, and it appears nowhere a user can see — so `nebula.lumenize.com` retires, since a host shows in the address bar. Code identifiers keep the name, because renaming them buys a user nothing.
 - **There is no fourth domain a user sees.** `lumenize.ai`, `lumenize.app`, `lumenize.org` and `lumenize.net` are all taken. `lumenize-test.dev` carries only test traffic, pages and mail.
 
@@ -46,7 +46,7 @@ manny--dev.crm.acme.lumenize.dev   persona manny, in the dev Star
 These things follow:
 
 - **The host is the active scope.** The host `tenant1.crm.acme.lumenize.dev` is the scope `acme.crm.tenant1`, so the server derives `activeScope` from the host and the client never sends one.
-- **A persona gets its own host by joining its Star's label with `--`.** The first label splits on `--`: one part is a Star, two parts are a persona and its Star, which is always a Star with no real users, today only `dev`, and never a tenant (Larry, 2026-09-14). `--` is safe as the delimiter because `isValidSlug` refuses a doubled hyphen inside a slug, and a slug can neither start nor end with `-`. Netlify spells its branch hosts the same way, as in `staging--mysite.netlify.app`.
+- **A persona gets its own host by joining its Star's label with `--`.** The first label splits on `--`: one part is a Star, two parts are a persona and its Star, which is always an environment Star such as `dev` or `test` and never a tenant (Larry, 2026-09-14). `--` is safe as the delimiter because `isValidSlug` refuses a doubled hyphen inside a slug, and a slug can neither start nor end with `-`. Netlify spells its branch hosts the same way, as in `staging--mysite.netlify.app`.
 - **Every slug is at most 30 characters, and a persona slug at least 3.** A persona and a Star share one 63-character label, and 30 + 2 + 30 fits; `warehouse-management-system` is 27. The floor exists because a label with `--` as its third and fourth characters is reserved for punycode names such as `xn--bcher-kva`, and certificate authorities refuse to name one. So `ed--dev` would be refused wherever a host gets a certificate of its own. Only a persona slug comes before a `--`, so only it needs the floor, and a two-letter galaxy such as `hr.acme.lumenize.dev` stays legal.
 - **Environments are reserved Star slugs, never labels.** `dev`, `staging`, `prod`, `test`, `preview`, `sandbox`, `qa` and `demo` are reserved in every galaxy, so a later `staging.crm.acme.lumenize.dev` is one more host under the galaxy's wildcard. Reserve generously: releasing a name later is free, and reclaiming one a customer holds is a migration.
 - **Platform labels are reserved universe slugs.** `platform.lumenize.dev` looks exactly like a universe named `platform`, so `platform`, `email`, `www` and every later platform label are refused as universe slugs.
