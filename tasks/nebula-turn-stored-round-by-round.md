@@ -48,7 +48,7 @@ The rest of this file says what a round holds, what the turn's own row holds, ho
 
 ## Relationships
 
-- **[nebula-personas-are-real-members.md](nebula-personas-are-real-members.md)** built the in-memory tab wait as a temporary one, its D23. This task removes it.
+- **[archive/nebula-personas-are-real-members.md](archive/nebula-personas-are-real-members.md)**, kept and archived on 2026-11-16, built the in-memory tab wait as a temporary one, its D23. This task removes it.
 - **[nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check*** lists what a recovering turn has to decide first. This task decides those for a turn that has a row, and leaves Item 15 the posts that no turn took up.
 - **The same file's § *Item 17: Turn-log inspection v0*** reads a person's `Message` Resources to see how their builds went. After this it reads their rounds too.
 

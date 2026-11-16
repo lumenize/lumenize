@@ -4,7 +4,7 @@
 
 **Nothing here is done.** When an item is built it leaves this file: its archived task file, or pre-alpha's § *Shipped*, records it.
 
-**Item numbers are handles other files cite.** They are assigned once and never reused, so a gap is an item that left. Item 7 became pre-alpha's personas work ([nebula-personas-are-real-members.md](nebula-personas-are-real-members.md)), Item 8 was built as [archive/nebula-build-reaches-every-studio.md](archive/nebula-build-reaches-every-studio.md), and Item 9, a connected client that never re-checked its token, was fixed on 2026-09-03 (`4066b17`).
+**Item numbers are handles other files cite.** They are assigned once and never reused, so a gap is an item that left. Item 7 became pre-alpha's personas work, built on 2026-11-14 ([archive/nebula-personas-are-real-members.md](archive/nebula-personas-are-real-members.md)), Item 8 was built as [archive/nebula-build-reaches-every-studio.md](archive/nebula-build-reaches-every-studio.md), and Item 9, a connected client that never re-checked its token, was fixed on 2026-09-03 (`4066b17`).
 
 **Items 1 and 2 came from the first user-developer spec**, on 2026-07-02: Jennifer's [Luminize Almanac vision, requirements and data model](https://docs.google.com/document/d/1P_YF2qVwQSAFYvg43qCvj3Nc170zBkpBboG8kcjdBGc/edit) and her [UX brief](https://docs.google.com/document/d/10UZ5KaZJXG2MdaHTwA2UPGrFKM_daGDdJaSbg6wGeFo/edit). The question asked of them was what the spec teaches Nebula, not whether the spec is right.
 
@@ -273,7 +273,7 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 
 - **A real person names themselves before their first session.** Both consent surfaces, `MagicLinkScreen` and `ConsentModal`, keep Accept disabled until a nickname is filled in (`canAccept` in `apps/nebula-studio-ui/src/auth/home-logic.ts`). Both run on the platform host, so a tenant user of a generated app passes one too.
 - **A person whose display-name write failed at consent** is asked again by the next consent card they see. `settleAcceptance` logs the failure and carries on, and the next card reads the empty Profile and holds Accept until a nickname is typed. That card comes at their next magic-link login, within the refresh cookie's 30 days, or with their next invite.
-- **A persona is named from its own tab:** the agent asks that tab to set its Profile's name ([nebula-personas-are-real-members.md](nebula-personas-are-real-members.md) § *Design intent*). A persona never sees Studio, only the generated app.
+- **A persona is named from its own tab:** the agent asks that tab to set its Profile's name ([archive/nebula-personas-are-real-members.md](archive/nebula-personas-are-real-members.md) § *Design intent*). A persona never sees Studio, only the generated app.
 - **The harness accepts with a nickname**, as the consent screen does. The personas build carries that change.
 
 **The design, as far as it got:**

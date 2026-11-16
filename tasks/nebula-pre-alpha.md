@@ -6,7 +6,7 @@
 
 **How to read this file.** § *What remains* is the plan, in order. Each section after it holds what one item needs and has no task file for yet. Once a task file exists it is the authority, and this file keeps one line. Built work is one line in § *Shipped*. Work deferred past pre-alpha is not tracked here: it lives in `tasks/on-hold/` and [backlog.md](backlog.md). Task files are written one at a time and archived when built.
 
-**The circled numbers are handles other files cite.** They were assigned once and are never reused, so a gap is an item that left the plan: ①, ④ and ⑤ are in § *Shipped*.
+**The circled numbers are handles other files cite.** They were assigned once and are never reused, so a gap is an item that left the plan: ①, ②, ④ and ⑤ are in § *Shipped*.
 
 ## What remains
 
@@ -25,13 +25,12 @@
 
 | # | Item | Specified in | Gate |
 |---|---|---|---|
-| ② | **Personas** — test users the model defines, each a real member of the dev Star in its own preview tab | [nebula-personas-are-real-members.md](nebula-personas-are-real-members.md), which replaced a first build reverted on 2026-11-13 ([the archived file](archive/nebula-testing-with-personas.md)). Before it came query subscriptions that take a filter ([archived](archive/nebula-query-subscriptions-take-a-filter.md)), so a persona can find what a teammate made | deploy |
 | ③ | **Capture live** — every turn is recorded from the first one, since a turn nobody captured is gone for good | § *③ Capture live* | deploy |
 | — | **Denied access shows in the app** — a generated app shows what a subscriber cannot read and who can grant it | § *Denied access in generated apps* | deploy |
 | — | **A `computed()` over the store can miss its subscription**, and the view goes stale with no error | § *A `computed()` misses its subscription* | deploy |
 | — | **Generated apps are pure Vapor** | § *Generated apps are pure Vapor* | deploy |
 
-**Why this order.** The riskiest goes first, and risk here is unresolved design, not hard implementation (Larry, 2026-09-02). ② carries the most design uncertainty left. ③ is small but cannot be repaired later. The `computed()` fix comes before Vapor, so Vapor builds on a store whose every read subscribes.
+**Why this order.** The riskiest goes first, and risk here is unresolved design, not hard implementation (Larry, 2026-09-02). ③ is small but cannot be repaired later. The `computed()` fix comes before Vapor, so Vapor builds on a store whose every read subscribes.
 
 **The first invite waits on both tables, and on ③'s check that capture works on production.** Larry then provisions and invites ~4–5 users, each with a first-app idea chosen for them (Sydney: secret santa with a wishlist).
 
@@ -77,7 +76,7 @@ The acceptance events have a second consumer. A turn the user corrected or aband
 
 ### The preview's error channel
 
-A user-developer says "the preview screen is blank", and the model's first move should be to read the log tail. This may become a task file of its own once ③ starts. Its trigger and first consumer is ② ([nebula-personas-are-real-members.md](nebula-personas-are-real-members.md)), where a denied persona tab and a broken one look the same without logs. ② builds the tool the model reads a tab with, `run_in_tab`, so this section keeps its buffer and adds no tool of its own.
+A user-developer says "the preview screen is blank", and the model's first move should be to read the log tail. This may become a task file of its own once ③ starts. Its trigger and first consumer is ②, the personas work ([archived](archive/nebula-personas-are-real-members.md)), where a denied persona tab and a broken one look the same without logs. ② built the tool the model reads a tab with, `run_in_tab`, so this section keeps its buffer and adds no tool of its own.
 
 - **`@lumenize/debug` gains a second callback: filtered by `DEBUG`, and added to console output.** `setDebugSink` exists, but it is for tests: it bypasses the `DEBUG` filter and replaces console output. Production wants the opposite of both. A second slot beats a flag, since neither behaviour is then re-derived at the call site and no sink has to repeat the filter.
 - **The scaffold's `nebula.ts` installs it**, entries land in this section's sink, and a loop tool reads the tail: one entry in `LOOP_TOOL_ENTRIES`. A later tool that lets the model widen its own `DEBUG` filter adds to this and is not owed now.
@@ -211,6 +210,8 @@ One line each. The archived file is the record, and the code is the authority.
 
 Newest first. Where a build's own date was not recorded, the date is the day its task file was archived.
 
+- 2026-11-14 — ②, personas: a test user the model defines is a real member of the dev Star, in a preview tab of its own, and the agent works through a person's tab with `run_in_tab`. It replaced a first build reverted on 2026-11-13 → [archive/nebula-personas-are-real-members.md](archive/nebula-personas-are-real-members.md)
+- 2026-11-14 — Query subscriptions take a filter, so a persona can find what a teammate made → [archive/nebula-query-subscriptions-take-a-filter.md](archive/nebula-query-subscriptions-take-a-filter.md)
 - 2026-11-11 — The agent posts as itself and acts for several people in one chat. A turn its Galaxy's reset cuts off is answered at the next post, and the agent asks whether to proceed; answering on wake is fast-follow Item 15 → [archive/nebula-agent-posts-as-itself.md](archive/nebula-agent-posts-as-itself.md)
 - 2026-11-08 — `validFrom` is a resource's only version → [archive/resources-validfrom-is-the-only-version.md](archive/resources-validfrom-is-the-only-version.md)
 - 2026-10-15 — A build reaches every Studio, which tells each one which build landed → [archive/nebula-build-reaches-every-studio.md](archive/nebula-build-reaches-every-studio.md)
