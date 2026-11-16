@@ -22,7 +22,9 @@ Read the task file + linked sub-tasks + referenced docs + the relevant `.claude/
 **Exploratory phases.** Most phases are transcription of a pinned design — they carry decisions + concrete, testable success criteria, and the verifier checks conformance to them. But some phases are inherently *empirical*: real-infra harnesses, browser/WS tooling, network-failure simulation — work whose mechanism you can only learn by running it (the §5.3.7-v4 WS-disconnect tooling took three tries: `ws.close()` hangs through the http-proxy → CDP offline hangs the whole vitest-browser run → synthetic `CloseEvent` works; none of that was pin-able in advance). Such a phase should be **explicitly tagged exploratory** in the task file (per `tasks/README.md`). When a phase has only `"works"`-grade bullets and no pinned decisions, do NOT silently hold it to transcription-grade conformance — that degrades its verifier to a rubber stamp. Instead treat it as exploratory: its deliverable is **(a)** capable-of-failing tests for the discovered behavior and **(b)** a captured findings note recording the mechanism that worked *and the alternatives that failed* (harvest it into a reference memory or the right rule — v4's findings became the `vitest-browser-ws-disconnect` memory). If a phase is thin and is *neither* tagged exploratory nor pinned, that's a spec gap — flag it before building, don't paper over it.
 
 ### 2. Implement
-Phase by phase, sequentially, in the current branch, following `.claude/rules/` (path-scoped rules auto-load as you touch files). After each phase, run the narrowest type-check / tests for the files you touched. Update the task file as you go when reality diverges from the plan. Commit each phase once its gate and its mutation checks pass, by explicit path (`git commit -m … -- <paths>`, never `-A`); pushing stays gated.
+Phase by phase, sequentially, in the current branch, following `.claude/rules/` (path-scoped rules auto-load as you touch files). While a phase is in progress, run the narrowest type-check / tests for the files you touched. Before its commit, run the whole suite of each package it touched. Update the task file as you go when reality diverges from the plan. Commit each phase once its gate and its mutation checks pass, by explicit path (`git commit -m … -- <paths>`, never `-A`); pushing stays gated.
+
+**Before a phase's commit, sweep the `/live` registry when the phase changed code the stack runs or the harness's own code**, which `apps/nebula/harness/lib/sweep-record.ts` lists: `drive.ts all`, then `--rerun` after a fix. `live.md` requires a sweep after changing anything a scenario you did not write depends on, and a phase cannot tell which scenarios those are. A phase of prose, vitest tests or one new scenario's own file needs none. The sweep took 43 minutes locally on 2026-11-15, so start it when the phase's edits are done, write the phase's build notes while it runs, and edit no source until it ends. Bit 2026-11-14, in the personas build: phase 1 changed what a persona's host answers and phase 5 deleted Studio's Wipe button. Each broke a scenario the build had not written, and both waited for the last phase's sweep.
 
 **At each phase end, write the phase's build notes into the task file's § *Build notes*** (create it on first use, after the phases), and commit them with the phase:
 
@@ -48,6 +50,12 @@ an occasion: §2's own tell asks you to notice you are mid-failure, where this a
 something landed — which your diff already shows you. Larry supplies it by hand as *"what does X
 actually do now that we've adopted Y?"*, and it has repeatedly found a mechanism whose reason had
 quietly moved out from under it.
+
+**Read the diff's deleted lines as closely as its added ones.** A deletion the task file did not ask
+for is a finding. A patch carried over from another branch or a reverted build is where one hides,
+since its additions are what you came for. Bit 2026-11-14: a strip applied as a patch from a reverted
+build deleted Studio's Wipe button, which that build's design did not have, and one scenario found it
+at the last phase's sweep.
 
 **The displaced-walk has a blind arm: the OLD WAY the phase's new way replaces but the diff never
 touches.** A superseded route, read, or helper usually sits untouched beside its successor — green,
@@ -94,13 +102,14 @@ the verifier panel the rest. The check now reads the real types.
 ⚠️ **This bites hardest on the standing-guidance edits**, which are the ones no test can red: they ship always-loaded, and a wrong one misleads every future session. The task file is **not evidence for itself** — when a line you are writing is determined by a claim the task file already makes, verify that claim rather than inheriting it. (`✅ Checkable` in a task file means the claim was *shaped* to be falsifiable, **not** that anyone ran it; two such claims shipped false through several review passes precisely because the marker implied otherwise.)
 
 ⚠️ **A retirement grep scoped to `src/` is blind to the lane carrying the same prose.** When a phase
-retires a named thing and a criterion greps for it, that grep MUST cover `test/` and `harness/` too.
+retires a named thing and a criterion greps for it, that grep MUST cover `test/`, `harness/` and `website/docs` too.
 Those lanes justify their assertions in the same words as the source they test, nothing compiles a
 comment, and the copy that survives is the one nobody pointed a grep at. Bit 2026-09-08: `grep -rn
 'Profile owner guard' packages/mesh/src/auth apps/nebula/src` came back clean while the identical
 justification sat in `mint-narrower-token.test.ts` — a file that same phase was editing — and in
 `email-mutable.test.ts`, which instructed a future builder to copy the shape of the comment the phase
-had just deleted.
+had just deleted. Bit again 2026-11-14: a sweep of the ADRs, `docs/vision/auth.md` and the rules left
+the website's `auth-flows.md` describing a persona's derived id, which that build had retired.
 
 **The diff-walk is structurally blind to the text your work FALSIFIES without touching.** When a phase completes something an ADR or rule tracks as pending — retires an interim, closes a "not yet" — grep that document for its own pending-status language (`not conformant|not yet|interim|Today's code differs`) and retense what the build just made true. Bit 2026-08-20 (the `actingToken` wipe item): the build retired the narrow-`changedBy` interim while ADR-016's own Corollary still declared *"Resources is not conformant yet"* and quoted the deleted compare verbatim — outside the diff, so the phase-end walk never saw it; only the verifier panel caught it.
 

@@ -425,3 +425,44 @@ Built from Larry's answer: "Merge in place but name the method for it. Also, thi
 - **The deployed pass.** `deploy-test.sh` deployed the test target and its self-check matched `c273550`. The scenarios this day's work wrote or touched then ran against it one at a time, and all passed: `persona-host`, `collaborator-reaches-no-tenant-star`, `signup-to-first-app`, `agent-invites`, `persona-tabs`, `cast-from-a-tab` and `dev-star-follows-the-build`. That covers the persona's session cookie, the Registry's new columns, the wipe through the agent, the run value carried whole, `patchMyProfile` and the invite refusal.
 - **Workers Issues since the pass began.** One, `scope-deleted`, which `scripts/issues.mjs` lists as standing: it is every teardown's ordered abort.
 - **Not run deployed.** The full sweep, which stays at the wipe gate.
+
+## Phase Retro
+
+Written on 2026-11-16 from the notes above, for Larry's read before the archive move.
+
+1. **What did we learn?**
+   - **A persona needed no rule of its own once it was a member.** Each special rule the first cut carried could not be made to fail, and was removed: the refresh's rule that only an admin opens a persona's page, the `dev`-only check on its host, the invite's `invited` flag, and three conditions on a held session. The mint, `parseHost` and acceptance already decided each one. The two Registry reads per refresh went the same way, once a persona's tab held a session cookie as any member's does.
+   - **A reloaded page never asked for its org tree.** Mesh's client went by the host's report that nothing was lost, on a load's first connection too. Any generated app's page had this on an ordinary reload. A persona tab's reload found it, and the fix is in Mesh's client.
+   - **What the real model did set the guidance.** With the skill unread it guessed the tree's shape and used all thirty-two rounds. With a firmer pointer in the tool's description it reads the skill first and finishes in a few runs. After a wipe it stopped without building the cast again in 1 of 4 runs, until the skill's section opened with that instruction, and then 6 of 6 rebuilt.
+   - **A local stack served a Studio built hours earlier.** A browser that took an invite link at the Worker's own port got `nebula-studio-ui/dist`. That build ran the old runner against the new page and dropped every value. A local stack no longer serves built pages (D41).
+   - **A catch-all mail rule reaches a Worker only by config.** Wrangler's command cannot set it, so `wrangler.jsonc` declares it and a deploy applies it. The mail round trip, send to acceptance, took under two seconds in every local run.
+   - **Merge-patch semantics were already in the repo one level down**, in `@lumenize/structured-clone`'s `applyMergePatch`. A Profile moved onto Resources would keep `patchMyProfile`'s meaning.
+2. **What did we struggle with?**
+   - **Breaks found late.** Phase 1 changed what a persona's host answers to someone nobody invited, and `scope-hosts-its-clients` limb 4 opened such a host. Phase 5 applied the reverted build's strip as a patch, and the patch deleted Studio's Wipe button, which I did not read. Both waited for phase 8's sweep, because I ran the files I touched and not the registry. Phase 5 was committed with surface tests red for the same reason.
+   - **A record outliving what it describes.** The verifier panel passed none of phases 1 to 7. Its findings in Studio's tab runner and the Galaxy's entry were of one kind: a page's last answer kept after the page loaded afresh, a request kept after its document was replaced, a silent socket read as a closed one. Each of my tests began from the state I had in mind, so none saw them.
+   - **Standing text had one more home than the sweep covered.** Phase 3 rewrote the ADRs, `auth.md` and the rules, and missed the website's `auth-flows.md`, which still described a derived id. Phase 7 found it.
+   - **Two things were built and then rebuilt after Larry's answers.** A run's value came back as JSON and is now carried whole (D39). `run_in_tab` refused a post written while impersonating, as the one allowed reading of `act`, and that refusal and then the exception itself were removed (D44).
+   - **What I told Larry about the `act` exception was incomplete.** I said its test could not be met and that it had been used twice. `security.md` recorded an earlier use, where an impersonator did get more than their own dominion reaches.
+   - **The Galaxy waits in memory for a Studio tab's answer**, which `mesh.md` forbade for any node. It stays, marked TEMP, until a turn is stored round by round.
+3. **Did any tests fail unexpectedly?**
+   - **The surface inventories** in `galaxy-resource-surface`, `scope-isolation` and `resources-door` failed on `readCast`, and the tests that freeze the plane's request surface failed on `resetDevData`. That is what they are for. The first time, I had committed before running them.
+   - **`dev-star-follows-the-build`** failed on the deleted Wipe button, and `scope-hosts-its-clients` limb 4 on the uninvited persona's host, both above.
+   - **`cast-from-a-tab` failed in three sweeps, for three causes.** The stale built Studio above. A local Durable Object reset two minutes after another session ran `npm install` in this checkout, which passed alone with nothing changed: a flake. And the model stopping after a wipe, above.
+   - **`agent-invites`** failed on its last check, which I wrote on 2026-11-12. It counted every invite on the message that answered Austen's post, and in that run the message also reported Jennifer's. It now counts only the invites that acted for Austen's post.
+   - **`grant-reveals-denied`** failed once and passed on the rerun: a flake. The harness's check that Docker is reachable failed in 2.3 s with Docker running.
+   - **Two `persona-mail` tests** counted a persona's sessions after a page had opened one. Each now counts before.
+4. **Impact on follow-on work?**
+   - **A turn stored round by round** removes the wait in memory at `#tabAnswers`. Its Pass 1 is [nebula-turn-stored-round-by-round.md](nebula-turn-stored-round-by-round.md), waiting for Larry's read.
+   - **`backlog.md` gained rows** for a link spent before its acceptance settles, and for a re-claimed scope name giving a new persona the old one's Profile.
+   - **The ADR and `auth.md` edits the notes above list** are Larry's to read in his own voice. None is ratified.
+   - **The Registry's migrations 26 and 27** reach production at its next deploy.
+   - **Not run:** the full deployed sweep, which stays at the wipe gate, and the UI smoke lane, which is outside `npm test`.
+   - **`npm run audit:ui-copy` fails on `ConfirmDelete.vue`**, as it did before this build. The wording is Larry's, and it is settled in the close-out.
+   - **The sweep's own cost**, which Larry raised at this retro. The registry took 42.9 minutes locally at `a89d298`, and a sweep before each phase's commit, below, pays that per phase. `backlog.md` § *Testing & Quality* has the row.
+5. **Process changes?** Judged by `calibration.md` §9: prevention goes to the failures that stayed green. A few are made and a few dropped.
+   - **Made, in `/build-task` § *Implement*:** before a phase's commit, run the whole suite of each package it touched, and sweep the registry when it changed source a sweep fingerprints. `live.md` already required the sweep. The skill's "narrowest tests for the files you touched" read as the whole of a phase's testing, and I followed it.
+   - **Made, in `/build-task`'s walk for what a diff displaced:** read every deleted line, and treat a deletion the task file did not ask for as a finding. The Wipe button left in a patch whose additions I read and whose deletions I did not.
+   - **Made, in `/build-task`'s retirement grep:** it covers `website/docs` too, where `auth-flows.md` kept the retired design.
+   - **Made, in `testing.md` § *Tests must be capable of failing*:** where a class records something about another party, a test changes that party after the record is made. The panel had found the same kind on 2026-10-06, and its prompt hunts it by name, so it was caught both times by the panel and by no test of the builder's.
+   - **Dropped:** a rule for `sed` patterns that macOS reads differently. `deploy.sh`'s `\s` sat on a line no run had reached, which §9 counts as quiet. No rule loads when a shell script is edited, and the line has now been run by hand.
+   - **Dropped:** writing each phase's mutations down. The skill asks for it already, and phase 1's were run.
