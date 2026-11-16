@@ -2,9 +2,9 @@
 
 **Status**: **ON HOLD** (parked 2026-06-23). Designed, partially reviewed (`/review-task` Stage 1 run
 2026-06-22), deferred. **Un-park trigger:** the **data-bound generation** work
-([`../nebula-pre-alpha.md`](../nebula-pre-alpha.md) § *Data-bound generation*) is churning and hand-driven / local prompt
+([`../nebula-pre-alpha-fast-follow.md`](../nebula-pre-alpha-fast-follow.md) § *Item 20: Data-bound generation*) is churning and hand-driven / local prompt
 iteration has become too slow — then this offline replay bench is the accelerator. Master home:
-[`../nebula-pre-alpha.md`](../nebula-pre-alpha.md).
+[`../nebula-pre-alpha-fast-follow.md`](../nebula-pre-alpha-fast-follow.md).
 
 > **Split note (2026-06-23):** this file used to bundle two capabilities. **Turn extraction** ("see the
 > turn logs") moved UP into the pre-alpha program as the cross-tenant **turn-log inspection instrument**

@@ -46,4 +46,4 @@ The self-correction message after a failed build says "Fix and call build again.
 
 ## Changing what the model is told
 
-There is no procedure yet for judging a guidance change, because "did this change help" is not answerable until the eval exists (`tasks/on-hold/nebula-studio-self-improvement.md`). Until then the steps are the generator, the drift tests, and the `/live` criteria — `studio-guidance-loop`, `four-party-chat`, `first-app-built` — which `/build-task` already runs; a change that moves a limb's outcome MUST be recorded in `tasks/nebula-pre-alpha.md` § *Data-bound generation* as a dated findings line.
+There is no procedure yet for judging a guidance change, because "did this change help" is not answerable until the eval exists (`tasks/on-hold/nebula-studio-self-improvement.md`). Until then the steps are the generator, the drift tests, and the `/live` criteria — `studio-guidance-loop`, `four-party-chat`, `first-app-built` — which `/build-task` already runs; a change that moves a limb's outcome MUST be recorded in `tasks/nebula-pre-alpha-fast-follow.md` § *Item 20: Data-bound generation* as a dated findings line.

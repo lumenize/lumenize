@@ -6,8 +6,8 @@
  *
  * What is ASSERTED — the pipeline: every turn lands a durable reply inside the deadline (a
  * broken transport is silence, and the deadline is what makes it loud). What is REPORTED —
- * the limbs, each with its own positive control, printed as a findings table for the
- * master plan's § *Data-bound generation* (one dated line each):
+ * the limbs, each with its own positive control, printed as a findings table for
+ * `tasks/nebula-pre-alpha-fast-follow.md` § *Item 20: Data-bound generation* (one dated line each):
  *
  *  (a) asked for a wishlist, the app the model writes reads and writes through `store` /
  *      `client.resources` — the 2026-09-03 hand-driven failure, reproduced or not;
@@ -140,7 +140,7 @@ export async function run(stack: DevStack): Promise<void> {
     report('(f)', /countdown|timer|rule/i.test(rf.content),
       `the reply: ${JSON.stringify(rf.content.slice(0, 140))}`);
 
-    console.error('\n[studio-guidance-loop] FINDINGS — copy into tasks/nebula-pre-alpha.md § Data-bound generation § Findings:');
+    console.error('\n[studio-guidance-loop] FINDINGS — copy into tasks/nebula-pre-alpha-fast-follow.md § Item 20: Data-bound generation § Findings:');
     const today = new Date().toISOString().slice(0, 10);
     for (const f of findings) console.error(`- ${today} · ${f.limb} · ${f.pass === true ? 'pass' : f.pass === 'asked' ? 'asked' : 'fail'} · ${f.note}`);
     console.error(`[studio-guidance-loop] ${findings.filter((f) => f.pass === true).length}/${findings.length} limbs passed, ${findings.filter((f) => f.pass === 'asked').length} asked — reported, never gated`);
