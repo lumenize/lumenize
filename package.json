@@ -22,7 +22,8 @@
     "experiments/depth-chain",
     "experiments/tail-abort",
     "experiments/do-read-cache",
-    "experiments/do-alarm-retry"
+    "experiments/do-alarm-retry",
+    "experiments/merge-patch-sql"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
