@@ -15,8 +15,8 @@
  *
  * ⚠️ When this fails on a reader you just wrote, decide which it is before touching the list:
  *   - it RECORDS or DISPLAYS who acted, or it is the mint's own gate or the client's mirror of
- *     that gate: add it to `ALLOWED` with its kind and a line saying what it does with `act`, and
- *     add it to the reader list in `security.md`;
+ *     that gate: add it to `ALLOWED` with its kind and a line saying what it does with `act`. This
+ *     list is the only one: `security.md` § *Delegation* defines the kinds and names no reader;
  *   - it decides what a call may do: that is the defect. Decide from the subject's own claims.
  * It also fails on an `ALLOWED` entry that no longer reads `act`, so the list stays what is true.
  *
@@ -118,9 +118,9 @@ const stale = ALLOWED.filter((a) => !seen.has(a));
 
 console.log(`\n${files.length} file(s) scanned, ${readers} read(s) of \`act\`, ${ALLOWED.length} reader(s) allowed.`);
 for (const u of unknown) {
-  console.error(`\n✗ ${u.rel}:${u.line}  in ${u.fn}\n    ${u.text}\n    This reads \`act\` and is not on the list. If it records or displays who acted, or is the mint's\n    own gate, add it to ALLOWED in scripts/audit-act-readers.mjs and to security.md's reader list.\n    If it decides what a call may do, that is the defect: decide from the subject's own claims (ADR-016).`);
+  console.error(`\n✗ ${u.rel}:${u.line}  in ${u.fn}\n    ${u.text}\n    This reads \`act\` and is not on the list. If it records or displays who acted, or is the mint's\n    own gate, add it to ALLOWED in scripts/audit-act-readers.mjs, with its kind.\n    If it decides what a call may do, that is the defect: decide from the subject's own claims (ADR-016).`);
 }
 for (const s of stale) {
-  console.error(`\n✗ ALLOWED lists ${s.file} ${s.fn}, which no longer reads \`act\`. Remove the entry, and its line in security.md.`);
+  console.error(`\n✗ ALLOWED lists ${s.file} ${s.fn}, which no longer reads \`act\`. Remove the entry.`);
 }
 process.exit(unknown.length || stale.length ? 1 : 0);
