@@ -426,6 +426,14 @@ Built from Larry's answer: "Merge in place but name the method for it. Also, thi
 - **Workers Issues since the pass began.** One, `scope-deleted`, which `scripts/issues.mjs` lists as standing: it is every teardown's ordered abort.
 - **Not run deployed.** The full sweep, which stays at the wipe gate.
 
+### After the phases: found at the retro (2026-11-16)
+
+Found while answering Larry's questions on the retro, with a local stack up for him to try. None is fixed yet: each fix edits source the running stack reloads on.
+
+- **`auth-flows.md` § *A persona's page* contradicts itself.** One bullet says the first refresh sets Gerry a cookie on the platform host. The last says his tab "holds no cookie of its own", which was true until the session of 2026-11-15. The comment above `logout()` in `mesh-client.ts` gives the same retired reason. What the tab does on logout may still be right, for the reason that its page is a frame and the opener's logout ends its session; that is to be derived again, not assumed.
+- **That file is also agent guidance.** `scripts/gen-platform.mjs` embeds every `website/docs/nebula/*.md` into the platform layer the model reads, so a stale sentence there misleads the agent as well as a reader of the website. The embedded copy matches the file today.
+- **Home offers a lone superuser nothing to do on an empty stack.** Larry signed in locally with the platform admin's address and saw his address and an unclickable `_platform` row. Home has no link to create an account and no log-out control; both are reached only by typing `/auth/login` or `/auth/logout`.
+
 ## Phase Retro
 
 Written on 2026-11-16 from the notes above, for Larry's read before the archive move.
@@ -436,7 +444,7 @@ Written on 2026-11-16 from the notes above, for Larry's read before the archive 
    - **What the real model did set the guidance.** With the skill unread it guessed the tree's shape and used all thirty-two rounds. With a firmer pointer in the tool's description it reads the skill first and finishes in a few runs. After a wipe it stopped without building the cast again in 1 of 4 runs, until the skill's section opened with that instruction, and then 6 of 6 rebuilt.
    - **A local stack served a Studio built hours earlier.** A browser that took an invite link at the Worker's own port got `nebula-studio-ui/dist`. That build ran the old runner against the new page and dropped every value. A local stack no longer serves built pages (D41).
    - **A catch-all mail rule reaches a Worker only by config.** Wrangler's command cannot set it, so `wrangler.jsonc` declares it and a deploy applies it. The mail round trip, send to acceptance, took under two seconds in every local run.
-   - **Merge-patch semantics were already in the repo one level down**, in `@lumenize/structured-clone`'s `applyMergePatch`. A Profile moved onto Resources would keep `patchMyProfile`'s meaning.
+   - **Merge-patch semantics were already in the repo one level down**, in `@lumenize/structured-clone`'s `applyMergePatch`. `patchMyProfile` does not call it: a Profile is three string columns, and `changesOf` in `profile.ts` reads a patch over them by the same rules. A Profile moved onto Resources would keep the call's meaning. No production code calls `applyMergePatch` or `diff` yet.
 2. **What did we struggle with?**
    - **Breaks found late.** Phase 1 changed what a persona's host answers to someone nobody invited, and `scope-hosts-its-clients` limb 4 opened such a host. Phase 5 applied the reverted build's strip as a patch, and the patch deleted Studio's Wipe button, which I did not read. Both waited for phase 8's sweep, because I ran the files I touched and not the registry. Phase 5 was committed with surface tests red for the same reason.
    - **A record outliving what it describes.** The verifier panel passed none of phases 1 to 7. Its findings in Studio's tab runner and the Galaxy's entry were of one kind: a page's last answer kept after the page loaded afresh, a request kept after its document was replaced, a silent socket read as a closed one. Each of my tests began from the state I had in mind, so none saw them.
@@ -455,7 +463,7 @@ Written on 2026-11-16 from the notes above, for Larry's read before the archive 
    - **A turn stored round by round** removes the wait in memory at `#tabAnswers`. Its Pass 1 is [nebula-turn-stored-round-by-round.md](nebula-turn-stored-round-by-round.md), waiting for Larry's read.
    - **`backlog.md` gained rows** for a link spent before its acceptance settles, and for a re-claimed scope name giving a new persona the old one's Profile.
    - **The ADR and `auth.md` edits the notes above list** are Larry's to read in his own voice. None is ratified.
-   - **The Registry's migrations 26 and 27** reach production at its next deploy.
+   - **The Registry's migrations 26 and 27 migrate nothing in production.** Its next deploy is the wipe, where a fresh database runs the whole list from empty. The test target has applied both.
    - **Not run:** the full deployed sweep, which stays at the wipe gate, and the UI smoke lane, which is outside `npm test`.
    - **`npm run audit:ui-copy` fails on `ConfirmDelete.vue`**, as it did before this build. The wording is Larry's, and it is settled in the close-out.
    - **The sweep's own cost**, which Larry raised at this retro. The registry took 42.9 minutes locally at `a89d298`, and a sweep before each phase's commit, below, pays that per phase. `backlog.md` § *Testing & Quality* has the row.
