@@ -435,6 +435,30 @@ describe('store entry access', () => {
   });
 });
 
+// A page reads `meta.nodeId` to attach or share beside a resource, most often one it has just
+// created, and no push follows a create to the client that made it. Pure store logic over the
+// real engine, so it needs no running system.
+describe("a created resource's meta names its node", () => {
+  it('a transaction-painted create carries the nodeId and typeName its op named', async () => {
+    const { store, client } = setup({});
+    const done = client.transactionOps({
+      'task-9': { rt: 'todo', op: 'create', typeName: 'todo', nodeId: 'node-7', value: { title: 'new' } },
+    });
+    expect(store.resources.todo['task-9'].meta.nodeId).toBe('node-7');
+    expect(store.resources.todo['task-9'].meta.typeName).toBe('todo');
+    await done;
+  });
+
+  it('a put leaves the nodeId a push gave the entry', async () => {
+    const { store, client } = setup({});
+    client.simulateFanout('todo', 'task-1', { value: { title: 'x' }, meta: { validFrom: 'e1', nodeId: 'node-3', typeName: 'todo' } });
+    const done = client.transactionOps({ 'task-1': { rt: 'todo', op: 'put', typeName: 'todo', value: { title: 'y' } } });
+    expect(store.resources.todo['task-1'].value).toEqual({ title: 'y' });
+    expect(store.resources.todo['task-1'].meta.nodeId).toBe('node-3');
+    await done;
+  });
+});
+
 // ──────────────────────────────────────────────────────────────────────────
 // A snapshot handed to the store stays as it was handed. The store writes a commit's `validFrom`
 // into its own `meta` in place, and the same snapshot is what a subscriber's `.snapshot` resolved
@@ -485,5 +509,20 @@ describe('the store keeps its own copy of a snapshot', () => {
     await vi.waitFor(() => expect(store.resources.todo['task-1'].meta.validFrom).toBe('v3'));
     // Mutation: write the server snapshot's own `meta` into the store → the commit writes v3 into it.
     expect(server.meta.validFrom).toBe('v2');
+  });
+});
+
+// A page builds a put from what it read, and what it read is the store's proxies. Pure store logic
+// over the real engine, so it needs no running system.
+describe('a put built from a store value', () => {
+  it('commits a value that spreads a store value holding an array', async () => {
+    const { store, client } = setup({});
+    client.simulateFanout('todo', 'task-1', { value: { title: 'x', items: ['a', 'b'] }, meta: { validFrom: 'e1' } });
+    const read = store.resources.todo['task-1'].value;
+    const outcome = await client.transactionOps({
+      'task-1': { rt: 'todo', op: 'put', typeName: 'todo', value: { ...read, members: [{ userId: 'u', tier: 'read' }] } },
+    });
+    expect(outcome.kind).toBe('committed');
+    expect(client.txns.at(-1)).toMatchObject({ value: { title: 'x', items: ['a', 'b'], members: [{ userId: 'u', tier: 'read' }] } });
   });
 });

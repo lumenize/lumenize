@@ -1021,6 +1021,47 @@ describe('star-resources', () => {
       client[Symbol.dispose]();
     });
 
+    it('create with no nodeId is refused by name, and writes nothing', async () => {
+      const star = uniqueStar();
+      const { client } = await adminClient(star);
+      const resourceId = crypto.randomUUID();
+
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', value: makeTestValue() } as any,
+      });
+      const error = await waitForError(client);
+      expect(error).toContain('A create needs a nodeId');
+
+      // The id is still free: the same create, with its node, lands.
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      });
+      const r = await waitForSuccess(client) as TransactionResult;
+      expect(r.ok).toBe(true);
+
+      client[Symbol.dispose]();
+    });
+
+    it('move with no nodeId is refused by name', async () => {
+      const star = uniqueStar();
+      const { client } = await adminClient(star);
+      const resourceId = crypto.randomUUID();
+
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      });
+      const r1 = await waitForSuccess(client) as TransactionResult;
+      if (!r1.ok) throw new Error('Expected ok');
+
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'move', ifValidFromMatches: r1.validFrom } as any,
+      });
+      const error = await waitForError(client);
+      expect(error).toContain('A move needs a nodeId');
+
+      client[Symbol.dispose]();
+    });
+
     it('put with null value throws', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);

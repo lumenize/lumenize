@@ -81,7 +81,8 @@ export class MockClient implements StoreClient {
       applyCommit: (rt, rid, validFrom) => this.#adapter!.applyCommit(rt, rid, validFrom),
       rollbackTo: (rt, rid, value) => this.#adapter!.rollbackTo(rt, rid, value),
       applyResolvedValue: (rt, rid, value) => this.#adapter!.applyResolvedValue(rt, rid, value),
-      applyOptimistic: (rt, rid, value, validFrom) => this.#adapter!.applyOptimistic(rt, rid, value, validFrom),
+      applyOptimistic: (rt, rid, value, validFrom, created) => this.#adapter!.applyOptimistic(rt, rid, value, validFrom, created),
+      detach: (value) => this.#adapter!.detach(value),
       flash: (rt, rid, cls) => this.#adapter!.flash(rt, rid, cls),
     });
   }

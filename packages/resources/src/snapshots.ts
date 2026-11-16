@@ -616,6 +616,10 @@ export class Snapshots {
           if (op.value == null) {
             throw new Error(`Value must not be null or undefined for create on '${resourceId}'`);
           }
+          // Said here by name: left to the permission check it reads "Node undefined not found".
+          if (typeof op.nodeId !== 'string' || op.nodeId === '') {
+            throw new Error(`A create needs a nodeId, the org-tree node the resource attaches to, and '${resourceId}' has none`);
+          }
         } else {
           // put, move, delete — resource must exist
           if (!current) {
@@ -623,6 +627,9 @@ export class Snapshots {
           }
           if (op.op === 'put' && op.value == null) {
             throw new Error(`Value must not be null or undefined for put on '${resourceId}'`);
+          }
+          if (op.op === 'move' && (typeof op.nodeId !== 'string' || op.nodeId === '')) {
+            throw new Error(`A move needs a nodeId, the org-tree node the resource moves to, and '${resourceId}' has none`);
           }
         }
       }

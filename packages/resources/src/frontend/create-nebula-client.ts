@@ -587,6 +587,41 @@ export function createNebulaStore(
 
   // ─── Store adapter: the engine writes optimistic-state effects through this ─
   // NebulaClient instantiates the conflict-outcome engine; we inject this
+  // A copy of `v` with every store value in it replaced by its raw form. Reading through the store
+  // hands back a proxy at each level, so `{ ...list, title }` is a plain object holding proxies,
+  // and `structuredClone` refuses a proxy. A store value's raw form holds no proxy beneath it, so
+  // the walk stops there; only the plain objects, arrays, Maps and Sets the page built are copied.
+  function detachFromStore(v: unknown, seen: Map<object, unknown>): unknown {
+    if (v === null || typeof v !== 'object') return v;
+    const raw = toRaw(v);
+    if (raw !== v) return raw;
+    if (seen.has(v)) return seen.get(v);
+    if (Array.isArray(v)) {
+      const out: unknown[] = new Array(v.length);
+      seen.set(v, out);
+      for (let i = 0; i < v.length; i++) if (i in v) out[i] = detachFromStore(v[i], seen);
+      return out;
+    }
+    if (v instanceof Map) {
+      const out = new Map<unknown, unknown>();
+      seen.set(v, out);
+      for (const [k, x] of v) out.set(detachFromStore(k, seen), detachFromStore(x, seen));
+      return out;
+    }
+    if (v instanceof Set) {
+      const out = new Set<unknown>();
+      seen.set(v, out);
+      for (const x of v) out.add(detachFromStore(x, seen));
+      return out;
+    }
+    const proto = Object.getPrototypeOf(v);
+    if (proto !== Object.prototype && proto !== null) return v;
+    const out: Record<string, unknown> = proto === null ? Object.create(null) : {};
+    seen.set(v, out);
+    for (const [k, x] of Object.entries(v)) out[k] = detachFromStore(x, seen);
+    return out;
+  }
+
   // Vue-reactive adapter so commits/rollbacks/use-server/fanout land in the
   // store. All writes use a non-'local' context so the synced-state middleware
   // skips them (no resubmission loop). `readResource` returns toRaw'd values so
@@ -652,7 +687,7 @@ export function createNebulaStore(
         internalDeepWrite(['resources', rt, rid, 'value'], value);
       });
     },
-    applyOptimistic(rt, rid, value, validFrom) {
+    applyOptimistic(rt, rid, value, validFrom, created) {
       // Explicit transactionOps create/put paint (value + baseline version). This is the one paint that
       // can make an entry no subscription has answered for — every push records access first — so
       // it owes `ResourceStoreEntry` its `deniedNodes`: `[]`, since the painter holds the value,
@@ -661,8 +696,18 @@ export function createNebulaStore(
       withContext({ source: 'remote' }, () => {
         internalDeepWrite(['resources', rt, rid, 'value'], value);
         internalDeepWrite(['resources', rt, rid, 'meta', 'validFrom'], validFrom);
+        // A create names its node and type, and no push follows to the client that made it, so
+        // they are written here. Without them `meta.nodeId` is missing on exactly the resources
+        // a page creates, which is where it reads it to attach or share beside them.
+        if (created) {
+          internalDeepWrite(['resources', rt, rid, 'meta', 'nodeId'], created.nodeId);
+          internalDeepWrite(['resources', rt, rid, 'meta', 'typeName'], created.typeName);
+        }
         if (entry?.deniedNodes === undefined) internalDeepWrite(['resources', rt, rid, 'deniedNodes'], []);
       });
+    },
+    detach(value) {
+      return detachFromStore(value, new Map());
     },
     flash() {
       // DOM flash deferred to v4 (api-reference § Default flash classes).

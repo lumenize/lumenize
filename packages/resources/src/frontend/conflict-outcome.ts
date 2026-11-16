@@ -102,6 +102,9 @@ export type EngineOp =
   | { op: 'move'; typeName: string; nodeId: string; ifValidFromMatches?: string }
   | { op: 'delete'; typeName: string; ifValidFromMatches?: string };
 
+/** What a `create` names beyond its value: the node the resource attaches to, and its type. */
+export type CreatedMeta = { nodeId: string; typeName: string };
+
 const FLASH_COMMIT = 'lumenize-commit-success';
 const FLASH_REVERT = 'lumenize-conflict-revert';
 const DEFAULT_MAX_RETRIES = 5;
@@ -128,8 +131,13 @@ export interface ConflictOutcomeEngineConfig {
    *  (the create/put path; move/delete don't paint). The store slot is created
    *  for a `create`. Rollback restores the pre-paint base captured by the
    *  engine. Optional: omit it if only the debounced `write`/`transaction`
-   *  paths are used (the engine's own unit harness does not exercise it). */
-  applyOptimistic?: (rt: string, rid: string, value: unknown, validFrom: string) => void;
+   *  paths are used (the engine's own unit harness does not exercise it). A `create` also hands
+   *  over where the resource attaches, so the entry's `meta` names its node before any push does. */
+  applyOptimistic?: (rt: string, rid: string, value: unknown, validFrom: string, created?: CreatedMeta) => void;
+  /** Returns an op's value with nothing of the store left in it. A page builds a put from what it
+   *  read, `{ ...list, title }`, and the store's nested values are proxies no clone accepts.
+   *  Optional: a store that hands out plain values needs none. */
+  detach?: (value: unknown) => unknown;
   /** Default flash class application (DOM classes in v4; captured in the harness). */
   flash: (rt: string, rid: string, cssClass: string) => void;
   quietMs?: number;
@@ -512,7 +520,10 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
     return new Promise<TransactionOutcome>((resolve) => {
       const clone = config.clone ?? ((v: unknown) => v);
       const items: Array<{ rt: string; rid: string; ifValidFromMatches: string; base: unknown; value?: unknown; op: EngineOp }> = [];
-      for (const [rid, op] of Object.entries(ops)) {
+      for (const [rid, given] of Object.entries(ops)) {
+        const op = config.detach && (given.op === 'create' || given.op === 'put')
+          ? { ...given, value: config.detach(given.value) }
+          : given;
         const rt = op.rt;
         const current = config.readResource(rt, rid);
         const baselineValidFrom =
@@ -543,7 +554,8 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
           op,
         };
         if (op.op === 'create' || op.op === 'put') {
-          config.applyOptimistic?.(rt, rid, op.value, baselineValidFrom);
+          config.applyOptimistic?.(rt, rid, op.value, baselineValidFrom,
+            op.op === 'create' ? { nodeId: op.nodeId, typeName: op.typeName } : undefined);
           item.value = op.value;
         }
         items.push(item);

@@ -26,6 +26,7 @@ import type { StaleAction } from './stale-decision';
 import {
   createConflictOutcomeEngine,
   type ConflictOutcomeEngine,
+  type CreatedMeta,
   type EngineOp,
   type ResourceHandler,
   type ServerBatchResponse,
@@ -283,8 +284,11 @@ export interface NebulaStoreAdapter {
   applyDenied(rt: string, rid: string, deniedNodes: string[]): void;
   /** `use-this`: paint the merged verdict value (a fresh optimistic write). */
   applyResolvedValue(rt: string, rid: string, value: unknown): void;
-  /** Explicit-transaction op value + baseline version (create/put paint). */
-  applyOptimistic(rt: string, rid: string, value: unknown, validFrom: string): void;
+  /** Explicit-transaction op value + baseline version (create/put paint). A create also passes the
+   *  node and type it named, which the entry's `meta` then holds as a pushed snapshot's does. */
+  applyOptimistic(rt: string, rid: string, value: unknown, validFrom: string, created?: CreatedMeta): void;
+  /** An op's value with nothing of the store left in it, so it can be cloned and sent. */
+  detach(value: unknown): unknown;
   /** Default flash class (DOM in v4; no-op headless). */
   flash(rt: string, rid: string, cssClass: string): void;
 }
@@ -319,6 +323,7 @@ function createInMemoryStoreAdapter(): NebulaStoreAdapter {
     },
     applyResolvedValue: (rt, rid, value) => upsertValue(rt, rid, value),
     applyOptimistic: (rt, rid, value, validFrom) => m.set(k(rt, rid), { value, validFrom }),
+    detach: (value) => value,
     flash: () => {},
   };
 }
@@ -484,7 +489,8 @@ export class ClientResources {
       applyCommit: (rt, rid, validFrom) => this.#storeAdapter.applyCommit(rt, rid, validFrom),
       rollbackTo: (rt, rid, value) => this.#storeAdapter.rollbackTo(rt, rid, value),
       applyResolvedValue: (rt, rid, value) => this.#storeAdapter.applyResolvedValue(rt, rid, value),
-      applyOptimistic: (rt, rid, value, validFrom) => this.#storeAdapter.applyOptimistic(rt, rid, value, validFrom),
+      applyOptimistic: (rt, rid, value, validFrom, created) => this.#storeAdapter.applyOptimistic(rt, rid, value, validFrom, created),
+      detach: (value) => this.#storeAdapter.detach(value),
       flash: (rt, rid, cls) => this.#storeAdapter.flash(rt, rid, cls),
     });
   }
