@@ -431,6 +431,17 @@ Built from Larry's answer: "Merge in place but name the method for it. Also, thi
 Found while answering Larry's questions on the retro, with a local stack up for him to try. None is fixed yet: each fix edits source the running stack reloads on.
 
 - **`auth-flows.md` § *A persona's page* contradicts itself.** One bullet says the first refresh sets Gerry a cookie on the platform host. The last says his tab "holds no cookie of its own", which was true until the session of 2026-11-15. The comment above `logout()` in `mesh-client.ts` gives the same retired reason. What the tab does on logout may still be right, for the reason that its page is a frame and the opener's logout ends its session; that is to be derived again, not assumed.
+- **A claim-by-claim check of `auth-flows.md` against the code found more, none fixed yet.** A read-only agent did it on 2026-11-16, and I spot-checked the intro's line, the Turnstile field, the invite bullet and the apex. Each is to be confirmed against the code as it is fixed:
+  - The intro still says a persona's host makes two Registry reads on every refresh. Only the refresh that opens its session reads the Registry.
+  - A persona's tab's logout never calls the platform's logout, so its session cookie stays until it lapses or the opener logs out. Comments in `mesh-client.ts` and `worker-token.ts` carry the same "no cookie of its own".
+  - The invite bullet says an admin invites and the membership is minted `scopeAdmin=false`. A plain member may invite a peer into their own Star or Universe, the bit is set when an inviter with dominion asks, and an app invite also mints the `.dev` admin membership.
+  - The first-login diagram has the link spent last and the KV put after acceptance. The code spends it inside `recordSessions` and puts the record before `acceptMembership`.
+  - The same diagram's claim posts `cf-turnstile-response`, which the login page does not send.
+  - Home is said to list the memberships the browser's cookies hold, each linking to its host. It lists every membership of each person the cookies name, and a row with no cookie in this browser goes through login.
+  - "Every call passes through five security layers" is true only of a call sent on to another scoped node. A call to the client's own host node skips the Gateway's route check, and `PROFILE` and `AUTH_FACADE` have no passage step.
+  - "Login never mints a membership" has one exception, the configured bootstrap address's platform membership.
+  - Smaller: the routes run in the `PlatformHost` entrypoint, not the default Worker; a login sets at most 24 cookies; on a KV miss the Worker, not the Registry, puts the record back.
+- **For Larry: ADR-021 and the code disagree on the apex.** The ADR says `lumenize.dev`'s apex is a landing page for user-developers. The code redirects it to the platform host, and `auth-flows.md` describes the redirect.
 - **That file is also agent guidance.** `scripts/gen-platform.mjs` embeds every `website/docs/nebula/*.md` into the platform layer the model reads, so a stale sentence there misleads the agent as well as a reader of the website. The embedded copy matches the file today.
 - **Home offers a lone superuser nothing to do on an empty stack.** Larry signed in locally with the platform admin's address and saw his address and an unclickable `_platform` row. Home has no link to create an account and no log-out control; both are reached only by typing `/auth/login` or `/auth/logout`. Both are now T1 and T2 of [small-ui-tweaks-from-driving.md](small-ui-tweaks-from-driving.md).
 
