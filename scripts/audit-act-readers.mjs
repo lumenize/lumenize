@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `node scripts/audit-act-readers.mjs` — every place our code reads a token's or a record's `act`.
+ * `npm run audit:act-readers` — every place our code reads a token's or a record's `act`.
  *
  * `act` says who acted for the subject. It is recorded and shown, and it never decides what a call
  * may do: who may act as whom is settled once, at the impersonation mint (ADR-016 § *`act` is
@@ -21,7 +21,8 @@
  * It also fails on an `ALLOWED` entry that no longer reads `act`, so the list stays what is true.
  *
  * Pass directories to scan them in place of the defaults, which is how the check itself is tested.
- * It prints what it found on every run, so an empty failure list is never the only output.
+ * CI runs it after the tests. It prints what it found on every run, so an empty failure list is
+ * never the only output.
  */
 import ts from 'typescript';
 import { readFileSync, readdirSync, statSync } from 'node:fs';

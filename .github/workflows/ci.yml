@@ -107,6 +107,13 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run audit:test-assertions
 
+      - name: Audit that nothing new reads act
+        # `act` says who acted and never decides what a call may do (ADR-016). The script fails on a
+        # read of it that its list does not name (scripts/audit-act-readers.mjs), and needs the
+        # install for `typescript`.
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run audit:act-readers
+
   run-live-scenarios:
     # The `/live` harness, which since 2026-07-30 is the DEFAULT tier for behavioural coverage
     # (`.claude/rules/live.md`). Its own job rather than folded into the tests job so a boot failure

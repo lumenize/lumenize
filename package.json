@@ -37,6 +37,7 @@
     "audit:email-isolation": "node scripts/check-email-isolation.mjs",
     "audit:do-http": "node scripts/audit-do-http.mjs",
     "audit:test-assertions": "node scripts/audit-test-assertions.mjs",
+    "audit:act-readers": "node scripts/audit-act-readers.mjs",
     "test:code": "./scripts/test-code.sh",
     "test:doc": "./scripts/test-doc.sh",
     "test": "npm run test:code && npm run test:doc",
