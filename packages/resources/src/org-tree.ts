@@ -247,6 +247,9 @@ export class OrgTree {
     this.#requireNodeExists(parentNodeId)
     this.requirePermission(parentNodeId, 'write')
     validateNodeId(nodeId)
+    if (typeof label !== 'string' || label === '') {
+      throw new Error(`A node needs a label, the name people see, and '${slug}' has none`)
+    }
 
     // Replay vs conflict — read the committed cache, after the permission gate.
     // The id-existence check discloses only Star-wide-visible structure (ADR-008).

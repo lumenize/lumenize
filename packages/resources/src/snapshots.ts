@@ -166,6 +166,36 @@ function storedRow(row: Record<string, SqlStorageValue>): StoredRow {
 
 // ─── Snapshots Class ───────────────────────────────────────────────
 
+/**
+ * Refuses an op that lacks a field its kind requires, naming the field. The ontology validates a
+ * resource's `value`; these are the op's own fields, which no type check reaches once a call has
+ * crossed the wire. A missing `value` is refused inside the transaction, with the other checks
+ * that read the stored resource.
+ */
+function assertOpFields(resourceId: string, op: OperationDescriptor): void {
+  const given = (op ?? {}) as { op?: unknown; typeName?: unknown; nodeId?: unknown; ifValidFromMatches?: unknown };
+  const missing = (field: string, what: string): never => {
+    throw new Error(`A ${String(given.op)} needs \`${field}\`, ${what}, and '${resourceId}' has none`);
+  };
+  const has = (v: unknown) => typeof v === 'string' && v !== '';
+  switch (given.op) {
+    case 'create':
+      if (!has(given.typeName)) missing('typeName', "the ontology type of the resource's value");
+      if (!has(given.nodeId)) missing('nodeId', 'the org-tree node the resource attaches to');
+      return;
+    case 'move':
+      if (!has(given.nodeId)) missing('nodeId', 'the org-tree node the resource moves to');
+      if (!has(given.ifValidFromMatches)) missing('ifValidFromMatches', 'the version the caller last saw');
+      return;
+    case 'put':
+    case 'delete':
+      if (!has(given.ifValidFromMatches)) missing('ifValidFromMatches', 'the version the caller last saw');
+      return;
+    default:
+      throw new Error(`Unknown op '${String(given.op)}' on '${resourceId}': an op is create, put, move or delete`);
+  }
+}
+
 export class Snapshots {
   #ctx: DurableObjectState;
   #getCallContext: () => CallContext;
@@ -472,8 +502,9 @@ export class Snapshots {
     }
 
     // Validate resourceIds
-    for (const [resourceId] of entries) {
+    for (const [resourceId, op] of entries) {
       if (!resourceId) throw new Error('resourceId must not be empty');
+      assertOpFields(resourceId, op);
     }
 
     // Step 1: Read current snapshots outside transaction (for the Step 4.5 pre-check)
@@ -616,10 +647,6 @@ export class Snapshots {
           if (op.value == null) {
             throw new Error(`Value must not be null or undefined for create on '${resourceId}'`);
           }
-          // Said here by name: left to the permission check it reads "Node undefined not found".
-          if (typeof op.nodeId !== 'string' || op.nodeId === '') {
-            throw new Error(`A create needs a nodeId, the org-tree node the resource attaches to, and '${resourceId}' has none`);
-          }
         } else {
           // put, move, delete — resource must exist
           if (!current) {
@@ -627,9 +654,6 @@ export class Snapshots {
           }
           if (op.op === 'put' && op.value == null) {
             throw new Error(`Value must not be null or undefined for put on '${resourceId}'`);
-          }
-          if (op.op === 'move' && (typeof op.nodeId !== 'string' || op.nodeId === '')) {
-            throw new Error(`A move needs a nodeId, the org-tree node the resource moves to, and '${resourceId}' has none`);
           }
         }
       }

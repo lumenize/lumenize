@@ -1030,7 +1030,7 @@ describe('star-resources', () => {
         [resourceId]: { op: 'create', typeName: 'TestResource', value: makeTestValue() } as any,
       });
       const error = await waitForError(client);
-      expect(error).toContain('A create needs a nodeId');
+      expect(error).toContain('A create needs `nodeId`');
 
       // The id is still free: the same create, with its node, lands.
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -1057,7 +1057,30 @@ describe('star-resources', () => {
         [resourceId]: { op: 'move', ifValidFromMatches: r1.validFrom } as any,
       });
       const error = await waitForError(client);
-      expect(error).toContain('A move needs a nodeId');
+      expect(error).toContain('A move needs `nodeId`');
+
+      client[Symbol.dispose]();
+    });
+
+    it('create with no typeName, and a put with no version, are refused by name', async () => {
+      const star = uniqueStar();
+      const { client } = await adminClient(star);
+      const resourceId = crypto.randomUUID();
+
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue() } as any,
+      });
+      expect(await waitForError(client)).toContain('A create needs `typeName`');
+
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'put', value: makeTestValue() } as any,
+      });
+      expect(await waitForError(client)).toContain('A put needs `ifValidFromMatches`');
+
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'upsert', value: makeTestValue() } as any,
+      });
+      expect(await waitForError(client)).toContain("Unknown op 'upsert'");
 
       client[Symbol.dispose]();
     });

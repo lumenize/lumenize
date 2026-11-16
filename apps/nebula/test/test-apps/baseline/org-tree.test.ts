@@ -307,6 +307,10 @@ describe('org-tree', () => {
       client.callStarCreateNodeWithId(star, 'not-a-uuid', ROOT_NODE_ID, 'slug-c', 'C');
       await vi.waitFor(() => expect(client.lastError).toContain('Invalid nodeId'));
 
+      // A node with no label is refused by name. Mutation: drop the label check → no error → red.
+      client.callStarCreateNodeWithId(star, crypto.randomUUID(), ROOT_NODE_ID, 'slug-d', undefined as unknown as string);
+      await vi.waitFor(() => expect(client.lastError).toContain('A node needs a label'));
+
       client[Symbol.dispose]();
     });
   });
