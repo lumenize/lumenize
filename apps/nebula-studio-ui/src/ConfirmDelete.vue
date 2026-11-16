@@ -11,12 +11,7 @@
  */
 import { ref, onMounted } from 'vue';
 import { Loader2 } from 'lucide-vue-next';
-
-/** The plan's shape, as `client.scopes.deletePlan` answers it. */
-interface Plan {
-  affected: { instanceName: string }[];
-  affectedUsers: { total: number; sample: { instanceName: string; email: string }[] };
-}
+import { deletionSentence, type DeletionPlan as Plan } from './delete-summary';
 
 const props = defineProps<{
   /** The scope to delete, e.g. `acme.crm`. */
@@ -76,10 +71,7 @@ const others = (n: number) => `${n} other user${n === 1 ? '' : 's'} will lose ac
           Warning — {{ others(plan.affectedUsers.total) }}:
           {{ plan.affectedUsers.sample.map((u) => u.email).join(', ') }}
         </p>
-        <p class="text-sm opacity-70">
-          This permanently deletes {{ plan.affected.length }} scope{{ plan.affected.length === 1 ? '' : 's' }} and
-          everything in them.
-        </p>
+        <p class="text-sm opacity-70" data-testid="confirm-delete-summary">{{ deletionSentence(what, target, plan.affected) }}</p>
       </template>
       <p v-if="error" class="text-sm text-error" data-testid="confirm-delete-error">{{ error }}</p>
       <div class="modal-action">

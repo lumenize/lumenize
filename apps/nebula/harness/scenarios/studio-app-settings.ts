@@ -12,9 +12,11 @@
  *
  *  1. **The app's settings list its tenants.** O opens `?app` and sees both tenant Stars, and not
  *     the `.dev` workspace. *Reds if the list stops reading the galaxy's children.*
- *  2. **A tenant is deleted behind a confirmation the URL never carries.** O deletes the first; the
- *     confirmation opens without changing the address, and after it the tenant is gone and the
- *     other remains. *Reds if the delete stops reaching the facade.*
+ *  2. **A tenant is deleted behind a confirmation the URL never carries, which says what goes.**
+ *     The app's confirmation names its two tenants and is cancelled. O then deletes the first
+ *     tenant; its confirmation opens without changing the address and names that tenant alone,
+ *     and after it the tenant is gone and the other remains. *Reds if the delete stops reaching
+ *     the facade, or if the confirmation stops showing the sentence `deletionSentence` composes.*
  *  3. **A caller without dominion is refused by the facade.** P, a plain member of the app, asks
  *     to delete the remaining tenant and is refused with the facade's own message. *Reds if the
  *     facade's pre-check is dropped — the refusal is then the Registry's.*
@@ -62,13 +64,22 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── LIMB 2: a tenant is deleted behind a confirmation the URL never carries ────────────────
     const address = page.url();
+    const summary = page.getByTestId('confirm-delete-summary');
+    await page.getByTestId('app-delete').click();
+    await summary.waitFor({ state: 'visible', timeout: 10_000 });
+    assert.equal(await summary.innerText(), 'This permanently deletes this app and its 2 tenants, and everything in them.',
+      "the app's confirmation names its tenants by kind, and not its .dev workspace");
+    await page.getByTestId('confirm-delete').getByRole('button', { name: 'Cancel' }).click();
     await tenant(t1).getByTestId('app-tenant-delete').click();
     await page.getByTestId('confirm-delete').waitFor({ state: 'visible', timeout: 10_000 });
     assert.equal(page.url(), address, 'a confirmation must not ride the URL');
+    await summary.waitFor({ state: 'visible', timeout: 10_000 });
+    assert.equal(await summary.innerText(), 'This permanently deletes the tenant t1 and everything in it.',
+      "a tenant's confirmation names that tenant alone");
     await page.getByTestId('confirm-delete-go').click();
     await tenant(t1).waitFor({ state: 'detached', timeout: 60_000 });
     assert.equal(await tenant(t2).count(), 1, 'deleting one tenant must leave the other');
-    console.error('  ✓ limb 2 — the confirmation left the URL alone, and the tenant was deleted');
+    console.error('  ✓ limb 2 — the confirmation said what goes and left the URL alone, and the tenant was deleted');
 
     // ── LIMB 3: a caller without dominion is refused by the facade ─────────────────────────────
     const atO = await page.evaluate(async (refresh) =>

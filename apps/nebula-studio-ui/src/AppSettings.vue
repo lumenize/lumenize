@@ -14,8 +14,7 @@
 import { ref, onMounted } from 'vue';
 import { Trash2 } from 'lucide-vue-next';
 import ConfirmDelete from './ConfirmDelete.vue';
-
-type Plan = { affected: { instanceName: string }[]; affectedUsers: { total: number; sample: { instanceName: string; email: string }[] } };
+import type { DeletionPlan as Plan } from './delete-summary';
 
 const props = defineProps<{
   /** This page's galaxy, e.g. `acme.crm`. */
