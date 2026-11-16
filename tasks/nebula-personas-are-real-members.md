@@ -432,7 +432,7 @@ Found while answering Larry's questions on the retro, with a local stack up for 
 
 - **`auth-flows.md` § *A persona's page* contradicts itself.** One bullet says the first refresh sets Gerry a cookie on the platform host. The last says his tab "holds no cookie of its own", which was true until the session of 2026-11-15. The comment above `logout()` in `mesh-client.ts` gives the same retired reason. What the tab does on logout may still be right, for the reason that its page is a frame and the opener's logout ends its session; that is to be derived again, not assumed.
 - **That file is also agent guidance.** `scripts/gen-platform.mjs` embeds every `website/docs/nebula/*.md` into the platform layer the model reads, so a stale sentence there misleads the agent as well as a reader of the website. The embedded copy matches the file today.
-- **Home offers a lone superuser nothing to do on an empty stack.** Larry signed in locally with the platform admin's address and saw his address and an unclickable `_platform` row. Home has no link to create an account and no log-out control; both are reached only by typing `/auth/login` or `/auth/logout`.
+- **Home offers a lone superuser nothing to do on an empty stack.** Larry signed in locally with the platform admin's address and saw his address and an unclickable `_platform` row. Home has no link to create an account and no log-out control; both are reached only by typing `/auth/login` or `/auth/logout`. Both are now T1 and T2 of [small-ui-tweaks-from-driving.md](small-ui-tweaks-from-driving.md).
 
 ## Phase Retro
 
