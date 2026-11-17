@@ -406,7 +406,7 @@ Changed the same day:
 - **The `wire-a-view` skill** gives the node rule at the create handler, and forbids a `members` field and a node id kept in a value.
 - **The `define-the-cast` skill** asks for a node for each thing shared on its own, small runs that return what they made, a look before a failed run is repeated, and no wipe unless asked.
 
-**The same request, run four times against the real model that evening.** The scenario `shared-lists-turn` posts Larry's words to a new app and reports what the turn built. It gates only on an answer arriving. Each run's record is under `apps/nebula/harness/.artifacts/`.
+**The same request, run five times against the real model that evening.** The scenario `shared-lists-turn` posts Larry's words to a new app and reports what the turn built. It gates only on an answer arriving. Each run's record is under `apps/nebula/harness/.artifacts/`.
 
 | Run | Rounds, minutes, stop | What it built | What it showed |
 |---|---|---|---|
@@ -414,6 +414,7 @@ Changed the same day:
 | 2 | 32, 7.3, step limit | Lists and items only, a node per list, a Share control that grants, a cast of three. | It invited all three personas onto the node they share, as the skill's example did, then found Bob could rename Sally's list and repaired the grants. Its last build was clean and its reply said it could not finish. |
 | 3 | 5, 1.4, ended itself | Nothing: it asked whether a write collaborator may change shares, and where a shared list shows. | Asking is the ontology skill's own judgment, so the scenario now answers and reads the turn that builds. |
 | 4 | 45, 10.4 with the question, completed | All of run 2's, with each person on a node of their own from the start. Walter, with write, added an item, and Ron, read-only, read it. | Six of its seven builds had type findings, nearly all on a reference: the interface says `list: ShoppingList` and the stored value is the id. |
+| 5 | 22, 6.0, completed | The same app and a cast of two, with the store typed from the ontology. | Two builds, where run 4 took seven: one round of findings, none on a reference. A node's slug ran past 30 characters, and the agent ran the whole script again, which failed on the node the first run had made. |
 
 Changed between runs:
 
@@ -423,12 +424,13 @@ Changed between runs:
 - **A turn stopped at the step limit says where its work stands,** in place of "I couldn't finish cleanly".
 - **The cast skill's example invites each person onto their own node,** and says a grant on a shared parent reaches everyone's. It also says never to retype an id, and that several tab runs go in one step.
 - **A call given no node id is refused by name.**
+- **The store is typed from the ontology (Larry, 2026-11-16).** The build's type check fills the client's `LumenizeOntology` from the interfaces `src/ontology.d.ts` exports, so a value read from the store has its type and a reference reads as a `string`. `coding-your-ui.md` had told the reader to cast at the read site, which made every reference a type error; it no longer does. Run 5 is the one run on it.
 
 Still open:
 
-- **A reference's type in app code.** It cost most of run 4's rounds and nine of run 1's. A note in `wire-a-view` did not prevent it.
 - **Nothing streams while a file is written.** T4 of [small-ui-tweaks-from-driving.md](small-ui-tweaks-from-driving.md).
-- **One request, four different turns.** The model's choices vary run to run, so four runs show what can happen and not how often.
+- **A failed run is still repeated whole.** Run 5 did it despite the cast skill's line against it.
+- **One request, five different turns.** The model's choices vary run to run, so five runs show what can happen and not how often.
 
 ### Findings — the model in the loop, observed
 
