@@ -31,7 +31,7 @@ export { deriveKind, deriveParticipants, waitingPosts, toolCallMarks, postAnswer
 export type { ThreadMessage, ToolCallMark, StoredMessage } from './participants';
 export {
   startTurn, signalTurn, signalOtherTurn, settleTurn, evaluateTurn, deriveTurnDisplay, TURN_IDLE_MS, TURN_HEARTBEAT_MS,
-  stepLine, pendingLine, streamSteps, formatElapsed, STEP_MARK, PENDING_MARK,
+  previewLocked, stepLine, pendingLine, streamSteps, formatElapsed, STEP_MARK, PENDING_MARK,
   type TurnLiveness, type TurnPhase, type TurnDisplay,
 } from './turn-liveness';
 export {

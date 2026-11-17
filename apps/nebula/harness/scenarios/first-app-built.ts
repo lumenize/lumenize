@@ -249,6 +249,10 @@ export async function run(stack: DevStack): Promise<void> {
     //      of the steps taken, which a turn that builds must raise above zero.
     const clocksSeen = new Set<string>();
     let stepsSeen = 0;
+    //  (f) the preview is LOCKED while the turn runs, and says so: the lock was over the frame and
+    //      the working notice showed, at a moment the strip was up. Limb 4 reads it gone afterwards.
+    let lockSeen = false;
+    let midTurnShot: string | undefined;
     let transcriptChecked = false;
     let lastTailAt = 0;
     const turnStartedAt = Date.now();
@@ -271,6 +275,8 @@ export async function run(stack: DevStack): Promise<void> {
             const n = parseInt((await gone(stepsEl.first().textContent({ timeout: 2_000 })))?.trim() ?? '', 10);
             if (n > stepsSeen) stepsSeen = n;
           }
+          if (!lockSeen && await page.getByTestId('preview-lock').count() > 0 && await page.getByTestId('preview-working').count() > 0) lockSeen = true;
+          if (!midTurnShot && stepsSeen >= 1) midTurnShot = (await captureArtifacts(inst, 'first-app-built-mid-turn')).screenshotPath;
           // Judge the modal only once the strip is a TAIL (the leading ellipsis marks truncation
           // at 80 chars): sampled earlier, the transcript IS the strip, and 75 vs 75 reads as a
           // modal that holds nothing more (the 2026-09-05 sweep red).
@@ -342,6 +348,10 @@ export async function run(stack: DevStack): Promise<void> {
     }
     assert.ok(clocksSeen.size >= 2 && [...clocksSeen].every((c) => /^\d+:\d\d$/.test(c)),
       `the strip's clock must move while the turn runs — it read ${JSON.stringify([...clocksSeen])}`);
+    assert.ok(lockSeen, 'the preview must be locked, with its working notice, while the turn runs');
+    assert.equal(await page.getByTestId('preview-lock').count(), 0, 'the preview must unlock once the reply has landed');
+    assert.equal(await page.getByTestId('preview-working').count(), 0, 'the working notice must clear once the reply has landed');
+    console.error(`  · mid-turn capture: ${midTurnShot}`);
     assert.ok(stepsSeen >= 1, `the strip must count the turn's steps — the highest count read was ${stepsSeen}`);
     assert.ok(tailsSeen.size >= 2,
       `the reply must STREAM — the strip's tail took ${tailsSeen.size} distinct value(s); one or none means ` +

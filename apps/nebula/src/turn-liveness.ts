@@ -98,6 +98,15 @@ export function deriveTurnDisplay(o: {
   return o.awaitingReply ? 'thinking' : 'none';
 }
 
+/**
+ * Whether Studio locks the preview: while a turn is running, whoever posted it. The agent is
+ * writing the app's `.dev` data then, often from the preview's own tabs, so a click there would
+ * race it. A `failed` turn unlocks, so a lost turn never leaves the preview locked for good.
+ */
+export function previewLocked(display: TurnDisplay): boolean {
+  return display === 'streaming' || display === 'thinking' || display === 'waiting';
+}
+
 // ── What a running turn's stream says it is doing ──
 // The stream is text: the model's thinking as it arrives, and a line for each step the loop
 // takes. Between them come long silences — the model writing a whole file as one tool call, a

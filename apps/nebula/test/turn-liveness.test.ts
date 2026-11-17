@@ -148,3 +148,12 @@ describe('what a running turn\'s stream says it is doing', () => {
     expect([0, 7, 60, 134.9, 725].map(formatElapsed)).toEqual(['0:00', '0:07', '1:00', '2:14', '12:05']);
   });
 });
+
+describe('previewLocked', () => {
+  it('locks while a turn runs or waits its turn, and never on a failed or settled one', async () => {
+    const { previewLocked } = await import('../src/turn-liveness');
+    expect((['streaming', 'thinking', 'waiting'] as const).map(previewLocked)).toEqual([true, true, true]);
+    // A lost turn must not leave the preview locked: `failed` is what the idle window turns a hang into.
+    expect((['failed', 'none'] as const).map(previewLocked)).toEqual([false, false]);
+  });
+});

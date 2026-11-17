@@ -8,7 +8,7 @@ import ConfirmDelete from "./ConfirmDelete.vue";
 import HostWait from "./HostWait.vue";
 import { needsFreshLogin } from "./auth/home-logic";
 import { createNebulaClient } from "@lumenize/resources/frontend";
-import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, toolCallMarks, postAnswered, messageByline, startTurn, signalTurn, signalOtherTurn, settleTurn, evaluateTurn, deriveTurnDisplay, streamSteps, formatElapsed, decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS, TabRunner, ME_TAB } from "@lumenize/nebula/client";
+import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, toolCallMarks, postAnswered, messageByline, startTurn, signalTurn, signalOtherTurn, settleTurn, evaluateTurn, deriveTurnDisplay, previewLocked, streamSteps, formatElapsed, decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS, TabRunner, ME_TAB } from "@lumenize/nebula/client";
 import type { StoredMessage } from "@lumenize/nebula/client";
 import type { FactoryResult } from "@lumenize/resources/frontend";
 import type { TurnLiveness, PreviewFrameState, PreviewFrameEvent, PreviewFrameAction, CastEntry, TabMessage } from "@lumenize/nebula/client";
@@ -277,6 +277,8 @@ const appLabel = computed(() => {
   const [account = "", app = ""] = (activeScope ?? "").split(".");
   return { account, app };
 });
+/** A turn is running, mine or another's, so the preview is locked. A failed turn unlocks it. */
+const agentWorking = computed(() => previewLocked(turnDisplay.value));
 const streamSeenAt = ref<{ id: string; at: number } | null>(null);
 watch(() => streaming.value?.id, (id) => {
   streamSeenAt.value = id ? { id, at: Date.now() } : null;
@@ -561,8 +563,15 @@ const tabRunner = new TabRunner({
 /** Run `code` in `tab`, reading the cast first so a persona a turn has just named has its tab. */
 async function runInTab(tab: string, code: string) {
   if (tab !== ME && !cast.value.some((c) => c.slug === tab)) await readCast();
-  return tabRunner.run(tab, code);
+  runningIn.value = { ...runningIn.value, [tab]: (runningIn.value[tab] ?? 0) + 1 };
+  try {
+    return await tabRunner.run(tab, code);
+  } finally {
+    runningIn.value = { ...runningIn.value, [tab]: runningIn.value[tab]! - 1 };
+  }
 }
+/** How many of the agent's runs are in flight in each tab, for the mark on the tab. */
+const runningIn = ref<Record<string, number>>({});
 
 /** The Reload button: the frame in view reloads whatever build it runs, since the person asked. */
 function onReloadButton() {
@@ -1057,16 +1066,21 @@ const confirmingAccount = ref(false);
     </section>
 
     <!-- Stage: account bar + the Universe page / preview -->
-    <section class="flex-1 bg-base-100 flex flex-col min-w-0">
-      <div v-if="connected" class="relative flex items-center justify-end gap-2 px-3 py-2 border-b border-base-300">
-        <span v-if="busy" class="mr-auto flex items-center gap-1.5 text-xs opacity-70">
+    <section class="relative flex-1 bg-base-100 flex flex-col min-w-0">
+      <!-- The account control. Beside a preview it sits at the right end of the window's tab row,
+           which leaves room for it, so the stage spends no row of its own on one button. -->
+      <div v-if="connected" data-testid="account-bar"
+        :class="stageMode === 'preview'
+          ? 'absolute right-5 top-4 z-20 flex items-center'
+          : 'relative flex items-center justify-end gap-2 px-3 py-2 border-b border-base-300'">
+        <span v-if="busy && stageMode !== 'preview'" class="mr-auto flex items-center gap-1.5 text-xs opacity-70">
           <Loader2 class="size-3.5 animate-spin" /> Working…
         </span>
         <button class="btn btn-sm btn-ghost gap-2" title="Account" @click="menuOpen = !menuOpen">
           <img v-if="myProfile?.picture" :src="myProfile.picture" :alt="myProfile?.name ?? ''" :title="myProfile?.name" class="size-7 rounded-full object-cover" data-testid="account-picture" />
           <span v-else class="inline-flex items-center justify-center size-7 rounded-full bg-primary text-primary-content"><User class="size-4" /></span>
         </button>
-        <div v-if="menuOpen" class="absolute right-2 top-12 z-20 w-60 p-1 rounded-box border border-base-300 bg-base-200 shadow-lg flex flex-col">
+        <div v-if="menuOpen" class="absolute right-0 top-10 z-20 w-60 p-1 rounded-box border border-base-300 bg-base-200 shadow-lg flex flex-col">
           <button class="btn btn-sm btn-ghost justify-start" @click="goHome"><Home class="size-4" /> Home</button>
           <button class="btn btn-sm btn-ghost justify-start" data-testid="menu-profile" @click="openProfile"><UserRound class="size-4" /> Profile</button>
           <button v-if="isWorkspace(activeScope)" class="btn btn-sm btn-ghost justify-start" data-testid="menu-app"
@@ -1126,12 +1140,15 @@ const confirmingAccount = ref(false);
              outside it as Studio: tabs, then a bar with Reload and the address of the tab in view. -->
         <div v-else class="w-full h-full p-3 bg-base-200">
           <div class="w-full h-full flex flex-col overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-md" data-testid="preview-window">
-            <div class="flex items-end gap-1 px-2 pt-2 bg-base-300" data-testid="preview-tabs">
+            <div class="flex items-end gap-1 pl-2 pr-14 pt-2 bg-base-300" data-testid="preview-tabs">
               <div role="tablist" class="tabs tabs-lift tabs-sm">
-                <button role="tab" class="tab" :class="{ 'tab-active': inView === ME }" data-testid="tab-me" @click="selectTab(ME)">Me</button>
+                <button role="tab" class="tab gap-1" :class="{ 'tab-active': inView === ME }" data-testid="tab-me" @click="selectTab(ME)">
+                  <span v-if="runningIn[ME]" class="inline-block size-2 animate-pulse rounded-full bg-primary" data-testid="tab-running" aria-label="Lumenize is running code here"></span>Me
+                </button>
                 <!-- A persona's tab holds its own close control, as a browser's does. -->
                 <div v-for="c in openPersonas" :key="c.slug" role="tab" class="tab gap-1" :class="{ 'tab-active': inView === c.slug }"
                   :title="c.name || c.slug" @click="selectTab(c.slug)">
+                  <span v-if="runningIn[c.slug]" class="inline-block size-2 animate-pulse rounded-full bg-primary" data-testid="tab-running" aria-label="Lumenize is running code here"></span>
                   <button :data-testid="`tab-${c.slug}`" @click.stop="selectTab(c.slug)">{{ c.slug }}</button>
                   <button class="btn btn-ghost btn-xs btn-circle" :data-testid="`close-${c.slug}`" :title="`Close ${c.slug}'s tab`"
                     @click.stop="closeTab(c.slug)"><X class="size-3" /></button>
@@ -1153,10 +1170,22 @@ const confirmingAccount = ref(false);
               <button class="btn btn-ghost btn-sm btn-square" title="Copy the link to this page" data-testid="persona-copy"
                 @click="copyPersonaLink(inView)"><Check v-if="copiedFor === inView" class="size-4" /><Copy v-else class="size-4" /></button>
             </div>
+            <!-- While a turn runs the agent is writing this app's data, often from these same tabs,
+                 so the window says so and takes no clicks. The tabs still switch, to watch. -->
+            <div v-if="agentWorking" data-testid="preview-working">
+              <progress class="progress progress-primary block h-1 w-full rounded-none"></progress>
+              <p class="flex items-center gap-2 px-3 py-1 text-xs bg-base-200 border-b border-base-300">
+                <span class="loading loading-dots loading-xs" aria-hidden="true"></span>
+                Lumenize is still working, so what you see here may change. The preview is locked until it finishes.
+              </p>
+            </div>
             <p v-if="frameNotices[inView]" class="alert alert-info text-sm rounded-none" data-testid="preview-notice">{{ frameNotices[inView] }}</p>
-            <iframe v-for="(frame, tab) in loadedFrames" v-show="tab === inView" :key="`${tab}:${frame.key}`"
-              :ref="(el) => setFrameEl(String(tab), el)" :src="frame.url" class="w-full flex-1 border-0"
-              :title="tab === ME ? 'Preview' : `Preview as ${tab}`" @load="onFrameLoad(String(tab))" />
+            <div class="relative flex-1 min-h-0 flex flex-col">
+              <iframe v-for="(frame, tab) in loadedFrames" v-show="tab === inView" :key="`${tab}:${frame.key}`"
+                :ref="(el) => setFrameEl(String(tab), el)" :src="frame.url" class="w-full flex-1 border-0"
+                :title="tab === ME ? 'Preview' : `Preview as ${tab}`" @load="onFrameLoad(String(tab))" />
+              <div v-if="agentWorking" class="absolute inset-0 z-10 cursor-progress bg-base-100/50" data-testid="preview-lock"></div>
+            </div>
           </div>
         </div>
       </div>
