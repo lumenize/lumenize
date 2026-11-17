@@ -115,7 +115,7 @@ function recordingStore(heard: (title: string) => void): NebulaStoreAdapter {
   return {
     readResource: () => ({ value: undefined }),
     applyServer: ignore, applyCommit: ignore, rollbackTo: ignore, applyDenied: ignore,
-    applyResolvedValue: ignore, applyOptimistic: ignore, flash: ignore,
+    applyResolvedValue: ignore, applyOptimistic: ignore, flash: ignore, detach: (value) => value,
     applyFanout: (_rt, _rid, snapshot) => heard((snapshot.value as { title: string }).title),
   };
 }

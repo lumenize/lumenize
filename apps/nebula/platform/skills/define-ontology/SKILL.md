@@ -22,6 +22,7 @@ Read `.platform/docs/ontology.md` — in particular *References between types*: 
 ## Procedure
 
 1. **Name the things.** From the request, list the kinds of thing the app stores — a `Wishlist`, a `WishlistItem`, a `Group`. One interface per kind. Prefer the user-developer's own words for the names.
+   - **Who may see or change a thing is not one of the things.** A request that says share, invite, read-only, owner, member, role or permission is describing access, and access lives in the workspace's org tree, which the platform enforces. A `Share` type, or an `owner` or `members` field, enforces nothing: a person holding the link still reads what the record says they may not. Model only what is shared, a `ShoppingList` and its items, and read `.platform/skills/define-the-cast/SKILL.md` before any view: it decides the nodes and the grants.
 2. **Decide what each one holds.** For each kind, what does a `WishlistItem` need — a name, a link, a price, who claimed it? Take what the request answered; where the prompt's hints leave a real choice open, ask, one question at a time. Stop when the shape is enough for the request at hand; the ontology grows later.
 3. **Decide each relationship.** For every field that points at another kind, state it as a reference (`list: Wishlist` — an id on the wire) and say which side owns the list of ids (a container holding `items: string[]` is how a list renders). Ask only when two shapes are both plausible.
 4. **Propose the shape.** With `@title` on each interface and `?` on every field that may be absent. When the prompt carried no hints, write it and state the interfaces in your reply so a correction is one sentence away. When it carried hints, or the user-developer prefers to be asked, show the interfaces in prose and wait — their yes is the write's trigger.
@@ -33,3 +34,4 @@ Read `.platform/docs/ontology.md` — in particular *References between types*: 
 - Do not invent fields the request did not ask for "in case". A missing field is one more turn; a wrong one is data to migrate.
 - Do not use `T | null` where `field?: T` says the same thing.
 - Do not embed one resource's value inside another. If you want to, it is a reference.
+- Do not put access in the ontology: no `Share`, `Membership` or `Permission` type, and no `owner`, `members` or `sharedWith` field. The org tree holds who may do what.

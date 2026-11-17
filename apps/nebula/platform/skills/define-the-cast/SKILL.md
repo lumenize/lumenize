@@ -1,6 +1,6 @@
 ---
 name: define-the-cast
-description: Elicit the app's personas and decide each relationship's sharing shape, write docs/personas.md and docs/permissions.md, then build the cast and its sample data from the preview's tabs with run_in_tab. Use when a request names more than one kind of user, when who may see or change something is unclear, when the cast or its data needs building again, or when asked to wipe, reset or clear the test data, which ends with the cast built again.
+description: Elicit the app's personas and decide each relationship's sharing shape, write docs/personas.md and docs/permissions.md, then build the cast and its sample data from the preview's tabs with run_in_tab. Use when a request names more than one kind of user, when people share, invite or hold read-only or write access to each other's data, when who may see or change something is unclear, when the cast or its data needs building again, or when asked to wipe, reset or clear the test data, which ends with the cast built again.
 ---
 
 # Define the cast, decide how they share, and build them
@@ -37,14 +37,15 @@ The preview has a tab for the person you are working for, `me`, and a tab for ea
    const ROOT = '00000000-0000-4000-8000-000000000000'; // every workspace's root node
    const lists = crypto.randomUUID();
    await client.orgTree.createNode(lists, ROOT, 'lists', 'Lists');
-   const ack = await client.resources.invite(lists, [
-     { email: await client.personaAddress('ollie'), tier: 'admin' },
-     { email: await client.personaAddress('pat'), tier: 'write' },
-   ]);
-   return { lists, ack };
+   const pats = crypto.randomUUID();
+   await client.orgTree.createNode(pats, lists, 'pat', "Pat's lists");
+   // One invite for each node, naming only the people that node is for.
+   const all = await client.resources.invite(lists, [{ email: await client.personaAddress('ollie'), tier: 'admin' }]);
+   const own = await client.resources.invite(pats, [{ email: await client.personaAddress('pat'), tier: 'admin' }]);
+   return { lists, pats, all, own };
    ```
 
-   An invite makes the persona a member of the workspace and grants the tier on that node. Inviting a persona who is already a member onto another node adds that grant. To find a node made in an earlier run, read the tree: `[...store.lmz.orgTree.value.nodes].find(([, node]) => node.slug === 'lists')[0]`.
+   A grant reaches everything beneath its node. So a persona invited onto a node that holds other people's nodes can do the same to all of theirs: where each person has a space of their own, invite each onto their own node, never onto the parent they share. An invite makes the persona a member of the workspace and grants the tier on that node. Inviting a persona who is already a member onto another node adds that grant. To find a node made in an earlier run, read the tree: `[...store.lmz.orgTree.value.nodes].find(([, node]) => node.slug === 'lists')[0]`.
    - **A persona who administers the whole workspace**, as the app's owner does, is invited into the workspace itself with the admin bit: `await client.invite(client.claims.aud, [{ email: await client.personaAddress('manny'), scopeAdmin: true }])`.
 2. **From each persona's own tab, set their name.** `await client.patchMyProfile({ name: 'Ollie Organizer' }); return client.claims.sub;`, run with tab `ollie`. The patch changes only the field it names, so the nickname the invite gave them, their slug, stays. If the run says the persona is not a member yet, run it again.
 3. **Make each record from the tab of the persona who would have made it.** The record then names that persona, so what the others see of it is what the app's real users would see. A node is named by its id, never its slug, so find it in the tree first, and return the transaction's outcome:
@@ -59,6 +60,8 @@ The preview has a tab for the person you are working for, `me`, and a tab for ea
    ```
 
    - **Keep each run small, and return what it made.** A run is not one transaction: when its fifth line fails, the first four have already happened. So make the nodes in one run, the records in the next and the shares in a third, and return the ids each made so the next run names them.
+   - **Never retype an id.** A UUID copied by hand from an earlier result goes wrong by one character. Find the node or record again in the run that needs it, by slug or by a field's value, as the example above does.
+   - **Several runs go in one step.** Setting each persona's name is one `run_in_tab` call per tab, and they can all be asked for together.
    - **After a run fails, look before running it again.** Return what the tab holds, `Object.keys(store.resources.Wish ?? {})` and the tree's slugs, and make only what is missing. A stray record is removed with `{ op: 'delete', typeName }` at its id. Wipe only when asked to: a wipe drops every grant too, and the whole cast has to be built again.
 
 4. **Look through another persona's tab.** Read what `ollie` sees and compare it with the decisions in `docs/permissions.md`. A persona who sees what they should not, or cannot see what they should, is a grant to fix:

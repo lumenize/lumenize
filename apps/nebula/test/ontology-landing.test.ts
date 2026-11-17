@@ -9,7 +9,7 @@
  * drives the landing through a real build and a real Star.
  */
 import { describe, it, expect } from 'vitest';
-import { completedTurnFallback, decideLanding, heldBackLine, isDevStarCall } from '../src/galaxy';
+import { completedTurnFallback, decideLanding, heldBackLine, isDevStarCall, stepLimitFallback, unbuiltWrites } from '../src/galaxy';
 import { SKIPPED_FOR_ONTOLOGY } from '../src/build-report';
 import type { BuildReport } from '../src/build-report';
 
@@ -123,6 +123,29 @@ describe('completedTurnFallback', () => {
     { name: 'nothing written and nothing built', applied: 0, r: undefined, text: 'Done — no changes.' },
   ])('$name', ({ applied, r, text }) => {
     expect(completedTurnFallback(applied, r)).toBe(text);
+  });
+});
+
+describe('stepLimitFallback', () => {
+  // What a turn stopped at the step limit says when the model wrote nothing. Pure, so it needs no
+  // running system. Mutations: drop the unbuilt arm and its row claims the preview is current.
+  const landed = report({ preview: { refreshed: true, why: 'clean build, landed' } });
+  it.each([
+    { name: 'nothing written', applied: 0, r: undefined, unbuilt: false, state: 'I changed no files.' },
+    { name: 'files written and never built', applied: 2, r: undefined, unbuilt: true, state: 'My changes are saved and not yet built, so the preview is unchanged.' },
+    { name: 'a write after the last build', applied: 3, r: landed, unbuilt: true, state: 'My last changes are saved and not yet built, so the preview shows the build before them.' },
+    { name: 'a landed build with nothing after it', applied: 3, r: landed, unbuilt: false, state: 'The preview shows my last build.' },
+    { name: 'a held-back build, whose own line says why', applied: 1, r: report({ preview: { refreshed: false, why: HELD_FOR_FINDINGS } }), unbuilt: false, state: 'My changes are saved.' },
+  ])('$name', ({ applied, r, unbuilt, state }) => {
+    expect(stepLimitFallback(applied, r, unbuilt)).toBe(`I reached my step limit before I could sum up. ${state} Ask me to continue and I will pick up from here.`);
+  });
+
+  it('a write counts as unbuilt only when it follows the last build and did not fail', () => {
+    expect(unbuiltWrites([{ name: 'write_file' }, { name: 'build' }])).toBe(false);
+    expect(unbuiltWrites([{ name: 'build' }, { name: 'edit_file' }])).toBe(true);
+    expect(unbuiltWrites([{ name: 'build' }, { name: 'write_file', error: 'malformed' }])).toBe(false);
+    expect(unbuiltWrites([{ name: 'write_file' }])).toBe(true);
+    expect(unbuiltWrites([])).toBe(false);
   });
 });
 

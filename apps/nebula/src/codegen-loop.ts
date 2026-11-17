@@ -554,9 +554,13 @@ export const DEFAULT_LOOP_CONFIG: CodegenLoopConfig = {
   // and eight ended real turns at the cap with one build behind them (`first-app-built`'s
   // manifest line: `max-depth`, eight rounds, one build). The cap is the runaway stop, not
   // a budget; the generation deadline is the wall-clock bound.
-  maxToolDepth: 32,
-  generateParams: { temperature: 0.7, max_tokens: 4096 },
-  fixParams: { temperature: 0.2, max_tokens: 4096 },
+  // 48, raised on 2026-11-16: a first turn that defines the ontology, builds a cast of three and
+  // checks what each persona sees used all 32 in 7.3 minutes, with its last build clean.
+  maxToolDepth: 48,
+  // 8192, raised from 4096 on 2026-11-16: a 15 KB `App.vue` is about 4,000 tokens, so a whole-file
+  // write was cut off mid-string and arrived as malformed arguments, twice in one traced turn.
+  generateParams: { temperature: 0.7, max_tokens: 8192 },
+  fixParams: { temperature: 0.2, max_tokens: 8192 },
 };
 
 // ─── Prompt assembly ─────────────────────────────────────────────────────
@@ -885,7 +889,8 @@ export async function runCodegenLoop(
     for (const tc of turn.toolCalls) {
       if (tc.args === undefined) {
         // m2a: malformed arguments JSON — the call survives as a captured error.
-        fail(tc, `malformed tool arguments: ${tc.argsParseError ?? 'not JSON'}`, tc.rawArgs);
+        // A reply that reaches its length limit ends mid-string, which is what this most often is.
+        fail(tc, `malformed tool arguments: ${tc.argsParseError ?? 'not JSON'}. If they were cut off, your reply reached its length limit: write a smaller file, moving part of it into \`src/components/*.vue\`, and add the rest with edit_file.`, tc.rawArgs);
         continue;
       }
       if (!(tc.name in TOOL_ARG_TYPE)) {

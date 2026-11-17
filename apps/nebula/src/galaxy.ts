@@ -232,6 +232,32 @@ export function completedTurnFallback(appliedPaths: number, lastBuild: BuildRepo
 }
 
 /**
+ * What a turn says when it reached the loop's step limit with no words of its own. It says where
+ * the work stands, since "see the thought process" leaves the person to work that out, and that
+ * asking again continues it. `unbuiltWrites` is whether a file was written after the last build.
+ */
+export function stepLimitFallback(appliedPaths: number, lastBuild: BuildReport | undefined, unbuiltWrites: boolean): string {
+  const state = appliedPaths === 0 ? 'I changed no files.'
+    : lastBuild === undefined ? 'My changes are saved and not yet built, so the preview is unchanged.'
+    : unbuiltWrites ? 'My last changes are saved and not yet built, so the preview shows the build before them.'
+    : lastBuild.preview.refreshed ? 'The preview shows my last build.'
+    : 'My changes are saved.';
+  return `I reached my step limit before I could sum up. ${state} Ask me to continue and I will pick up from here.`;
+}
+
+/** Whether a file was written after the turn's last build, so the preview lacks it. */
+export function unbuiltWrites(toolCalls: ReadonlyArray<{ name: string; error?: string }>): boolean {
+  let lastWrite = -1;
+  let lastBuild = -1;
+  toolCalls.forEach((tc, i) => {
+    if (tc.error !== undefined) return;
+    if (tc.name === 'write_file' || tc.name === 'edit_file') lastWrite = i;
+    if (tc.name === 'build') lastBuild = i;
+  });
+  return lastWrite > lastBuild;
+}
+
+/**
  * Whether the node that called is `galaxy`'s own `.dev` Star, read from the LAST hop of the call's
  * chain: the framework appends each hop, and a Client's chain is stamped by its Gateway from the
  * verified socket, so no caller writes it. The binding and the whole name must match, so
@@ -2001,7 +2027,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
             ? POST_MOVED_LINE
           : result.stop === 'error'
             ? `I couldn't finish — ${result.detail}. Try again in a moment.`
-            : "I couldn't finish cleanly — see the thought process.";
+            : result.stop === 'max-depth'
+              ? stepLimitFallback(result.appliedPaths.length, result.lastBuild, unbuiltWrites(result.toolCalls))
+              : "I couldn't finish cleanly — see the thought process.";
     const reply = [text || fallback, heldBack].filter(Boolean).join('\n\n');
 
     // The tool-calling loop carries the generated code in `write_file` *args*, not the

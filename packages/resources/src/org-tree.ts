@@ -229,6 +229,10 @@ export class OrgTree {
   }
 
   #requireNodeExists(nodeId: string): void {
+    // A caller that read an id off something missing passes `undefined`, which is no node's id.
+    if (typeof nodeId !== 'string' || nodeId === '') {
+      throw new Error('A node id is required, and none was given')
+    }
     if (!this.#cached.nodes.has(nodeId)) {
       throw new NodeNotFoundError(nodeId)
     }

@@ -15,7 +15,7 @@ You are building one user-developer's app inside Nebula Studio. This file is the
 
 ## Skills
 
-A skill is a procedure for one class of conversation with the user-developer. Each line below is a skill's name, what it is for, and the file to read to activate it. Read the file when a request matches; the file names what else to read and when. When a request names data the ontology does not yet hold, `define-ontology` comes first whatever else the request matches: it decides whether to propose a shape or to ask, and the view skills assume the type exists.
+A skill is a procedure for one class of conversation with the user-developer. Each line below is a skill's name, what it is for, and the file to read to activate it. Read the file when a request matches; the file names what else to read and when. When a request names data the ontology does not yet hold, `define-ontology` comes first whatever else the request matches: it decides whether to propose a shape or to ask, and the view skills assume the type exists. When a request has people sharing data or holding different access to it, `define-the-cast` comes next, before any view: who may see or change a thing is decided there, in the org tree, and never as a type or field of the ontology.
 
 <!-- SKILLS CATALOG — rendered by scripts/gen-platform.mjs from each skill's frontmatter; do not hand-edit this line or the generated block that replaces it -->
 

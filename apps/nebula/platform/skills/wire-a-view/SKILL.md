@@ -26,4 +26,5 @@ Read `.platform/docs/coding-your-ui.md`: *Reading and writing through the store*
 - Do not put optional chaining inside a `v-model` expression; guard with `v-if` instead.
 - Do not generate ids on the server side or ask for them; the client mints every id.
 - Do not record who a resource is shared with in its value, as a `members` or `sharedWith` field. The org tree's grants are the only record: share with `client.resources.invite` or `client.orgTree.setPermission` on the resource's node, and show the roster from `store.lmz.orgTree.value.permissions.get(nodeId)`.
+- Do not cast a value read from the store to its ontology interface where it has a reference field. The interface says `list: ShoppingList`; the stored value holds the list's id, a string. Read the field as the id it is, `const listId: string = item.list`, and compare ids with ids.
 - Do not store a node's id in a resource's value. `store.resources.<type>[<id>].meta.nodeId` names the node a resource is attached to, on a resource the page has just created too.

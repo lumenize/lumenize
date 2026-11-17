@@ -118,6 +118,7 @@ import * as hostRule from './scenarios/host-rule';
 import * as personaHost from './scenarios/persona-host';
 import * as personaTabs from './scenarios/persona-tabs';
 import * as castFromATab from './scenarios/cast-from-a-tab';
+import * as sharedListsTurn from './scenarios/shared-lists-turn';
 import * as certificateWake from './scenarios/certificate-wake';
 import * as deletedOnCloudflare from './scenarios/deleted-on-cloudflare';
 import * as eachTransactionGetsOneMoment from './scenarios/each-transaction-gets-one-moment';
@@ -253,6 +254,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'persona-host': personaHost, // a persona is invited by mail, accepted by the Worker's handler, and opened by an admin through the impersonation mint (no Docker)
   'persona-tabs': personaTabs, // Studio's tabs from docs/personas.md; the me tab builds the cast, and each persona's tab is that member's own page
   'cast-from-a-tab': castFromATab, // the real model builds a cast and a persona's data with run_in_tab, in the asker's Studio and nobody else's
+  'shared-lists-turn': sharedListsTurn, // the real model is asked for lists a user shares; what it builds is reported, never gated
   'certificate-wake': certificateWake, // a create or acceptance wakes its galaxy's certificate order by name; nothing else does (no Docker)
   'deleted-on-cloudflare': deletedOnCloudflare, // a deletion leaves no pack and no stored data, read from Cloudflare's API; deployed only (no Docker)
 };
