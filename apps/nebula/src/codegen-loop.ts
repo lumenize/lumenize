@@ -556,7 +556,9 @@ export const DEFAULT_LOOP_CONFIG: CodegenLoopConfig = {
   // a budget; the generation deadline is the wall-clock bound.
   // 48, raised on 2026-11-16: a first turn that defines the ontology, builds a cast of three and
   // checks what each persona sees used all 32 in 7.3 minutes, with its last build clean.
-  maxToolDepth: 48,
+  // 64, raised the next day: a later run of the same request finished cleanly in 45 rounds,
+  // too near 48 for a cap that is only the runaway stop.
+  maxToolDepth: 64,
   // 8192, raised from 4096 on 2026-11-16: a 15 KB `App.vue` is about 4,000 tokens, so a whole-file
   // write was cut off mid-string and arrived as malformed arguments, twice in one traced turn.
   generateParams: { temperature: 0.7, max_tokens: 8192 },

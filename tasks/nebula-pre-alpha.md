@@ -60,9 +60,13 @@
 **What is missing:**
 
 - **A turn that dies at the generation deadline is never captured.** A handled failure does commit a reply, but the deadline's `Promise.race` abandons the turn body, so nothing lands and "how often does a turn hang?" has no stored answer. `commitAgentMessage` hardcodes `status: 'complete'` at its one write site, which is where a terminal record would go.
+- **A read of every app's turns for a day.** Nothing reads a Galaxy's turns from outside it. `apps/nebula/harness/prod.ts` signs in to production and lists the Universes, and stops there. The turn traced on 2026-11-16 ([fast-follow](nebula-pre-alpha-fast-follow.md) § *A hand-driven turn, traced from its record*) was read from the local Galaxy's SQLite file, which a deployed Galaxy does not offer. The nightly loop needs each turn's `Message` with its `codegen`, for every app, since a given time. Whose claims that read runs under is the question its task file opens with, since it crosses every tenant.
+- **A notice to Larry when a turn ends badly.** The Galaxy knows as the turn ends: it stopped on `max-depth`, `loop-detected`, `build-unavailable` or `error`, or its last build had findings. One error-level line there, naming the Galaxy and the stop, raises a Workers Issue, so no sink of ours is built. Whether an Issue can then reach him as an email or a push is still to check. With four or five testers, hearing of a stuck turn within the hour is most of what stepping in live would buy.
 - **The UI events** above.
 - **`report_finding`**, below.
 - **The preview's error channel**, below.
+
+⚠️ Design consideration: after a turn ends badly, the Galaxy could run the next one on a stronger model, through the AI Gateway. It is the same agent on another model, and no second participant. That is routing and not capture, so it is not owed here; the notice above is what tells us how often it would have helped.
 
 ### `report_finding`: the model as a reporter
 
