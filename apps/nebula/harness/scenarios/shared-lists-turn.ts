@@ -48,6 +48,9 @@ const COMPOSER = 'Describe a change…';
 /** Larry's words, spelling included: the model reads what a person types. */
 const REQUEST = 'I want to build a shopping list app. I want users to have multiple shopping lists and I want them to be able to share them with other users. Those shares can either be with write privledges or with read-only ones.';
 
+/** What O says when the first turn asks before building: the plainest reading of the request. */
+const ANSWER = "The owner manages the list and who it is shared with. Someone with write access can add, change and check off items, and nothing else. Someone with read-only access can only look. A list shared with me shows under a 'Shared with me' heading. Use your judgment on anything else, and build it.";
+
 type ToolCall = { name: string; args?: Record<string, unknown>; result?: any; error?: string };
 type Value = { content?: string; replyTo?: string; thought?: string; codegen?: { rounds?: number; stop?: string; toolCalls?: ToolCall[]; build?: { findings?: unknown } } };
 
@@ -123,21 +126,34 @@ export async function run(stack: DevStack): Promise<void> {
 
     // ── The turn ──
     const started = Date.now();
-    const composer = o.page.getByPlaceholder(COMPOSER);
-    await composer.fill(REQUEST);
-    await composer.press('Enter');
-    let reply: Value | undefined;
-    const landed = await until(TURN_TIMEOUT_MS, async () => {
-      const all: Array<{ id: string; snap: Snapshot }> = [];
-      for (const id of thread.resourceIds) {
-        const snap = await watcher.client.resources.read('Message', id) as Snapshot | null;
-        if (snap) all.push({ id, snap });
-      }
-      const post = all.find(({ snap }) => snap.meta.recordedClaims.sub === oToken.sub && (snap.value as Value).content === REQUEST);
-      reply = post && all.find(({ snap }) => snap.meta.recordedClaims.sub === NEBULA_SUB && (snap.value as Value).replyTo === post.id)?.snap.value as Value | undefined;
-      return reply !== undefined;
-    });
-    assert.ok(landed && reply, `the agent never answered inside ${TURN_TIMEOUT_MS / 60_000} minutes`);
+    const ask = async (text: string): Promise<Value> => {
+      const composer = o.page.getByPlaceholder(COMPOSER);
+      await composer.fill(text);
+      await composer.press('Enter');
+      let answer: Value | undefined;
+      const landed = await until(TURN_TIMEOUT_MS, async () => {
+        const all: Array<{ id: string; snap: Snapshot }> = [];
+        for (const id of thread.resourceIds) {
+          const snap = await watcher.client.resources.read('Message', id) as Snapshot | null;
+          if (snap) all.push({ id, snap });
+        }
+        const post = all.find(({ snap }) => snap.meta.recordedClaims.sub === oToken.sub && (snap.value as Value).content === text);
+        answer = post && all.find(({ snap }) => snap.meta.recordedClaims.sub === NEBULA_SUB && (snap.value as Value).replyTo === post.id)?.snap.value as Value | undefined;
+        return answer !== undefined;
+      });
+      assert.ok(landed && answer, `the agent never answered "${text.slice(0, 40)}…" inside ${TURN_TIMEOUT_MS / 60_000} minutes`);
+      return answer;
+    };
+    const wrote = (v: Value) => (v.codegen?.toolCalls ?? []).some((tc) => tc.name === 'write_file' || tc.name === 'edit_file');
+    let reply = await ask(REQUEST);
+    // Asking first is the `define-ontology` skill's own judgment. The answer is what Larry would
+    // say, and the turn that builds is the one the findings read.
+    let asked: string | undefined;
+    if (!wrote(reply)) {
+      asked = reply.content ?? '';
+      console.error(`\n[shared-lists-turn] the first turn wrote nothing and asked: ${asked.slice(0, 900)}`);
+      reply = await ask(ANSWER);
+    }
     const minutes = ((Date.now() - started) / 60_000).toFixed(1);
 
     // ── What it built, read from the source and from O's own page ──
@@ -177,7 +193,7 @@ export async function run(stack: DevStack): Promise<void> {
       ['(h)', calls.some((tc) => tc.name === 'read_file' && /define-the-cast/.test(String(tc.args?.path))), 'the turn read the define-the-cast skill'],
       ['(f)', 'see tree', JSON.stringify(tree ?? 'the page did not answer').slice(0, 1200)],
     ];
-    console.error(`\n[shared-lists-turn] the turn took ${minutes} min and said: ${(reply.content ?? '').slice(0, 400)}`);
+    console.error(`\n[shared-lists-turn] ${asked === undefined ? 'the turn' : 'the two turns, the first of which asked,'} took ${minutes} min and said: ${(reply.content ?? '').slice(0, 400)}`);
     for (const [limb, pass, note] of findings) console.error(`  ${limb} ${pass === true ? 'pass' : pass === false ? 'FAIL' : pass} · ${note}`);
     for (const tc of calls) {
       if (tc.name === 'run_in_tab') {
