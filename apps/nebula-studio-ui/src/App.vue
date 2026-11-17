@@ -487,6 +487,11 @@ async function copyPersonaLink(slug: string) {
 /** The dev Star's own host, `Me`'s, or a persona's host in that Star. */
 const tabUrl = (tab: string) => tab === ME ? scopeUrl(previewStar(activeScope!)) : personaUrl(previewStar(activeScope!), tab);
 const tabOrigin = (tab: string) => new URL(tabUrl(tab)).origin;
+/** The address bar's text for the tab in view: its host and path, as a browser shows them. */
+const tabAddress = computed(() => {
+  const u = new URL(tabUrl(inView.value));
+  return `${u.host}${u.pathname}`;
+});
 
 // ── The frames ────────────────────────────────────────────────────────────────────────────────
 // Studio asks a frame to reload, naming the build, and the frame decides, so the frame keeps its
@@ -1057,15 +1062,6 @@ const confirmingAccount = ref(false);
         <span v-if="busy" class="mr-auto flex items-center gap-1.5 text-xs opacity-70">
           <Loader2 class="size-3.5 animate-spin" /> Working…
         </span>
-        <button
-          v-if="isWorkspace(activeScope)"
-          class="btn btn-sm btn-ghost btn-square"
-          :disabled="busy"
-          title="Reload preview"
-          @click="onReloadButton"
-        >
-          <RotateCw class="size-4" />
-        </button>
         <button class="btn btn-sm btn-ghost gap-2" title="Account" @click="menuOpen = !menuOpen">
           <img v-if="myProfile?.picture" :src="myProfile.picture" :alt="myProfile?.name ?? ''" :title="myProfile?.name" class="size-7 rounded-full object-cover" data-testid="account-picture" />
           <span v-else class="inline-flex items-center justify-center size-7 rounded-full bg-primary text-primary-content"><User class="size-4" /></span>
@@ -1126,31 +1122,42 @@ const confirmingAccount = ref(false);
 
         <!-- Live preview: a tab for Me, on the dev Star's own host, and one for each persona of the
              cast, on its own host. A tab's frame loads when the tab first comes into view. -->
-        <div v-else class="w-full h-full flex flex-col">
-          <div class="flex items-center gap-1 px-2 border-b border-base-300" data-testid="preview-tabs">
-            <div role="tablist" class="tabs tabs-border tabs-sm">
-              <button role="tab" class="tab" :class="{ 'tab-active': inView === ME }" data-testid="tab-me" @click="selectTab(ME)">Me</button>
-              <template v-for="c in openPersonas" :key="c.slug">
-                <button role="tab" class="tab" :class="{ 'tab-active': inView === c.slug }" :data-testid="`tab-${c.slug}`"
-                  :title="c.name || c.slug" @click="selectTab(c.slug)">{{ c.slug }}</button>
-                <button class="btn btn-ghost btn-xs btn-square" :data-testid="`close-${c.slug}`" :title="`Close ${c.slug}'s tab`"
-                  @click="closeTab(c.slug)"><X class="size-3" /></button>
-              </template>
+        <!-- Drawn as a browser window, so everything inside it reads as the app and everything
+             outside it as Studio: tabs, then a bar with Reload and the address of the tab in view. -->
+        <div v-else class="w-full h-full p-3 bg-base-200">
+          <div class="w-full h-full flex flex-col overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-md" data-testid="preview-window">
+            <div class="flex items-end gap-1 px-2 pt-2 bg-base-300" data-testid="preview-tabs">
+              <div role="tablist" class="tabs tabs-lift tabs-sm">
+                <button role="tab" class="tab" :class="{ 'tab-active': inView === ME }" data-testid="tab-me" @click="selectTab(ME)">Me</button>
+                <!-- A persona's tab holds its own close control, as a browser's does. -->
+                <div v-for="c in openPersonas" :key="c.slug" role="tab" class="tab gap-1" :class="{ 'tab-active': inView === c.slug }"
+                  :title="c.name || c.slug" @click="selectTab(c.slug)">
+                  <button :data-testid="`tab-${c.slug}`" @click.stop="selectTab(c.slug)">{{ c.slug }}</button>
+                  <button class="btn btn-ghost btn-xs btn-circle" :data-testid="`close-${c.slug}`" :title="`Close ${c.slug}'s tab`"
+                    @click.stop="closeTab(c.slug)"><X class="size-3" /></button>
+                </div>
+              </div>
+              <button v-for="c in closedPersonas" :key="c.slug" class="btn btn-ghost btn-xs gap-1 mb-1 opacity-70" :data-testid="`open-${c.slug}`"
+                :title="`Open ${c.slug}'s tab`" @click="reopenTab(c.slug)"><Plus class="size-3" />{{ c.slug }}</button>
             </div>
-            <button v-for="c in closedPersonas" :key="c.slug" class="btn btn-ghost btn-xs gap-1 opacity-70" :data-testid="`open-${c.slug}`"
-              :title="`Open ${c.slug}'s tab`" @click="reopenTab(c.slug)"><Plus class="size-3" />{{ c.slug }}</button>
-            <span class="flex-1"></span>
-            <template v-if="inView !== ME">
-              <a class="btn btn-ghost btn-xs btn-square" :href="tabUrl(inView)" target="_blank" rel="noopener"
-                :title="`Open ${inView}'s page in a new tab`" data-testid="persona-open"><ExternalLink class="size-3" /></a>
-              <button class="btn btn-ghost btn-xs btn-square" :title="`Copy the link to ${inView}'s page`" data-testid="persona-copy"
-                @click="copyPersonaLink(inView)"><Check v-if="copiedFor === inView" class="size-3" /><Copy v-else class="size-3" /></button>
-            </template>
+            <div class="flex items-center gap-1 px-2 py-1 border-b border-base-300" data-testid="preview-bar">
+              <button class="btn btn-ghost btn-sm btn-square" :disabled="busy" title="Reload preview" @click="onReloadButton">
+                <RotateCw class="size-4" />
+              </button>
+              <!-- The address the tab was opened at. The page is on another host, so Studio cannot
+                   read where a person has since gone inside it. -->
+              <span class="flex-1 min-w-0 truncate rounded-full bg-base-200 px-3 py-1 font-mono text-xs" data-testid="preview-address"
+                :title="tabUrl(inView)">{{ tabAddress }}</span>
+              <a class="btn btn-ghost btn-sm btn-square" :href="tabUrl(inView)" target="_blank" rel="noopener"
+                title="Open this page in a new browser tab" data-testid="persona-open"><ExternalLink class="size-4" /></a>
+              <button class="btn btn-ghost btn-sm btn-square" title="Copy the link to this page" data-testid="persona-copy"
+                @click="copyPersonaLink(inView)"><Check v-if="copiedFor === inView" class="size-4" /><Copy v-else class="size-4" /></button>
+            </div>
+            <p v-if="frameNotices[inView]" class="alert alert-info text-sm rounded-none" data-testid="preview-notice">{{ frameNotices[inView] }}</p>
+            <iframe v-for="(frame, tab) in loadedFrames" v-show="tab === inView" :key="`${tab}:${frame.key}`"
+              :ref="(el) => setFrameEl(String(tab), el)" :src="frame.url" class="w-full flex-1 border-0"
+              :title="tab === ME ? 'Preview' : `Preview as ${tab}`" @load="onFrameLoad(String(tab))" />
           </div>
-          <p v-if="frameNotices[inView]" class="alert alert-info text-sm rounded-none" data-testid="preview-notice">{{ frameNotices[inView] }}</p>
-          <iframe v-for="(frame, tab) in loadedFrames" v-show="tab === inView" :key="`${tab}:${frame.key}`"
-            :ref="(el) => setFrameEl(String(tab), el)" :src="frame.url" class="w-full flex-1 border-0"
-            :title="tab === ME ? 'Preview' : `Preview as ${tab}`" @load="onFrameLoad(String(tab))" />
         </div>
       </div>
     </section>

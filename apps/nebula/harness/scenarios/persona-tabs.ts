@@ -50,7 +50,7 @@ import type { Frame, Page } from 'playwright';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
-import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
+import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser, captureArtifacts } from '../lib/browser';
 import { askFrame } from '../lib/ask-frame';
 import { refreshAccessToken } from '../../test/lib/email-login';
 
@@ -282,11 +282,27 @@ export async function run(stack: DevStack): Promise<void> {
     assert.ok((reloaded.value as string[]).includes('deals'), `Sally's reloaded tab's tree lacks the node: ${JSON.stringify(reloaded.value)}`);
     console.error('  ✓ limb 6 — the URL named the tab in view and the closed one, held no token, and a reload restored both, each tab with its tree');
 
+    // The preview is drawn as a browser window: its address bar names the page of the tab in view,
+    // which for a persona is that persona's own host. Read against the frame's own address.
+    const addressBar = async () => (await o.page.getByTestId('preview-address').textContent())?.trim();
+    const frameAddress = async (title: string) => {
+      const src = new URL((await o.page.locator(`iframe[title="${title}"]`).getAttribute('src'))!);
+      return `${src.host}${src.pathname}`;
+    };
+    const sallyAddress = await frameAddress('Preview as sally');
+    assert.match(sallyAddress, /^sally--/, `Sally's frame must be on her own host — the control: ${sallyAddress}`);
+    assert.equal(await addressBar(), sallyAddress, "the address bar must name Sally's page while her tab is in view");
+    assert.equal(await o.page.getByTestId('preview-window').getByTitle('Reload preview').count(), 1, 'Reload must sit inside the preview window');
+    const shot = await captureArtifacts(o, 'persona-tabs-browser-window');
+    console.error(`  · the preview window, captured: ${shot.screenshotPath}`);
+
     // ── LIMB 8: a persona who administers the workspace ──────────────────────────────────────
     // Run before limb 7, which ends with a page of Gerry's own; the numbers are the header's.
     // The reload left only Sally's frame loaded, so bring O's own back first.
     await o.page.getByTestId('tab-me').click();
     assert.ok(await until(60_000, async () => (await readFrame(o.page, 'me'))?.sub === oToken.sub), "O's me tab never came back after the reload");
+    assert.equal(await addressBar(), await frameAddress('Preview'), "the address bar must follow the tab in view, back to Me's page");
+    assert.notEqual(await addressBar(), sallyAddress, "Me's page and Sally's must be different addresses");
     const admin = await askTab(o.page, 'me', `
       const summary = await client.invite(client.claims.aud, [{ email: await client.personaAddress('manny'), scopeAdmin: true }]);
       return { errors: summary.errors, outcomes: summary.results.map((r) => r.outcome) };
