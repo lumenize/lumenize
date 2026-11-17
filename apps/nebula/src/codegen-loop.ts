@@ -23,6 +23,7 @@
  * @see tasks/archive/nebula-codegen-loop.md
  */
 import { stepFailed } from './build-report';
+import { stepLine } from './turn-liveness';
 import type { BuildReport, Finding, StepResult } from './build-report';
 
 // Re-exported for the loop's consumers (tests, the Galaxy record) — the shapes live in
@@ -936,7 +937,7 @@ export async function runCodegenLoop(
         // as the tool result; a failed step or a type finding makes this a fix round,
         // never an abort.
         const args = tc.args as { preview?: boolean };
-        deps.onProgress?.('building…');
+        deps.onProgress?.(stepLine('building…'));
         let report: BuildReport;
         try {
           report = await deps.tools.build({ preview: args.preview });
@@ -986,7 +987,7 @@ export async function runCodegenLoop(
         const { email, scopeAdmin } = tc.args as { email: string; scopeAdmin?: boolean };
         try {
           const result = await deps.tools.invite(email, scopeAdmin);
-          deps.onProgress?.(`invited ${email}`);
+          deps.onProgress?.(stepLine(`invited ${email}`));
           recorded.push({ name: tc.name, args: tc.args, result, ...deps.actsFor?.() });
           messages.push(toolResultMessage(tc.id, result));
         } catch (e) {
@@ -1000,7 +1001,7 @@ export async function runCodegenLoop(
         const { tab, code } = tc.args as { tab: string; code: string };
         try {
           const result = clipRunResult(await deps.tools.run_in_tab(tab, code));
-          deps.onProgress?.(`ran code in the ${tab} tab`);
+          deps.onProgress?.(stepLine(`ran code in the ${tab} tab`));
           recorded.push({ name: tc.name, args: tc.args, result, ...deps.actsFor?.() });
           messages.push(toolResultMessage(tc.id, result));
         } catch (e) {
@@ -1014,7 +1015,7 @@ export async function runCodegenLoop(
         const { path } = tc.args as { path: string };
         try {
           const content = await deps.tools.read_file(path);
-          deps.onProgress?.(`read ${path}`);
+          deps.onProgress?.(stepLine(`read ${path}`));
           // The model gets the content; the RECORD gets its size in BYTES (UTF-8, what the
           // file holds — not UTF-16 code units) — the content is already in the transcript,
           // and the record fans to every chat subscriber.
@@ -1031,7 +1032,7 @@ export async function runCodegenLoop(
         const { path, anchor, replacement } = tc.args as { path: string; anchor: string; replacement: string };
         try {
           const written = await deps.tools.edit_file(path, anchor, replacement);
-          deps.onProgress?.(`edited ${written.path}`);
+          deps.onProgress?.(stepLine(`edited ${written.path}`));
           appliedPaths.push(written.path);
           const result = { edited: written.path, oid: written.oid };
           recorded.push({ name: tc.name, args: tc.args, result, ...deps.actsFor?.() });
@@ -1050,7 +1051,7 @@ export async function runCodegenLoop(
       const { path, content } = tc.args as { path: string; content: string };
       try {
         const written = await deps.tools.write_file(path, content);
-        deps.onProgress?.(`wrote ${written.path}`); // per-file progress step
+        deps.onProgress?.(stepLine(`wrote ${written.path}`)); // per-file progress step
         appliedPaths.push(written.path);
         const result = { written: written.path, oid: written.oid };
         recorded.push({ name: tc.name, args: tc.args, result, ...deps.actsFor?.() });

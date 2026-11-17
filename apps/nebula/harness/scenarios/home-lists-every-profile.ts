@@ -125,6 +125,11 @@ export async function run(stack: DevStack): Promise<void> {
       "A's own account, whose cookie this browser holds, must not be marked — the positive control");
     console.error("  ✓ limb 2 — the app A accepted in another browser was marked; A's own account was not");
 
+    // Home acts on nothing, so its two controls are links: to the create form, and to log out.
+    assert.equal(await home.getByTestId('home-create-account').getAttribute('href'), '/auth/login?create',
+      'Home must link to the create-account form');
+    assert.equal(await home.getByTestId('home-logout').getAttribute('href'), '/auth/logout', 'Home must link to log out');
+
     // ── LIMB 3: Home's page sends no request but the summary and the consent pair ──────────────
     assert.ok(sent.includes('POST /auth/home-summary'), "Home must read its summary — the positive control");
     const stray = sent.filter((s) => !HOME_ROUTES.has(s));
@@ -137,6 +142,17 @@ export async function run(stack: DevStack): Promise<void> {
     await z.page.goto(`${origin}/`, { waitUntil: 'domcontentloaded' });
     await z.page.waitForURL((u) => u.origin === vite.scopeUrl(`${ud}.crm`), { timeout: 30_000 });
     console.error("  ✓ limb 4 — D's Home stepped aside into the one app's Studio");
+
+    // ── LIMB 5: Home's create link opens the login page on its create form ─────────────────────
+    // The plain login page is the control: it shows no account field until someone asks for one.
+    const firstApp = (p: typeof home) => p.getByPlaceholder('crm');
+    await home.goto(`${origin}/auth/login`, { waitUntil: 'domcontentloaded' });
+    await home.getByPlaceholder('you@example.com').waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await firstApp(home).count(), 0, 'the plain login page must open on the sign-in form — the control');
+    await home.goto(`${origin}/`, { waitUntil: 'domcontentloaded' });
+    await home.getByTestId('home-create-account').click();
+    await firstApp(home).waitFor({ state: 'visible', timeout: 15_000 });
+    console.error("  ✓ limb 5 — Home's create link opened the create-account form; the plain login page did not");
   } finally {
     await browser.close();
     await vite.close();

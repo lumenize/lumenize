@@ -124,3 +124,27 @@ describe('a post waiting behind another post\'s turn', () => {
     expect(signalOtherTurn(t, 3000).phase).toBe('settled');
   });
 });
+
+describe('what a running turn\'s stream says it is doing', () => {
+  it('counts the loop\'s steps and names the latest line, a call being prepared included', async () => {
+    const { streamSteps, stepLine, pendingLine } = await import('../src/turn-liveness');
+    const text = 'I will write the view.' + pendingLine('write_file') + stepLine('wrote src/App.vue')
+      + 'Now the build.' + stepLine('building…');
+    expect(streamSteps(text)).toEqual({ count: 2, latest: 'building…' });
+    // A call the model has begun is the latest thing happening, and is not yet a step.
+    expect(streamSteps(text + pendingLine('edit_file'))).toEqual({ count: 2, latest: 'preparing edit_file…' });
+    // Thinking that merely contains the glyph mid-line is not a step.
+    expect(streamSteps('use ▸ as a bullet')).toEqual({ count: 0, latest: undefined });
+  });
+
+  it('a step lands on its own line whatever text came before it', async () => {
+    const { streamSteps, stepLine } = await import('../src/turn-liveness');
+    expect(streamSteps('thinking with no newline' + stepLine('read src/App.vue')).count).toBe(1);
+    expect(streamSteps(stepLine('read a') + stepLine('read b')).count).toBe(2);
+  });
+
+  it('formats elapsed seconds as a clock', async () => {
+    const { formatElapsed } = await import('../src/turn-liveness');
+    expect([0, 7, 60, 134.9, 725].map(formatElapsed)).toEqual(['0:00', '0:07', '1:00', '2:14', '12:05']);
+  });
+});

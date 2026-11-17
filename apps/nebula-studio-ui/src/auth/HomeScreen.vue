@@ -28,7 +28,7 @@
  */
 import { leaveTo, scopeUrl, platformUrl } from '../view-state';
 import { ref, onMounted, computed } from 'vue';
-import { Plus, Trash2 } from 'lucide-vue-next';
+import { LogOut, Plus, Trash2 } from 'lucide-vue-next';
 import ConsentModal from './ConsentModal.vue';
 import HostWait from '../HostWait.vue';
 import {
@@ -280,6 +280,15 @@ onMounted(async () => {
             </ul>
           </section>
         </div>
+      </div>
+      <!-- Home acts on nothing, so both of these are links to the pages that do. -->
+      <div class="flex items-center justify-between">
+        <a class="btn btn-ghost btn-sm gap-1" href="/auth/login?create" data-testid="home-create-account">
+          <Plus class="size-4" /> Create a new account
+        </a>
+        <a class="btn btn-ghost btn-sm gap-1" href="/auth/logout" data-testid="home-logout">
+          <LogOut class="size-4" /> Log out
+        </a>
       </div>
     </template>
 

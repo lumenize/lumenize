@@ -5,6 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { assembleStream, reduceChunk, newAccumulator, finishAccumulator, DELTA_BATCH_CHARS } from '../src/model-stream';
+import { pendingLine } from '../src/turn-liveness';
 
 const chunk = (delta: unknown, finish: string | null = null) =>
   `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finish, index: 0 }], id: 'x', object: 'chat.completion.chunk' })}\n`;
@@ -47,7 +48,7 @@ describe('assembleStream', () => {
   it('hands the reasoning out live, batched, in order, and complete', async () => {
     const deltas: string[] = [];
     await assembleStream(streamOf(SAMPLE, 11), (t) => deltas.push(t));
-    expect(deltas.join('')).toBe('The user wants a file named hello.txt. I should use the tool.');
+    expect(deltas.join('')).toBe('The user wants a file named hello.txt. I should use the tool.' + pendingLine('write_file'));
     expect(deltas.length).toBeGreaterThan(1);                           // batched, not one lump…
     expect(deltas.length).toBeLessThan(15);                             // …and not one per token
     for (const d of deltas.slice(0, -1)) expect(d.length).toBeGreaterThanOrEqual(DELTA_BATCH_CHARS);
@@ -66,5 +67,21 @@ describe('assembleStream', () => {
     reduceChunk(acc, { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: ':1}' } }] } }] });
     const tc = finishAccumulator(acc).choices[0]!.message.tool_calls!;
     expect(tc).toEqual([{ id: 'c', type: 'function', function: { name: 'f', arguments: '{"a":1}' } }]);
+  });
+
+  it('says which tool call has begun as soon as its name arrives, once, before its arguments', async () => {
+    const deltas: string[] = [];
+    await assembleStream(streamOf(SAMPLE), (d) => deltas.push(d));
+    const live = deltas.join('');
+    expect(live.split('preparing write_file…').length - 1).toBe(1);
+    // The arguments themselves never reach the live text.
+    expect(live).not.toContain('"content"');
+  });
+
+  it('says it once when a stream repeats the call\'s name on every fragment, as some lanes do', () => {
+    const acc = newAccumulator();
+    const frag = (args: string) => ({ choices: [{ delta: { tool_calls: [{ index: 0, function: { name: 'build', arguments: args } }] } }] });
+    const out = [reduceChunk(acc, frag('{"pre')) ?? '', reduceChunk(acc, frag('view":true}')) ?? ''].join('') + acc.pendingDelta;
+    expect(out.split('preparing build…').length - 1).toBe(1);
   });
 });

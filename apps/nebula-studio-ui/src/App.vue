@@ -8,7 +8,7 @@ import ConfirmDelete from "./ConfirmDelete.vue";
 import HostWait from "./HostWait.vue";
 import { needsFreshLogin } from "./auth/home-logic";
 import { createNebulaClient } from "@lumenize/resources/frontend";
-import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, toolCallMarks, postAnswered, messageByline, startTurn, signalTurn, signalOtherTurn, settleTurn, evaluateTurn, deriveTurnDisplay, decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS, TabRunner, ME_TAB } from "@lumenize/nebula/client";
+import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, toolCallMarks, postAnswered, messageByline, startTurn, signalTurn, signalOtherTurn, settleTurn, evaluateTurn, deriveTurnDisplay, streamSteps, formatElapsed, decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS, TabRunner, ME_TAB } from "@lumenize/nebula/client";
 import type { StoredMessage } from "@lumenize/nebula/client";
 import type { FactoryResult } from "@lumenize/resources/frontend";
 import type { TurnLiveness, PreviewFrameState, PreviewFrameEvent, PreviewFrameAction, CastEntry, TabMessage } from "@lumenize/nebula/client";
@@ -264,12 +264,29 @@ const turnStartedAt = ref<number | null>(null);
 const nowTick = ref(Date.now());
 let elapsedTicker: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
-  elapsedTicker = setInterval(() => { if (turn.value) nowTick.value = Date.now(); }, 1_000);
+  elapsedTicker = setInterval(() => { if (turn.value || streaming.value) nowTick.value = Date.now(); }, 1_000);
 });
 onUnmounted(() => clearInterval(elapsedTicker));
 const elapsedSec = computed(() =>
   turnStartedAt.value === null ? 0 : Math.max(0, Math.floor((nowTick.value - turnStartedAt.value) / 1000)),
 );
+// The strip's clock and step count. My own turn counts from my post, and a turn I am only
+// watching from its first chunk, since nothing here saw its post land.
+/** The app this Studio is for, read from the host: `acme.crm` is the app `crm` in the account `acme`. */
+const appLabel = computed(() => {
+  const [account = "", app = ""] = (activeScope ?? "").split(".");
+  return { account, app };
+});
+const streamSeenAt = ref<{ id: string; at: number } | null>(null);
+watch(() => streaming.value?.id, (id) => {
+  streamSeenAt.value = id ? { id, at: Date.now() } : null;
+  nowTick.value = Date.now();
+});
+const streamElapsed = computed(() => {
+  const from = turn.value && turnStartedAt.value !== null ? turnStartedAt.value : streamSeenAt.value?.at;
+  return formatElapsed(from === undefined ? 0 : (nowTick.value - from) / 1000);
+});
+const streamProgress = computed(() => streamSteps(streaming.value?.text ?? ""));
 const nebula = shallowRef<FactoryResult<StudioClient> | null>(null);
 
 // account / hierarchy
@@ -920,6 +937,11 @@ const confirmingAccount = ref(false);
     <section v-if="connected && isWorkspace(activeScope)" class="w-112 shrink-0 flex flex-col border-r border-base-300 bg-base-200">
       <header class="p-4 border-b border-base-300 flex items-center justify-between">
         <h1 class="text-lg font-bold">Lumenize Studio</h1>
+        <!-- Which app this is: its own name, then the account it belongs to. -->
+        <span class="min-w-0 truncate text-sm" data-testid="studio-app-name" :title="`${appLabel.app} in ${appLabel.account}`">
+          <span class="font-mono font-semibold">{{ appLabel.app }}</span>
+          <span class="opacity-60"> in {{ appLabel.account }}</span>
+        </span>
       </header>
 
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
@@ -979,7 +1001,11 @@ const confirmingAccount = ref(false);
             @click="openStreamModal"
           >
             <span class="inline-block size-2 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden="true"></span>
-            <span class="shrink-0 text-xs opacity-70">Lumenize is thinking</span>
+            <span class="shrink-0 text-xs opacity-70">Lumenize is working</span>
+            <span class="shrink-0 text-xs tabular-nums opacity-70" data-testid="stream-elapsed">{{ streamElapsed }}</span>
+            <span v-if="streamProgress.count" class="badge badge-ghost badge-sm shrink-0" data-testid="stream-steps">
+              {{ streamProgress.count }} {{ streamProgress.count === 1 ? 'step' : 'steps' }}
+            </span>
             <span class="truncate font-mono text-xs opacity-80" data-testid="stream-tail">{{ streamTail }}</span>
           </button>
         </div>
@@ -995,7 +1021,7 @@ const confirmingAccount = ref(false);
         </div>
         <div v-else-if="turnDisplay === 'thinking'" class="chat chat-start">
           <div class="chat-bubble flex items-center gap-2" data-testid="turn-thinking">
-            <Loader2 class="size-4 animate-spin" /> Studio is thinking… <span class="opacity-60 tabular-nums">{{ elapsedSec }}s</span>
+            <Loader2 class="size-4 animate-spin" /> Lumenize is thinking… <span class="opacity-60 tabular-nums">{{ formatElapsed(elapsedSec) }}</span>
           </div>
         </div>
         <!-- Local notices (login guidance, nudges, errors) — never the conversation. -->

@@ -27,7 +27,7 @@ import { Browser } from '@lumenize/testing';
 import { DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
 import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
-import { deriveKind } from '@lumenize/nebula';
+import { deriveKind, stepLine } from '@lumenize/nebula';
 import { NebulaClientTest } from './index';
 
 const uniqueChatScope = () => `c3st-${crypto.randomUUID().slice(0, 8)}.app`;
@@ -64,10 +64,10 @@ describe('child3 — transient progress stream + durable Message', () => {
 
     // The model is held 500 ms after the build round, so the turn's commit trails its chunk.
     client.callGalaxyChatScripted(scope, 'build it', [BUILD_ROUND, { __delayMs: 500 }, COMPLETE_ROUND]);
-    await vi.waitFor(() => expect(client.lastStreamChunk?.progress).toBe('building…'));
+    await vi.waitFor(() => expect(client.lastStreamChunk?.progress).toBe(stepLine('building…')));
     const agentMessageId = client.lastStreamChunk!.messageId;
     // M3a: a chunk arrived, and NO durable Message exists in membership yet.
-    expect(client.streamingProgress(agentMessageId)).toBe('building…');
+    expect(client.streamingProgress(agentMessageId)).toBe(stepLine('building…'));
     expect(sub.resourceIds).not.toContain(agentMessageId);
 
     // The turn commits ONE durable Message at that id; membership gains it via the query rerun.

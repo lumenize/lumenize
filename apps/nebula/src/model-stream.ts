@@ -15,6 +15,7 @@
  * Deltas are BATCHED by size (never by timer — the reducer is pure), so a 50-token-per-second
  * thought reaches the transient channel a few times a second instead of fifty.
  */
+import { pendingLine } from './turn-liveness';
 
 export interface StreamedToolCall { id?: string; type?: string; function: { name?: string; arguments: string } }
 
@@ -65,7 +66,11 @@ export function reduceChunk(acc: StreamAccumulator, payload: unknown): string | 
     const cur = acc.toolCalls.get(i) ?? { function: { arguments: '' } };
     if (tc.id) cur.id = tc.id;
     if (tc.type) cur.type = tc.type;
-    if (tc.function?.name) cur.function.name = tc.function.name;
+    if (tc.function?.name) {
+      // A call's arguments stream in silence, a whole file sometimes, so say which call has begun.
+      if (!cur.function.name) acc.pendingDelta += pendingLine(tc.function.name);
+      cur.function.name = tc.function.name;
+    }
     if (tc.function?.arguments) cur.function.arguments += tc.function.arguments;
     acc.toolCalls.set(i, cur);
   }

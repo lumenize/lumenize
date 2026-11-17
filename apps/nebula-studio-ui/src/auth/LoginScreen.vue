@@ -84,7 +84,8 @@ async function acceptPending(names: { nickname: string; name?: string }) {
 const email = ref('');
 const accountName = ref('');
 const appName = ref('');
-const creating = ref(false);
+/** Open on the create form when the link here asked for it, as Home's does. */
+const creating = ref(new URLSearchParams(viewState.value.search).has('create'));
 const busy = ref(false);
 const sent = ref(false);
 const error = ref('');

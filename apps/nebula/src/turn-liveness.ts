@@ -97,3 +97,35 @@ export function deriveTurnDisplay(o: {
   if (o.phase === 'waiting' && o.awaitingReply) return 'waiting';
   return o.awaitingReply ? 'thinking' : 'none';
 }
+
+// ── What a running turn's stream says it is doing ──
+// The stream is text: the model's thinking as it arrives, and a line for each step the loop
+// takes. Between them come long silences — the model writing a whole file as one tool call, a
+// build — so the strip shows a clock, a count of steps and the latest step, read from the text.
+
+/** Starts the line of a step the loop took: a file written, a build started. Counted. */
+export const STEP_MARK = '▸ ';
+/** Starts the line saying the model has begun writing a tool call. Not counted: its step line follows. */
+export const PENDING_MARK = '◦ ';
+
+/** A step's line in the stream, on a line of its own whatever came before it. */
+export function stepLine(step: string): string { return `\n${STEP_MARK}${step}\n`; }
+/** The line saying the model has begun writing a call to `tool`, whose arguments stream in silence. */
+export function pendingLine(tool: string): string { return `\n${PENDING_MARK}preparing ${tool}…\n`; }
+
+/** The steps a stream's text records so far, and the latest thing it says the turn is doing. */
+export function streamSteps(text: string): { count: number; latest?: string } {
+  let count = 0;
+  let latest: string | undefined;
+  for (const line of text.split('\n')) {
+    if (line.startsWith(STEP_MARK)) { count++; latest = line.slice(STEP_MARK.length); }
+    else if (line.startsWith(PENDING_MARK)) latest = line.slice(PENDING_MARK.length);
+  }
+  return { count, latest };
+}
+
+/** Elapsed seconds as a clock: `0:07`, `2:14`, `12:05`. */
+export function formatElapsed(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}

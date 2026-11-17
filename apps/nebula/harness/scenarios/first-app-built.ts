@@ -189,7 +189,11 @@ export async function run(stack: DevStack): Promise<void> {
       (r) => r.url.endsWith('/auth/refresh-token') && (r.status === 401 || r.status === 'failed'),
     );
     assert.deepEqual(refusals, [], `Studio's refresh at the galaxy was refused: ${JSON.stringify(refusals)}`);
-    console.error(`  ✓ limb 1 — clicked into ${galaxy}; Studio connected on a live session`);
+    // Studio names the app it is for: its own name, then its account.
+    const [account, app] = galaxy.split('.');
+    const named = (await page.getByTestId('studio-app-name').textContent())?.replace(/\s+/g, ' ').trim();
+    assert.equal(named, `${app} in ${account}`, 'Studio must show which app it is working on');
+    console.error(`  ✓ limb 1 — clicked into ${galaxy}; Studio connected on a live session and names the app`);
 
     // The Galaxy layer's SEED, read before the model's first turn can touch it (limb 7 asserts
     // on it below): the platform layer invites the model to keep `AGENTS.md` current, so a
@@ -241,6 +245,10 @@ export async function run(stack: DevStack): Promise<void> {
     //      not one lump when the model returns), and clicking it mid-stream must open a transcript
     //      longer than the tail — the unreadable scroll by default, readable on request.
     const tailsSeen = new Set<string>();
+    //  (e) the strip says the turn is ALIVE through its silences: a clock that moves, and a count
+    //      of the steps taken, which a turn that builds must raise above zero.
+    const clocksSeen = new Set<string>();
+    let stepsSeen = 0;
     let transcriptChecked = false;
     let lastTailAt = 0;
     const turnStartedAt = Date.now();
@@ -256,6 +264,13 @@ export async function run(stack: DevStack): Promise<void> {
         if (await tailEl.count() > 0) {
           const tail = (await gone(tailEl.first().textContent({ timeout: 2_000 })))?.trim() ?? '';
           if (tail && !tailsSeen.has(tail)) { tailsSeen.add(tail); lastTailAt = Date.now(); }
+          const clock = (await gone(page.getByTestId('stream-elapsed').first().textContent({ timeout: 2_000 })))?.trim();
+          if (clock) clocksSeen.add(clock);
+          const stepsEl = page.getByTestId('stream-steps');
+          if (await stepsEl.count() > 0) {
+            const n = parseInt((await gone(stepsEl.first().textContent({ timeout: 2_000 })))?.trim() ?? '', 10);
+            if (n > stepsSeen) stepsSeen = n;
+          }
           // Judge the modal only once the strip is a TAIL (the leading ellipsis marks truncation
           // at 80 chars): sampled earlier, the transcript IS the strip, and 75 vs 75 reads as a
           // modal that holds nothing more (the 2026-09-05 sweep red).
@@ -325,6 +340,9 @@ export async function run(stack: DevStack): Promise<void> {
         `(${e instanceof Error ? e.message : String(e)})`,
       );
     }
+    assert.ok(clocksSeen.size >= 2 && [...clocksSeen].every((c) => /^\d+:\d\d$/.test(c)),
+      `the strip's clock must move while the turn runs — it read ${JSON.stringify([...clocksSeen])}`);
+    assert.ok(stepsSeen >= 1, `the strip must count the turn's steps — the highest count read was ${stepsSeen}`);
     assert.ok(tailsSeen.size >= 2,
       `the reply must STREAM — the strip's tail took ${tailsSeen.size} distinct value(s); one or none means ` +
       'the text landed whole when the model returned, which is the pre-streaming shape');
