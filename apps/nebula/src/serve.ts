@@ -142,6 +142,44 @@ function fileResponse(
   return new Response(head ? null : (body as BodyInit), { status: 200, headers });
 }
 
+/** What a person reads on an app's page before its first build has landed. */
+export const NOTHING_BUILT_TEXT = 'Nothing is built here yet.';
+
+const NOTHING_BUILT_PAGE = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Not built yet</title>
+<style>
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 16px/1.5 system-ui, sans-serif; }
+main { max-width: 28rem; padding: 2rem; text-align: center; }
+h1 { font-size: 1.25rem; margin: 0 0 0.5rem; }
+p { margin: 0; opacity: 0.7; }
+</style>
+</head>
+<body>
+<main>
+<h1>${NOTHING_BUILT_TEXT}</h1>
+<p>This app's first build will appear on this page once it finishes.</p>
+</main>
+</body>
+</html>
+`;
+
+/**
+ * The answer when the served directory holds no `index.html`: no build has landed. Still a 404,
+ * since there is no app to serve, with a page that says why. It carries no colors of its own and
+ * follows the browser's light or dark scheme, since it is neither Studio's surface nor the app's.
+ */
+export function nothingBuiltResponse(head: boolean): Response {
+  return new Response(head ? null : NOTHING_BUILT_PAGE, {
+    status: 404,
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': NO_STORE },
+  });
+}
+
 /**
  * Serve one GET/HEAD request for the built app. Returns `null` when the request
  * path is not under `config.base` (composability — the caller falls through), a
@@ -170,9 +208,7 @@ export async function serveApp(
   const serveIndex = async (): Promise<Response | null> => {
     const root = config.directory.replace(/\/+$/, '');
     const index = await getFile(`${root}/index.html`);
-    if (index === null) {
-      return new Response(head ? null : 'Not Found', { status: 404, headers: { 'Cache-Control': NO_STORE } });
-    }
+    if (index === null) return nothingBuiltResponse(head);
     return injectBase(fileResponse(index, 'index.html', NO_STORE, head), config.base);
   };
 

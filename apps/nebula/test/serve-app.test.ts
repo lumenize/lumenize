@@ -6,7 +6,7 @@
  * cannot be a Node unit test.
  */
 import { describe, it, expect } from 'vitest';
-import { serveApp, type ServeAppConfig, type GetFile } from '../src/serve';
+import { serveApp, NOTHING_BUILT_TEXT, type ServeAppConfig, type GetFile } from '../src/serve';
 
 const BASE = '/app/acme.crm.dev/';
 const CONFIG: ServeAppConfig = {
@@ -98,6 +98,19 @@ describe('serveApp — match-first + SPA fallback', () => {
     const empty: GetFile = async () => null;
     const res = await serveApp(req(BASE), CONFIG, empty);
     expect(res!.status).toBe(404);
+  });
+
+  it('nothing built yet says so on a page, for a deep link too, and a HEAD carries no body', async () => {
+    const empty: GetFile = async () => null;
+    for (const path of [BASE, `${BASE}tasks/42`]) {
+      const res = await serveApp(req(path), CONFIG, empty);
+      expect(res!.headers.get('Content-Type')).toContain('text/html');
+      expect(res!.headers.get('Cache-Control')).toBe('no-store');
+      expect(await res!.text()).toContain(NOTHING_BUILT_TEXT);
+    }
+    const head = await serveApp(new Request(req(BASE), { method: 'HEAD' }), CONFIG, empty);
+    expect(head!.status).toBe(404);
+    expect(await head!.text()).toBe('');
   });
 
   it('an unsupported not_found_handling THROWS rather than silently no-oping', async () => {

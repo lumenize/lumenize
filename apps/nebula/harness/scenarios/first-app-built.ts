@@ -69,6 +69,7 @@ import { testSlug } from '../lib/test-scopes';
 import { LOG_WAIT_MS, loggedAfter } from '../lib/stdio';
 import { launchChromium, bootStudioVite, instrumentedPage, captureArtifacts } from '../lib/browser';
 import { provisionAndLogin, requestMagicLink } from '../../test/lib/email-login';
+import { NOTHING_BUILT_TEXT } from '../../src/serve';
 
 /** The build box is the subject — this one genuinely needs Docker. */
 export const needsContainer = true;
@@ -194,6 +195,13 @@ export async function run(stack: DevStack): Promise<void> {
     const named = (await page.getByTestId('studio-app-name').textContent())?.replace(/\s+/g, ' ').trim();
     assert.equal(named, `${app} in ${account}`, 'Studio must show which app it is working on');
     console.error(`  ✓ limb 1 — clicked into ${galaxy}; Studio connected on a live session and names the app`);
+
+    // Before any build has landed, the preview says so on a page of its own; a bare 404 body read
+    // as a broken app. Limb 5 below sees the built app take its place.
+    await page.frameLocator('iframe[title="Preview"]').getByText(NOTHING_BUILT_TEXT)
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    const emptyShot = (await captureArtifacts(inst, 'first-app-built-nothing-built-yet')).screenshotPath;
+    console.error(`  ✓ limb 1b — the preview says nothing is built yet (${emptyShot})`);
 
     // The Galaxy layer's SEED, read before the model's first turn can touch it (limb 7 asserts
     // on it below): the platform layer invites the model to keep `AGENTS.md` current, so a

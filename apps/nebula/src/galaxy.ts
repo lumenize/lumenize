@@ -829,8 +829,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       },
     );
     if (res === null) return new Response('Not Found', { status: 404 });
-    // The page meta, injected only into HTML serves; asset serves pass through untouched.
-    if ((res.headers.get('Content-Type') ?? '').includes('text/html')) {
+    // The page meta, injected only into a served app's HTML; an asset passes through untouched,
+    // and so does the page that says nothing is built yet, which runs no client.
+    if (res.status === 200 && (res.headers.get('Content-Type') ?? '').includes('text/html')) {
       const deployment = deploymentOrigin(this.env);
       const scopeMeta = JSON.stringify({
         // Whether this page is the dev Star, which Studio frames as the as-you dev tab.
