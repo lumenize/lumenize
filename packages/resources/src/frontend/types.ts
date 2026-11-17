@@ -78,3 +78,54 @@ export interface StoreClient {
     subscribe(resourceType: string, resourceId: string): ResourceSubscription;
   };
 }
+
+// ─── The store, typed from the app's ontology ───────────────────────────────
+
+declare global {
+  /**
+   * The app's ontology types by name: `{ ShoppingList: ShoppingList; ShoppingItem: ShoppingItem }`.
+   * Empty here. An app's type check fills it in from the interfaces `src/ontology.d.ts` exports,
+   * so `store.resources` is typed by the app's own data model with nothing for the app to write.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  interface LumenizeOntology {}
+}
+
+type OntologyType = LumenizeOntology[keyof LumenizeOntology];
+/** Each ontology type `F` is the same type as: assignable both ways, so a look-alike with one more field is not one. */
+type SameAs<F, A> = A extends unknown ? ([F] extends [A] ? ([A] extends [F] ? true : never) : never) : never;
+type IsOntologyType<F> = [SameAs<F, OntologyType>] extends [never] ? false : true;
+type Opaque = Date | RegExp | Error | Map<unknown, unknown> | Set<unknown> | ((...args: never[]) => unknown);
+type StoredField<F> =
+  F extends undefined | null ? F
+  : IsOntologyType<F> extends true ? string
+  : F extends Opaque ? F
+  : F extends ReadonlyArray<infer E> ? StoredField<E>[]
+  : F extends object ? { [K in keyof F]: StoredField<F[K]> }
+  : F;
+
+/**
+ * An ontology type as it is stored and as the store holds it. A field typed as another ontology
+ * type is a reference, and a reference holds the related resource's id (ADR-006):
+ * `Stored<ShoppingItem>['list']` is `string` where the interface says `list: ShoppingList`, and a
+ * `members: User[]` field is `string[]`.
+ */
+export type Stored<T> = { [K in keyof T]: StoredField<T[K]> };
+
+/** One resource in the store. `value` is absent until its snapshot arrives, and while it is denied. */
+export interface StoreEntry<V> {
+  value: V;
+  meta: { validFrom: string; nodeId: string; typeName: string; deleted?: boolean; [key: string]: unknown };
+  deniedNodes: string[];
+}
+
+/** `store.resources`: every ontology type by name, each a map from resource id to its entry. */
+export type StoreResources = [keyof LumenizeOntology] extends [never]
+  ? Record<string, Record<string, StoreEntry<any>>>
+  : { [N in keyof LumenizeOntology]: Record<string, StoreEntry<Stored<LumenizeOntology[N]>>> };
+
+/** The store. `resources` is typed from the ontology; the app's own state beside it is its own. */
+export interface NebulaStore {
+  resources: StoreResources;
+  [key: string]: any;
+}

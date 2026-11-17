@@ -37,12 +37,25 @@ const disk: DiskReader = {
 const VUE_MODULE_DTS = "declare module '*.vue' { const component: any; export default component; }";
 
 /**
+ * Fills in the client's `LumenizeOntology` from the interfaces the app's ontology exports, so the
+ * store is typed by the app's own data model. A module cannot be asked for the names of the types
+ * it exports, so they are read from its text. Only the type check needs this: types are gone by
+ * the time the page runs.
+ */
+export function ontologyTypesDts(ontology: string | undefined): string | undefined {
+  const names = [...(ontology ?? '').matchAll(/^export\s+(?:declare\s+)?(?:interface|type)\s+([A-Za-z_$][\w$]*)/gm)].map((m) => m[1]);
+  if (names.length === 0) return undefined;
+  return `import type * as O from './ontology';\ndeclare global { interface LumenizeOntology { ${names.map((n) => `${n}: O.${n};`).join(' ')} } }\nexport {};\n`;
+}
+
+/**
  * Check one SFC of the app rooted at `appRoot` (`/workspace` in the build box), both passes,
  * returning raw diagnostic lines that name `relPath`. Never throws: pass-1 parse/compile
  * errors become findings too, so the job's report shape is uniform whatever broke.
- * `templateCode` is the compiled template, for a test of the bindings threading.
+ * `templateCode` is the compiled template, for a test of the bindings threading. `ontologySource`
+ * stands in for the app's `src/ontology.d.ts`, for a test of another data model.
  */
-export function checkVueSfc(appRoot: string, relPath: string, source: string): { findings: string[]; templateCode?: string } {
+export function checkVueSfc(appRoot: string, relPath: string, source: string, ontologySource?: string): { findings: string[]; templateCode?: string } {
   const findings: string[] = [];
 
   // ── Pass 1: transpile (syntax + template) ───────────────────────────────
@@ -84,9 +97,16 @@ export function checkVueSfc(appRoot: string, relPath: string, source: string): {
     const checked = join(appRoot, `${relPath}.check.ts`);
     const vueModule = join(appRoot, 'src/__vue-module.check.d.ts');
     const tsconfig = join(appRoot, 'tsconfig.json');
+    const ontologyPath = join(appRoot, 'src/ontology.d.ts');
+    const ontologyTypes = join(appRoot, 'src/__ontology-types.check.d.ts');
+    const typesDts = ontologyTypesDts(ontologySource ?? disk.readFile(ontologyPath));
     const result = checkTypeScript({
-      files: { [checked]: setup, [vueModule]: VUE_MODULE_DTS },
-      rootNames: [checked, vueModule],
+      files: {
+        [checked]: setup, [vueModule]: VUE_MODULE_DTS,
+        ...(ontologySource !== undefined ? { [ontologyPath]: ontologySource } : {}),
+        ...(typesDts !== undefined ? { [ontologyTypes]: typesDts } : {}),
+      },
+      rootNames: [checked, vueModule, ...(typesDts !== undefined ? [ontologyTypes] : [])],
       disk,
       ...(existsSync(tsconfig) ? { tsconfigPath: tsconfig } : {}),
       // Only the model's file: the client's type graph reaches Mesh's server files, which need

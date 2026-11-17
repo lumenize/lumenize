@@ -35,9 +35,6 @@ interface doc { body: string; }
 interface document { body: string; }
 `;
 
-// The ontology type a script-side read is cast to (coding-your-ui § Reading and
-// writing through the store).
-type Todo = { title: string; description: string; status: 'open' | 'done' };
 
 function uniqueStar(): string {
   return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
@@ -173,7 +170,7 @@ describe('for-docs runtime examples (real Star)', () => {
       // @doc coding-your-ui.md § Reading and writing through the store
       const title = store.resources.todo[id]?.value?.title;          // reactive read
       store.resources.todo[id].value.title = 'New title';            // optimistic write + debounced transaction
-      const todo = store.resources.todo[id]?.value as Todo | undefined;  // cast to the ontology type for typed script code
+      const todo = store.resources.todo[id]?.value;                  // typed from the ontology already: never cast it
       // @end-doc
       expect(title).toBe('Original');
       expect(todo?.title).toBe('New title');

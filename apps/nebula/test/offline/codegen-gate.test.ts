@@ -16,7 +16,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { compileTemplate, parse } from '@vue/compiler-sfc';
-import { compileSource, compileVueSfc } from './codegen-gate';
+import { compileSource, compileVueSfc, SCAFFOLD_APP } from './codegen-gate';
+import { checkVueSfc } from '../../container/compiler/sfc-check';
 
 const ONTOLOGY_GOOD = `interface Todo { title: string; done: boolean; }`;
 // Missing field type — a parse/type error generateParseModule surfaces as a throw.
@@ -259,5 +260,69 @@ describe('dispatch: non-compiled paths', () => {
   it('a non-.vue/.d.ts path is write-only (no compile) → { ok: true }', () => {
     expect(compileSource('src/styles.css', 'body { color: red; }')).toEqual({ ok: true });
     expect(compileSource('README.md', '# anything {{{ not vue')).toEqual({ ok: true });
+  });
+});
+
+// The store is typed from the app's ontology, with a reference read as the id it holds. Each case
+// is one call into the pure check, with the ontology handed in, so it needs no running system.
+describe('the store is typed from the ontology', () => {
+  const ONTOLOGY = `
+export interface ShoppingList { title: string; items: ShoppingItem[]; address?: { city: string } }
+export interface ShoppingItem { title: string; done?: boolean; list: ShoppingList }
+`;
+  const app = (body: string) => `<script setup lang="ts">
+import { client, store } from './nebula';
+import type { ShoppingItem } from './ontology';
+const listId: string = crypto.randomUUID();
+const itemId: string = crypto.randomUUID();
+${body}
+void client;
+</script>
+<template><p>x</p></template>`;
+  const check = (body: string) => checkVueSfc(SCAFFOLD_APP, 'src/App.vue', app(body), ONTOLOGY).findings;
+
+  it('a reference reads as an id, and compares with one', () => {
+    expect(check(`
+const item = store.resources.ShoppingItem[itemId]?.value;
+const mine: boolean = item?.list === listId;
+const ids: string[] = store.resources.ShoppingList[listId]?.value.items ?? [];
+const city: string | undefined = store.resources.ShoppingList[listId]?.value.address?.city;
+const node: string = store.resources.ShoppingList[listId].meta.nodeId;
+void mine; void ids; void city; void node;`)).toEqual([]);
+  });
+
+  it('a field the ontology lacks is a finding', () => {
+    const findings = check(`const x = store.resources.ShoppingItem[itemId].value.titel;\nvoid x;`);
+    expect(findings.join('\n')).toContain("'titel' does not exist");
+  });
+
+  it('a type the ontology lacks is a finding', () => {
+    const findings = check(`const x = store.resources.Share;\nvoid x;`);
+    expect(findings.join('\n')).toContain("'Share' does not exist");
+  });
+
+  it('reading a reference as the related resource is a finding', () => {
+    const findings = check(`const title: string = store.resources.ShoppingItem[itemId].value.list.title;\nvoid title;`);
+    expect(findings.join('\n')).toContain("'title' does not exist on type 'string'");
+  });
+
+  it('an embedded object that only resembles an ontology type stays an object', () => {
+    // `address` has a `title`, as every field of a ShoppingItem-like shape might: it is no reference.
+    const findings = checkVueSfc(SCAFFOLD_APP, 'src/App.vue', `<script setup lang="ts">
+import { store } from './nebula';
+const where = store.resources.Shop['a'].value.address;
+const t: string = where.title;
+void t;
+</script>
+<template><p>x</p></template>`, `export interface Tag { title: string }\nexport interface Shop { name: string; address: { title: string; city: string } }`).findings;
+    expect(findings).toEqual([]);
+  });
+
+  it("the app's own state beside resources stays its own", () => {
+    expect(check(`store.ui = { draft: { title: '' } };\nconst t: string = store.ui.draft.title;\nvoid t;`)).toEqual([]);
+  });
+
+  it('the interface itself still names the related type, for a value the app builds', () => {
+    expect(check(`const draft: Partial<ShoppingItem> = { title: 'Milk' };\nvoid draft;`)).toEqual([]);
   });
 });

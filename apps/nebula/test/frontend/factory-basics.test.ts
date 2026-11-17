@@ -18,7 +18,9 @@ function setup(initialState: Record<string, any> = {}) {
   // submission mechanics, not debounce timing (that's debounce.test.ts).
   const client = new MockClient({ quietMs: 0 });
   const factory = createNebulaStore(client, { initialState, unsubscribeGraceMs: 50 });
-  return { client, factory, store: factory.store };
+  // These tests write whole entries and odd shapes into the store to watch the mechanics, so they
+  // hold it untyped. `codegen-gate.test.ts` has what the typed store accepts and refuses.
+  return { client, factory, store: factory.store as Record<string, any> };
 }
 
 // ──────────────────────────────────────────────────────────────────────────

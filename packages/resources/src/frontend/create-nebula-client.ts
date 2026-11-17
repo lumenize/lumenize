@@ -44,7 +44,7 @@ import { getCurrentInstance } from '@vue/runtime-core';
 import { debug } from '@lumenize/debug';
 import { preprocess } from '@lumenize/structured-clone';
 import { deepEquals } from './deep-equals';
-import type { Middleware, StoreClient, WriteContext } from './types';
+import type { Middleware, NebulaStore, StoreClient, WriteContext } from './types';
 import { NebulaClient } from '../nebula-client';
 import { deploymentOriginOfPage, platformOriginOf } from '@lumenize/mesh/client';
 import type { NebulaStoreAdapter, ResourceSubscription, SubscriberListSubscription, OntologyStaleInfo, BuildStaleInfo, NebulaClientConfig } from '../nebula-client';
@@ -91,7 +91,7 @@ export interface CreateNebulaStoreOptions {
  *  and adds `client` + `ready`). */
 export interface NebulaStoreResult {
   /** The Vue-reactive, path-aware Proxy. Consumers read/write properties on it. */
-  store: Record<string, any>;
+  store: NebulaStore;
   /** Register an additional middleware. User middlewares run in registration
    *  order; the built-in synced-state middleware always runs after them (an
    *  abort therefore also aborts the submission). Returns an unregister fn. */
@@ -859,7 +859,7 @@ export type CreateNebulaClientConfig<TConfig extends NebulaClientConfig = Nebula
  */
 export interface FactoryResult<C extends NebulaClient = NebulaClient> {
   client: C;
-  store: Record<string, any>;
+  store: NebulaStore;
   ready: Promise<void>;
   use(middleware: Middleware): () => void;
   flush(resourceType?: string, resourceId?: string): void;

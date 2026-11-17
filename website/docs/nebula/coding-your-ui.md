@@ -57,12 +57,12 @@ Read and write the store inline in templates using stock [Vue 3](https://vuejs.o
 <span v-else class="badge">Open</span>
 ```
 
-The same paths work from TypeScript — inside a `computed`, a method, or an event handler. `value` is typed loosely on the store; when script code needs typing, cast it to the ontology type at the read site:
+The same paths work from TypeScript — inside a `computed`, a method, or an event handler. `store.resources` is typed from your ontology, so `value` already has its type and a cast only gets in the way. One difference from the interface you wrote: a field typed as another ontology type is a reference, and reads as the related resource's id, a `string` (`string[]` for a list of them). `Stored<Todo>`, from `@lumenize/resources/frontend`, names that stored form when a variable or parameter needs it.
 
 ```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 const title = store.resources.todo[id]?.value?.title;          // reactive read
 store.resources.todo[id].value.title = 'New title';            // optimistic write + debounced transaction
-const todo = store.resources.todo[id]?.value as Todo | undefined;  // cast to the ontology type for typed script code
+const todo = store.resources.todo[id]?.value;                  // typed from the ontology already: never cast it
 ```
 
 For multi-resource atomic batches, explicit conflict-resolution handlers, programmatic subscriptions, and other operations that don't fit "read or write a single field," use the underlying `client` directly — the canonical case is [Forms: explicit save](#forms-explicit-save) below.
