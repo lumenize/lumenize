@@ -14,7 +14,7 @@
  *    matched — a boundary refusal and a DAG refusal are indistinguishable as booleans)
  *    with zero trigger markers (no AI spend), alongside the positive control (the same
  *    member reaches the query surface; the denial is DISCLOSED, ADR-008).
- *  - T5a–d the container WARM LATCH (T5's successor — the fork is gone): the turn's first
+ *  - T5a–d the container WARM LATCH (T5's successor — the fork is gone): a run's first
  *    write warms, before the build cycle; the hint warms a no-tool-calls turn and a
  *    teardown follows; a verdict landing after the turn warms nothing; hint plus write is
  *    still one warm. T8: the reply is the model's own text, the fixed strings only when
@@ -224,7 +224,7 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     ] } }] },
   ];
 
-  it('T5a: the FIRST WRITE warms — exactly one warm marker before the build cycle starts', async () => {
+  it('T5a: a run\'s FIRST WRITE warms — exactly one warm marker before the build cycle starts', async () => {
     const scope = uniqueChatScope();
     const { client } = await devClient(scope);
     using sub = client.resources.subscribeQuery(chatQuery); await sub.ready;
@@ -248,7 +248,7 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     client[Symbol.dispose]();
   });
 
-  it('T5b: a no-tool-calls turn never warms, and its teardown still runs exactly once — every turn owes one', async () => {
+  it('T5b: a no-tool-calls run never warms, and its teardown still runs exactly once — every run owes one', async () => {
     const scope = uniqueChatScope();
     const { client } = await devClient(scope);
     using sub = client.resources.subscribeQuery(chatQuery); await sub.ready;
@@ -258,8 +258,8 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     await vi.waitFor(async () => {
       expect((await agentReplies(client, sub.resourceIds)).get(q)).toBeTruthy();
     }, { timeout: 15000 });
-    // Mutation: remove the `finally` teardown → no marker; the turn's `finally` is the only
-    // destroy on a turn with no build. Only a write warms, so a question's turn has none.
+    // Mutation: remove the `finally` teardown → no marker; the run's `finally` is the only
+    // destroy on a run with no build. Only a write warms, so a question's run has none.
     await vi.waitFor(() => expect(markerIndices(scope, 'nebula.Galaxy.teardown')).toHaveLength(1), { timeout: 5000 });
     expect(warmMarkers(scope)).toHaveLength(0);
     // …and the reply is the model's own text (the single path answers a question).
@@ -269,7 +269,7 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     client[Symbol.dispose]();
   });
 
-  it('T5d: TWO writes in one turn — the latch admits exactly one warm', async () => {
+  it('T5d: TWO writes in one run — the latch admits exactly one warm', async () => {
     const scope = uniqueChatScope();
     const { client } = await devClient(scope);
     using sub = client.resources.subscribeQuery(chatQuery); await sub.ready;

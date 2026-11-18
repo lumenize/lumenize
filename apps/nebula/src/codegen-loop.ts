@@ -431,7 +431,10 @@ export interface ModelParams {
 const postMoved = (e: unknown): boolean => e instanceof Error && e.name === 'ResourceMovedOnError';
 /** A refusal for want of a grant, by `name`. */
 const permissionDenied = (e: unknown): boolean => e instanceof Error && e.name === 'PermissionDeniedError';
-const POST_MOVED_DETAIL = 'the post this turn took up was edited or deleted while it ran';
+/** The error a call records when the post its turn took up moved on before it ran, which ends the
+ *  turn `post-moved` when the turn is rebuilt. Exported for a host that records a call's outcome
+ *  itself, as the Galaxy does for a tab's answer. */
+export const POST_MOVED_DETAIL = 'the post this turn took up was edited or deleted while it ran';
 
 export type StopReason =
   | 'complete'        // mark_complete
@@ -510,12 +513,17 @@ export interface LoopToolDeps {
    */
   invite(email: string, scopeAdmin?: boolean): Promise<{ invited: string; as: 'collaborator' | 'admin'; note: string }>;
   /**
-   * Run `code` in a preview tab of the person whose post the turn took up, "me" or a persona's,
-   * and answer with what the page said: the code's value, or the error it threw. Throws when
-   * nothing ran it: no Studio of theirs is open, or the tab did not answer in time.
+   * Ask a preview tab of the person whose post the turn took up, "me" or a persona's, to run
+   * `code`. The call leaves the host: this returns once it is sent, and the tab's answer reaches
+   * the host's result handler, which writes it on the round at `at` and continues the turn, so the
+   * loop ends its invocation `waiting`. Throws when no tab can be asked, which is the call's error.
    */
-  run_in_tab(tab: string, code: string): Promise<{ ok: true; value: unknown } | { ok: false; error: string }>;
+  run_in_tab(tab: string, code: string, at: CallPlace): void;
 }
+
+/** Where a call that leaves the host is answered: its round, the version of the round it was sent
+ *  from, its place in the round, and the provider's id for it. */
+export interface CallPlace { roundId: string; version: string; index: number; call: number; callId: string }
 
 /** The loop tools that reach an entry — the keys of {@link LoopToolDeps}. */
 export type LoopToolName = keyof LoopToolDeps;
@@ -536,12 +544,6 @@ export interface CodegenLoopDeps {
    * records it.
    */
   woken?: boolean;
-  /** Whether `tool`'s calls leave the Galaxy: such a call is sent with {@link send} and the
-   *  invocation returns `waiting`, nothing awaited. */
-  leaves?(tool: string): boolean;
-  /** Send a call that leaves the Galaxy, with where its answer goes: the round's id, the version
-   *  it was dispatched from, and the call's place in it. */
-  send?(tool: LoopToolName, args: unknown, at: { roundId: string; version: string; index: number; call: number; callId: string }): void;
   /** The entry-reaching tools, keyed by tool name ({@link LoopToolDeps}). */
   tools: LoopToolDeps;
   /**
@@ -793,9 +795,10 @@ export function parseModelTurn(raw: unknown): ParsedModelTurn {
   return { toolCalls, rawToolCalls, text, reasoning };
 }
 
-/** Stable hash for loop-detection. Order-insensitive over object keys so logically
- *  identical args hash identically; cheap FNV-1a over the canonical string. */
-function stableStringify(v: unknown): string {
+/** A value's canonical text, its object keys sorted, so logically identical values give the same
+ *  text: the identical-call detector hashes it with FNV-1a, and the Galaxy compares a tab's answer
+ *  with what its round already holds. */
+export function stableStringify(v: unknown): string {
   if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'undefined';
   if (Array.isArray(v)) return `[${v.map(stableStringify).join(',')}]`;
   const keys = Object.keys(v as Record<string, unknown>).sort();
@@ -1307,11 +1310,6 @@ async function dispatch(
   if (detected(tc) && state.callHashes.has(callHash(tc))) {
     return record({ result: { stopped: REPEATED_CALL, detail: `repeated tool call ${tc.name}` } });
   }
-  if (deps.leaves?.(tc.name)) {
-    deps.send!(tc.name as LoopToolName, tc.args, { roundId: entry.id, version: entry.version, index: round.index, call: i, callId: tc.id });
-    return 'waiting';
-  }
-
   const args = tc.args as Record<string, any>;
   switch (tc.name) {
     case 'build': {
@@ -1346,12 +1344,12 @@ async function dispatch(
         return record({ result, ...by });
       } catch (e) { return failed(e); }
     case 'run_in_tab':
+      // The call leaves the host, and its answer continues the turn, so this invocation ends.
       try {
-        const result = clipRunResult(await deps.tools.run_in_tab(args.tab, args.code));
-        const by = acted();
-        deps.onProgress?.(stepLine(`ran code in the ${args.tab} tab`));
-        return record({ result, ...by });
+        deps.tools.run_in_tab(args.tab, args.code, { roundId: entry.id, version: entry.version, index: round.index, call: i, callId: tc.id });
       } catch (e) { return failed(e); }
+      deps.onProgress?.(stepLine(`asked the ${args.tab} tab to run code`));
+      return 'waiting';
     case 'read_file':
       try {
         const content = await deps.tools.read_file(args.path);

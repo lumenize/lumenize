@@ -86,7 +86,7 @@ function depsOf(w: World, store: RoundStore, blobs = memoryBlobs(), callModel: C
       edit_file: async (path) => ({ oid: 'commit-edit', path }),
       build: async () => { w.builds++; return w.buildScript.shift() ?? report(); },
       invite: async (email) => ({ invited: email, as: 'collaborator' as const, note: 'sent' }),
-      run_in_tab: async () => ({ ok: true as const, value: 1 }),
+      run_in_tab: () => {},
     },
   };
 }

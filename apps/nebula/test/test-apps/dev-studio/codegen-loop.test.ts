@@ -33,6 +33,7 @@ import {
   type BuildReport,
   type CodegenLoopDeps,
   type LoopToolDeps,
+  type CallPlace,
   type CodegenLoopConfig,
   type ChatMessage,
   type ModelParams,
@@ -136,7 +137,7 @@ function harness(
       }),
       build: build ?? (async () => cleanReport()),
       invite: async (email, scopeAdmin) => ({ invited: email, as: scopeAdmin ? 'admin' as const : 'collaborator' as const, note: 'sent' }),
-      run_in_tab: run_in_tab ?? (async () => ({ ok: true as const, value: 1 })),
+      run_in_tab: run_in_tab ?? (() => {}),
     },
     validateToolArgs: async () => ({ ok: true }),
     rounds: memoryRoundStore(),
@@ -482,13 +483,25 @@ describe('the read and edit tools (loop-level; the real deps are the Galaxy laye
     // The same code is rightly run twice: a persona's tab opens a few seconds after its invite,
     // and a read of a page is worth repeating after a change. Mutation: drop `run_in_tab` from
     // LOOP_DETECTOR_EXEMPT → the second call ends the turn `loop-detected` → red.
-    let n = 0;
+    // Each call leaves the loop, which ends its invocation waiting; the answer is written on the
+    // round, as the host's result handler writes it, and the next invocation goes on.
+    const sent: CallPlace[] = [];
     const h = harness([
       resp([toolCall('run_in_tab', { tab: 'gerry', code: 'return 1' }, 't1')], { content: 'first try' }),
       resp([toolCall('run_in_tab', { tab: 'gerry', code: 'return 1' }, 't2')], { content: 'second try' }),
       resp([toolCall('mark_complete', {}, 'c1')]),
-    ], { run_in_tab: async () => { n += 1; if (n === 1) throw new Error('`gerry` is not a member of the dev Star yet'); return { ok: true, value: n }; } });
-    const r = await runCodegenLoop(INITIAL, h.deps);
+    ], { run_in_tab: (_tab, _code, at) => { sent.push(at); } });
+    let r = await runCodegenLoop(INITIAL, h.deps);
+    for (const outcome of [{ error: '`gerry` is not a member of the dev Star yet' }, { result: { ok: true, value: 2 } }]) {
+      expect(r.stop).toBe('waiting');
+      const at = sent.at(-1)!;
+      const entry = (await h.deps.rounds.read()).find((e) => e.id === at.roundId)!;
+      expect(await h.deps.rounds.update(at.roundId, {
+        ...entry.round, calls: entry.round.calls.map((c, j) => (j === at.call ? { raw: c.raw, ...outcome } : c)),
+      }, at.version)).toBe('ok');
+      r = await runCodegenLoop(INITIAL, h.deps);
+    }
+    expect(sent).toHaveLength(2);
     expect(r.stop).toBe('complete');
     expect(r.toolCalls.filter((tc) => tc.name === 'run_in_tab').map((tc) => [tc.error, tc.result])).toEqual([
       ['`gerry` is not a member of the dev Star yet', undefined], [undefined, { ok: true, value: 2 }],

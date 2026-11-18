@@ -78,7 +78,7 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
     );
   });
 
-  it('every `@mesh()`-decorated entry LOOP_TOOL_ENTRIES names sits at the CHAT FLOOR, and `invite` and `runInTab` have no `@mesh()` at all', () => {
+  it('every `@mesh()`-decorated entry LOOP_TOOL_ENTRIES names sits at the CHAT FLOOR, and `invite`, `runInTab` and `onTabAnswer` have no `@mesh()` at all', () => {
     // Mutations: restore `requireDominionHere` on `writeSource` → it leaves the chat set → red;
     // decorate `invite` with `@mesh()` → the last assertion reds.
     const chat = meshMethods('chat');
@@ -96,6 +96,13 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
     expect(named.filter((name) => !callable.has(name))).toEqual(['invite', 'runInTab']);
     expect(typeof (Galaxy.prototype as unknown as Record<string, unknown>).runInTab).toBe('function');
     expect(typeof (Galaxy.prototype as unknown as Record<string, unknown>).invite).toBe('function'); // it exists, undecorated
+    // `onTabAnswer`, the result handler `runInTab`'s call names, runs at the fire-back door and
+    // writes on a turn's round as the agent, so a request naming it must be refused.
+    // Mutation: decorate it with `@mesh()` → it joins the callable set → red.
+    const handler = (Galaxy.prototype as unknown as Record<string, unknown>).onTabAnswer;
+    expect(typeof handler).toBe('function');
+    expect(callable.has('onTabAnswer')).toBe(false);
+    expect(isMeshCallable(handler as (...a: unknown[]) => unknown)).toBe(false);
   });
 
   it('the DOMINION list is exactly Galaxy configuration', () => {

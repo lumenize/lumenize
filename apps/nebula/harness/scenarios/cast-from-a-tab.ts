@@ -50,6 +50,7 @@ import { turnCallsOf } from '../lib/turn-calls';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
 import { askFrame } from '../lib/ask-frame';
 import { refreshAccessToken } from '../../test/lib/email-login';
+import { waitForDebugLines, loggedAfter, LOG_WAIT_MS, type DebugLine } from '../lib/stdio';
 
 export const needsContainer = true;
 
@@ -109,9 +110,9 @@ const HEAR_RUNS = `window.addEventListener('message', (e) => {
 type BuildReportLike = { bundle: { indexSha256?: string }; preview: { refreshed: boolean; why: string } };
 type RunAnswer = { ok: boolean; value?: any; error?: string };
 type Heard = { origin: string; ok: boolean };
-type ToolCall = { name: string; args?: Record<string, unknown>; result?: { ok?: boolean }; error?: string; claims?: { sub?: string } };
+type ToolCall = { round: number; name: string; args?: Record<string, unknown>; result?: { ok?: boolean }; error?: string; claims?: { sub?: string } };
 /** An agent message's value, with its turn's calls read from the turn's rounds. */
-type Value = { content?: string; replyTo?: string; calls?: ToolCall[] };
+type Value = { id?: string; content?: string; replyTo?: string; calls?: ToolCall[] };
 type FrameRead = { origin: string; sub?: string; actSub?: string };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -246,7 +247,7 @@ export async function run(stack: DevStack): Promise<void> {
         return reply !== undefined;
       });
       assert.ok(landed, `the agent never answered "${text.slice(0, 40)}…"`);
-      return { ...(reply!.snap.value as Value), calls: await turnCallsOf(watcher.client, reply!.id) as ToolCall[] };
+      return { ...(reply!.snap.value as Value), id: reply!.id, calls: await turnCallsOf(watcher.client, reply!.id) as ToolCall[] };
     };
     const runsOf = (reply: Value) => (reply.calls ?? []).filter((tc) => tc.name === 'run_in_tab');
     const describe = (reply: Value) => JSON.stringify((reply.calls ?? []).map((tc) => [tc.name, tc.args?.tab, tc.result?.ok, tc.error?.slice(0, 160)]));
@@ -266,6 +267,18 @@ export async function run(stack: DevStack): Promise<void> {
     record('turn 1', built);
     assert.ok(builtRuns.some((tc) => tc.result?.ok === true), `the turn ran no code in a tab that returned: ${describe(built)}`);
     assert.ok(builtRuns.every((tc) => tc.claims?.sub === oToken.sub), "every run_in_tab call must run under O's claims, whose post the turn took up");
+    // The call left the Galaxy: its round was stored with the call unresolved, and stored again
+    // answered once the tab's answer reached the call's result handler. The Worker logs each
+    // write of a round with how many of its calls have run.
+    const answeredRound = builtRuns.find((tc) => tc.result?.ok === true)!.round;
+    const writesOf = (all: DebugLine[]) => all.filter((l) =>
+      l.namespace === 'nebula.Galaxy.rounds' && l.message === 'round written' && l.data.message === built.id && l.data.index === answeredRound);
+    // In the order they were logged, since a deployed capture arrives one invocation at a time.
+    const writes = writesOf(await waitForDebugLines(stack, (all) => writesOf(all).some((l) => l.data.resolved === l.data.calls),
+      'the tab call\'s round written answered', LOG_WAIT_MS)).sort((a, b) => (loggedAfter(a, b) ? 1 : -1));
+    const firstAnswered = writes.findIndex((l) => l.data.resolved === l.data.calls);
+    assert.ok(writes.slice(0, firstAnswered).some((l) => (l.data.resolved as number) < (l.data.calls as number)),
+      `round ${answeredRound}, whose run_in_tab call returned, must be stored unresolved before it is stored answered: ${JSON.stringify(writes.map((l) => [l.data.op, l.data.resolved, l.data.calls]))}`);
     const oHeard = await heard(o.page);
     assert.ok(oHeard.length >= builtRuns.filter((tc) => tc.result !== undefined).length,
       `O's Studio must have heard a tab answer each run that returned: heard ${oHeard.length}`);

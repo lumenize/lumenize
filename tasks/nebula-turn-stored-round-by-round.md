@@ -557,6 +557,41 @@ Each phase leaves every suite green. A criterion that names a test means a test 
 
 **Suites and sweep:** Mesh's whole suite passed, 85 files and 1102 tests with 4 skipped, and `apps/nebula`'s 142 files and 1313 tests with 2 skipped, which is § *Phase 4*'s 1295 and the 18 this phase added. The full sweep passed 75 of 79 and parked `redeploy-strands-no-client`, as it always does. Four failed and passed on `--rerun` with nothing changed, so each is a **flake**: `scope-hosts-its-clients`, `scope-teardown` and `hosts-and-frames` timed out connecting to the deployed email-test Worker's socket, and `links-sign-in-once` lost a mail Resend reports it delivered.
 
+### Phase 6
+
+**For the human:**
+
+- An answer that lands while the run that sent its call is still ending would be written with no run left to continue the turn. The Galaxy keeps a flag for that case, and the run continues the turn when it ends. No test arranges it, and its mutation survived: after a send the run ends without awaiting any I/O, while an answer crosses a socket, so today the answer always lands after the run. I kept it, since an answer lost that way stalls its turn until the next isolate. Say if you would rather delete it until something makes the window real.
+- The phase says the loop's dep "reports `run_in_tab` as a tool that leaves the Galaxy". That is now the dep's own shape: `run_in_tab(tab, code, at)` takes where its answer goes and returns once the call is sent. The `leaves` and `send` pair § *Phase 3* added for it is gone, since a dep that answered in place could no longer be built without the in-memory wait. A later tool that leaves takes the same shape.
+- A tab's answer for a turn whose post moved on records the moved-post error and not the code's result, though the code ran. The turn then ends `post-moved`, as it does at any other call.
+
+**Retro notes:**
+
+- `onTabAnswer` reads the round, finds the call by the provider's id, and writes the outcome building on the version the call was sent from. A version that moved with the call already holding the same outcome is a second delivery and is dropped. Any other moved version ends the turn as a conflict. The comparison sorts keys, since a stored value need not keep its keys' order (ADR-002).
+- A passed-over tab's next tab is chosen under the claims of the post the turn took up, from the tab and code on the round's stored call.
+- The warm and teardown markers carry the run's id, and a build's own teardown carries none. The loop's progress line for a tab call now reads *"asked the … tab to run code"*, at the send.
+- `cast-from-a-tab` gains a check on the Worker's logs: the round whose `run_in_tab` call returned was written with that call unresolved before it was written answered.
+- A mutation table entry whose replacement ends in a `//` comment can swallow the rest of its line. One did, and its run reported CAUGHT on a syntax error. Read the failing test's name before counting a catch.
+
+**Close-out notes:**
+
+- `.claude/rules/mesh.md`'s TEMP bullet on `Galaxy.runInTab` is replaced by the rule that a node MUST NOT wait in memory on a mesh call it sends. `.claude/rules/security.md`'s *The Galaxy* bullet covers `onTabAnswer`.
+- The [backlog.md](backlog.md) row this task supersedes still describes the in-memory wait. § *Phase 7* deletes it.
+
+**Mutations run** (each caught by the test named, unless it says otherwise):
+
+- The trigger blind to the row: the second-person test, and the edited-post test.
+- The next tab picked from the post's current record: the edited-post test, whose second tab then runs the code.
+- A repeated answer written again: the twice-delivered test.
+- A conflict dropped: the admin-overwrite test.
+- The answer's run started with no deadline: the per-run deadline test.
+- An answer while a run is live, dropped: **survived**, as the first item for the human says.
+- The teardown taken from the run: the warm-and-teardown test, and `chat-trigger.test.ts` T5b.
+- The loop recording a tab call's result in place rather than waiting: every case in `run-in-tab.test.ts`, and the loop's identical-call test.
+- In `cast-from-a-tab`, no log line for a round write with a call still out: the new check, which found round 3 logged only answered. Its first run under the mutation died on the email-test Worker's socket before limb 1, so it was run again.
+
+**Suites and sweep:** `apps/nebula`'s 143 files and 1320 tests passed with 2 skipped, which is § *Phase 5*'s 1313 and the 7 in `tab-call.test.ts`. The turn subset passed, `cast-from-a-tab` twice with its new check, under the real model's three `run_in_tab` calls across runs. `rounds-as-they-land` failed once on a mail Resend delivered and the email-test Worker lost, and passed alone with nothing changed, so it is a **flake**.
+
 ## Non-goals
 
 - **Waking a turn nobody is watching.** D9 leaves it to the next call, and § *Beyond this task* keeps the alarm as a note.

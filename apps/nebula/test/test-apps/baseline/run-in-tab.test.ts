@@ -125,6 +125,17 @@ describe('run_in_tab runs in a Studio tab of the person the turn is working for'
     expect(c.ran).toEqual([['austen', 'me', 'return 1']]);
     expect(forAusten[0]).toMatchObject({ name: 'run_in_tab', result: { ok: true, value: { from: 'austen' } }, claims: { sub: c.aSub } });
     expect(forAusten[0]!.error).toBeUndefined();
+    // The answer was written on its round by the agent, whose snapshot is the round's newest.
+    let ausMessage = '';
+    for (const id of js.resourceIds) {
+      const snap = await c.j.resources.read('Message', id) as Snapshot | null;
+      if ((snap?.value as { content?: string } | undefined)?.content === 'Ran for Austen.') ausMessage = id;
+    }
+    const ausTurn = (await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<Galaxy>().resources.query(CHAT_MESSAGE_ONTOLOGY_VERSION,
+      { typeName: 'Round', filter: { message: ausMessage } }))) as { snapshots: Array<{ resourceId: string; value: { calls: Array<{ raw: { function: { name: string } } }> } }> };
+    const tabRound = ausTurn.snapshots.find((s) => s.value.calls.some((cl) => cl.raw.function.name === 'run_in_tab'))!;
+    const history = await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<GalaxyTest>().snapshotRowsForTest(tabRound.resourceId)) as Array<{ validFrom: string; sub: string }>;
+    expect(history.sort((x, y) => (x.validFrom < y.validFrom ? -1 : 1)).at(-1)!.sub).toBe(NEBULA_SUB);
 
     await c.seed([call('run_in_tab', { tab: 'gerry', code: 'return 2' }), call('mark_complete', {}, 'Ran for Jennifer.')]);
     await c.j.postUserMessage('Make Gerry\'s sample data.');

@@ -468,6 +468,7 @@ const KV_HOLD_BUILD = 'test:holdBuild';
 const KV_BUILD_FAULTS = 'test:buildFaults';
 const KV_STORE_FAULTS = 'test:storeFaults';
 const KV_DEADLINE = 'test:deadline';
+const KV_LAST_TAB_ANSWER = 'test:lastTabAnswer';
 /** What a probe's model call throws to end an invocation between rounds. */
 const PAUSED = 'paused between rounds (test)';
 
@@ -670,6 +671,21 @@ export class GalaxyTest extends Galaxy {
     return this.turnRow();
   }
 
+  /** Every tab answer, kept as its handler was called, so a test can deliver the last one again,
+   *  as a repeated fire-back would. */
+  override async onTabAnswer(...args: Parameters<Galaxy['onTabAnswer']>): Promise<void> {
+    this.ctx.storage.kv.put(KV_LAST_TAB_ANSWER, args);
+    return super.onTabAnswer(...args);
+  }
+
+  /** Deliver the last tab answer to its handler again. */
+  @mesh(requireDominionHere)
+  async replayTabAnswerForTest(): Promise<void> {
+    const args = this.ctx.storage.kv.get<Parameters<Galaxy['onTabAnswer']>>(KV_LAST_TAB_ANSWER);
+    if (!args) throw new Error('no tab has answered yet');
+    await super.onTabAnswer(...args);
+  }
+
   /** Store a row naming `message`, for the post `post`, as a turn writes one. */
   @mesh(requireDominionHere)
   seedTurnRowForTest(message: string, post: TookUp): void {
@@ -710,7 +726,7 @@ export class GalaxyTest extends Galaxy {
       edit_file: (path, anchor, replacement) => under(() => entries.edit_file(path, anchor, replacement)),
       build: (opts) => under(() => entries.build(opts)),
       invite: (email, scopeAdmin) => under(() => entries.invite(email, scopeAdmin)),
-      run_in_tab: (tab, code) => under(() => entries.run_in_tab(tab, code)),
+      run_in_tab: (tab, code, at) => under(() => entries.run_in_tab(tab, code, at)),
     };
     const params: unknown[] = [];
     for (let invocations = 1; ; invocations++) {
