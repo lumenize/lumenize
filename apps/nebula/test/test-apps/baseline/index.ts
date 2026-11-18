@@ -569,8 +569,9 @@ export class GalaxyTest extends Galaxy {
   // next run reads them. Only a held call's own wait is in memory, which a reset ends.
   /** Every model call this Galaxy has made, counted across resets. */
   #modelCalls(): number { return this.ctx.storage.kv.get<number>(KV_MODEL_CALLS) ?? 0; }
-  /** The waits held calls and builds are parked on, released by {@link releaseForTest}. */
-  #held: Array<() => void> = [];
+  /** The waits held calls and builds are parked on, each with the model call it holds, released
+   *  by {@link releaseForTest}. */
+  #held: Array<{ call?: number; release: () => void }> = [];
   protected override async runModel(_model: string, body: Record<string, unknown>): Promise<unknown> {
     const kv = this.ctx.storage.kv;
     const n = this.#modelCalls() + 1;
@@ -583,7 +584,7 @@ export class GalaxyTest extends Galaxy {
     }
     if (kv.get<number>(KV_HOLD_MODEL_CALL) === n) {
       debug('nebula.GalaxyTest.hold').info('model call held', { instanceName: this.lmz.instanceName, call: n });
-      await new Promise<void>((resolve) => this.#held.push(resolve));
+      await new Promise<void>((resolve) => this.#held.push({ call: n, release: resolve }));
     }
     for (;;) {
       const script = kv.get<unknown[]>(KV_SCRIPT) ?? [];
@@ -605,7 +606,7 @@ export class GalaxyTest extends Galaxy {
     if (this.ctx.storage.kv.get<boolean>(KV_HOLD_BUILD)) {
       this.ctx.storage.kv.delete(KV_HOLD_BUILD);
       debug('nebula.GalaxyTest.hold').info('build held', { instanceName: this.lmz.instanceName });
-      await new Promise<void>((resolve) => this.#held.push(resolve));
+      await new Promise<void>((resolve) => this.#held.push({ release: resolve }));
     }
     return fakeBuildJob(this.workspaceFs(), opts, this.ctx.storage.kv.get<BuildFaults>(KV_BUILD_FAULTS) ?? {});
   }
@@ -628,10 +629,12 @@ export class GalaxyTest extends Galaxy {
     this.ctx.storage.kv.put(KV_HOLD_BUILD, true);
   }
 
-  /** Release every held call and build. */
+  /** Release the held model call this Galaxy made `call`th, or every held call and build. */
   @mesh(requireDominionHere)
-  releaseForTest(): void {
-    for (const release of this.#held.splice(0)) release();
+  releaseForTest(call?: number): void {
+    const released = this.#held.filter((h) => call === undefined || h.call === call);
+    this.#held = this.#held.filter((h) => !released.includes(h));
+    for (const { release } of released) release();
   }
 
   /** How many model calls this Galaxy has made, across resets. */
@@ -665,6 +668,24 @@ export class GalaxyTest extends Galaxy {
   @mesh(requireDominionHere)
   turnRowForTest(): ReturnType<Galaxy['turnRow']> {
     return this.turnRow();
+  }
+
+  /** Store a row naming `message`, for the post `post`, as a turn writes one. */
+  @mesh(requireDominionHere)
+  seedTurnRowForTest(message: string, post: TookUp): void {
+    const initial = assembleCodegenPrompt({ systemBundles: ['sys'], userRequest: 'a seeded turn' });
+    const row: TurnRow = { prompt: [initial.system, initial.user], post, message, read: {}, interrupted: [] };
+    this.ctx.storage.kv.put(TURN_ROW_KEY, row);
+  }
+
+  /** Arm a mesh alarm at once, whose handler logs `alarm ran`. No `@mesh()`: a test reaches it in
+   *  the object through `runInDurableObject`, so no Client's call reaches the Galaxy with it. */
+  armAlarmForTest(): void {
+    this.svc.alarms.schedule(0, this.ctn<GalaxyTest>().alarmRanForTest());
+  }
+
+  alarmRanForTest(): void {
+    debug('nebula.GalaxyTest.alarm').info('alarm ran', { instanceName: this.lmz.instanceName });
   }
 
   /**

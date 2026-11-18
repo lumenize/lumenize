@@ -515,6 +515,48 @@ Each phase leaves every suite green. A criterion that names a test means a test 
 
 **Suites and sweep:** the whole `apps/nebula` suite passed, 140 files, 1295 tests and 2 skipped. The turn subset, the 21 scenarios that run a turn, read its record or render Studio's chat, plus `rounds-as-they-land`, passed 22 of 22 on its first run, each scenario alone on a fresh stack. No flake, and the tree did not change during it.
 
+### Phase 5
+
+**For the human:**
+
+- The fixed lines are mine to word and yours to change. A turn cut off twice at one model call ends in *"I was interrupted twice at the same step, so I stopped. What I saved is kept: ask again and I will carry on from it."* A run past the deadline ends in *"This ran past the time I am allowed, so I stopped."*, and a run that throws in *"Something went wrong on my side, so I stopped."*, each followed by the same second sentence. They follow whatever the model last wrote, as `ROUND_CONFLICT_LINE` did in § *Phase 4*, and stand alone when it wrote nothing. That last part changed the conflict line too, which no longer follows *"I couldn't finish cleanly — see the thought process."*
+- Mesh gained a hook, `ScopedMeshDO.onFirstClient()`, and its docs do not mention it. `website/docs/mesh/lumenize-do.mdx` has the lifecycle table it belongs in, but that page still names the class `LumenizeDO`, from before `ScopedMeshDO`, so a row there would sit beside a stale name. I left both for you to decide.
+- The criterion on a blob read that throws "with no reset" cannot hold as written. A run reads back only blobs it did not write, and in this phase only a wake is such a run, so the test resets the Galaxy and the woken run's read throws. The round-write case runs with no reset.
+
+**Retro notes:**
+
+- The hook fires after the call's admission, or after a 101, so the node's name is stamped when the Galaxy's wake logs it. It never fires for a refused call.
+- A woken run's first rebuild says what the eviction cut. A model call is recorded on the row, then made again with the note. A call with no outcome is answered as interrupted, and the calls after it run. A turn that had ended goes on to its closing step or its commit. `#runFromRow` tells the closing step a wake found the turn ended by whether the run wrote a round, and the closing call is recorded at `rounds + 1`.
+- The trigger wakes a row only on the isolate's first look for one. After that, a row with no live run belongs to this isolate: in § *Phase 6* it waits on a tab, and here it is only a row whose turn could not be ended, left for the next isolate. DI14's second flag is what says so.
+- `stoppedTurn` builds the summary a deadline or a throw commits, by rebuilding the turn with every blob read as empty, since no model is sent it.
+- After `ctx.abort()` in the vitest-plugin lane, a stub made before the abort answers every call with `scope-deleted`, and a fresh `getByName` reaches the fresh object. The scope lifecycle hooks log `tearing down` twice for a Galaxy reset just before, since they retry the first refusal.
+- The trigger's log lines carry the post's id and no `instanceName`, so a test matches them by the post.
+
+**Close-out notes:**
+
+- `#takenUp` and its TEMP comment are gone, and so is the trigger's *"edited while its turn runs"* line, which nothing read. `grep -n 'takenUp' apps/nebula/src/galaxy.ts` prints nothing.
+- [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check* still points at `#takenUp`, and this phase answers the questions § *Relationships* names. § *Phase 7* rewrites it, as § *Relationships* says.
+- `waiting-posts.test.ts`'s reset and deadline cases and the dev-studio deadline probe now assert the new behaviour: the wake continues a cut-off turn, and a deadline commits our line answering the post.
+
+**Mutations run** (each caught by the test named, unless it says otherwise):
+
+- No record of a cut model call on the row: the three cut-at-round-4 tests.
+- A second interruption at any round ends the turn: the rounds-4-and-6 test.
+- The wake started from `onStart`: the cut-at-round-4 tests, whose reset then wakes before any Client.
+- The closing step not told of a wake: both closing tests. A second cut there ignored: the cut-twice closing test.
+- No check for a committed message: the row-beside-its-message test.
+- A run's rejection left unhandled: the round-write and blob-read tests.
+- The trigger blind to the row: the post-beside-a-row test.
+- The wake's flags set after a macrotask: the post-beside-a-row test, through the second flag. The two-Client test passed under it, since a Client that reconnects before it posts sets the flags long before its post arrives; the race it names needs a post to be the first thing to reach a new isolate.
+- A stale run's round write, and its round write and dispatch together: the deadline test.
+- The commit deleting the row by its presence: **survived**. The check covers a run whose own commit is still awaiting when the deadline ends its turn and the next turn starts, which no test arranges, so it stays for that interleaving.
+- No end for a turn past its deadline: the deadline test.
+- The cut call run again: the `edit_file` test. Every call with no outcome answered as interrupted: the `[read_file, build, write_file]` test.
+- In the loop's own tests: a woken run run as an ordinary one, a second cut ignored, and no check before a dispatch.
+- In Mesh: the hook firing on every arrival, never on an upgrade, for any chain, and never on a call. Each reddened its own test in `hosted-clients.test.ts`.
+
+**Suites and sweep:** Mesh's whole suite passed, 85 files and 1102 tests with 4 skipped, and `apps/nebula`'s 142 files and 1313 tests with 2 skipped, which is § *Phase 4*'s 1295 and the 18 this phase added. The full sweep passed 75 of 79 and parked `redeploy-strands-no-client`, as it always does. Four failed and passed on `--rerun` with nothing changed, so each is a **flake**: `scope-hosts-its-clients`, `scope-teardown` and `hosts-and-frames` timed out connecting to the deployed email-test Worker's socket, and `links-sign-in-once` lost a mail Resend reports it delivered.
+
 ## Non-goals
 
 - **Waking a turn nobody is watching.** D9 leaves it to the next call, and § *Beyond this task* keeps the alarm as a note.

@@ -300,8 +300,9 @@ export class GalaxyDeadlineProbe extends GalaxyLoopProbe {
    * inside one DO invocation): (1) a HUNG generation starts (detached, like the commit
    * trigger fires it); (2) a second trigger while it hangs is REFUSED by the
    * single-flight latch (returns at once, generates nothing); (3) the hung turn hits
-   * the deadline and releases the latch; (4) a FRESH trigger then runs a NEW
-   * generation to a durable commit. Outcomes persisted for the test's poll.
+   * the deadline, which commits our own line for it and releases the latch; (4) a FRESH
+   * trigger then runs a NEW generation to a durable commit. Outcomes persisted for the
+   * test's poll.
    */
   @mesh(requireDominionHere)
   async chatDeadlineScenario(): Promise<void> {
@@ -325,7 +326,7 @@ export class GalaxyDeadlineProbe extends GalaxyLoopProbe {
     const busyStart = Date.now();
     await this.runTriggeredTurn(mBusy, 'me too');
     const busyMs = Date.now() - busyStart;
-    // (3) The deadline releases the latch (the hung model call never resolves).
+    // (3) The deadline ends the hung turn and releases the latch (its model call never resolves).
     await hung;
     const hungMs = Date.now() - t0;
     // (4) THE CRITERION: a fresh trigger now runs a NEW generation to completion.

@@ -334,14 +334,42 @@ describe('an invocation continues the turn the one before it left', () => {
       { raw: call('write_file', { path: 'c.vue', content: 'c' }, 'w3') },
     ] }]);
     const seen: Seen = [];
-    const deps = { ...depsOf(w, store, memoryBlobs(), model([resp([call('mark_complete', {}, 'c1')])], seen, { i: 0 })),
-      foundInFlight: (index: number, i: number) => index === 1 && i === 1 };
+    const deps = { ...depsOf(w, store, memoryBlobs(), model([resp([call('mark_complete', {}, 'c1')])], seen, { i: 0 })), woken: true };
     const result = await runCodegenLoop(INITIAL, deps);
     expect(result.stop).toBe('complete');
     expect(w.writes).toEqual(['c.vue']);
     const toolMessages = seen[0]![0].filter((m) => m.role === 'tool');
     expect(toolMessages.map((m) => m.tool_call_id)).toEqual(['w1', 'w2', 'w3']);
     expect(JSON.parse(toolMessages[1]!.content)).toEqual({ error: INTERRUPTED_CALL_ERROR });
+  });
+
+  // MUTATION: run a woken invocation as an ordinary one → the cut call is made again with no record.
+  it('records a model call a wake finds cut off, and makes it again with the note', async () => {
+    const w = world();
+    const store = await seeded([{ index: 1, text: 'one', calls: [done(call('write_file', { path: 'a.vue', content: 'a' }, 'w1'), { written: 'a.vue', oid: 'c1' })] }]);
+    const seen: Seen = [];
+    const result = await runCodegenLoop(INITIAL, { ...depsOf(w, store, memoryBlobs(), model([resp([call('mark_complete', {}, 'c2')], 'done')], seen, { i: 0 })), woken: true });
+    expect(result.stop).toBe('complete');
+    expect(await store.interrupted()).toEqual([2]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]![0].at(-1)).toEqual({ role: 'user', content: INTERRUPTED_ROUND_NOTE });
+  });
+
+  // MUTATION: record the cut call whatever the row holds → the call is made a third time.
+  it('ends interrupted, with no model call, when a wake finds the same model call cut off again', async () => {
+    const w = world();
+    const store = await seeded([{ index: 1, text: 'one', calls: [done(call('write_file', { path: 'a.vue', content: 'a' }, 'w1'), { written: 'a.vue', oid: 'c1' })] }], [2]);
+    const seen: Seen = [];
+    const result = await runCodegenLoop(INITIAL, { ...depsOf(w, store, memoryBlobs(), model([], seen, { i: 0 })), woken: true });
+    expect([result.stop, result.rounds, result.appliedPaths, seen.length]).toEqual(['interrupted', 1, ['a.vue'], 0]);
+  });
+
+  // MUTATION: drop the check before a dispatch → the write runs for a turn that is no longer this one.
+  it('dispatches nothing once the turn\'s row names another turn', async () => {
+    const w = world();
+    const store = await seeded([{ index: 1, text: 'one', calls: [{ raw: call('write_file', { path: 'a.vue', content: 'a' }, 'w1') }] }]);
+    const result = await runCodegenLoop(INITIAL, depsOf(w, { ...store, isCurrent: async () => false }, memoryBlobs(), model([], [], { i: 0 })));
+    expect([result.stop, w.writes]).toEqual(['not-this-turn', []]);
   });
 
   // MUTATION: put the note after the interrupted round rather than before it, and the earlier

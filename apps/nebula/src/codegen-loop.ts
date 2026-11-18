@@ -441,7 +441,9 @@ export type StopReason =
   | 'build-unavailable' // the container step failed TWICE in one turn — nothing the model writes changes that
   | 'post-moved'      // the post the turn took up was edited or deleted while it ran
   | 'conflict'        // another writer changed a round of this turn
-  | 'error';          // a controlled loop error (never an uncaught crash)
+  | 'interrupted'     // a wake found the same model call cut off twice
+  | 'deadline'        // the run passed the generation deadline, and our own code ended the turn
+  | 'error';          // a controlled loop error, or a run that threw (never an uncaught crash)
 
 export interface LoopResult {
   /** How the turn stopped, or how this invocation paused: `waiting` for a call that left the
@@ -526,9 +528,14 @@ export interface CodegenLoopDeps {
   rounds: RoundStore;
   /** Where the content of each file the model reads is kept, by blob id ({@link BlobStore}). */
   blobs: BlobStore;
-  /** Whether the call at `call` in round `index` was in flight when the Galaxy went away. Such a
-   *  call is answered as interrupted and never run again, and the calls after it run. */
-  foundInFlight?(index: number, call: number): boolean;
+  /**
+   * Set on a run a wake starts in a new isolate, where whatever the turn had in flight is gone, so
+   * the step its rounds say is next is the one the eviction cut off. A call with no outcome is
+   * answered as interrupted and never run again, and the calls after it run. A model call is
+   * recorded on the turn's row and made again, or ends the turn `interrupted` when the row already
+   * records it.
+   */
+  woken?: boolean;
   /** Whether `tool`'s calls leave the Galaxy: such a call is sent with {@link send} and the
    *  invocation returns `waiting`, nothing awaited. */
   leaves?(tool: string): boolean;
@@ -852,6 +859,13 @@ export interface RoundStore {
   update(id: string, round: StoredRound, version: string): Promise<RoundWriteOutcome>;
   /** The indexes of the rounds whose model call a wake found cut off, from the turn's row. */
   interrupted(): Promise<number[]>;
+  /** Record on the turn's row that the model call for round `index` was cut off: `again` when the
+   *  row records it already, `not-this-turn` when the row names another turn. The write is
+   *  synchronous, so it lands before the call is made again. */
+  recordInterrupted(index: number): Promise<'recorded' | 'again' | 'not-this-turn'>;
+  /** Whether the turn's row still names this turn. A run asks before each dispatch, since a turn
+   *  our own code ended may still be running. */
+  isCurrent(): Promise<boolean>;
 }
 
 /** Where the content of a file the model read is kept, by its git blob id (`oid`). */
@@ -891,6 +905,12 @@ export function memoryRoundStore(interrupted: number[] = []): RoundStore {
       return 'ok';
     },
     interrupted: async () => [...interrupted],
+    recordInterrupted: async (index) => {
+      if (interrupted.includes(index)) return 'again';
+      interrupted.push(index);
+      return 'recorded';
+    },
+    isCurrent: async () => true,
   };
 }
 
@@ -1144,6 +1164,19 @@ function resultOf(state: TurnState, stop: LoopResult['stop'], detail: string): L
 }
 
 /**
+ * A turn's result as its stored rounds leave it, for a turn our own code ends without its run: one
+ * past its deadline, or one whose run threw. It reads no blob, since nothing is sent to the model,
+ * so the files the turn read stand empty in its `messages`.
+ */
+export function stoppedTurn(input: {
+  prompt: ChatMessage[]; rounds: StoredRound[]; interrupted: readonly number[]; stop: StopReason; detail: string;
+}): LoopResult {
+  const blobs = new Map(readOids(input.rounds).map((oid) => [oid, '']));
+  const state = rebuildTurn({ prompt: input.prompt, rounds: input.rounds, interrupted: input.interrupted, blobs, config: DEFAULT_LOOP_CONFIG });
+  return resultOf(state, input.stop, input.detail);
+}
+
+/**
  * Run a turn from its stored rounds until it ends or waits. It holds nothing between steps:
  * before each model call and each dispatch it reads the turn's rounds and works out where the
  * turn stands ({@link rebuildTurn}), so a second invocation on the same store continues the turn
@@ -1154,9 +1187,10 @@ function resultOf(state: TurnState, stop: LoopResult['stop'], detail: string): L
  * It returns, never throws, on model or tool misbehaviour: a call that cannot run records why as
  * its error, and the turn goes on. It returns `error` when a model call throws, `post-moved` when
  * the post the turn took up changed under a tool, `conflict` when a round write finds another
- * writer changed the round, `not-this-turn` when the turn's row names another turn, and `waiting`
- * when a call leaves the Galaxy, whose result handler continues the turn. A store or blob read
- * that throws propagates.
+ * writer changed the round, `not-this-turn` when the turn's row names another turn, `interrupted`
+ * when a woken run finds a model call cut off where one was cut off before, and `waiting` when a
+ * call leaves the Galaxy, whose result handler continues the turn. A store or blob read that
+ * throws propagates.
  *
  * Per call, in order: a call a wake found in flight is answered as interrupted; malformed
  * arguments, an unknown tool and a shape or unknown-key refusal each record that call's error
@@ -1172,6 +1206,9 @@ export async function runCodegenLoop(
   const prompt = [initial.system, initial.user];
   // Each blob read once in an invocation: its bytes are named by their content.
   const blobs = new Map<string, string>();
+  // A woken run's first step is the one the eviction cut off; every step after it is ordinary.
+  let woken = deps.woken === true;
+  let inFlight: { index: number; call: number } | undefined;
   for (;;) {
     const stored = await deps.rounds.read();
     const interrupted = await deps.rounds.interrupted();
@@ -1180,6 +1217,17 @@ export async function runCodegenLoop(
     }
     const state = rebuildTurn({ prompt, rounds: stored.map((s) => s.round), interrupted, blobs, config });
     const next = state.next;
+    if (woken) {
+      woken = false;
+      if (next.kind === 'model') {
+        // Recorded before the call is made again, so a second cut finds it.
+        const recorded = await deps.rounds.recordInterrupted(next.index);
+        if (recorded === 'again') return resultOf(state, 'interrupted', `the model call for round ${next.index} was cut off twice`);
+        if (recorded === 'not-this-turn') return resultOf(state, recorded, 'the turn\'s row names another turn');
+        continue;
+      }
+      if (next.kind === 'dispatch') inFlight = { index: next.index, call: next.call };
+    }
     if (next.kind === 'stop') return resultOf(state, next.stop, next.detail);
 
     if (next.kind === 'model') {
@@ -1206,8 +1254,11 @@ export async function runCodegenLoop(
       continue;
     }
 
+    if (!(await deps.rounds.isCurrent())) return resultOf(state, 'not-this-turn', 'the turn\'s row names another turn');
     const entry = stored.find((s) => s.round.index === next.index)!;
-    const outcome = await dispatch(entry, next.call, state, deps, blobs);
+    const cut = inFlight?.index === next.index && inFlight.call === next.call;
+    inFlight = undefined;
+    const outcome = await dispatch(entry, next.call, state, deps, blobs, cut);
     if (outcome === 'waiting') return resultOf(state, 'waiting', 'a call left the Galaxy and its answer will continue the turn');
     if (outcome !== 'ok') return resultOf(state, outcome, `the round's write answered ${outcome}`);
   }
@@ -1215,7 +1266,8 @@ export async function runCodegenLoop(
 
 /**
  * Run one stored call, and store what it came to on its round, naming the version the round was
- * read at. Answers the write's outcome, or `waiting` for a call sent off the Galaxy.
+ * read at. Answers the write's outcome, or `waiting` for a call sent off the Galaxy. A call `cut`
+ * off by an eviction is answered as interrupted and not run.
  */
 async function dispatch(
   entry: { id: string; version: string; round: StoredRound },
@@ -1223,6 +1275,7 @@ async function dispatch(
   state: TurnState,
   deps: CodegenLoopDeps,
   blobs: Map<string, string>,
+  cut: boolean,
 ): Promise<RoundWriteOutcome | 'waiting'> {
   const { round } = entry;
   const tc = parseToolCall(round.calls[i]!.raw, i);
@@ -1236,7 +1289,7 @@ async function dispatch(
     ? record({ error: POST_MOVED_DETAIL })
     : record({ error: e instanceof Error ? e.message : String(e), ...acted() });
 
-  if (deps.foundInFlight?.(round.index, i)) return record({ error: INTERRUPTED_CALL_ERROR });
+  if (cut) return record({ error: INTERRUPTED_CALL_ERROR });
   if (tc.args === undefined) {
     // A reply that reaches its length limit ends mid-string, which is what this most often is.
     return record({ error: `malformed tool arguments: ${tc.argsParseError ?? 'not JSON'}. If they were cut off, your reply reached its length limit: write a smaller file, moving part of it into \`src/components/*.vue\`, and add the rest with edit_file.` });

@@ -389,9 +389,12 @@ describe('Galaxy turn runner — single-flight latch + generation deadline', () 
     // (3) The hung turn released at the deadline (~800ms), not at the model (never).
     expect(outcome.hungMs).toBeGreaterThanOrEqual(700);
     expect(outcome.hungMs).toBeLessThan(5000);
-    // (4) THE CRITERION: exactly ONE durable commit — the fresh post-deadline turn's.
-    // The hung turn (never completed) and the busy turn (refused) committed nothing.
-    expect(outcome.committed).toHaveLength(1);
-    expect(outcome.committed[0]).toMatchObject({ content: 'fresh turn ran', replyTo: 'm-fresh' });
+    // (4) THE CRITERION: the hung turn ends in our own line at the deadline, and the fresh
+    // post-deadline turn commits its own reply. The busy turn (refused) committed nothing.
+    // Mutation: leave a turn the deadline cuts off without a message → only the fresh one commits.
+    expect(outcome.committed).toHaveLength(2);
+    expect(outcome.committed[0]!.replyTo).toBe('m-hung');
+    expect(outcome.committed[0]!.content.endsWith('This ran past the time I am allowed, so I stopped. What I saved is kept: ask again and I will carry on from it.')).toBe(true);
+    expect(outcome.committed[1]).toMatchObject({ content: 'fresh turn ran', replyTo: 'm-fresh' });
   });
 });

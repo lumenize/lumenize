@@ -92,6 +92,8 @@ const someone = () => `friend-${crypto.randomUUID().slice(0, 8)}@example.com`;
 /** What the Galaxy's own check tells a turn working for someone who is not an admin of the app. */
 /** What a turn's message says when the post it took up changed while it worked. */
 const POST_MOVED = 'The post I was working on was changed while I worked, so I stopped. I will take it up again as it reads now.';
+/** What a turn's message says when its run passed the generation deadline. */
+const DEADLINE = 'This ran past the time I am allowed, so I stopped. What I saved is kept: ask again and I will carry on from it.';
 const NOT_AN_ADMIN = 'Inviting into this app needs one of its admins, and the person this turn is working for is not one. Say so, and ask an admin in the chat to ask for the invite.';
 
 /** Post a Message at an id the test chose, so a script written beforehand can name it. */
@@ -284,7 +286,7 @@ describe('a post edited while its turn runs', () => {
   const valueOf = (snap: Snapshot) => snap.value as { content: string; replyTo?: string; answers?: string[] };
 
   // Mutations: act under the post's current record whatever its `validFrom` → the turn's write
-  // lands, under Austen; drop the trigger's check on a taken-up post → the edit starts a second
+  // lands, under Austen; drop the trigger's check for a turn in flight → the edit starts a second
   // turn beside the first; keep `replyTo` after a conflict → the stopped turn's message answers
   // the post and the edited words are never worked.
   it('stops the turn at its next tool call, which writes nothing and answers no post; a decision then takes the edited post up under its editor', async () => {
@@ -696,39 +698,31 @@ describe('each source commit names whose authority it used', () => {
 });
 
 describe('a post whose turn an eviction cut off', () => {
-  // The post and the claims its write recorded are in storage, so nothing is lost with the
-  // isolate. Mutations: keep the claims a turn acts under in a map in memory → the reset empties
-  // it and the write is refused; let a decision consider only posts some turn has not started on
-  // → Jennifer's post is never offered again.
-  it('is taken up by the decision after the next post\'s turn, and worked under its own poster\'s recorded claims', async () => {
+  // The post, the claims its write recorded and the turn's row are in storage, so nothing is lost
+  // with the isolate. Mutations: keep the claims a turn acts under in a map in memory → the reset
+  // empties it and the write is refused; wake nothing when a Client reconnects → no turn goes on.
+  it('is continued once a Client reconnects, under its own poster\'s recorded claims', async () => {
     const scope = uniqueScope();
     const c = await cast(scope);
-    const [j1, a1] = [crypto.randomUUID(), crypto.randomUUID()];
-    await c.seed([{ __delayMs: 60_000 }]);
-    await post(c.j, j1, 'Build me a wishlist.');
-    await vi.waitFor(() => expect(turnLines(scope, 'took up')).toHaveLength(1));
-
-    // The Galaxy is reset mid-turn: its storage stays, and everything it held in memory goes,
-    // the hung turn and the latch among them.
-    await (runInDurableObject as any)(env.GALAXY.getByName(scope), (_instance: unknown, ctx: DurableObjectState) => { ctx.abort('an eviction, in a test'); })
-      .catch(() => { /* the abort rejects the call that made it */ });
-    await vi.waitFor(() => { expect(c.j.connectionState).toBe('connected'); expect(c.a.connectionState).toBe('connected'); }, { timeout: 15_000 });
-    await vi.waitFor(async () => expect(await c.waiting()).toEqual([j1]), { timeout: 15_000 });
-    using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
-
+    const j1 = crypto.randomUUID();
     await c.seed([
-      say('Hello, Austen.'),
-      call('take_up', { postId: j1 }),
       call('write_file', { path: 'src/wishlist.txt', content: 'asked for by Jennifer, before the reset' }),
       call('mark_complete', {}, 'Jennifer, your wishlist is built.'),
     ]);
-    await post(c.a, a1, 'Hello?');
-    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(2), { timeout: 20_000 });
+    await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<GalaxyTest>().holdModelCallForTest(1));
+    await post(c.j, j1, 'Build me a wishlist.');
+    await vi.waitFor(() => expect(entries.some((e) => e.namespace === 'nebula.GalaxyTest.hold' && e.data?.instanceName === scope)).toBe(true), { timeout: 15_000 });
 
-    // Since the reset: Austen's post started a turn, and the decision after it took up Jennifer's.
+    // The Galaxy is reset mid-turn: its storage stays, and everything it held in memory goes,
+    // the held model call and the latch among them.
+    await (runInDurableObject as any)(env.GALAXY.getByName(scope), (_instance: unknown, ctx: DurableObjectState) => { ctx.abort('an eviction, in a test'); })
+      .catch(() => { /* the abort rejects the call that made it */ });
+    await vi.waitFor(() => { expect(c.j.connectionState).toBe('connected'); expect(c.a.connectionState).toBe('connected'); }, { timeout: 15_000 });
+    using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
+    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(1), { timeout: 20_000 });
+
+    // The one turn was taken up before the reset, and the wake went on with it.
     expect(turnLines(scope, 'took up').map((l) => [l.postId, l.claims])).toEqual([
-      [j1, { sub: c.jSub, profileId: c.jProfile, act: AGENT }],
-      [a1, { sub: c.aSub, profileId: c.aProfile, act: AGENT }],
       [j1, { sub: c.jSub, profileId: c.jProfile, act: AGENT }],
     ]);
     const built = (await agentMessages(c.j, sub.resourceIds)).get('Jennifer, your wishlist is built.')!;
@@ -746,9 +740,9 @@ describe('a post whose turn an eviction cut off', () => {
 
 describe('a turn the generation deadline cuts off', () => {
   // Mutations: start a decision when the deadline cuts a turn off → a decision's request follows
-  // the deadline; forget which posts still have a turn running → a second turn starts on the
-  // hung post; drop the trigger's check on a taken-up post → the edit below starts one too.
-  it('starts no decision, an edit to its post starts no turn, and no later decision takes its post up again while it still runs', async () => {
+  // the deadline; leave the cut-off turn without a message → its post still waits, and the
+  // decision after Austen's second post takes it up again.
+  it('ends in our own line answering its post, starts no decision, and its post is never taken up again', async () => {
     const scope = uniqueScope();
     const c = await cast(scope);
     using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
@@ -759,27 +753,23 @@ describe('a turn the generation deadline cuts off', () => {
     await post(c.a, a1, 'Sent while it hangs.');
     const cutOff = () => entries.findIndex((e) => e.namespace === 'nebula.Galaxy.trigger' && e.message === 'turn failed: generation exceeded the deadline');
     await vi.waitFor(() => expect(cutOff()).toBeGreaterThan(-1), { timeout: 10_000 });
+    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(1), { timeout: 10_000 });
+    const [cut] = [...(await agentMessages(c.j, sub.resourceIds)).values()];
+    const cutValue = cut!.value as { content: string; replyTo?: string; codegen: { stop: string } };
+    expect([cutValue.content, cutValue.replyTo, cutValue.codegen.stop]).toEqual([DEADLINE, j1, 'deadline']);
     // Past the deadline the latch is free and Austen's post still waits, with nothing started.
     await new Promise((r) => setTimeout(r, 600));
     expect(turnLines(scope, 'request').filter((l) => l.step === 'decision')).toEqual([]);
+    expect(await c.waiting()).toEqual([a1]);
 
-    // Jennifer edits the post whose turn still hangs. A script is seeded, so a turn the edit
-    // started would run and take the post up.
-    await c.seed([say('a second turn on the hung post, started by the edit')]);
-    const hung = await c.j.resources.read('Message', j1) as Snapshot;
-    expect((await c.j.resources.transaction({
-      [j1]: { op: 'put', typeName: 'Message', ifValidFromMatches: hung.meta.validFrom, value: { chat: DEFAULT_CHAT_ID, content: 'Reworded while it hangs.' } },
-    })).kind).toBe('committed');
-    await new Promise((r) => setTimeout(r, 600));
-    expect(turnLines(scope, 'took up').map((l) => l.postId)).toEqual([j1]);
-
+    await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<GalaxyTest>().setGenerationDeadlineForTest(60_000));
     await c.seed([
       say('Reply to the second.'),
       call('take_up', { postId: a1 }), say('Reply to the first.'),
-      call('take_up', { postId: j1 }), say('a second turn on the hung post'),
+      call('take_up', { postId: j1 }), say('a second turn on the cut-off post'),
     ]);
     await post(c.a, a2, 'A second post from Austen.');
-    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(2), { timeout: 20_000 });
+    await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(3), { timeout: 20_000 });
     await new Promise((r) => setTimeout(r, 600));
     expect(turnLines(scope, 'took up').map((l) => l.postId)).toEqual([j1, a2, a1]);
     expect(turnLines(scope, 'decision').map((l) => l.postId)).toEqual([a1]);

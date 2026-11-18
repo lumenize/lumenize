@@ -74,6 +74,7 @@ import { TOOL_ARGS_BUNDLE_ID } from './tool-args-constants';
 import { TOOL_ARGS_VALIDATOR_MODULE } from './validator-seeds';
 import {
   runCodegenLoop,
+  stoppedTurn,
   parseModelTurn,
   assembleCodegenPrompt,
   renderHistoryBundle,
@@ -517,11 +518,17 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   // The same latch one level up, around the whole build-and-land, so each build compares the file
   // with the row only after the build before it has landed.
   #landChain: Promise<unknown> = Promise.resolve();
-  // One turn at a time (in-memory BY DESIGN: an eviction clears it, as the generation
-  // deadline does — see `runTriggeredTurn`).
+  // A run of a turn is live in this isolate, one at a time. In memory BY DESIGN: an eviction
+  // clears it, and the turn's row, which outlives it, is what says a turn is in flight
+  // (`runTriggeredTurn`, `#wake`).
   #turnInFlight = false;
-  /** The generation deadline — a hung `env.AI` await past this releases the turn
-   *  latch + ends the heartbeat so a fresh message can start a NEW generation.
+  // This isolate has looked for a turn's row, so a row found later belongs to a run of this
+  // isolate and not to one an eviction cut off. Every run entry sets it with `#turnInFlight`,
+  // before its first `await`.
+  #lookedForRow = false;
+  /** The generation deadline of each run of a turn — a hung `env.AI` await past this ends the
+   *  turn in a line of ours, releases the latch and ends the heartbeat, so a fresh message can
+   *  start a NEW generation.
    *  `protected` field so the test probe can shorten it.
    *
    *  A hung-call backstop and nothing else. It is NOT an authorization bound: a
@@ -1677,19 +1684,6 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   // ─── The codegen turn ───────────────────────────────────────────────
 
   /**
-   * The posts a running turn has taken up, each from the moment its turn takes it up until that
-   * turn's promise settles. It is read in the commit trigger and in the decision. An edit to such
-   * a post starts no turn, and no decision offers such a post. Both matter for a turn the
-   * generation deadline cut off and that is still running: its post is still unanswered, so
-   * without this a second turn would start on it every time the deadline passes.
-   * TEMP → target=our own code ends a turn the deadline cuts off, with a post that answers the
-   * post it took up. Until how a failed turn recovers is decided
-   * (`tasks/nebula-pre-alpha-fast-follow.md` § *Item 15: The wake check*), such a turn starts no
-   * decision, and its post stays here while it runs.
-   */
-  #takenUp = new Set<string>();
-
-  /**
    * Run `run` under the claims recorded on the post a turn took up, with the agent as actor: the
    * one place the Galaxy acts for a person. It names the post and the snapshot the turn read, and
    * the Resources plane reads that snapshot's record, so no claims pass through here. Throws
@@ -1749,7 +1743,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * does not answer itself forever.
    *
    * A post that arrives while a turn runs waits in storage, with the claims its write recorded,
-   * and the decision after that turn can take it up under them. An edit to a post an agent
+   * and the decision after that turn can take it up under them. A turn is in flight while its row
+   * exists, so a post beside a row waits too; a row with no live run in a new isolate is a turn an
+   * eviction cut off, which the post wakes ({@link #wake}). An edit to a post an agent
    * message has already answered starts nothing, and neither does an edit to a post a running
    * turn took up: that turn's next tool call finds the post moved on and stops.
    */
@@ -1757,12 +1753,13 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     for (const [resourceId, snap] of mutations) {
       if (snap.meta.typeName !== 'Message' || snap.meta.nodeId !== CHAT_NODE_ID) continue;
       if (!this.waitingPostIds().includes(resourceId)) continue;
-      if (this.#takenUp.has(resourceId)) {
-        debug('nebula.Galaxy.trigger').info('edited while its turn runs: it starts no second turn', { resourceId });
-        continue;
-      }
       if (this.#turnInFlight) {
         debug('nebula.Galaxy.trigger').info('waiting: a turn is in flight', { resourceId });
+        continue;
+      }
+      if (this.turnRow()) {
+        debug('nebula.Galaxy.trigger').info('waiting: a turn\'s row is open', { resourceId });
+        this.#wake();
         continue;
       }
       const content = (snap.value as { content?: string }).content ?? '';
@@ -1789,23 +1786,31 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * ⚠️ Run with `wrangler dev` — the turn calls `env.AI.run` (or the REST lane).
    */
   protected async runTriggeredTurn(post: TookUp, content: string): Promise<void> {
-    // SINGLE-FLIGHT: one turn at a time. The flag is in-memory BY DESIGN — a post-deadline or
-    // evicted turn clears it (eviction wipes the isolate), so a fresh message always triggers a
-    // NEW generation rather than wedging behind a hung one. It stays set from a turn's end
-    // through the decision that follows, with no `await` between, so a post that lands in that
-    // gap waits for the decision instead of starting a second turn beside it.
+    // SINGLE-FLIGHT: one run at a time in this isolate, and the trigger starts none beside a row.
+    // Both flags are set before the first `await`. The latch stays set from a turn's end through
+    // the decision that follows, with no `await` between, so a post that lands in that gap waits
+    // for the decision instead of starting a second turn beside it.
     if (this.#turnInFlight) return;
     this.#turnInFlight = true;
+    this.#lookedForRow = true;
+    await this.#runTurns(async (started) => {
+      await this.#chatTurn(post, content, started);
+      return true;
+    });
+  }
+
+  /**
+   * Run `first`, then every turn the agent starts itself while posts are still waiting, each raced
+   * against the generation deadline, as the agent. The run entry that calls this set
+   * `#turnInFlight` before its first `await`, and this clears it when the runs end.
+   */
+  async #runTurns(first: TurnBody): Promise<void> {
     try {
       await this.lmz.asLocalPrincipal(NEBULA_SUB, async () => {
-        let turn: TurnBody | undefined = async (tookUp) => {
-          tookUp(post.id);
-          await this.#chatTurn(post, content);
-          return true;
-        };
+        let turn: TurnBody | undefined = first;
         while (turn) {
-          // No decision follows a turn the deadline cut off, or a decision that only answered:
-          // the next one waits for a new post.
+          // No decision follows a turn the deadline cut off, one whose run threw, or a decision
+          // that only answered: the next one waits for a new post.
           if (await this.#underDeadline(turn) !== true) return;
           turn = this.#decisionFor();
         }
@@ -1813,6 +1818,53 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     } finally {
       this.#turnInFlight = false;
     }
+  }
+
+  /** The first Client to reach this isolate: continue a turn an eviction cut off ({@link #wake}). */
+  protected override onFirstClient(): void {
+    this.#wake();
+  }
+
+  /**
+   * Continue a turn an eviction cut off. The first time anything in this isolate looks for a row, a
+   * row with no live run is one, since its run was in the isolate the eviction ended; a row found
+   * after that belongs to a run of this one. The woken run settles what the eviction left, in the
+   * loop ({@link CodegenLoopDeps.woken}) and at the closing step, and goes on as any run does, a
+   * decision after it included. Detached under `waitUntil`, after both flags are set and before
+   * anything awaits, so a second Client or a post arriving at once starts no second run.
+   */
+  #wake(): void {
+    if (this.#lookedForRow || this.#turnInFlight) return;
+    this.#lookedForRow = true;
+    const row = this.turnRow();
+    if (!row) return;
+    this.#turnInFlight = true;
+    debug('nebula.Galaxy.wake').info('woke', { instanceName: this.lmz.instanceName, message: row.message, interrupted: row.interrupted });
+    this.ctx.waitUntil(this.#runTurns(async (started) => {
+      started(row.message);
+      return this.#resumeTurn(row);
+    }).catch((error) => {
+      debug('nebula.Galaxy.wake').error('woken turn threw', { instanceName: this.lmz.instanceName, error });
+    }));
+  }
+
+  /**
+   * A woken turn's run: the loop from its row and its rounds under the run's heartbeat and warm
+   * latch, then its commit. Answers whether a decision may follow, which it may not when the turn's
+   * message had already committed: the row is then deleted and nothing else runs.
+   */
+  async #resumeTurn(row: TurnRow): Promise<boolean> {
+    if (this.#resources.doRead(row.message)) {
+      if (this.turnRow()?.message === row.message) this.ctx.storage.kv.delete(TURN_ROW_KEY);
+      debug('nebula.Galaxy.wake').info('woke beside its committed message', { instanceName: this.lmz.instanceName, message: row.message });
+      return false;
+    }
+    await this.#asRun(row.message, row.post.id, async (warm) => {
+      const progress = (step: string): void => this.#chatProgress(row.message, step, row.post.id);
+      const result = await this.#runFromRow(row, DEFAULT_LOOP_CONFIG, progress, () => warm.fire(), true);
+      await this.#commitTurn(row.message, result);
+    });
+    return true;
   }
 
   /**
@@ -1830,36 +1882,61 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * restart or a deploy — is covered as designed: input is durable before the LLM runs, the
    * in-memory latch dies with the isolate, and a fresh message starts a fresh generation.
    *
-   * The GENERATION DEADLINE stays: past it the latch releases and the turn surfaces as failed
-   * server-side (the client's idle timeout owns the UX), so a hung await cannot wedge the loop
-   * for the rest of the 15-minute hold. The turn it cut off may still be running, and its post
-   * stays in {@link #takenUp} until it settles.
+   * The GENERATION DEADLINE stays, one per run: past it our own code ends the turn in a line of
+   * ours and deletes its row, and the latch releases, so a hung await cannot wedge the loop for
+   * the rest of the 15-minute hold. The run it cut off may still be going: before each dispatch
+   * and each round write it checks that the row names its turn, and stops when it does not. A run
+   * that throws ends its turn the same way, in a line of its own.
    */
   async #underDeadline(turn: TurnBody): Promise<boolean | 'cut'> {
-    // The post this turn took up, once it has one: a decision has none until it picks.
-    let userMessageId: string | undefined;
+    // The agent Message this turn will commit, once it has one: a decision has none until it picks.
+    let message: string | undefined;
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-    const running = turn((postId) => { userMessageId = postId; this.#takenUp.add(postId); });
-    const settled = (): void => { if (userMessageId !== undefined) this.#takenUp.delete(userMessageId); };
+    const running = turn((id) => { message = id; });
     // Each turn holds the Galaxy on its own promise, so a decision's turn gets a hold that
     // starts with it and not with the turn before it. Whether a later hold outlasts the 15
-    // minutes of the trigger's own, which is still pending around it, is not measured.
-    this.ctx.waitUntil(running.then(settled, settled));
+    // minutes of the trigger's own, which is still pending around it, is not measured. A run the
+    // deadline cut off may reject after the race is over, with nobody left to hear it.
+    this.ctx.waitUntil(running.catch(() => {}));
+    let outcome: boolean | 'cut';
     try {
-      return await Promise.race([
+      outcome = await Promise.race([
         running,
         new Promise<'cut'>((resolve) => {
           deadlineTimer = setTimeout(() => {
             debug('nebula.Galaxy.trigger').error('turn failed: generation exceeded the deadline', {
-              userMessageId, deadlineMs: this.generationDeadlineMs,
+              message, deadlineMs: this.generationDeadlineMs,
             });
             resolve('cut');
           }, this.generationDeadlineMs);
         }),
       ]);
+    } catch (error) {
+      debug('nebula.Galaxy.turn').error('turn threw', { instanceName: this.lmz.instanceName, message, error });
+      await this.#endTurn(message, 'error', `the run stopped on an error: ${error instanceof Error ? error.message : String(error)}`, TURN_FAILED_LINE);
+      return false;
     } finally {
       // A completed turn must not leave the deadline armed.
       if (deadlineTimer) clearTimeout(deadlineTimer);
+    }
+    if (outcome === 'cut') await this.#endTurn(message, 'deadline', `the run passed the generation deadline of ${this.generationDeadlineMs} ms`);
+    return outcome;
+  }
+
+  /**
+   * End a turn its run cannot end: commit its message, built from what its rounds hold, ending in
+   * `line` or the stop's own line, and delete its row. Only while the row names `message`, so a
+   * stale end never touches the next turn's row.
+   */
+  async #endTurn(message: string | undefined, stop: StopReason, detail: string, line?: string): Promise<void> {
+    const row = this.turnRow();
+    if (message === undefined || row?.message !== message) return;
+    let rounds: StoredRound[] = [];
+    try { rounds = (await this.roundStore(message).read()).map((s) => s.round); } catch { /* the summary is what the store gives */ }
+    try {
+      await this.#commitTurn(message, stoppedTurn({ prompt: row.prompt, rounds, interrupted: row.interrupted, stop, detail }), line);
+    } catch (error) {
+      debug('nebula.Galaxy.turn').error('a turn could not be ended', { instanceName: this.lmz.instanceName, message, stop, error });
     }
   }
 
@@ -1874,10 +1951,12 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * run away.
    */
   #decisionFor(): TurnBody | undefined {
+    // A turn is in flight while its row exists, so no decision offers a post beside one.
+    if (this.turnRow()) return undefined;
     const thread = this.#thread();
-    const waiting = this.#waiting(thread).filter((id) => !this.#takenUp.has(id));
+    const waiting = this.#waiting(thread);
     if (waiting.length === 0) return undefined;
-    return async (tookUp) => {
+    return async (started) => {
       const { bundle: history, labelFor } = this.#historyBundle(thread);
       const posts = thread.filter(({ id }) => waiting.includes(id));
       const request = renderDecisionRequest(posts.map(({ id, snap }) => ({
@@ -1903,9 +1982,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       // that gives the snapshot's `validFrom`, so the id and the moment name one snapshot.
       if (typeof picked === 'string' && waiting.includes(picked)) {
         debug('nebula.Galaxy.turn').info('decision', { instanceName: this.lmz.instanceName, step: 'decision', postId: picked });
-        tookUp(picked);
         const post = posts.find(({ id }) => id === picked)!;
-        await this.#chatTurn({ id: picked, validFrom: post.snap.meta.validFrom }, (post.snap.value as { content?: string }).content ?? '');
+        await this.#chatTurn({ id: picked, validFrom: post.snap.meta.validFrom }, (post.snap.value as { content?: string }).content ?? '', started);
         return true;
       }
       const answers = (Array.isArray(named('mark_complete').answers) ? named('mark_complete').answers as unknown[] : [])
@@ -1926,7 +2004,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
 
   /** The turn body the trigger races against the generation deadline: ONE assembly with
    *  every layer and the full tool set, the model deciding whether to act. */
-  async #chatTurn(post: TookUp, message: string): Promise<void> {
+  async #chatTurn(post: TookUp, message: string, started: (message: string) => void): Promise<void> {
     const userMessageId = post.id;
     // Whose claims this turn's tools run under: the poster's as recorded, with the agent as
     // actor. A post that moved on before this line logs none, and the first tool call stops.
@@ -1940,24 +2018,20 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // durable Message at the end, `replyTo`-linked to the triggering human Message.
     // Minted first so the heartbeat below has an id from the first ms.
     const agentMessageId = crypto.randomUUID();
-
-    // ⚠️ ONE heartbeat for the WHOLE turn (`turn-heartbeat.ts`), not one per await. Every
-    // model call in a turn is whole-response and therefore silent — each codegen round —
-    // and a container build emits nothing until it exits. Wrapping the loop awaits alone
-    // once left the turn's opening classifier call (since deleted) uncovered, and the first
-    // live drive painted `failed` over a healthy turn before codegen had even started.
-    // The turn IS the unit of liveness. Bounded by the same generation deadline the trigger
-    // races this body against, so a hung call still fails.
-    const deadlineAt = Date.now() + this.generationDeadlineMs;
-    await withHeartbeat(
-      () => this.#chatTurnBody(post, message, agentMessageId),
-      () => this.#chatProgress(agentMessageId, '', userMessageId),
-      { intervalMs: TURN_HEARTBEAT_MS, deadlineAt },
-    );
+    started(agentMessageId);
+    await this.#asRun(agentMessageId, userMessageId, (warm) => this.#codegenTurn(message, agentMessageId, post, warm));
   }
 
   /**
-   * The turn body proper — ONE assembly, every layer, the full tool set; the model
+   * A run of a turn, under ONE heartbeat for the whole run (`turn-heartbeat.ts`), not one per
+   * await. Every model call in a turn is whole-response and therefore silent — each codegen round
+   * — and a container build emits nothing until it exits. Wrapping the loop awaits alone once left
+   * the turn's opening classifier call (since deleted) uncovered, and the first live drive painted
+   * `failed` over a healthy turn before codegen had even started. The run IS the unit of liveness,
+   * bounded by the same generation deadline the run entry races it against, so a hung call still
+   * fails.
+   *
+   * The turn body is ONE assembly, every layer, the full tool set; the model
    * decides whether to act. A question ends the loop `no-tool-calls` with the reply as
    * the answer, and a question that turns out to need a one-line fix gets the fix, under
    * the poster's authority and named in the reply. (The former answer fork — a
@@ -1978,13 +2052,20 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * invariant the ephemeral design rests on: a container never outlives its build.
    * Destroy is idempotent, so the common path (build ran, already torn down) pays a no-op.
    */
-  async #chatTurnBody(post: TookUp, message: string, agentMessageId: string): Promise<void> {
-    const warm = this.#turnWarmLatch();
-    try {
-      await this.#codegenTurn(message, agentMessageId, post, warm);
-    } finally {
-      this.#destroyBuildContainer();
-    }
+  async #asRun(message: string, postId: string, body: (warm: { fire(): void }) => Promise<void>): Promise<void> {
+    const deadlineAt = Date.now() + this.generationDeadlineMs;
+    await withHeartbeat(
+      async () => {
+        const warm = this.#turnWarmLatch();
+        try {
+          await body(warm);
+        } finally {
+          this.#destroyBuildContainer();
+        }
+      },
+      () => this.#chatProgress(message, '', postId),
+      { intervalMs: TURN_HEARTBEAT_MS, deadlineAt },
+    );
   }
 
   /** One turn's warm latch: `fire` starts the box at most once — the first write of the
@@ -2026,15 +2107,20 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * Commit the agent `Message` that ends a turn, built from what the turn's rounds hold, then
    * delete the turn's row. Both happen only while the row names this turn, by its message's id:
    * a run that finds another turn's row commits nothing and deletes nothing, since the row is the
-   * other turn's. A run that ended waiting on a call commits nothing either.
+   * other turn's. A run that ended waiting on a call commits nothing either. A turn that could not
+   * go on ends in `line`, or in its stop's own line, after whatever the model last wrote.
    */
-  async #commitTurn(agentMessageId: string, result: LoopResult): Promise<void> {
+  async #commitTurn(agentMessageId: string, result: LoopResult, line?: string): Promise<void> {
     debug('nebula.Galaxy.chat').debug('loop', {
       instanceName: this.lmz.instanceName, stop: result.stop,
       rounds: result.rounds, applied: result.appliedPaths.length,
     });
     const row = this.turnRow();
-    if (result.stop === 'waiting' || result.stop === 'not-this-turn' || row?.message !== agentMessageId) return;
+    if (result.stop === 'waiting') return;
+    if (result.stop === 'not-this-turn' || row?.message !== agentMessageId) {
+      debug('nebula.Galaxy.turn').info('stopped: the row names another turn', { instanceName: this.lmz.instanceName, message: agentMessageId });
+      return;
+    }
     const stop: StopReason = result.stop;
     // The reply is the model's own final text on EVERY stop — what the person reads, and
     // what the history bundle carries as "the agent's reply" — with the fixed strings only
@@ -2044,7 +2130,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // so it never reads as done while the preview still shows the last build.
     const heldBack = stop === 'build-unavailable' ? undefined : heldBackLine(result.lastBuild);
     // A turn that could not go on says so in our own words, whatever the model wrote last.
-    const cutShort = stop === 'conflict' ? ROUND_CONFLICT_LINE : undefined;
+    const cutShort = line ?? CUT_SHORT_LINES[stop];
     const fallback = stop === 'complete'
       ? completedTurnFallback(result.appliedPaths.length, result.lastBuild)
       : stop === 'no-tool-calls'
@@ -2058,7 +2144,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
             : stop === 'max-depth'
               ? stepLimitFallback(result.appliedPaths.length, result.lastBuild, unbuiltWrites(result.toolCalls))
               : "I couldn't finish cleanly — see the thought process.";
-    const reply = [text || fallback, cutShort, heldBack].filter(Boolean).join('\n\n');
+    const reply = [text || (cutShort ? undefined : fallback), cutShort, heldBack].filter(Boolean).join('\n\n');
 
     // The tool-calling loop carries the generated code in `write_file` *args*, not the
     // model's reply text — so surface the final content of each written file here, else the
@@ -2509,7 +2595,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
        *  every round. */
       message: string;
       /** Called before the turn's FIRST write (`write_file` or `edit_file`) — the
-       *  structural container warm (`#chatTurnBody`). */
+       *  structural container warm (`#asRun`). */
       onFirstWrite?: () => void;
     },
   ): Promise<LoopResult> {
@@ -2556,7 +2642,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    */
   async #runFromRow(
     row: TurnRow, config: CodegenLoopConfig, onProgress: ((step: string) => void) | undefined,
-    onFirstWrite?: () => void,
+    onFirstWrite?: () => void, woken = false,
   ): Promise<LoopResult> {
     // No per-await heartbeat here: liveness is a property of the TURN, and `#chatTurn` beats
     // around the whole body — every round here is a silent model call.
@@ -2597,8 +2683,16 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       run_in_tab: (tab, code) => under(() => entries.run_in_tab(tab, code)),
     };
     const offered = { tools: CODEGEN_TOOLS, step: 'turn' as const, postId: row.post.id };
+    // Whether this run wrote a round: a woken run that wrote none found its turn already ended.
+    let stepped = false;
+    const store = this.roundStore(row.message);
     const deps: CodegenLoopDeps = {
-      rounds: this.roundStore(row.message),
+      rounds: {
+        ...store,
+        create: (round) => { stepped = true; return store.create(round); },
+        update: (id, round, version) => { stepped = true; return store.update(id, round, version); },
+      },
+      woken,
       blobs: { write: (content) => this.writeBlob(content), read: (oid) => this.readBlob(oid) },
       // What the latest tool call's record says it acted for, read after the call.
       actsFor: () => acted,
@@ -2610,7 +2704,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     };
     const [system, user] = row.prompt;
     const result = await runCodegenLoop({ system: system!, user: user! }, deps, config);
-    return this.#closingStep(result, row);
+    return this.#closingStep(result, row, woken && !stepped);
   }
 
   /**
@@ -2620,7 +2714,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * `not-this-turn` when it does not, since the row may then be the next turn's. Each later write
    * of a round names the `validFrom` it read, so one over a round someone else changed answers
    * `conflict`, and a repeat of a write already made is recognized as one (ADR-005). Any other
-   * refusal throws. Every write logs one line, with how many of the round's calls have run.
+   * refusal throws. Every write logs one line, with how many of the round's calls have run. A wake
+   * records a cut-off model call on the row with a synchronous put, which lands before the call
+   * is made again.
    * `protected` so a test probe can run the loop over it.
    */
   protected roundStore(message: string): RoundStore {
@@ -2655,6 +2751,14 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         return written(id, { op: 'put', ifValidFromMatches: version, value: value(round) }, round);
       },
       interrupted: async () => this.turnRow()?.interrupted ?? [],
+      recordInterrupted: async (index) => {
+        const row = this.turnRow();
+        if (row?.message !== message) return 'not-this-turn';
+        if (row.interrupted.includes(index)) return 'again';
+        this.ctx.storage.kv.put(TURN_ROW_KEY, { ...row, interrupted: [...row.interrupted, index] });
+        return 'recorded';
+      },
+      isCurrent: async () => mine(),
     };
   }
 
@@ -2675,9 +2779,12 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * own: a turn a bound stopped mid-round has a transcript no further request can follow.
    *
    * Its reply is stored as the turn's last round, naming each post it was shown with the
-   * `validFrom` it read, so a turn whose closing round is stored goes straight to its commit.
+   * `validFrom` it read, so a turn whose closing round is stored goes straight to its commit. A
+   * wake that found the turn ended with the step due (`wokeAtClosing`) found its call cut off: it
+   * is recorded on the row and made again, and cut off there before, the turn's own reply stands
+   * and the posts wait, as they do when the call fails.
    */
-  async #closingStep(result: LoopResult, row: TurnRow): Promise<LoopResult> {
+  async #closingStep(result: LoopResult, row: TurnRow, wokeAtClosing = false): Promise<LoopResult> {
     if (result.stop !== 'complete' && result.stop !== 'no-tool-calls') return result;
     if (result.closing) return withClosing(result, result.closing);
     const seen = new Set(Object.keys(row.read));
@@ -2685,6 +2792,11 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     const waiting = new Set(this.#waiting(now));
     const arrived = now.filter(({ id }) => !seen.has(id) && id !== row.post.id && waiting.has(id));
     if (arrived.length === 0) return result;
+    if (wokeAtClosing) {
+      const recorded = await this.roundStore(row.message).recordInterrupted(result.rounds + 1);
+      if (recorded === 'again') return result;
+      if (recorded === 'not-this-turn') return { ...result, stop: recorded };
+    }
     const posts = arrived.map(({ id }) => id);
     debug('nebula.Galaxy.turn').info('closing step', {
       instanceName: this.lmz.instanceName, step: 'closing', postId: row.post.id, posts,
@@ -2871,10 +2983,10 @@ const GALAXY_AGENTS_PATH = 'AGENTS.md';
 const GALAXY_LAYER_PREFACE = "The app's own AGENTS.md — the layer below the platform's. It adds to the platform guidance and never subtracts from it; keep it current (see the platform guidance):";
 
 /**
- * One turn, as the deadline races it: it reports the post it takes up, as soon as it has one,
- * and answers whether a decision may follow it.
+ * One turn, as the deadline races it: it names the agent `Message` it will commit as soon as it
+ * has one, and answers whether a decision may follow it.
  */
-type TurnBody = (tookUp: (postId: string) => void) => Promise<boolean>;
+type TurnBody = (started: (message: string) => void) => Promise<boolean>;
 
 /** The post a turn took up: its id, and the `validFrom` of the snapshot of it the turn read. */
 export interface TookUp { id: string; validFrom: string }
@@ -2907,6 +3019,16 @@ export interface TurnRow {
 
 /** What a turn's message says when another writer changed one of its rounds while it ran. */
 const ROUND_CONFLICT_LINE = 'Someone else changed my record of this turn while I worked, so I stopped. Ask again and I will start over.';
+/** What a turn's message says when the same model call of it was cut off twice. */
+const INTERRUPTED_LINE = 'I was interrupted twice at the same step, so I stopped. What I saved is kept: ask again and I will carry on from it.';
+/** What a turn's message says when its run passed the generation deadline. */
+const DEADLINE_LINE = 'This ran past the time I am allowed, so I stopped. What I saved is kept: ask again and I will carry on from it.';
+/** What a turn's message says when its run threw. */
+const TURN_FAILED_LINE = 'Something went wrong on my side, so I stopped. What I saved is kept: ask again and I will carry on from it.';
+/** The line each stop that cuts a turn short ends in, after whatever the model last wrote. */
+const CUT_SHORT_LINES: Partial<Record<StopReason, string>> = {
+  conflict: ROUND_CONFLICT_LINE, interrupted: INTERRUPTED_LINE, deadline: DEADLINE_LINE,
+};
 
 /**
  * A loop's result with its closing step's round applied: the step's message replaces the turn's
