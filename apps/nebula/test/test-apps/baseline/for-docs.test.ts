@@ -518,6 +518,25 @@ describe('for-docs runtime examples (real Star)', () => {
       expect(store.app.activeView).toBe('list');
     }
 
+    // ── resources § Subscribe, or read once ──
+    {
+      const doneId = crypto.randomUUID();
+      const created = await client.resources.transaction({
+        [doneId]: { op: 'create', typeName: 'todo', nodeId: ROOT_NODE_ID, value: { title: 'Shipped', status: 'done' } },
+      });
+      expect(created.kind).toBe('committed');
+      // @doc resources.md § Subscribe, or read once
+      const { snapshots, deniedNodes, more } = await client.resources.query({
+        typeName: 'todo', filter: { status: 'done' }, allowScan: true,
+      });
+      const titles = snapshots.map(({ value }) => value.title);   // in the query's order
+      // @end-doc
+      expect(titles).toEqual(['Shipped']);
+      expect(snapshots[0].resourceId).toBe(doneId);
+      expect(deniedNodes).toBeUndefined();
+      expect(more).toBeUndefined();
+    }
+
     await bf.dispose();
     admin.client[Symbol.dispose]();
   });

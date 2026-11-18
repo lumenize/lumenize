@@ -475,6 +475,21 @@ export class Snapshots {
   }
 
   /**
+   * The current snapshot of each of `resourceIds` that has one, built by the same projection as
+   * {@link read}, so `meta.recordedClaims` carries no `access` and no `aud`. NO permission check:
+   * its one caller, the plane's one-time query read, has already evaluated `read` on each id's
+   * node. Nothing reaches it from the wire.
+   */
+  currentSnapshots(resourceIds: string[]): Map<string, Snapshot> {
+    const out = new Map<string, Snapshot>();
+    for (const resourceId of resourceIds) {
+      const snapshot = this.#getCurrentSnapshot(resourceId);
+      if (snapshot) out.set(resourceId, snapshot);
+    }
+    return out;
+  }
+
+  /**
    * The current type name of a resource, or `undefined` if it has no live snapshot — with NO
    * permission check and nothing else from the snapshot. A resource subscribe denied on the node
    * uses it to refuse a subscriber who named the wrong type without saying what the right one

@@ -1,10 +1,11 @@
 /**
  * From tasks/archive/nebula-confine-admin-bypass.md — the DAG permission plane is confined to the
- * host it runs on. TWO confinement points:
+ * host it runs on, at three confinement points, each through `hasDominionOverHost`:
  *   1. `OrgTree.requirePermission` — the LIVE claim.
  *   2. `Subscriptions`' subscribe-time writers of resource and query rows — the STORED verdict (the push path
  *      never re-reads the JWT, so confining only the live claim leaves that back door open).
- * `evaluatePermissions` is NOT a third point — it takes no pattern and no host name; it consumes
+ *   3. The one-time query read, `resources.query` — the live claim again, since it stores nothing.
+ * `evaluatePermissions` is NOT a confinement point — it takes no pattern and no host name; it consumes
  * whatever the store wrote. The loop is closed here by feeding the persisted bit into it.
  *
  * ⚠️ WHY A SYNTHETIC HOST as well as the real one. On a **star-tier leaf** host an admin's
@@ -22,12 +23,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
-import { OrgTree, Subscriptions, Snapshots, ROOT_NODE_ID } from '@lumenize/resources';
+import { OrgTree, Resources, Subscriptions, Snapshots, ROOT_NODE_ID } from '@lumenize/resources';
 import { CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import type { CallContext } from '@lumenize/mesh';
 import { Browser } from '@lumenize/testing';
-import { universeAdminClient, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
+import { universeAdminClient, createSubject, createInvitedClient, addressOfClient, pageOf, ORIGIN } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';
 
 const CHAT_QUERY = {
@@ -261,6 +262,81 @@ describe('the DAG permission plane is confined to its host', () => {
       expect(adminRow?.dominionOverHostAtSubscribe).toBe(1); // the covering admin, as admin
 
       admin[Symbol.dispose](); devAdmin[Symbol.dispose]();
+    });
+  });
+
+  // ─── The one-time query read: the verdict computed live, as a subscription stores it ───────
+  //
+  // `resources.query` holds no row to store a verdict on, so it computes `hasDominionOverHost`
+  // when it runs. These run against the Galaxy's chat plane for the reason the block above does:
+  // the non-leaf host is where a descendant admin's bare bit and dominion come apart.
+  describe('a one-time query read on the Galaxy chat plane', () => {
+    // MUTATION: pass the bare `access.scopeAdmin` bit, and the descendant admin and the admin on
+    // the `.dev` page read every Message.
+    it('answers the host\'s admin every result, and a descendant admin, or the same admin from another host, only denied nodes', async () => {
+      const scope = `cab-${crypto.randomUUID().slice(0, 8)}.app`;
+      const adminBrowser = new Browser();
+      const { client: admin, accessToken } = await universeAdminClient(
+        StudioClientTest, adminBrowser, scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
+        { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
+      );
+      admin.callGalaxySeedChatScript(scope, [
+        { choices: [{ message: { content: 'seeded', reasoning_content: '', tool_calls: [] } }] },
+      ]);
+      await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+      using adminSub = admin.resources.subscribeQuery(CHAT_QUERY); await adminSub.ready;
+      await admin.postUserMessage('seed the thread');
+      await vi.waitFor(() => expect(adminSub.resourceIds.length).toBeGreaterThanOrEqual(2), { timeout: 15000 });
+      const query = (client: NebulaClientTest | StudioClientTest) => client.lmz.callAsync('GALAXY', scope,
+        client.ctn<Galaxy>().resources.query(CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_QUERY));
+
+      // The host's admin: `aud` is the host, and no grant is held at the chat node.
+      const own = await query(admin);
+      expect(own.snapshots.map((s) => s.resourceId)).toEqual(adminSub.resourceIds);
+      expect(own.deniedNodes).toBeUndefined();
+
+      // An admin of `{scope}.dev`, the co-minted membership, holding no grant.
+      await createSubject(new Browser(), scope, accessToken, 'devadmin@example.com');
+      const { client: devAdmin, payload } = await createInvitedClient(
+        NebulaClientTest, new Browser(), `${scope}.dev`, `${scope}.dev`, 'devadmin@example.com',
+        CHAT_MESSAGE_ONTOLOGY_VERSION, { resourceHostBinding: 'GALAXY' },
+      );
+      expect([payload.access.scopeAdmin, payload.access.authScope]).toEqual([true, `${scope}.dev`]);
+      expect(await query(devAdmin)).toEqual({ snapshots: [], deniedNodes: [CHAT_NODE_ID] });
+
+      // The host's own admin on the `.dev` page: the token's `aud` is `.dev`, so by the host rule
+      // it holds no dominion over the Galaxy, and is answered as the descendant admin is.
+      const ctx = adminBrowser.context(pageOf(`${scope}.dev`));
+      const adminOnDev = new NebulaClientTest({
+        baseUrl: pageOf(`${scope}.dev`), platformOrigin: ORIGIN, ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION,
+        fetch: ctx.fetch, WebSocket: ctx.WebSocket, sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
+        resourceHostBinding: 'GALAXY',
+      });
+      await vi.waitFor(() => expect(adminOnDev.connectionState).toBe('connected'));
+      expect([adminOnDev.claims?.sub, adminOnDev.claims?.aud, adminOnDev.claims?.access.scopeAdmin])
+        .toEqual([admin.claims?.sub, `${scope}.dev`, true]);
+      expect(await query(adminOnDev)).toEqual({ snapshots: [], deniedNodes: [CHAT_NODE_ID] });
+
+      admin[Symbol.dispose](); devAdmin[Symbol.dispose](); adminOnDev[Symbol.dispose]();
+    });
+
+    // No Client can send a chain without claims, and a node's own chain cannot name a query read
+    // it would refuse for another reason first, so this builds the plane over a Galaxy's storage
+    // with a call context that carries none. MUTATION: drop the claims check, and the read goes on
+    // to the query, which this bare plane refuses for another reason.
+    it('refuses a chain that carries no claims', async () => {
+      const g = uniqueGalaxy();
+      const refused = await (runInDurableObject as any)((env as any).GALAXY.getByName(g), (inst: any) => {
+        const lmz = { callContext: { callChain: [] } as unknown as CallContext, instanceName: g };
+        const plane = new Resources(inst.ctx, () => lmz as never, { current: () => null, bundleId: (v: string) => v });
+        try {
+          plane.doQuery(CHAT_QUERY);
+          return 'answered';
+        } catch (e) {
+          return (e as Error).message;
+        }
+      });
+      expect(refused).toBe('Authentication required');
     });
   });
 });

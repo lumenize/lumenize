@@ -117,7 +117,7 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
         .filter((n) => n !== 'constructor').sort(),
     }));
     expect(surfaces.requests).toEqual([
-      'invite', 'orgTree', 'read', 'resetDevData', 'subscribe', 'subscribeQuery', 'subscribeQuerySubscribers', 'subscribeTree',
+      'invite', 'orgTree', 'query', 'read', 'resetDevData', 'subscribe', 'subscribeQuery', 'subscribeQuerySubscribers', 'subscribeTree',
       'transaction', 'unsubscribe', 'unsubscribeQuery', 'unsubscribeQuerySubscribers',
     ]);
     expect(surfaces.results).toEqual([

@@ -382,6 +382,42 @@ Each phase leaves every suite green. A criterion that names a test means a test 
 
 **Mutation notes:** revert § *Phase 5*'s wake and `deploy-cuts-a-turn` waits out its bound with the post unanswered. Deploy without `immediate` and the scenario is inconclusive, since the turn finishes on the old code.
 
+## Build notes
+
+### Phase 1
+
+**For the human:** nothing open.
+
+- The criterion's "that admin calling from another host" is read as the Galaxy's own universe admin on the `.dev` page, whose token's `aud` is `{scope}.dev`. A `.dev` admin holds no token for any other host, so that is the reading that can be built, and it is the host rule's case: the admin is answered as the descendant admin is.
+
+**Retro notes:**
+
+- `QueryReadResult.snapshots` is an array of `{ resourceId, value, meta }`, so the query's order survives the wire, which a keyed object would not promise (ADR-002's note on key order).
+- No Client can send a chain without claims, and a node's own chain carries the node's, so the no-claims case builds a bare plane over a Galaxy's storage with a call context carrying none.
+- Reading `store.resources.todo[id]` in the for-docs test subscribes to it, so whether a one-time read's snapshots stayed out of the store cannot be asserted through the store. The assertion was dropped rather than kept as one that subscribes.
+- The first sweep failed five scenarios, `signup-to-first-app`, `first-app-built`, `invites-land-on-their-host`, `logout-ends-every-host` and `cast-from-a-tab`, and none of them for this phase's code. Larry's hand-driven stack was stopped for the sweep, but its Studio vite (pid 65918) went on holding `[::1]:5174` and proxying to the stopped `wrangler dev`, so every request a scenario sent to Studio's port answered 502 or closed. With it stopped, `drive.ts all --rerun` passed all five, and the harness names each a flake, since none of their files changed. Four are explained by the port: a picture, the preview, Studio's socket and the wipe all went through it. `invites-land-on-their-host` failed on the email-test socket closing before its mail arrived, which the port does not obviously explain, so it stands as a flake. A sweep's check for a hand-driven stack (`pgrep -fl 'wrangler dev'`) does not see a vite left behind.
+- The first whole `apps/nebula` run had four failures, every one an inventory of the `requests` surface: `resources-door.test.ts` for each host, `galaxy-resource-surface.test.ts`, and `scope-isolation.test.ts`'s table of a written reason per member a descendant Star may reach. Each now lists `query`. No narrow run could have shown them.
+
+**Close-out notes:**
+
+- Added the [backlog.md](backlog.md) row *A query cannot sort, page or limit*, which `nebula-pre-alpha-fast-follow.md` § *Item 21* already pointed at.
+- `hasDominionOverHost` (`packages/resources/src/host-dominion.ts`) is the one verdict a subscription stores, the one-time read computes and `OrgTree.requirePermission` checks. The comments that counted two confinement points, in `resources.ts`, `org-tree.ts`'s `evaluatePermissions` and `confine-org-plane.test.ts`'s header, now name three.
+
+**Mutations run** (each caught by the test named, and by no other unless said):
+
+- Register the query before answering: *answers each snapshot's value and meta at two nodes*.
+- Answer every match without the read evaluation: *names the one they may not*, the two-caller test and the read-check test.
+- Let `act` grant dominion: the two-caller test's impersonated child.
+- Build `meta` from the raw `recordedClaims` column: the recorded-claims test.
+- Drop the per-node dedup: *evaluates each node once*.
+- Drop the version gate from `requests.query`: the stale test.
+- Answer every row past the cap: the cap test.
+- Drop the descriptor's shape check: the `it.each` case for a descriptor that is not an object.
+- Pass the bare `scopeAdmin` bit: `confine-org-plane`'s query test, at the descendant admin.
+- Read `authScope` where the verdict reads `aud`: the same test at its third limb, the admin on the `.dev` page, which the previous mutation hides.
+- Drop the claims check: *refuses a chain that carries no claims*.
+- Give `requirePermission` the bare bit again, now that it calls `hasDominionOverHost`: both of `confine-org-plane`'s existing denials of a descendant admin.
+
 ## Non-goals
 
 - **Waking a turn nobody is watching.** D9 leaves it to the next call, and § *Beyond this task* keeps the alarm as a note.

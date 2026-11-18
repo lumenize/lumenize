@@ -31,7 +31,7 @@ export type {
   SubscriptionKind, SubscriberRow, QuerySubscriberRow, AddressRow, DroppedAddress, ResourceSubscribeOutcome,
 } from './subscriptions';
 export { canonicalQueryHash, QUERY_RESULT_CAP } from './query-hash';
-export type { QueryDescriptor, QueryUpdatePayload, SubscriberEntry, SubscriberRosterPayload } from './query-hash';
+export type { QueryDescriptor, QueryReadResult, QueryUpdatePayload, SubscriberEntry, SubscriberRosterPayload } from './query-hash';
 
 // Errors
 export {

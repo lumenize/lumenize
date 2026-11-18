@@ -65,6 +65,22 @@ Every other top-level segment is yours. Common conventions:
 
 The factory pre-seeds `store.ui` and `store.app` as empty objects (conveniences, not reserved — the framework never writes to them after seeding). Beyond that, the framework only touches `store.resources.*` and `store.lmz.*`. User-developers write to the rest however they want.
 
+## Subscribe, or read once
+
+**Subscribe to what stays on screen and can change. Read once what will not change, or will not stay.**
+
+- **A list the page keeps showing** — the open deals, a chat's messages — is a [`subscribeQuery`](./api-reference.md#resourcessubscribequery). Every change reaches it until the page lets it go.
+- **A list the page reads for a moment** — the rows of a report it prints, the history behind a finished order — is a [`query`](./api-reference.md#resourcesquery). It answers the snapshots this person may read, once, and subscribes to nothing.
+
+```js @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
+const { snapshots, deniedNodes, more } = await client.resources.query({
+  typeName: 'todo', filter: { status: 'done' }, allowScan: true,
+});
+const titles = snapshots.map(({ value }) => value.title);   // in the query's order
+```
+
+A query read once takes the same descriptor as a subscription, and is refused for the same reasons. Its snapshots do not enter `store.resources`, so nothing in the page updates when one of them changes later.
+
 ## Optimistic concurrency
 
 ### What's a resource's version?

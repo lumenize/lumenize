@@ -162,7 +162,7 @@ describe('each host has one door, and the per-op entries are gone', () => {
     const { names, toPlane } = await surfaceOf(host, 'resources');
     // Equality, not a subset: no member beyond the row is what the check exists for.
     expect(names).toEqual([
-      'invite', 'orgTree', 'read', 'resetDevData', 'subscribe', 'subscribeQuery', 'subscribeQuerySubscribers', 'subscribeTree',
+      'invite', 'orgTree', 'query', 'read', 'resetDevData', 'subscribe', 'subscribeQuery', 'subscribeQuerySubscribers', 'subscribeTree',
       'transaction', 'unsubscribe', 'unsubscribeQuery', 'unsubscribeQuerySubscribers',
     ]);
     expect(toPlane).toEqual([]);

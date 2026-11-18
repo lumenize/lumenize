@@ -38,7 +38,7 @@ import {
 import type { ConflictResolverVerdict } from './frontend/text-merge';
 import type { QueueSubmission } from './frontend/debounce';
 import type { OperationDescriptor as WireOp, TransactionResult, Snapshot } from './snapshots';
-import type { QueryUpdatePayload, QueryDescriptor, SubscriberEntry, SubscriberRosterPayload } from './query-hash';
+import type { QueryUpdatePayload, QueryDescriptor, QueryReadResult, SubscriberEntry, SubscriberRosterPayload } from './query-hash';
 import { canonicalQueryHash } from './query-hash';
 import type { OrgTreeState, PermissionTier } from './org-ops';
 import type { NodeInvitee, NodeInviteAck, ResourcesRequests } from './resources';
@@ -673,7 +673,7 @@ export class ClientResources {
   }
 
   /**
-   * Send a request-and-answer op — a transaction, a read or a node invite — and decide a stale
+   * Send a request-and-answer op — a transaction, a read, a query read or a node invite — and decide a stale
    * answer (ADR-024). A `checking` answer, given while the host asks what is current, sends the op
    * again shortly, up to its retries. Every stale answer is decided in {@link #handleStale}, so a
    * page on an old build reloads, once from one version to another.
@@ -923,6 +923,15 @@ export class ClientResources {
     },
 
     /**
+     * Read a query's current result once: the snapshot of each result this person may read, in the
+     * query's order, and the nodes they may not. Nothing is subscribed, so nothing arrives later,
+     * and the snapshots do NOT enter the store. Subscribe to what stays on screen and can change
+     * (`subscribeQuery`); read once what will not change or will not stay. Rejects with the host's
+     * reason for a query a subscription would refuse.
+     */
+    query: (query: QueryDescriptor): Promise<QueryReadResult> => this.#queryOnce(query),
+
+    /**
      * Submit a transaction. **Always resolves** with a `TransactionOutcome`
      * (never rejects); the await-site switches on `outcome.kind`. Per-resource
      * detail is delivered to the per-type `onTransactionResourceResolution`
@@ -1069,6 +1078,14 @@ export class ClientResources {
     resetDevData: (): Promise<void> =>
       this.#hostCallAsync<void>(this.#client.ctn<ResourcesHostNode>().resources.resetDevData()),
   };
+
+  async #queryOnce(query: QueryDescriptor): Promise<QueryReadResult> {
+    const version = this.requireOntologyVersion('query');
+    const outcome = await this.#versioned(() => this.#hostCallAsync<QueryReadResult>(
+      this.#client.ctn<ResourcesHostNode>().resources.query(version, query)));
+    if ('stale' in outcome) throw outcome.stale;
+    return outcome.value;
+  }
 
   async #inviteToNode(nodeId: string, invitees: NodeInvitee[]): Promise<NodeInviteAck> {
     const version = this.requireOntologyVersion('invite');
@@ -1335,9 +1352,9 @@ export class ClientResources {
 
 
   /**
-   * The one place a stale answer is decided, for all six places one arrives (ADR-024): the
-   * transaction, read and node-invite answers through {@link #versioned}, and the resource, query
-   * and roster pushes through {@link #onPushStale}. {@link decideStale} says what to do; this does
+   * The one place a stale answer is decided, wherever one arrives (ADR-024): the transaction,
+   * read, query and node-invite answers through {@link #versioned}, and the resource, query and
+   * roster pushes through {@link #onPushStale}. {@link decideStale} says what to do; this does
    * it. A reload goes through the app's `onShouldRefreshUI` behind a guard that records, in
    * `sessionStorage`, the version it reloaded for and the one the page ran, so a loop between one
    * pair stops and a page that has since moved is reloaded again. A restore subscribes again. The caller retries or settles the op.

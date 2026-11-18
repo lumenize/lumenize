@@ -32,12 +32,12 @@
  */
 
 import type { CallContext } from '@lumenize/mesh';
-import { hasDominionOver } from '@lumenize/mesh';
 import type { AuthClaims } from '@lumenize/mesh';
 import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
 import type { SQLSchemaMigration } from '@lumenize/sql-migrations';
 import { stringify } from '@lumenize/structured-clone';
 import { PermissionDeniedError } from './errors';
+import { hasDominionOverHost } from './host-dominion';
 import { canonicalQueryHash } from './query-hash';
 import { END_OF_TIME } from './snapshots';
 import type { QueryDescriptor } from './query-hash';
@@ -192,22 +192,20 @@ export class Subscriptions {
 
   /**
    * The subscriber identity a resource or query row stores: `sub`, `profileId` and the CONFINED
-   * dominion verdict. ⚠️ `hasDominionOver(...)`, NOT `claims.access.scopeAdmin` — confinement
-   * point 2. The update path never re-reads the JWT, so storing the bare claim would leave a
-   * descendant-scope admin an unconfined bypass for the life of the subscription. Store time is
-   * the only option: at update time we hold neither the live claim nor the caller's scope. An
-   * absent host name grants no bypass (fail closed).
+   * dominion verdict, from `hasDominionOverHost` — confinement point 2. The update path never
+   * re-reads the JWT, so storing the bare claim would leave a descendant-scope admin an unconfined
+   * bypass for the life of the subscription. Store time is the only option: at update time we hold
+   * neither the live claim nor the caller's scope.
    */
   #identity(): { sub: string; profileId: string; dominion: 0 | 1 } {
     const cc = this.#getCallContext();
     const sub = cc.originAuth?.sub;
     if (!sub) throw new Error('Authentication required');
     const claims = cc.originAuth?.claims as unknown as AuthClaims;
-    const hostName = this.#getHostName();
     return {
       sub,
       profileId: claims.profileId,
-      dominion: hostName && hasDominionOver(claims, hostName) ? 1 : 0,
+      dominion: hasDominionOverHost(claims, this.#getHostName()) ? 1 : 0,
     };
   }
 

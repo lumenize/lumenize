@@ -381,6 +381,7 @@ const dominionMeshMethods = (ctor: { prototype: object }) => meshEntries(ctor)
 const REQUESTS_REASONS: Record<string, string> = {
   transaction: 'each op checks a DAG grant at its node; no grant is told `permission`',
   read: 'checks `read` at the resource\'s node',
+  query: 'checks `read` at each result\'s node; a denied caller is told only which nodes',
   subscribe: 'checks `read` per update; a denied subscriber is told only which nodes',
   unsubscribe: 'drops only the caller\'s own row, by the id the door derives',
   subscribeQuery: 'checks `read` per update; a denied subscriber is told only which nodes',

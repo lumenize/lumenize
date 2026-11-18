@@ -51,5 +51,8 @@ export type {
   TreeSeed,
 } from './org-ops';
 
+// A query, and what a one-time read of one answers (`client.resources.query`).
+export type { QueryDescriptor, QueryReadResult } from './query-hash';
+
 // Ontology config types — the shape contract for a test lane's Star install initiators.
 export type { OntologyVersionConfig, OntologyVersionRow } from './ontology-version';

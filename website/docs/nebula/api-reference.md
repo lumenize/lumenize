@@ -25,6 +25,7 @@ Each surface below carries one tag describing its provenance. The tags captured 
 | `client.resources.unsubscribe(rt, rid)` | implemented-in-spike | [resources.unsubscribe](#resourcesunsubscribe) |
 | `client.resources.subscribeQuery(query, options?)` | new-in-v3 | [resources.subscribeQuery](#resourcessubscribequery) |
 | `client.resources.read(rt, rid, options?)` | implemented-in-spike | [resources.read](#resourcesread) |
+| `client.resources.query(query)` (a query's current result, read once) | new-in-v3 | [resources.query](#resourcesquery) |
 | `client.resources.transaction(ops, options?)` | implemented-in-spike (single-resource happy path); new-in-v3 (per-resource outcomes, infrastructure-error, multi-resource) | [resources.transaction](#resourcestransaction) |
 | `client.resources.onTransactionResourceResolution(rt, handler, options?)` | new-in-v3 (replaces shipped `onETagConflict`) | [resources.onTransactionResourceResolution](#resourcesontransactionresourceresolution) |
 | `client.resources.transactionDebounce(rt, opts)` (runtime override) | new-in-v3 | [resources.transactionDebounce](#resourcestransactiondebounce) |
@@ -310,6 +311,24 @@ Ad-hoc read of a resource. Each call gets its own `requestId`; concurrent reads 
 **Does NOT write to the store.** `read` is for scripting and ad-hoc inspection. For reactive UI, use the store + auto-subscribe (or `subscribe` explicitly).
 
 Returns `null` only if the resource was **never created**. A soft-deleted resource returns a real `Snapshot` with `meta.deleted: true` (see [Snapshot](#snapshot)) — `null` never means "deleted."
+
+## `client.resources.query` {#resourcesquery}
+
+**Tag**: `new-in-v3`
+
+```typescript @skip-check
+query(query: QueryDescriptor): Promise<QueryReadResult>;
+
+interface QueryReadResult {
+  snapshots: Array<{ resourceId: string; value: any; meta: SnapshotMeta }>;  // the results you may read, in the query's order
+  deniedNodes?: string[];   // the nodes holding results you may not read
+  more?: true;              // the query matched more than the 1,000 results one read carries
+}
+```
+
+A query's current result, **read once**. It takes the same [`QueryDescriptor`](#resourcessubscribequery) as `subscribeQuery`, and answers each result's whole snapshot rather than its id, checked against this person's `read` on the node it sits under, as a subscription's results are. Nothing is subscribed: no later change reaches the page, and the snapshots do not enter the store.
+
+Subscribe to what stays on screen and can change, and read once what will not change or will not stay. A query a subscription would refuse — a filter the engine refuses, one no index can look up — rejects the Promise with the same message. A page on an old build is answered stale, as [`read`](#resourcesread) is.
 
 ## `client.resources.transaction` {#resourcestransaction}
 

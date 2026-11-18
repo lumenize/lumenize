@@ -7,7 +7,6 @@
  */
 
 import type { CallContext } from '@lumenize/mesh';
-import { hasDominionOver } from '@lumenize/mesh';
 import type { AuthClaims } from '@lumenize/mesh';
 import {
   ROOT_NODE_ID,
@@ -25,6 +24,7 @@ import {
 } from './org-ops';
 import type { PermissionTier, OrgTreeState, OrgTreeView, EdgeKey, OrgTreeNodeData, TreeSeed } from './org-ops';
 import { PermissionDeniedError, NodeNotFoundError, NodeIdCollisionError, ProtectedGrantError } from './errors';
+import { hasDominionOverHost } from './host-dominion';
 
 export class OrgTree {
   #ctx: DurableObjectState
@@ -207,7 +207,7 @@ export class OrgTree {
     // Scope-admin bypass — being a scope admin confers no DAG grant, a Star's own admin included, so
     // without this they could not act on the tree they govern.
     //
-    // ⚠️ Confined to THIS host (`hasDominionOver`), never the bare `access.scopeAdmin` bit. The bit
+    // ⚠️ Confined to THIS host (`hasDominionOverHost`), never the bare `access.scopeAdmin` bit. The bit
     // alone is not dominion: `requirePassage` deliberately admits a caller whose own scope sits
     // BELOW this node (its upward arm), so a bare check let an admin of a child scope act as admin
     // on its ancestors. The prior comment here justified the bare bit with "`access.scopeAdmin` is only
@@ -217,11 +217,10 @@ export class OrgTree {
     // Galaxy collapse deleted: the collapsed Galaxy hosts a DAG at `{u}.{g}`, so a `{u}.{g}.dev`
     // admin now reaches a host their scope does not cover. That denial is the live case, and
     // `confine-org-plane.test.ts` drives it against the real chat plane.)
-    // Fail closed on an absent host name by simply NOT granting the bypass — the caller falls
-    // through to the ordinary DAG lookup and needs a real grant. Never coerce to a sentinel:
-    // it would flow into `isAtOrAbove`, where a superuser's root scope covers any string.
-    const hostName = this.#getHostName()
-    if (hostName && hasDominionOver(claims, hostName)) return sub
+    // An absent host name grants no bypass, so the caller falls through to the ordinary DAG
+    // lookup and needs a real grant. Never coerce it to a sentinel: it would flow into
+    // `isAtOrAbove`, where a superuser's root scope covers any string.
+    if (hasDominionOverHost(claims, this.#getHostName())) return sub
     if (!resolvePermission(this.#view, sub, nodeId, tier)) {
       throw new PermissionDeniedError(tier, nodeId)
     }
@@ -523,11 +522,13 @@ export class OrgTree {
    *      honors the DAG grants in the tree.
    *
    * ⚠️ **This method takes no scope and no host name, so it is NOT a confinement point** — do not
-   * add one, and do not claim it "inherits confinement from the store." It has TWO operand sources
-   * and only one of them comes from the store:
+   * add one, and do not claim it "inherits confinement from the store." Its operand comes from
+   * three places, and only the first two are confined:
    *   - **Push path** (`resources.ts` `#targetsForQuery` / query-push / mutation-broadcast)
    *     passes the stored row's verdict, which IS confined at write time. That is the path that
    *     matters, and the one tasks/archive/nebula-confine-admin-bypass.md closed.
+   *   - **One-time query read** (`Resources.doQuery`) computes the verdict live, through
+   *     `hasDominionOverHost`, from the caller's own claims.
    *   - **Wire path** — every host's `resources` door is a bare `@mesh()` handing back
    *     `resources.orgTree`, and mesh's "gate once, then chain" checks for `@mesh()` only on a chain's
    *     ENTRY op, so a caller can
@@ -537,7 +538,7 @@ export class OrgTree {
    *     with passage into the host, on a Star or a Galaxy alike (ADR-008's visibility ≠ capability,
    *     carried up the hierarchy for the tree kind in `subscriptions.ts`).
    *     A forged `hasDominionOverHost:true` therefore grants no capability, it only relabels a set the
-   *     caller already named. Keep these two justifications distinct; conflating them would assert
+   *     caller already named. Keep the confined paths' justification and this one distinct; conflating them would assert
    *     an invariant nothing enforces.
    *
    * Unknown / missing nodeIds resolve to `denied` (no grant climbs to them) — no

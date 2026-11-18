@@ -6,7 +6,7 @@
  * line. A call that simply drops the version would not do: its query lands in the version's slot,
  * which fails to compile whether or not the version is required.
  *
- * Mutation: widen any of the three version parameters to `string | undefined`, and its marker reds
+ * Mutation: widen any of the version parameters to `string | undefined`, and its marker reds
  * the type-check as an unused `@ts-expect-error`.
  */
 import type { ResourcesRequests, NodeInvitee, QueryDescriptor } from '@lumenize/resources';
@@ -18,6 +18,10 @@ declare const invitees: NodeInvitee[];
 requests.subscribeQuery('v1', query);
 // @ts-expect-error — a list subscription without the page's version
 requests.subscribeQuery(undefined, query);
+
+requests.query('v1', query);
+// @ts-expect-error — a one-time query read without the page's version
+requests.query(undefined, query);
 
 requests.subscribeQuerySubscribers('v1', query);
 // @ts-expect-error — a roster subscription without the page's version

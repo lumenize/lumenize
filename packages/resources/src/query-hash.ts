@@ -13,6 +13,8 @@
 
 import { stringify } from '@lumenize/structured-clone';
 import type { Filter } from './query/where';
+// Type-only, so this isomorphic module pulls nothing of the server's storage engine into a page.
+import type { SnapshotMeta } from './snapshots';
 
 /**
  * A query: the resources of one type that match a filter.
@@ -34,6 +36,17 @@ export interface QueryDescriptor {
  *  dropped), and the request-access UI's input. */
 export interface QueryUpdatePayload {
   resourceIds?: string[];
+  deniedNodes?: string[];
+  more?: true;
+}
+
+/**
+ * What a one-time read of a query answers: the current snapshot of each result the caller may
+ * read, in the query's order, the nodes it may not read, and whether the query matched more than
+ * {@link QUERY_RESULT_CAP} results. `resourceId` sits beside the snapshot's `value` and `meta`.
+ */
+export interface QueryReadResult {
+  snapshots: Array<{ resourceId: string; value: any; meta: SnapshotMeta }>;
   deniedNodes?: string[];
   more?: true;
 }

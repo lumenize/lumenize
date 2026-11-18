@@ -45,7 +45,8 @@ import type { DroppedAddress, QuerySubscriberRow } from './subscriptions';
 import { compileIndex, compileQuery, compileWhere, QUERY_INDEX_PREFIX } from './query';
 import type { CompiledQuery, CompiledWhere, Filter } from './query';
 import { canonicalQueryHash, QUERY_RESULT_CAP } from './query-hash';
-import type { QueryDescriptor, QueryUpdatePayload, SubscriberEntry } from './query-hash';
+import type { QueryDescriptor, QueryReadResult, QueryUpdatePayload, SubscriberEntry } from './query-hash';
+import { hasDominionOverHost } from './host-dominion';
 import { parse } from '@lumenize/structured-clone';
 import type { OperationDescriptor, TransactionResult, Snapshot } from './snapshots';
 import type { OntologyVersionRow } from './ontology-version';
@@ -113,6 +114,11 @@ export interface ResourcesRequests {
   transaction(ontologyVersion: string, ops: Record<string, OperationDescriptor>): Promise<TransactionResult | OntologyStaleError> | OntologyStaleError;
   /** Throws a stale version's `OntologyStaleError`. */
   read(ontologyVersion: string, resourceId: string): Snapshot | null;
+  /**
+   * A query's current result, read once: no subscriber row and no live query. Throws a stale
+   * version's `OntologyStaleError`, and the refusal a subscription would push for the query.
+   */
+  query(ontologyVersion: string, query: QueryDescriptor): QueryReadResult;
   /** Pushes a stale version's `OntologyStaleError` on the resource channel. */
   subscribe(ontologyVersion: string, resourceType: string, resourceId: string): void;
   unsubscribe(resourceType: string, resourceId: string): void;
@@ -289,9 +295,9 @@ export class Resources {
    * get narrow thunks, never the handle: `orgTree` is handed to the wire behind the host's gate,
    * so whatever an `OrgTree` holds is reachable from it. Thunks, never captured values — this runs
    * inside the host's `onStart()`, where `lmz.instanceName` is not yet stamped. The host name is
-   * the scope the `access.scopeAdmin` bypass is confined to, at both confinement points
-   * (`OrgTree.requirePermission` and the subscribe-time writers), and the guards fail closed on an
-   * absent one.
+   * the scope the `access.scopeAdmin` bypass is confined to, at every confinement point
+   * (`OrgTree.requirePermission`, the subscribe-time writers and the one-time query read, each
+   * through `hasDominionOverHost`), and each fails closed on an absent one.
    */
   #build(): void {
     const getCallContext = () => this.#lmz().callContext;
@@ -366,6 +372,11 @@ export class Resources {
         const stale = this.#gateClientOp(ontologyVersion);
         if (stale) throw stale;
         return this.doRead(resourceId);
+      },
+      query: (ontologyVersion, query) => {
+        const stale = this.#gateClientOp(ontologyVersion);
+        if (stale) throw stale;
+        return this.doQuery(query);
       },
       subscribe: (ontologyVersion, resourceType, resourceId) => {
         const address = this.#caller();
@@ -1262,6 +1273,55 @@ export class Resources {
   }
 
   /**
+   * A query's current result for the caller, read once: what a subscription's first push would
+   * carry, with each snapshot whole rather than its id. It registers nothing, so it counts toward
+   * no type's live queries, and it refuses what a subscription refuses for the query itself.
+   *
+   * The caller is `callContext.originAuth`, and its verdict over the host is
+   * {@link hasDominionOverHost}, computed now, where a subscription stores it. A caller with no
+   * claims is refused.
+   */
+  doQuery(query: QueryDescriptor): QueryReadResult {
+    const auth = this.#lmz().callContext.originAuth;
+    if (!auth?.sub) throw new Error('Authentication required');
+    const dominion = hasDominionOverHost(auth.claims as unknown as AuthClaims, this.#lmz().instanceName);
+    const compiled = this.#compile(query);
+    if (compiled.scans) {
+      debug('nebula.Resources.query').info('query scans', {
+        instanceName: this.#lmz().instanceName, typeName: query.typeName, queryHash: canonicalQueryHash(query),
+        allowScan: query.allowScan === true, once: true,
+      });
+    }
+    const { matches, more } = this.#evaluateQuery(query, compiled);
+    const { allowed, denied } = this.#readableNodes(matches.map((m) => m.nodeId), auth.sub, dominion);
+    const readable = matches.filter((m) => allowed.has(m.nodeId));
+    const current = this.#snapshots.currentSnapshots(readable.map((m) => m.resourceId));
+    const snapshots: QueryReadResult['snapshots'] = [];
+    for (const { resourceId } of readable) {
+      const snapshot = current.get(resourceId);
+      if (snapshot) snapshots.push({ resourceId, value: snapshot.value, meta: snapshot.meta });
+    }
+    return {
+      snapshots,
+      ...(denied.size > 0 ? { deniedNodes: [...denied] } : {}),
+      ...(more ? { more: true as const } : {}),
+    };
+  }
+
+  /**
+   * `sub`'s `read` on each node a query's results sit under, evaluated once per distinct node
+   * however many results share it. `dominion` is the caller's verdict over the host: computed live
+   * for a one-time read, stored on the row for a subscription. Logs the nodes it checked.
+   */
+  #readableNodes(nodeIds: string[], sub: string, dominion: boolean): { allowed: Set<string>; denied: Set<string> } {
+    const nodes = [...new Set(nodeIds)];
+    debug('nebula.Resources.query').debug('read checked', {
+      instanceName: this.#lmz().instanceName, sub, nodes,
+    });
+    return this.#orgTree.evaluatePermissions(nodes, 'read', sub, dominion);
+  }
+
+  /**
    * Register a resource subscriber and push what it may see: the current snapshot to a reader,
    * `{ deniedNodes: [nodeId] }` to one who cannot read it (ADR-008 — told, not refused), and an
    * Error for a refused subscribe ({@link Subscriptions.subscribeResource} says which refuse), which
@@ -1385,8 +1445,10 @@ export class Resources {
    * A query's current result, in the order of each resource's latest write, and whether it matched
    * more than {@link QUERY_RESULT_CAP}. This is the one place a query reads `Snapshots`.
    */
-  #evaluateQuery(query: QueryDescriptor): { matches: Array<{ resourceId: string; nodeId: string }>; more: boolean } {
-    const { where, params } = this.#compile(query);
+  #evaluateQuery(
+    query: QueryDescriptor, compiled: CompiledQuery = this.#compile(query),
+  ): { matches: Array<{ resourceId: string; nodeId: string }>; more: boolean } {
+    const { where, params } = compiled;
     const rows = this.#ctx.storage.sql.exec<{ resourceId: string; nodeId: string }>(
       `SELECT resourceId, nodeId FROM Snapshots WHERE ${where} ORDER BY validFrom, resourceId LIMIT ${QUERY_RESULT_CAP + 1}`,
       ...params,
@@ -1396,7 +1458,8 @@ export class Resources {
 
   /**
    * Send a query's current result to `targets`: to the one new subscriber, or to every subscriber
-   * of a query a commit touched. It evaluates each target's `read` on every result, then sends:
+   * of a query a commit touched. It evaluates each target's `read` on each node the results sit
+   * under ({@link #readableNodes}), then sends:
    *   - the targets who can read every result **one shared payload**, in one `lmz.broadcast`;
    *   - each other target **its own**: the ids it can read, and the nodes it cannot.
    * The client replaces its list on every push, so a push is idempotent and carries no delta.
@@ -1411,9 +1474,7 @@ export class Resources {
 
     const noDenial: QuerySubscriberRow[] = [];
     for (const t of targets) {
-      const { allowed, denied } = this.#orgTree.evaluatePermissions(
-        matchNodeIds, 'read', t.sub, Boolean(t.dominionOverHostAtSubscribe),
-      );
+      const { allowed, denied } = this.#readableNodes(matchNodeIds, t.sub, Boolean(t.dominionOverHostAtSubscribe));
       if (denied.size === 0) {
         noDenial.push(t);
         continue;
