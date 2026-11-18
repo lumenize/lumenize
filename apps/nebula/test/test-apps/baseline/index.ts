@@ -753,6 +753,58 @@ export class GalaxyTest extends Galaxy {
     this.ctx.storage.sql.exec(`DELETE FROM Subscriptions WHERE kind = 'query'`);
   }
 
+  /** Write `ops` as the agent, through the plane's own transaction, as a turn writes its rounds. */
+  @mesh(requireDominionHere)
+  writeAsAgentForTest(ops: Record<string, OperationDescriptor>): Promise<TransactionResult> {
+    return this.writeAsAgent(ops);
+  }
+
+  /** Every stored snapshot of `resourceId`, oldest first, with who wrote it. The plane answers only
+   *  a resource's current snapshot, so a test that needs an earlier one reads storage. */
+  @mesh(requireDominionHere)
+  snapshotRowsForTest(resourceId: string): Array<{ validFrom: string; validTo: string; nodeId: string; sub: string; value: unknown }> {
+    return this.ctx.storage.sql.exec<{ validFrom: string; validTo: string; nodeId: string; recordedClaims: string; value: string }>(
+      'SELECT validFrom, validTo, nodeId, recordedClaims, value FROM Snapshots WHERE resourceId = ? ORDER BY validFrom', resourceId,
+    ).toArray().map((r) => ({
+      validFrom: r.validFrom, validTo: r.validTo, nodeId: r.nodeId,
+      sub: (JSON.parse(r.recordedClaims) as { sub: string }).sub, value: r.value,
+    }));
+  }
+
+  /** The grants `sub` holds in this Galaxy's tree, by node id. */
+  @mesh(requireDominionHere)
+  grantsForTest(sub: string): Array<{ nodeId: string; permission: string }> {
+    return this.ctx.storage.sql.exec<{ nodeId: string; permission: string }>(
+      'SELECT nodeId, permission FROM Permissions WHERE sub = ? ORDER BY nodeId', sub,
+    ).toArray().map((r) => ({ nodeId: r.nodeId, permission: r.permission }));
+  }
+
+  /** The agent's `invite` tool, under this caller's own claims. */
+  @mesh(requireDominionHere)
+  inviteForTest(email: string): ReturnType<Galaxy['invite']> {
+    return this.invite(email);
+  }
+
+  @mesh(requireDominionHere)
+  writeBlobForTest(content: string): Promise<string> {
+    return this.writeBlob(content);
+  }
+
+  @mesh(requireDominionHere)
+  readBlobForTest(oid: string): Promise<string> {
+    return this.readBlob(oid);
+  }
+
+  /** The row count of each of the Workspace's own tables, the `vfs_` ones `@cloudflare/computer` keeps its files and git store in. */
+  @mesh(requireDominionHere)
+  workspaceRowsForTest(): Record<string, number> {
+    const tables = this.ctx.storage.sql.exec<{ name: string }>(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'vfs_*' ORDER BY name`,
+    ).toArray().map((r) => r.name);
+    return Object.fromEntries(tables.map((name) => [name,
+      this.ctx.storage.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM "${name}"`).one().n]));
+  }
+
   /** Commit the durable agent Message (the completion step), written by the agent as itself
    *  whoever calls this, and `replyTo`-linked (required on an agent message). */
   @mesh(requireDominionHere)

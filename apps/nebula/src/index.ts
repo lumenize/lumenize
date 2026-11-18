@@ -15,6 +15,7 @@ export { NebulaAuthFacade } from './nebula-auth-facade';
 export {
   DEFAULT_CHAT_ID,
   CHAT_NODE_ID,
+  TURNS_NODE_ID,
   CHAT_MESSAGE_ONTOLOGY_VERSION,
   CHAT_MESSAGE_TYPES,
 } from './chat-constants';

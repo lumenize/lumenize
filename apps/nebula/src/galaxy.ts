@@ -52,7 +52,7 @@ import { TURN_HEARTBEAT_MS } from './turn-liveness';
 import type { BuildReport, StepResult } from './build-report';
 import { Resources } from '@lumenize/resources';
 import type { NodeInviteOutcome, OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from '@lumenize/resources';
-import type { QueryDescriptor } from '@lumenize/resources';
+import type { QueryDescriptor, TransactionResult, WireOperationDescriptor as OperationDescriptor } from '@lumenize/resources';
 import { chatOntologySeedRow } from './chat-ontology';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID, GALAXY_TREE_SEED } from './chat-constants';
 import { parseCast, type CastEntry } from './cast';
@@ -707,6 +707,23 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    *  probe can read whom a commit names. */
   protected async headCommit(): Promise<{ oid: string; author: { name: string; email: string }; committer: { name: string; email: string } } | undefined> {
     try { return (await (await this.#workspace()).git.log({ dir: WS_ROOT, depth: 1 }))[0]; } catch { return undefined; /* fresh repo */ }
+  }
+
+  /**
+   * Keep `content` in the Workspace's git store as a blob, and answer its id, the `oid` a round
+   * records for a file the model read. A blob the repo already holds, a committed file's say, is
+   * found and written again for nothing. A blob no commit points at stays: nothing here ever
+   * collects one. No `@mesh()`: only a turn's own code keeps what its model was sent.
+   */
+  protected async writeBlob(content: string): Promise<string> {
+    return (await this.#workspace()).git.hashObject({ dir: WS_ROOT, content, write: true });
+  }
+
+  /** The content of the blob `oid`, which {@link writeBlob} answered. Throws for an id the store
+   *  does not hold. No `@mesh()`, as there. */
+  protected async readBlob(oid: string): Promise<string> {
+    const { bytes } = await (await this.#workspace()).git.catFile({ dir: WS_ROOT, oid });
+    return new TextDecoder().decode(bytes);
   }
 
   /** Local read — the LLM hot path (read relevant files into context). Chat floor;
@@ -2155,6 +2172,15 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * the other posts it answers, and `agentMessageValue` keeps the two consistent. `codegen` is
    * the folded corpus record, present on every codegen-path reply.
    */
+  /**
+   * Write `ops` as the agent, through the plane's own transaction and its checks, and answer what
+   * the plane answered: a conflict or a refusal comes back as a value. A turn stores its rounds this
+   * way, under the agent's protected `write` at the `turns` node.
+   */
+  protected writeAsAgent(ops: Record<string, OperationDescriptor>): Promise<TransactionResult> {
+    return this.lmz.asLocalPrincipal(NEBULA_SUB, () => this.#resources.doTransaction(ops, ''));
+  }
+
   protected async commitAgentMessage(
     chatId: string, messageId: string, content: string, nodeId: string,
     replyTo: string | undefined,

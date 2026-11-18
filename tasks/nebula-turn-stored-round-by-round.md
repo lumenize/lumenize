@@ -154,7 +154,7 @@ The core is Larry's, and § *Decisions* holds it. Each item below that rests on 
 - **C4. A turn's tools need nobody's live call.** Checked 2026-11-15 by reading `runCodegenTurn`: every tool dispatch goes through `actUnder`.
 - **C5. Each run of a turn gets a hold of its own.** A handler's call and a wake are each a new event, so each can hand `waitUntil` a new promise. Not measured.
 - **C9. A Galaxy a deploy restarts mid-turn is reached again with no one acting.** Since 2026-10-30 Cloudflare defers a Durable Object's code update by up to 300 s by default, so a deploy cuts a turn only if a run is still going then. An update deployed with `--durable-objects-code-update-mode immediate`, or a runtime update, cuts it at once and closes its sockets, so an open Studio's reconnect is the upgrade that wakes it. Nothing has measured an active Galaxy, and § *Phase 7* does.
-- **C7. A blob the Workspace already holds costs nothing to record again, and reads back cheaply.** `@cloudflare/computer` 0.9.0's git client has `hashObject({ dir, content, write: true })` and `catFile({ dir, oid })`, read in its installed types on 2026-11-17. Not measured: whether `hashObject` writes any rows for a blob the store already has, what a `catFile` costs once the repo is packed, and whether anything the Galaxy does to its repo drops a blob no commit points at. A platform doc's blob is one of those, and D5 accepts that it stays for good.
+- **C7. A blob the Workspace already holds costs nothing to record again, and reads back cheaply.** `@cloudflare/computer` 0.9.0's git client has `hashObject({ dir, content, write: true })` and `catFile({ dir, oid })`, read in its installed types on 2026-11-17. Measured on 2026-11-18 by `turn-rounds.test.ts`: a blob the store already holds writes no row, and a new one wrote one row each to `vfs_blob_bytes`, `vfs_blobs`, `vfs_chunks` and `vfs_manifests`, and two each to `vfs_dirents` and `vfs_nodes`, the object's file and its directory. A blob no commit points at read back after a later `writeSource`, and nothing in the Galaxy runs a git gc. Not measured: what a `catFile` costs once the repo is packed. A platform doc's blob is one no commit points at, and D5 accepts that it stays for good.
 - **C6. An eviction can be tested where storage survives it.** The vitest-plugin lane's `ctx.abort()` keeps storage and a local `wrangler dev`'s wipes it (`durable-objects.md`). `waiting-posts.test.ts` already resets a Galaxy mid-turn there.
 
 ## Constraints
@@ -417,6 +417,34 @@ Each phase leaves every suite green. A criterion that names a test means a test 
 - Read `authScope` where the verdict reads `aud`: the same test at its third limb, the admin on the `.dev` page, which the previous mutation hides.
 - Drop the claims check: *refuses a chain that carries no claims*.
 - Give `requirePermission` the bare bit again, now that it calls `hasDominionOverHost`: both of `confine-org-plane`'s existing denials of a descendant admin.
+
+### Phase 2
+
+**For the human:** nothing open.
+
+- The criterion's refusal "with `PermissionDeniedError`" is what the plane answers the member's op with, `{ type: 'permission', requiredTier: 'write', nodeId: TURNS_NODE_ID }`: `Snapshots.transaction` catches `requirePermission`'s `PermissionDeniedError` and turns it into that value.
+
+**Retro notes:**
+
+- An unchecked grant writer cannot be a method of `OrgTree`, since every member of one is reachable past the `resources` door. `writeInviteAlsoGrants` is a module function a class `static` block sets, so it reaches a `#private` method and adds nothing to what an `OrgTree` carries. `galaxy-resource-surface.test.ts`'s list of the tree's methods is unchanged.
+- A declared invite grant is written with `INSERT OR IGNORE`, so it never lowers or replaces a grant the invitee already holds at `turns`, as an invite never lowers a bit.
+- "One link" is counted from the Registry's `invite.issued` line for the invitee's address at the Galaxy's scope, which a second facade call would double.
+- The probe `writeAsAgentForTest` writes through a new protected `Galaxy.writeAsAgent`. § *Phase 4*'s store is its production caller; until then a test is the only one.
+- The whole `apps/nebula` run failed two tests. `plane-wipe.test.ts` counted the Galaxy's tree as two nodes, root and chat, and now counts three. The browser `smoke.test.ts` waited out its 60 s for a login email Resend reported delivered, and passed on a rerun with nothing changed: a flake, in the mail's routing.
+- The sweep passed 77 of 78. `revoke-is-total` waited out a login email Resend never saw, a scenario of two logins and a scope deletion with no node invite in it, and passed on `--rerun` with nothing changed: a flake, in sending the mail.
+- The `Round` validator is a generated literal (`src/validator-seeds.ts`), so the mutation of `index`'s type was made by hand: edit, regenerate, run, restore, regenerate, and `--check` in sync.
+
+**Close-out notes:** none.
+
+**Mutations run** (each caught by the test named):
+
+- Drop the agent's seeded `write` at `turns`: the create-then-put test, the unknown-`message` test and the member test.
+- Grant `write` at `turns` with an invite at `chat`: the member test, and both invite tests.
+- Drop the seed's `inviteAlso`: both invite tests, and the member test at its read of the agent's round.
+- Write the declared grants for an invite at any node: *an invite at a node the seed declares nothing for*.
+- Call `hashObject` without `write: true`: both blob tests.
+- Send the facade invite twice: both invite tests' one-link assertion.
+- Type `Round.index` as `unknown` (by hand, regenerated): *refuses a Round whose index is a string*.
 
 ## Non-goals
 

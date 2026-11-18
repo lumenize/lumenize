@@ -38,7 +38,7 @@ import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator/runt
 import type { InviteSummary, InviteeError, AuthClaims } from '@lumenize/mesh/auth';
 import { toRecordedClaims } from '@lumenize/mesh/client';
 import type { PermissionTier, TreeSeed } from './org-ops';
-import { OrgTree } from './org-tree';
+import { OrgTree, writeInviteAlsoGrants } from './org-tree';
 import { Snapshots } from './snapshots';
 import { Subscriptions } from './subscriptions';
 import type { DroppedAddress, QuerySubscriberRow } from './subscriptions';
@@ -859,7 +859,8 @@ export class Resources {
    * call above names as its traveling continuation (never awaited), so it survives the host's
    * eviction and the inviter's disconnect. Writes the second plane: `setPermission` at the node for
    * every minted `sub` (already-member outcomes included — that is what heals the one reachable
-   * two-plane inconsistency, a membership without its grant), then flips each `_InviteStatus` row
+   * two-plane inconsistency, a membership without its grant), with whatever grants the host's seed
+   * declares beside an invite at that node (`TreeSeed.inviteAlso`), then flips each `_InviteStatus` row
    * to `sent`/`submission-failed`. It runs at the host's fire-back door, `__handleResponse`, where
    * the member-level check is off and the scope check on. The whole body is wrapped: an uncaught
    * throw in a fire-back handler is silently lost, so failures are logged with identifiers only.
@@ -892,6 +893,9 @@ export class Resources {
           continue;
         }
         this.#orgTree.setPermission(nodeId, r.sub, tier);
+        // What the host's seed declares with an invite here, with no second check and no second mail.
+        const also = writeInviteAlsoGrants(this.#orgTree, nodeId, r.sub);
+        if (also.length > 0) log.debug('declared grants written with the invite', { nodeId, sub: r.sub, nodes: also });
       }
       await this.#flipInviteStatuses(nodeId, [
         ...summary.results.map((r) => ({ email: r.email, state: 'sent' as const })),

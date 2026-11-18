@@ -87,8 +87,8 @@ export function isBelowTier(tier: PermissionTier, floor: PermissionTier): boolea
 
 /**
  * The part of a tree its host declares rather than anyone grants: nodes and grants created with the
- * tree, which no request creates. A Galaxy declares its `chat` node and its agent's `write` on it; a
- * Star declares nothing. They are created once, by `INSERT OR IGNORE`, so a wake writes no rows.
+ * tree, which no request creates. A Galaxy declares its `chat` and `turns` nodes and its agent's `write`
+ * on each; a Star declares nothing. They are created once, by `INSERT OR IGNORE`, so a wake writes no rows.
  *
  * A grant marked `protected` is part of the tree's skeleton, like its root: `revokePermission`, and a
  * `setPermission` below its declared `tier`, are refused to everyone alike (ADR-015, ADR-025).
@@ -96,6 +96,13 @@ export function isBelowTier(tier: PermissionTier, floor: PermissionTier): boolea
 export interface TreeSeed {
   nodes?: Array<{ nodeId: string; parentNodeId: string; slug: string; label: string }>
   grants?: Array<{ nodeId: string; sub: string; tier: PermissionTier; protected?: true }>
+  /**
+   * Grants that go with an invite at a node: when a node invite at `at` is answered, each `grant`
+   * is written for the invitee beside the invite's own, with no check of its own, since the host
+   * declared it. A Galaxy declares `read` at its `turns` node with every invite at `chat`. One
+   * never lowers or replaces a grant the invitee already holds there.
+   */
+  inviteAlso?: Array<{ at: string; grant: { nodeId: string; tier: PermissionTier } }>
 }
 
 // ─── Validation ────────────────────────────────────────────────────

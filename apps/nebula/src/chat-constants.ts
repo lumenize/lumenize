@@ -29,15 +29,34 @@ export const DEFAULT_CHAT_ID = '00000000-0000-4000-8000-000000000001';
 export const CHAT_NODE_ID = '00000000-0000-4000-8000-000000000002';
 
 /**
- * What the Galaxy declares in its tree: the `chat` node, and the agent's `write` on it. These are
- * the two rows nobody's request creates. The owner reaches the tree through dominion and a
- * collaborator gets a grant by invite, while the agent holds no membership, so a grant in this tree
- * is its only way to read the thread and post (ADR-025). The grant is protected: with it revoked
- * the agent could not hear the request to restore it.
+ * The DAG node every `Round` of a turn lives under, a sibling of {@link CHAT_NODE_ID} beneath the
+ * root, at a fixed id as that one is. The seed grants `write` here to the agent alone, and an
+ * invite at the chat node brings only `read` here with it ({@link GALAXY_TREE_SEED}), so a round is
+ * written by the agent, by an app admin through dominion, or by someone an admin granted more.
+ */
+export const TURNS_NODE_ID = '00000000-0000-4000-8000-000000000003';
+
+/**
+ * What the Galaxy declares in its tree: the `chat` node where the thread lives, the `turns` node
+ * where each turn's rounds live, and the agent's `write` on each. Nobody's request creates them.
+ * The owner reaches the tree through dominion and a collaborator gets a grant by invite, while the
+ * agent holds no membership, so a grant in this tree is its only way to read the thread, post and
+ * store its rounds (ADR-025). Each grant is protected: with the one at `chat` revoked the agent
+ * could not hear the request to restore it.
+ *
+ * An invite at `chat` also grants `read` at `turns`, so whoever can post sees the calls a turn made,
+ * and nobody but the agent and an admin writes one, whichever path invited them.
  */
 export const GALAXY_TREE_SEED: TreeSeed = {
-  nodes: [{ nodeId: CHAT_NODE_ID, parentNodeId: ROOT_NODE_ID, slug: 'chat', label: 'Chat' }],
-  grants: [{ nodeId: CHAT_NODE_ID, sub: NEBULA_SUB, tier: 'write', protected: true }],
+  nodes: [
+    { nodeId: CHAT_NODE_ID, parentNodeId: ROOT_NODE_ID, slug: 'chat', label: 'Chat' },
+    { nodeId: TURNS_NODE_ID, parentNodeId: ROOT_NODE_ID, slug: 'turns', label: 'Turns' },
+  ],
+  grants: [
+    { nodeId: CHAT_NODE_ID, sub: NEBULA_SUB, tier: 'write', protected: true },
+    { nodeId: TURNS_NODE_ID, sub: NEBULA_SUB, tier: 'write', protected: true },
+  ],
+  inviteAlso: [{ at: CHAT_NODE_ID, grant: { nodeId: TURNS_NODE_ID, tier: 'read' } }],
 };
 
 /**
@@ -49,7 +68,7 @@ export const GALAXY_TREE_SEED: TreeSeed = {
  * in its Workspace repo. The chat loader's bundle id derives from it, so a changed seed
  * row MUST come with a new label (`scripts/gen-validator-seeds.ts`).
  */
-export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v4';
+export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v5';
 
 /**
  * The Chat/Message ontology, in source (ADR-001 — TS types ARE the schema).
@@ -91,8 +110,17 @@ export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v4';
  * subscribes to `ServedBuild where chat == DEFAULT_CHAT_ID`, so every Studio on the app
  * hears every landing. `star` names the Star slug whose host serves it.
  *
- * `Message.chat` and `ServedBuild.chat` each declare an index, since every Studio subscribes to
- * both by their chat and a Galaxy's Messages are the largest type it holds.
+ * `Round` is one round of a turn, a Resource of its own at {@link TURNS_NODE_ID}, written by the
+ * agent as itself: the model's text and reasoning, each tool call as the provider returned it
+ * (`raw`, kept whole, so the arguments are stored once and parsed when read), and each call's
+ * result or error with the post it acted for and the claims it ran under, all four absent until
+ * the call has run. `message` names the agent `Message` the turn will commit, which need not exist
+ * yet (ADR-006: an id, never looked up). `closing` marks the closing step's round: each post it was
+ * shown, with the `validFrom` it read.
+ *
+ * `Message.chat`, `ServedBuild.chat` and `Round.message` each declare an index: every Studio
+ * subscribes to the first two by their chat, a Galaxy's Messages are the largest type it holds,
+ * and a message's rounds are read by its id.
  *
  * A change here bumps {@link CHAT_MESSAGE_ONTOLOGY_VERSION}, never an in-place edit. An
  * already-seeded Galaxy then installs the new row the first time a client pinned to it asks,
@@ -128,5 +156,21 @@ export const CHAT_MESSAGE_TYPES = [
       }>;
     };
     answers?: Message[];
+  }`,
+  `interface Round {
+    chat: Chat;
+    /** @index */
+    message: Message;
+    index: number;
+    text: string;
+    reasoning?: string;
+    calls: Array<{
+      raw: unknown;
+      post?: string;
+      claims?: { sub: string; profileId?: string; act?: unknown };
+      result?: unknown;
+      error?: string;
+    }>;
+    closing?: Array<{ id: string; validFrom: string }>;
   }`,
 ].join('\n');
