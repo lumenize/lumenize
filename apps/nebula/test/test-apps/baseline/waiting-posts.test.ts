@@ -305,7 +305,11 @@ describe('a post edited while its turn runs', () => {
     // The stopped turn's message: our own line, answering nothing.
     const stopped = valueOf(messages.get(POST_MOVED)!);
     expect([stopped.replyTo, stopped.answers]).toEqual([undefined, undefined]);
-    expect(stopped.codegen.toolCalls).toEqual([]);
+    // The write is on record as refused, with no claims, since nothing ran under them.
+    expect(stopped.codegen.toolCalls).toEqual([{
+      name: 'write_file', args: { path: 'src/jennifer.txt', content: 'asked for by Jennifer' },
+      error: 'the post this turn took up was edited or deleted while it ran',
+    }]);
     await expect(c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<Galaxy>().readSource('src/jennifer.txt'))).rejects.toThrow();
     // The edit started nothing of its own: the one turn after it came from the decision.
     expect(turnLines(scope, 'took up').map((l) => [l.postId, (l.claims as { sub: string }).sub])).toEqual([[j1, c.jSub], [j1, c.aSub]]);

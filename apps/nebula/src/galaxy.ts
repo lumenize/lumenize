@@ -73,6 +73,8 @@ import { TOOL_ARGS_BUNDLE_ID } from './tool-args-constants';
 import { TOOL_ARGS_VALIDATOR_MODULE } from './validator-seeds';
 import {
   runCodegenLoop,
+  memoryRoundStore,
+  memoryBlobs,
   parseModelTurn,
   assembleCodegenPrompt,
   renderHistoryBundle,
@@ -2566,6 +2568,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     };
     const offered = { tools: CODEGEN_TOOLS, step: 'turn' as const, postId: opts.tookUp.id };
     const deps: CodegenLoopDeps = {
+      // TEMP → target: the turn's rounds stored as `Round` Resources and its blobs in the
+      // Workspace's git store, so a turn continues from storage. In memory until then.
+      rounds: memoryRoundStore(),
+      blobs: memoryBlobs(),
       // What the latest tool call's record says it acted for, read after the call.
       actsFor: () => acted,
       callModel: (m, p) => this.callModel(m, p, onDelta, offered),

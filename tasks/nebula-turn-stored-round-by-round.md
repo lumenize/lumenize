@@ -133,7 +133,7 @@ The core is Larry's, and § *Decisions* holds it. Each item below that rests on 
 
 - **DI5. Everything else the loop carries between rounds is worked out from the rounds.** The model's messages are rebuilt from the opening prompt and each round, through `modelText`. The round count, the files written, the last build, the detectors' memory of earlier calls and text, and whether the last build failed, so that the next round is told to fix it, all come from the same rounds. The row's list of interrupted rounds is the one thing kept there, since an interruption leaves no round to count (D10).
 - **DI6. A tool call that leaves the Galaxy names a result handler, and nothing waits for it** (D3). The handler carries the turn's id, which is the agent `Message`'s id, the round's resource id and the `validFrom` it was dispatched from, the call's id, and the address of the tab it asked. It writes the answer onto the round as the agent, naming that `validFrom` (DI3), and continues the turn from storage. An answer for a turn with no row, or a row naming another turn, is dropped. `run_in_tab` is the only such call today, and `build` could become one (§ *Beyond this task*).
-- **DI7. Where a turn stands is read from its rounds, in this order.** A stop recorded in the last round ends the turn first: a `mark_complete`, the repeated call the detector stopped at, or a second failed container step, each of which records a result saying so. Otherwise the first call with no result is next. If every call has one, the next model call is next. A turn that has ended goes to the closing step when posts arrived while it ran, and to the commit when none did, and a closing round is followed only by the commit. Nothing stores a position, so a handler, a wake and the ordinary next step all continue the same way.
+- **DI7. Where a turn stands is read from its rounds, in this order.** A stop recorded in the last round ends the turn first: a `mark_complete`, the repeated call the detector stopped at, or a second failed container step, each of which records a result saying so, or a call whose error says the post the turn took up moved on (D15). Otherwise the first call with no result is next. If every call has one, the next model call is next. A turn that has ended goes to the closing step when posts arrived while it ran, and to the commit when none did, and a closing round is followed only by the commit. Nothing stores a position, so a handler, a wake and the ordinary next step all continue the same way.
 - **DI8. A waking Galaxy that finds a turn's row settles what the eviction left, then continues** (D9).
   - **When it wakes.** The first time a Client reaches a new isolate, by a socket's upgrade or a call whose chain starts at a Client. That is what D9's "next call" means here: a node's call, such as a Star reading its ontology, and the construction a teardown or an alarm makes, start none.
   - **A call cut off.** In a new isolate every call in flight is gone, a tab's included, since the Gateway's record of it was in memory. At most one call was in flight, the first with no result. It is answered as interrupted and never run again (D4, D12), and the calls after it run. Its error on the round is the record, and it tells the model the call may have run and files may have changed.
@@ -198,6 +198,7 @@ None are open. Q1 was answered as D5 and Q2 as D6.
 | D12 | Each call's result is written to its round as it lands, as a new snapshot, and a call in flight when the Galaxy went away is answered as interrupted and never run again (Larry, 2026-11-17). A reply is at most 8,192 tokens, so a round's value is about 32 KB at most and a round with four calls stores about 200 KB. | Running the Galaxy's own calls again (D8's second half): an `edit_file` whose replacement holds its anchor applies twice. Results kept on the row until the round ends: a second home for a result, which the rebuild would merge. A flag per tool for what repeats safely: a table to keep right for every tool added. |
 | D13 | The Resources plane gains a one-time read of a query, with no subscription, and Studio reads a message's marks through it (Larry, 2026-11-18). A page subscribes to what stays on screen and can change, and reads once what will not. | A short list of each call's name, post and claims on the `Message`: a second home for a fact the rounds hold. A subscription to every `Round` in the chat: a query returns its oldest 1000 results, so new turns' marks would vanish. A subscription per message: a stored subscriber row for every round shown, against a limit of 200 live queries a type. |
 | D14 | Rounds sit at a `turns` node beside `chat`, where the agent holds a protected `write` and an invite grants `read`, and every round write names the `validFrom` it read (Larry, 2026-11-18, superseding D11). The node says who may write a round, and `validFrom` decides between the agent's own writers when they race. | Rounds at `chat`, with D11's filter, the agent's round ids on the row and a rule for each conflict: a third and fourth guard on one mechanism, and any member could end anyone's turn with one write. Refusing a later snapshot by anyone but a resource's creator: a second permission mechanism beside the orgTree, which ADR-025 rules out. |
+| D15 | A call refused because the post the turn took up moved on records that as its error, and a rebuild that meets the error ends the turn `post-moved`, as the other recorded stops do (Larry, 2026-11-18). | DI7's original stops alone: a wake between the post-moved error and the commit would run the round's later calls, each refused the same way, and once every call held a result it would call the model again for a post that had moved on. |
 
 ## Phases
 
@@ -384,6 +385,8 @@ Each phase leaves every suite green. A criterion that names a test means a test 
 
 ## Build notes
 
+**Sweep cadence (Larry, 2026-11-18):** a full sweep is about 52 minutes of scenario time. Phases 4 and 6 sweep only the scenarios that run a chat turn, read its record or render Studio's chat, plus the phase's own new scenario. Phase 5 adds a hook every node's entry runs, so it sweeps in full, and so does Phase 7, its closing gate.
+
 ### Phase 1
 
 **For the human:** nothing open.
@@ -445,6 +448,40 @@ Each phase leaves every suite green. A criterion that names a test means a test 
 - Call `hashObject` without `write: true`: both blob tests.
 - Send the facade invite twice: both invite tests' one-link assertion.
 - Type `Round.index` as `unknown` (by hand, regenerated): *refuses a Round whose index is a string*.
+
+### Phase 3
+
+**For the human:**
+
+- A moved post is read back as a recorded stop, and Larry kept it on 2026-11-18: D15.
+
+**Retro notes:**
+
+- The loop reads the store before every step, each dispatch included, so even inside a round nothing lives between steps, and each write names the version just read. The memory store makes that free; § *Phase 4*'s store pays a query and a read per round for it.
+- The sweep failed 13 of 78, and each on mail or its socket: mail Resend never saw, mail Resend delivered that never reached the email-test Worker, or that Worker's socket timing out or closing. The Worker showed no Workers Issues for the day. None of the 13 runs a turn, and `drive.ts all --rerun` passed all of them with nothing changed, so each is a flake, most likely of this machine's network that hour: `message-roundtrip`, `late-answer-dropped`, `resubscribe-when-lost`, `push-survives-token-lapse`, `claim-lifecycle`, `refresh-reads-the-host`, `links-sign-nobody-in`, `links-sign-in-once`, `invites-land-on-their-host`, `logout-ends-every-host`, `hosts-and-frames`, `dev-tab-frame` and `session-survives-token-lapse`.
+- `StopReason` gains `conflict` here, since a store's conflict ends the turn and § *Phase 4* gives it a fixed line. `LoopResult.stop` also takes `waiting` and `not-this-turn`, which end an invocation and no turn.
+- `LoopResult.toolCalls` is worked out from the rounds in today's shape: `mark_complete` without a result, and a call the identical-call detector stopped at left out. A call recorded as post-moved is now listed with its error, which reddened `waiting-posts.test.ts`'s edited-post case in the whole run; it now asserts the refused write, with no claims.
+- The task's mutation "write results only when the round ends" has nothing to change in this design, which keeps no results in memory to hold back. What it guards is guarded by three mutations below: reading the store once per invocation, looking for an unrun call before a recorded stop, and treating the second invocation's stored call as unrun.
+- That last mutation spun: with every call read as unrun, a stored `mark_complete` was dispatched forever, and the memory store's reads never yielded to the test's timer, so it ran until stopped by hand, with no verdict. A dispatch that stored nothing would spin the same way. § *Phase 4*'s store does I/O on every step, which yields, and a bound on steps per invocation would make such a bug fail loudly.
+
+**Close-out notes:** none.
+
+**Mutations run** (each caught by the test or tests named):
+
+- The identical-call detector's memory in a local of the invocation: the per-round equality script for a repeated call.
+- The repeated-text detector's memory in a local: the per-round script for repeated text.
+- The fix params from a local that starts at the generate params: the per-round scripts for `complete`, `no-tool-calls` and `build-unavailable`, and the read-back test.
+- A rebuilt `read_file` from `{ path, bytes }`: the read-back test and both `read_file` tests in `codegen-loop.test.ts`.
+- The store read once per invocation: every per-round script.
+- An unrun call before a recorded stop: all four mid-round stops and both stored-stop tests.
+- Every call with no outcome answered as interrupted: the in-flight test.
+- The note one round early: the note-placement test.
+- No blob cache: the blob-count test.
+- No index check: the skip-or-repeat test.
+- Claims on a post-moved call: the mid-round post-moved case.
+- A refused round create ignored: both create-refusal cases.
+- A write recorded without its claims: all four mid-round cases.
+- A stored result read as unrun: no verdict, as above.
 
 ## Non-goals
 

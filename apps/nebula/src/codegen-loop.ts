@@ -31,10 +31,10 @@ import type { BuildReport, Finding, StepResult } from './build-report';
 export { stepFailed } from './build-report';
 export type { BuildReport, Finding, StepResult } from './build-report';
 
-/** One model tool call — the loop's per-call record slot (every dispatched call + its
- *  result/error). Folds into the agent `Message`'s `codegen` value object. A `read_file`
- *  records `{ path, bytes }`, never the content: the model already holds it as the
- *  in-turn result, and the stored record fans to every subscribed client. */
+/** One model tool call as the loop's result lists it, worked out from the turn's rounds: the
+ *  call, and its result or error. A `read_file` records `{ path, bytes, oid }`, never the
+ *  content, which is kept in the Workspace's git store under `oid`: the record reaches every
+ *  subscribed client. */
 export interface ToolCall {
   name: string;
   args: unknown;
@@ -440,10 +440,13 @@ export type StopReason =
   | 'no-tool-calls'   // model replied with text only (m2c) — safe termination
   | 'build-unavailable' // the container step failed TWICE in one turn — nothing the model writes changes that
   | 'post-moved'      // the post the turn took up was edited or deleted while it ran
+  | 'conflict'        // another writer changed a round of this turn
   | 'error';          // a controlled loop error (never an uncaught crash)
 
 export interface LoopResult {
-  stop: StopReason;
+  /** How the turn stopped, or how this invocation paused: `waiting` for a call that left the
+   *  Galaxy, `not-this-turn` when the turn's row names another turn. */
+  stop: StopReason | 'waiting' | 'not-this-turn';
   /** Model inferences performed (rounds). */
   rounds: number;
   /** Every dispatched call + its result/error — folds into the agent Message's codegen object. */
@@ -462,6 +465,8 @@ export interface LoopResult {
   detail?: string;
   /** The posts `mark_complete` named as answered by the final message, as the model wrote them. */
   answers?: string[];
+  /** The closing step's round, once one is stored. */
+  closing?: StoredRound;
 }
 
 /**
@@ -515,6 +520,20 @@ export type LoopToolName = keyof LoopToolDeps;
 export interface CodegenLoopDeps {
   /** Abstracts `env.AI.run(STUDIO_MODEL, …)` — fake (script) in tests. */
   callModel(messages: ChatMessage[], params: ModelParams): Promise<unknown>;
+  /** Where the turn's rounds are kept: read before every step, written as each reply and each
+   *  call's outcome arrives ({@link RoundStore}). */
+  rounds: RoundStore;
+  /** Where the content of each file the model reads is kept, by blob id ({@link BlobStore}). */
+  blobs: BlobStore;
+  /** Whether the call at `call` in round `index` was in flight when the Galaxy went away. Such a
+   *  call is answered as interrupted and never run again, and the calls after it run. */
+  foundInFlight?(index: number, call: number): boolean;
+  /** Whether `tool`'s calls leave the Galaxy: such a call is sent with {@link send} and the
+   *  invocation returns `waiting`, nothing awaited. */
+  leaves?(tool: string): boolean;
+  /** Send a call that leaves the Galaxy, with where its answer goes: the round's id, the version
+   *  it was dispatched from, and the call's place in it. */
+  send?(tool: LoopToolName, args: unknown, at: { roundId: string; version: string; index: number; call: number; callId: string }): void;
   /** The entry-reaching tools, keyed by tool name ({@link LoopToolDeps}). */
   tools: LoopToolDeps;
   /**
@@ -762,23 +781,7 @@ export function parseModelTurn(raw: unknown): ParsedModelTurn {
           : '';
   const reasoning: string = typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '';
   const rawToolCalls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
-  const toolCalls: ParsedToolCall[] = rawToolCalls.map((tc: any, i: number) => {
-    const fn = tc?.function ?? tc ?? {};
-    const name = String(fn?.name ?? tc?.name ?? '');
-    const rawArgs = typeof fn?.arguments === 'string'
-      ? fn.arguments
-      : fn?.arguments !== undefined
-        ? JSON.stringify(fn.arguments)
-        : '{}';
-    let args: unknown;
-    let argsParseError: string | undefined;
-    try {
-      args = JSON.parse(rawArgs);
-    } catch (e) {
-      argsParseError = e instanceof Error ? e.message : String(e);
-    }
-    return { id: String(tc?.id ?? `call_${i}`), name, rawArgs, args, argsParseError };
-  });
+  const toolCalls: ParsedToolCall[] = rawToolCalls.map((tc: any, i: number) => parseToolCall(tc, i));
   return { toolCalls, rawToolCalls, text, reasoning };
 }
 
@@ -803,266 +806,525 @@ function toolResultMessage(id: string, payload: unknown): ChatMessage {
   return { role: 'tool', tool_call_id: id, content: modelText(payload) };
 }
 
-// ─── The loop ────────────────────────────────────────────────────────────
+// ─── A turn's stored rounds ──────────────────────────────────────────────
+
+/** One tool call as a round stores it: the provider's call whole, and once it has run, what it
+ *  came to. `post`, `claims`, `result` and `error` are all absent until then. */
+export interface StoredCall {
+  /** The call as the provider returned it, `{ id, type, function: { name, arguments } }`, with
+   *  the argument text as the model wrote it. The arguments are stored here once and parsed when read. */
+  raw: unknown;
+  /** The post the call acted for, the one its turn took up. */
+  post?: string;
+  /** The claims the call ran under, in the form a client may be sent. */
+  claims?: ActedUnder;
+  result?: unknown;
+  error?: string;
+}
+
+/** One round of a turn as it is stored: what the model returned, and what each call came to. */
+export interface StoredRound {
+  /** 1 for the turn's first model call, one more for each after it. */
+  index: number;
+  text: string;
+  reasoning?: string;
+  calls: StoredCall[];
+  /** The closing step's round only: each post it was shown, with the `validFrom` it read. */
+  closing?: Array<{ id: string; validFrom: string }>;
+}
+
+/** What a round write answers: written, or a repeat of a write already made; refused because
+ *  another writer changed the round; or refused because the turn's row names another turn. */
+export type RoundWriteOutcome = 'ok' | 'conflict' | 'not-this-turn';
 
 /**
- * Drive the bounded, self-correcting tool-calling loop. Returns when the model
- * signals completion, a bound trips, or it stops emitting tool calls — never by
- * throwing on model/tool misbehavior (every such case is captured into the
- * `toolCalls` recorder slot + the transcript). A tool dep that itself
- * throws is also captured, not propagated.
+ * Where a turn's rounds are kept, and the one place the loop reads what the turn has done. Each
+ * write after a round's first names the version it read, so a write over a round someone else
+ * changed answers `conflict` and writes nothing.
+ */
+export interface RoundStore {
+  /** The turn's rounds, each with its id and the version a later write of it names. */
+  read(): Promise<Array<{ id: string; version: string; round: StoredRound }>>;
+  /** Store a new round, as the model's reply arrives. */
+  create(round: StoredRound): Promise<RoundWriteOutcome>;
+  /** Store `round` again, building on `version`, as one of its calls' results lands. */
+  update(id: string, round: StoredRound, version: string): Promise<RoundWriteOutcome>;
+  /** The indexes of the rounds whose model call a wake found cut off, from the turn's row. */
+  interrupted(): Promise<number[]>;
+}
+
+/** Where the content of a file the model read is kept, by its git blob id (`oid`). */
+export interface BlobStore {
+  write(content: string): Promise<string>;
+  /** Throws for an `oid` the store does not hold. */
+  read(oid: string): Promise<string>;
+}
+
+/** The error a call a wake found in flight is answered with, in place of running it again. */
+export const INTERRUPTED_CALL_ERROR =
+  'This call was cut off when the server restarted, and it was not run again. It may have run, so ' +
+  'files may have changed: read what you need before you rely on it.';
+
+/** The note a rebuild puts after the round before one whose model call was cut off. */
+export const INTERRUPTED_ROUND_NOTE =
+  'The server restarted while your next reply was being written, so it was lost. Continue from here.';
+
+/** What a call the identical-call detector stopped at records as its result. */
+const REPEATED_CALL = 'loop-detected';
+
+/** The error a `take_up` inside a turn records. */
+const TAKE_UP_IN_TURN = 'take_up picks a post when you are asked to decide; this turn has already taken one up, and every tool in it runs under that post. Another person\'s work waits for a turn that takes up their post.';
+
+/** A store kept in memory, for a turn that keeps none, and for tests. A write names the version
+ *  it read, as the real store's does, and a later write over a changed round answers `conflict`. */
+export function memoryRoundStore(interrupted: number[] = []): RoundStore {
+  const rows = new Map<string, { version: number; round: StoredRound }>();
+  let ids = 0;
+  return {
+    read: async () => [...rows].map(([id, row]) => ({ id, version: String(row.version), round: structuredClone(row.round) })),
+    create: async (round) => { rows.set(`round-${++ids}`, { version: 1, round: structuredClone(round) }); return 'ok'; },
+    update: async (id, round, version) => {
+      const row = rows.get(id);
+      if (!row || String(row.version) !== version) return 'conflict';
+      rows.set(id, { version: row.version + 1, round: structuredClone(round) });
+      return 'ok';
+    },
+    interrupted: async () => [...interrupted],
+  };
+}
+
+/** Blobs kept in a map, ids made up, for a turn that keeps none, and for tests. */
+export function memoryBlobs(): BlobStore {
+  const byOid = new Map<string, string>();
+  return {
+    write: async (content) => {
+      const oid = `blob-${fnv1a(content)}-${content.length}`;
+      byOid.set(oid, content);
+      return oid;
+    },
+    read: async (oid) => {
+      const content = byOid.get(oid);
+      if (content === undefined) throw new Error(`no blob ${oid}`);
+      return content;
+    },
+  };
+}
+
+// ─── Rebuilding a turn from its rounds ───────────────────────────────────
+
+/** What a turn does next, read from its rounds. */
+export type NextStep =
+  | { kind: 'model'; index: number }
+  | { kind: 'dispatch'; index: number; call: number }
+  | { kind: 'stop'; stop: StopReason; detail: string };
+
+/** Everything the loop once held in locals between rounds, worked out from the rounds. */
+export interface TurnState {
+  messages: ChatMessage[];
+  /** The params of the next model call: the fix params after a round that saw an error. */
+  params: ModelParams;
+  appliedPaths: string[];
+  lastBuild?: BuildReport;
+  /** The identical-call detector's memory: every hashed call so far. */
+  callHashes: Set<string>;
+  /** The repeated-text detector's memory. */
+  textHashes: Set<string>;
+  containerFailures: number;
+  /** The model calls the loop has made, the closing step's excluded. */
+  rounds: number;
+  toolCalls: ToolCall[];
+  output: string;
+  reasoning: string;
+  answers?: string[];
+  /** The closing step's round, when one is stored. */
+  closing?: StoredRound;
+  next: NextStep;
+}
+
+/** One stored call parsed as {@link parseModelTurn} parses a fresh one. */
+function parseToolCall(tc: any, i: number): ParsedToolCall {
+  const fn = tc?.function ?? tc ?? {};
+  const name = String(fn?.name ?? tc?.name ?? '');
+  const rawArgs = typeof fn?.arguments === 'string'
+    ? fn.arguments
+    : fn?.arguments !== undefined
+      ? JSON.stringify(fn.arguments)
+      : '{}';
+  let args: unknown;
+  let argsParseError: string | undefined;
+  try {
+    args = JSON.parse(rawArgs);
+  } catch (e) {
+    argsParseError = e instanceof Error ? e.message : String(e);
+  }
+  return { id: String(tc?.id ?? `call_${i}`), name, rawArgs, args, argsParseError };
+}
+
+/** Whether a call's outcome is on record. */
+const ran = (call: StoredCall): boolean => call.result !== undefined || call.error !== undefined;
+
+/** The identical-call detector's key for a call. */
+const callHash = (tc: ParsedToolCall): string => `${tc.name}:${fnv1a(stableStringify(tc.args))}`;
+
+/** Whether the identical-call detector counts this call: one whose arguments parsed, of a tool
+ *  that exists, past the two that end or refuse before it, and not exempt. A call refused for its
+ *  shape is counted too, which changes nothing: the same call again is refused for the same shape
+ *  before the detector is asked. */
+const detected = (tc: ParsedToolCall): boolean =>
+  tc.args !== undefined && tc.name in TOOL_ARG_TYPE && tc.name !== 'mark_complete' && tc.name !== 'take_up'
+  && !LOOP_DETECTOR_EXEMPT.has(tc.name);
+
+/**
+ * Work out from the opening prompt and a turn's rounds what the loop's locals held, and what is
+ * next. Pure: a call's result becomes the model's text through {@link modelText}, a `read_file`'s
+ * content comes from `blobs` by its `oid`, and build feedback is computed from the report and the
+ * files written before it, so the same rounds always give the same `messages`.
  *
- * Per call, in order: malformed arguments JSON, an unknown tool, and a shape/unknown-key
- * refusal are each captured as that call's error (`mark_complete` included); a validated
- * `mark_complete` ends the turn; the identical-call detector runs for every tool not in
- * {@link LOOP_DETECTOR_EXEMPT}; then the tool dispatches to its dep.
+ * What is next, in this order: a stop recorded in a round ends the turn (a `mark_complete`, the
+ * call the identical-call detector stopped at, a second failed container step, a post that moved
+ * on), as do repeated text and a reply with no call; then the first call with no outcome is
+ * dispatched; then, with every call run, the round cap stops the turn or the next model call is
+ * made. Rounds whose indexes skip or repeat end it as a `conflict`, since another writer changed
+ * them. A cut-off model call leaves no round, so the note for it goes after the round before.
+ */
+export function rebuildTurn(input: {
+  prompt: ChatMessage[];
+  rounds: StoredRound[];
+  interrupted: readonly number[];
+  blobs: ReadonlyMap<string, string>;
+  config: CodegenLoopConfig;
+}): TurnState {
+  const { config, blobs } = input;
+  const messages: ChatMessage[] = [...input.prompt];
+  const toolCalls: ToolCall[] = [];
+  const appliedPaths: string[] = [];
+  const callHashes = new Set<string>();
+  const textHashes = new Set<string>();
+  const reasoningParts: string[] = [];
+  let lastBuild: BuildReport | undefined;
+  let containerFailures = 0;
+  let output = '';
+  let sawError = false;
+  let answers: string[] | undefined;
+  let next: NextStep | undefined;
+
+  const sorted = [...input.rounds].sort((a, b) => a.index - b.index);
+  const closing = sorted.at(-1)?.closing ? sorted.at(-1) : undefined;
+  const loopRounds = closing ? sorted.slice(0, -1) : sorted;
+  const state = (): TurnState => ({
+    messages, params: sawError ? config.fixParams : config.generateParams, appliedPaths, lastBuild,
+    callHashes, textHashes, containerFailures, rounds: loopRounds.length, toolCalls, output,
+    reasoning: reasoningParts.join('\n\n— — —\n\n'), ...(answers ? { answers } : {}),
+    ...(closing ? { closing } : {}), next: next!,
+  });
+  if (sorted.some((r, i) => r.index !== i + 1) || loopRounds.some((r) => r.closing)) {
+    next = { kind: 'stop', stop: 'conflict', detail: 'this turn\'s stored rounds skip or repeat an index' };
+    return state();
+  }
+  const cutOff = new Set(input.interrupted);
+  const note = (index: number): void => {
+    if (cutOff.has(index)) messages.push({ role: 'user', content: INTERRUPTED_ROUND_NOTE });
+  };
+
+  rounds: for (const round of loopRounds) {
+    note(round.index);
+    output = round.text;
+    if (round.reasoning !== undefined && round.reasoning.trim().length > 0) reasoningParts.push(round.reasoning);
+    const text = round.text.trim();
+    if (text.length > 0) {
+      const th = fnv1a(text);
+      if (textHashes.has(th)) { next = { kind: 'stop', stop: 'loop-detected', detail: 'repeated model text' }; break; }
+      textHashes.add(th);
+    }
+    if (round.calls.length === 0) {
+      messages.push({ role: 'assistant', content: round.text });
+      next = { kind: 'stop', stop: 'no-tool-calls', detail: 'model returned no tool calls' };
+      break;
+    }
+    const parsed = round.calls.map((c, i) => parseToolCall(c.raw, i));
+    // A call whose arguments did not parse goes back with `{}` in their place: the provider parses
+    // every tool call in the history it is sent, and refuses the whole next request with a 400 over
+    // one it cannot. The tool message that answers it still quotes what the model wrote.
+    const echoed = round.calls.map((c, i) => {
+      const raw = c.raw as any;
+      return parsed[i]!.args === undefined ? { ...raw, function: { ...(raw?.function ?? {}), arguments: '{}' } } : raw;
+    });
+    messages.push({ role: 'assistant', content: round.text, tool_calls: echoed });
+    sawError = false;
+
+    for (let i = 0; i < round.calls.length; i++) {
+      const call = round.calls[i]!;
+      const tc = parsed[i]!;
+      if (!ran(call)) { next = { kind: 'dispatch', index: round.index, call: i }; break rounds; }
+      const acted = { ...(call.post !== undefined ? { post: call.post } : {}), ...(call.claims !== undefined ? { claims: call.claims } : {}) };
+      const result = call.result as { stopped?: string; detail?: string } | undefined;
+      if (result?.stopped === REPEATED_CALL) {
+        next = { kind: 'stop', stop: 'loop-detected', detail: result.detail ?? `repeated tool call ${tc.name}` };
+        break rounds;
+      }
+      if (detected(tc)) callHashes.add(callHash(tc));
+      if (call.error !== undefined) {
+        toolCalls.push({ name: tc.name, args: tc.args ?? tc.rawArgs, error: call.error, ...acted });
+        if (call.error === POST_MOVED_DETAIL) { next = { kind: 'stop', stop: 'post-moved', detail: POST_MOVED_DETAIL }; break rounds; }
+        messages.push(toolResultMessage(tc.id, { error: call.error }));
+        sawError = true;
+        continue;
+      }
+      if (tc.name === 'mark_complete') {
+        const named = (tc.args as { answers?: string[] }).answers;
+        toolCalls.push({ name: tc.name, args: named ? { answers: named } : {} });
+        messages.push(toolResultMessage(tc.id, call.result));
+        if (named) answers = named;
+        next = { kind: 'stop', stop: 'complete', detail: 'mark_complete' };
+        break rounds;
+      }
+      toolCalls.push({ name: tc.name, args: tc.args, result: call.result, ...acted });
+      if (tc.name === 'build') {
+        const report = call.result as BuildReport;
+        lastBuild = report;
+        messages.push(toolResultMessage(tc.id, report));
+        if (stepFailed(report.container)) {
+          containerFailures++;
+          if (containerFailures >= 2) { next = { kind: 'stop', stop: 'build-unavailable', detail: 'the container step failed twice in one turn' }; break rounds; }
+          sawError = true;
+          messages.push({ role: 'user', content: buildUnavailableFeedback(report, appliedPaths) });
+          continue;
+        }
+        if (stepFailed(report.ontology) || stepFailed(report.bundle) || report.typeCheck.findings.length > 0) {
+          sawError = true;
+          messages.push({ role: 'user', content: buildReportFeedback(report, appliedPaths) });
+        }
+        continue;
+      }
+      if (tc.name === 'read_file') {
+        const { path, oid } = call.result as { path: string; oid: string };
+        const content = blobs.get(oid);
+        if (content === undefined) throw new Error(`rebuilding the turn needs the blob ${oid}, which was not read`);
+        messages.push(toolResultMessage(tc.id, { path, content }));
+        continue;
+      }
+      if (tc.name === 'write_file') appliedPaths.push((call.result as { written: string }).written);
+      if (tc.name === 'edit_file') appliedPaths.push((call.result as { edited: string }).edited);
+      messages.push(toolResultMessage(tc.id, call.result));
+    }
+  }
+
+  if (!next) {
+    note(loopRounds.length + 1);
+    next = loopRounds.length >= config.maxToolDepth
+      ? { kind: 'stop', stop: 'max-depth', detail: `reached maxToolDepth ${config.maxToolDepth}` }
+      : { kind: 'model', index: loopRounds.length + 1 };
+  }
+  return state();
+}
+
+/** The `oid` of every `read_file` result in `rounds`, which a rebuild reads back. */
+function readOids(rounds: StoredRound[]): string[] {
+  const out: string[] = [];
+  for (const round of rounds) {
+    for (const call of round.calls) {
+      const oid = (call.result as { oid?: unknown } | undefined)?.oid;
+      if (typeof oid === 'string' && parseToolCall(call.raw, 0).name === 'read_file') out.push(oid);
+    }
+  }
+  return out;
+}
+
+// ─── The loop ────────────────────────────────────────────────────────────
+
+/** A turn's state as a result: the loop's own, with how this invocation ended. */
+function resultOf(state: TurnState, stop: LoopResult['stop'], detail: string): LoopResult {
+  return {
+    stop, detail, rounds: state.rounds, toolCalls: state.toolCalls, messages: state.messages,
+    appliedPaths: state.appliedPaths, lastBuild: state.lastBuild, output: state.output,
+    reasoning: state.reasoning, ...(state.answers ? { answers: state.answers } : {}),
+    ...(state.closing ? { closing: state.closing } : {}),
+  };
+}
+
+/**
+ * Run a turn from its stored rounds until it ends or waits. It holds nothing between steps:
+ * before each model call and each dispatch it reads the turn's rounds and works out where the
+ * turn stands ({@link rebuildTurn}), so a second invocation on the same store continues the turn
+ * where the first left it. A reply is stored as it arrives, before its calls run, and each call's
+ * outcome joins its round as it lands, with the post the call acted for and the claims it ran
+ * under. Only a model call cut off before it returned is paid for again.
+ *
+ * It returns, never throws, on model or tool misbehaviour: a call that cannot run records why as
+ * its error, and the turn goes on. It returns `error` when a model call throws, `post-moved` when
+ * the post the turn took up changed under a tool, `conflict` when a round write finds another
+ * writer changed the round, `not-this-turn` when the turn's row names another turn, and `waiting`
+ * when a call leaves the Galaxy, whose result handler continues the turn. A store or blob read
+ * that throws propagates.
+ *
+ * Per call, in order: a call a wake found in flight is answered as interrupted; malformed
+ * arguments, an unknown tool and a shape or unknown-key refusal each record that call's error
+ * (`mark_complete` included); a valid `mark_complete` records that it ends the turn; the
+ * identical-call detector runs for every tool not in {@link LOOP_DETECTOR_EXEMPT}; then the tool
+ * runs through its dep.
  */
 export async function runCodegenLoop(
   initial: { system: ChatMessage; user: ChatMessage },
   deps: CodegenLoopDeps,
   config: CodegenLoopConfig = DEFAULT_LOOP_CONFIG,
 ): Promise<LoopResult> {
-  const messages: ChatMessage[] = [initial.system, initial.user];
-  const recorded: ToolCall[] = [];
-  const appliedPaths: string[] = [];
-  const seenCallHashes = new Set<string>();
-  const seenTextHashes = new Set<string>();
-  const reasoningParts: string[] = [];
-  let lastBuild: BuildReport | undefined;
-  let lastText = '';
-  let round = 0;
-  let fixMode = false; // drop to fixParams once self-correcting on an error
-  let containerFailures = 0; // a box that did not run: told once, ended on the second
-
-  const done = (stop: StopReason, detail: string): LoopResult => ({
-    stop, detail, rounds: round, toolCalls: recorded, messages, appliedPaths, lastBuild,
-    output: lastText, reasoning: reasoningParts.join('\n\n— — —\n\n'),
-  });
-
-  while (round < config.maxToolDepth) {
-    round++;
-    let raw: Awaited<ReturnType<typeof deps.callModel>>;
-    try {
-      raw = await deps.callModel(messages, fixMode ? config.fixParams : config.generateParams);
-    } catch (e) {
-      // A refused or broken model call is a CONTROLLED end, never an uncaught throw: the
-      // turn still commits a reply that names the cause, so nobody waits on a turn that
-      // already died (2026-09-06: a Workers AI 429 threw out of the turn and no reply landed).
-      return done('error', `the model call failed: ${e instanceof Error ? e.message : String(e)}`);
+  const prompt = [initial.system, initial.user];
+  // Each blob read once in an invocation: its bytes are named by their content.
+  const blobs = new Map<string, string>();
+  for (;;) {
+    const stored = await deps.rounds.read();
+    const interrupted = await deps.rounds.interrupted();
+    for (const oid of readOids(stored.map((s) => s.round))) {
+      if (!blobs.has(oid)) blobs.set(oid, await deps.blobs.read(oid));
     }
-    const turn = parseModelTurn(raw);
-    lastText = turn.text;
-    if (turn.reasoning.trim().length > 0) reasoningParts.push(turn.reasoning);
-    // Emit this round's thinking as a progress step (coarse, not tokens) — unless it
-    // already streamed live through `onDelta`, in which case only a line break separates rounds.
-    const step = turn.reasoning.trim() || turn.text.trim();
-    if (step.length > 0) deps.onProgress?.(deps.onDelta ? '\n' : step);
+    const state = rebuildTurn({ prompt, rounds: stored.map((s) => s.round), interrupted, blobs, config });
+    const next = state.next;
+    if (next.kind === 'stop') return resultOf(state, next.stop, next.detail);
 
-    // Loop-detection #1 — repeated model text (rolling hash). Checked BEFORE
-    // dispatch so it's independent of the identical-call detector.
-    if (turn.text.trim().length > 0) {
-      const th = fnv1a(turn.text.trim());
-      if (seenTextHashes.has(th)) return done('loop-detected', 'repeated model text');
-      seenTextHashes.add(th);
-    }
-
-    if (turn.toolCalls.length === 0) {
-      // m2c: a {response}-shaped / text-only reply with no tool_calls.
-      messages.push({ role: 'assistant', content: turn.text });
-      return done('no-tool-calls', 'model returned no tool calls');
-    }
-
-    // A call whose arguments did not parse goes back with `{}` in their place: the provider parses
-    // every tool call in the history it is sent, and refuses the whole next request with a 400 over
-    // one it cannot. The tool message that answers it still quotes what the model wrote.
-    const echoed = (turn.rawToolCalls as any[]).map((raw, i) => (turn.toolCalls[i]?.args === undefined
-      ? { ...raw, function: { ...(raw?.function ?? {}), arguments: '{}' } }
-      : raw));
-    messages.push({ role: 'assistant', content: turn.text, tool_calls: echoed });
-
-    let sawError = false;
-    /** Capture one call's failure: the record, the tool message, the fix-mode flag. */
-    const fail = (tc: ParsedToolCall, error: string, args: unknown = tc.args ?? tc.rawArgs, acted?: Pick<ToolCall, 'post' | 'claims'>): void => {
-      // A call that was refused still ran on someone's claims, so its record names them.
-      recorded.push({ name: tc.name, args, error, ...acted });
-      messages.push(toolResultMessage(tc.id, { error }));
-      sawError = true;
-    };
-
-    for (const tc of turn.toolCalls) {
-      if (tc.args === undefined) {
-        // m2a: malformed arguments JSON — the call survives as a captured error.
-        // A reply that reaches its length limit ends mid-string, which is what this most often is.
-        fail(tc, `malformed tool arguments: ${tc.argsParseError ?? 'not JSON'}. If they were cut off, your reply reached its length limit: write a smaller file, moving part of it into \`src/components/*.vue\`, and add the rest with edit_file.`, tc.rawArgs);
-        continue;
-      }
-      if (!(tc.name in TOOL_ARG_TYPE)) {
-        fail(tc, `unknown tool '${tc.name}'`); // m2b
-        continue;
-      }
-      // typia shape validation (+ the unknown-key refusal) of untrusted model output
-      // BEFORE dispatch — for every tool alike, `mark_complete` included: a stray key on
-      // it is refused like any other and the turn continues, rather than ending on a call
-      // that was never checked.
-      const shape = await deps.validateToolArgs(tc.name, tc.args);
-      if (!shape.ok) {
-        fail(tc, shape.error, tc.args);
-        continue;
-      }
-
-      if (tc.name === 'mark_complete') {
-        const { answers } = tc.args as { answers?: string[] };
-        recorded.push({ name: tc.name, args: answers ? { answers } : {} });
-        messages.push(toolResultMessage(tc.id, { ok: true }));
-        return { ...done('complete', 'mark_complete'), ...(answers ? { answers } : {}) };
-      }
-      if (tc.name === 'take_up') {
-        // A pick belongs to a decision, which is not this loop: inside a turn a post is already
-        // taken up, and another person's work waits for a turn of its own.
-        fail(tc, 'take_up picks a post when you are asked to decide; this turn has already taken one up, and every tool in it runs under that post. Another person\'s work waits for a turn that takes up their post.');
-        continue;
-      }
-      // Loop-detection #2 — identical tool call repeat (same name + args). A write_file
-      // with NEW content is not "identical" (different hash), so legitimate fixes are
-      // never aborted; `build` and `read_file` are exempt (see LOOP_DETECTOR_EXEMPT).
-      if (!LOOP_DETECTOR_EXEMPT.has(tc.name)) {
-        const callHash = `${tc.name}:${fnv1a(stableStringify(tc.args))}`;
-        if (seenCallHashes.has(callHash)) return done('loop-detected', `repeated tool call ${tc.name}`);
-        seenCallHashes.add(callHash);
-      }
-
-      if (tc.name === 'build') {
-        // The build is a TOOL — the model checks its own work; each call is one
-        // ephemeral container cycle running EVERY step. The per-step report goes back
-        // as the tool result; a failed step or a type finding makes this a fix round,
-        // never an abort.
-        const args = tc.args as { preview?: boolean };
-        deps.onProgress?.(stepLine('building…'));
-        let report: BuildReport;
-        try {
-          report = await deps.tools.build({ preview: args.preview });
-        } catch (e) {
-          if (postMoved(e)) return done('post-moved', POST_MOVED_DETAIL);
-          // A refusal at the chat floor is the poster's, not the box's: the model reads it as
-          // this call's error, where a container failure would tell it not to build again.
-          if (permissionDenied(e)) { fail(tc, (e as Error).message, args, deps.actsFor?.()); continue; }
-          // The job never ran at all — a container-step failure; every other step is
-          // honestly "did not run" rather than absent (the shape's own rule).
-          const tail = e instanceof Error ? e.message : String(e);
-          report = {
-            container: { ran: true, ok: false, tail },
-            ontology: { ran: false, why: 'the build job did not run' },
-            typeCheck: { ran: false, checked: [], findings: [] },
-            bundle: { ran: false, why: 'the build job did not run' },
-            preview: { refreshed: false, why: 'the build job did not run' },
-          };
-        }
-        lastBuild = report;
-        recorded.push({ name: tc.name, args, result: report, ...deps.actsFor?.() });
-        messages.push(toolResultMessage(tc.id, report));
-        if (stepFailed(report.container)) {
-          // The box did not run — infrastructure, not the model's code. Told once, with
-          // feedback that says not to build again this turn; a second failed container
-          // step ends the turn, so a Galaxy without a box cannot spend the round cap
-          // discovering that (2026-09-06: at 32 rounds a container-free turn ran into the
-          // 14-minute generation deadline and never replied).
-          containerFailures++;
-          if (containerFailures >= 2) return done('build-unavailable', 'the container step failed twice in one turn');
-          sawError = true;
-          messages.push({ role: 'user', content: buildUnavailableFeedback(report, appliedPaths) });
-          continue;
-        }
-        const problems =
-          stepFailed(report.container) || stepFailed(report.ontology) ||
-          stepFailed(report.bundle) || report.typeCheck.findings.length > 0;
-        if (problems) {
-          sawError = true;
-          // The per-write feedback's successor: findings-plus-touched-files, in the USER layer.
-          messages.push({ role: 'user', content: buildReportFeedback(report, appliedPaths) });
-        }
-        continue;
-      }
-
-      if (tc.name === 'invite') {
-        const { email, scopeAdmin } = tc.args as { email: string; scopeAdmin?: boolean };
-        try {
-          const result = await deps.tools.invite(email, scopeAdmin);
-          deps.onProgress?.(stepLine(`invited ${email}`));
-          recorded.push({ name: tc.name, args: tc.args, result, ...deps.actsFor?.() });
-          messages.push(toolResultMessage(tc.id, result));
-        } catch (e) {
-          if (postMoved(e)) return done('post-moved', POST_MOVED_DETAIL);
-          fail(tc, e instanceof Error ? e.message : String(e), tc.args, deps.actsFor?.());
-        }
-        continue;
-      }
-
-      if (tc.name === 'run_in_tab') {
-        const { tab, code } = tc.args as { tab: string; code: string };
-        try {
-          const result = clipRunResult(await deps.tools.run_in_tab(tab, code));
-          deps.onProgress?.(stepLine(`ran code in the ${tab} tab`));
-          recorded.push({ name: tc.name, args: tc.args, result, ...deps.actsFor?.() });
-          messages.push(toolResultMessage(tc.id, result));
-        } catch (e) {
-          if (postMoved(e)) return done('post-moved', POST_MOVED_DETAIL);
-          fail(tc, e instanceof Error ? e.message : String(e), tc.args, deps.actsFor?.());
-        }
-        continue;
-      }
-
-      if (tc.name === 'read_file') {
-        const { path } = tc.args as { path: string };
-        try {
-          const content = await deps.tools.read_file(path);
-          deps.onProgress?.(stepLine(`read ${path}`));
-          // The model gets the content; the RECORD gets its size in BYTES (UTF-8, what the
-          // file holds — not UTF-16 code units) — the content is already in the transcript,
-          // and the record fans to every chat subscriber.
-          recorded.push({ name: tc.name, args: tc.args, result: { path, bytes: new TextEncoder().encode(content).length }, ...deps.actsFor?.() });
-          messages.push(toolResultMessage(tc.id, { path, content }));
-        } catch (e) {
-          if (postMoved(e)) return done('post-moved', POST_MOVED_DETAIL);
-          fail(tc, e instanceof Error ? e.message : String(e), tc.args, deps.actsFor?.());
-        }
-        continue;
-      }
-
-      if (tc.name === 'edit_file') {
-        const { path, anchor, replacement } = tc.args as { path: string; anchor: string; replacement: string };
-        try {
-          const written = await deps.tools.edit_file(path, anchor, replacement);
-          deps.onProgress?.(stepLine(`edited ${written.path}`));
-          appliedPaths.push(written.path);
-          const result = { edited: written.path, oid: written.oid };
-          recorded.push({ name: tc.name, args: tc.args, result, ...deps.actsFor?.() });
-          messages.push(toolResultMessage(tc.id, result));
-        } catch (e) {
-          if (postMoved(e)) return done('post-moved', POST_MOVED_DETAIL);
-          fail(tc, e instanceof Error ? e.message : String(e), tc.args, deps.actsFor?.());
-        }
-        continue;
-      }
-
-      // write_file — persist, a PURE write. No compile, no check: the container `build`
-      // is where every check runs, and its report is the self-correction signal. The
-      // path rule is the entry's (`assertModelPath` runs first inside `writeSource`), so a
-      // traversal or a reserved path arrives here as a throw and is captured.
-      const { path, content } = tc.args as { path: string; content: string };
+    if (next.kind === 'model') {
+      let raw: unknown;
       try {
-        const written = await deps.tools.write_file(path, content);
-        deps.onProgress?.(stepLine(`wrote ${written.path}`)); // per-file progress step
-        appliedPaths.push(written.path);
-        const result = { written: written.path, oid: written.oid };
-        recorded.push({ name: tc.name, args: tc.args, result, ...deps.actsFor?.() });
-        messages.push(toolResultMessage(tc.id, result));
+        raw = await deps.callModel(state.messages, state.params);
       } catch (e) {
-        if (postMoved(e)) return done('post-moved', POST_MOVED_DETAIL);
-        fail(tc, e instanceof Error ? e.message : String(e), tc.args, deps.actsFor?.());
+        // A refused or broken model call is a CONTROLLED end, never an uncaught throw: the
+        // turn still commits a reply that names the cause, so nobody waits on a turn that
+        // already died (2026-09-06: a Workers AI 429 threw out of the turn and no reply landed).
+        return { ...resultOf(state, 'error', `the model call failed: ${e instanceof Error ? e.message : String(e)}`), rounds: state.rounds + 1 };
       }
+      const turn = parseModelTurn(raw);
+      // Emit this round's thinking as a progress step (coarse, not tokens) — unless it
+      // already streamed live through `onDelta`, in which case only a line break separates rounds.
+      const step = turn.reasoning.trim() || turn.text.trim();
+      if (step.length > 0) deps.onProgress?.(deps.onDelta ? '\n' : step);
+      const written = await deps.rounds.create({
+        index: next.index, text: turn.text,
+        ...(turn.reasoning.trim().length > 0 ? { reasoning: turn.reasoning } : {}),
+        calls: (turn.rawToolCalls as unknown[]).map((raw) => ({ raw })),
+      });
+      if (written !== 'ok') return resultOf(state, written, `the round's write answered ${written}`);
+      continue;
     }
 
-    fixMode = sawError;
+    const entry = stored.find((s) => s.round.index === next.index)!;
+    const outcome = await dispatch(entry, next.call, state, deps, blobs);
+    if (outcome === 'waiting') return resultOf(state, 'waiting', 'a call left the Galaxy and its answer will continue the turn');
+    if (outcome !== 'ok') return resultOf(state, outcome, `the round's write answered ${outcome}`);
   }
-  return done('max-depth', `reached maxToolDepth ${config.maxToolDepth}`);
+}
+
+/**
+ * Run one stored call, and store what it came to on its round, naming the version the round was
+ * read at. Answers the write's outcome, or `waiting` for a call sent off the Galaxy.
+ */
+async function dispatch(
+  entry: { id: string; version: string; round: StoredRound },
+  i: number,
+  state: TurnState,
+  deps: CodegenLoopDeps,
+  blobs: Map<string, string>,
+): Promise<RoundWriteOutcome | 'waiting'> {
+  const { round } = entry;
+  const tc = parseToolCall(round.calls[i]!.raw, i);
+  const record = (outcome: Omit<StoredCall, 'raw'>): Promise<RoundWriteOutcome> =>
+    deps.rounds.update(entry.id, {
+      ...round, calls: round.calls.map((c, j) => (j === i ? { raw: c.raw, ...outcome } : c)),
+    }, entry.version);
+  const acted = (): Omit<StoredCall, 'raw'> => deps.actsFor?.() ?? {};
+  /** A tool's throw as the call's outcome. A moved post is recorded with no claims: nothing ran. */
+  const failed = (e: unknown): Promise<RoundWriteOutcome> => postMoved(e)
+    ? record({ error: POST_MOVED_DETAIL })
+    : record({ error: e instanceof Error ? e.message : String(e), ...acted() });
+
+  if (deps.foundInFlight?.(round.index, i)) return record({ error: INTERRUPTED_CALL_ERROR });
+  if (tc.args === undefined) {
+    // A reply that reaches its length limit ends mid-string, which is what this most often is.
+    return record({ error: `malformed tool arguments: ${tc.argsParseError ?? 'not JSON'}. If they were cut off, your reply reached its length limit: write a smaller file, moving part of it into \`src/components/*.vue\`, and add the rest with edit_file.` });
+  }
+  if (!(tc.name in TOOL_ARG_TYPE)) return record({ error: `unknown tool '${tc.name}'` });
+  // typia shape validation (+ the unknown-key refusal) of untrusted model output BEFORE dispatch,
+  // for every tool alike, `mark_complete` included.
+  const shape = await deps.validateToolArgs(tc.name, tc.args);
+  if (!shape.ok) return record({ error: shape.error });
+  if (tc.name === 'mark_complete') return record({ result: { ok: true } });
+  // A pick belongs to a decision, which is not this loop.
+  if (tc.name === 'take_up') return record({ error: TAKE_UP_IN_TURN });
+  // The identical-call detector: the same name and arguments as an earlier call. A write_file
+  // with new content is not identical, so a fix is never stopped.
+  if (detected(tc) && state.callHashes.has(callHash(tc))) {
+    return record({ result: { stopped: REPEATED_CALL, detail: `repeated tool call ${tc.name}` } });
+  }
+  if (deps.leaves?.(tc.name)) {
+    deps.send!(tc.name as LoopToolName, tc.args, { roundId: entry.id, version: entry.version, index: round.index, call: i, callId: tc.id });
+    return 'waiting';
+  }
+
+  const args = tc.args as Record<string, any>;
+  switch (tc.name) {
+    case 'build': {
+      // One ephemeral container cycle running every step; its per-step report is the result,
+      // and a failed step or a finding makes the next round a fix round, never an abort.
+      deps.onProgress?.(stepLine('building…'));
+      let report: BuildReport;
+      try {
+        report = await deps.tools.build({ preview: args.preview });
+      } catch (e) {
+        if (postMoved(e)) return failed(e);
+        // A refusal at the chat floor is the poster's, not the box's: the model reads it as this
+        // call's error, where a container failure would tell it not to build again.
+        if (permissionDenied(e)) return failed(e);
+        // The job never ran at all: a container-step failure, every other step honestly not run.
+        const tail = e instanceof Error ? e.message : String(e);
+        report = {
+          container: { ran: true, ok: false, tail },
+          ontology: { ran: false, why: 'the build job did not run' },
+          typeCheck: { ran: false, checked: [], findings: [] },
+          bundle: { ran: false, why: 'the build job did not run' },
+          preview: { refreshed: false, why: 'the build job did not run' },
+        };
+      }
+      return record({ result: report, ...acted() });
+    }
+    case 'invite':
+      try {
+        const result = await deps.tools.invite(args.email, args.scopeAdmin);
+        const by = acted();
+        deps.onProgress?.(stepLine(`invited ${args.email}`));
+        return record({ result, ...by });
+      } catch (e) { return failed(e); }
+    case 'run_in_tab':
+      try {
+        const result = clipRunResult(await deps.tools.run_in_tab(args.tab, args.code));
+        const by = acted();
+        deps.onProgress?.(stepLine(`ran code in the ${args.tab} tab`));
+        return record({ result, ...by });
+      } catch (e) { return failed(e); }
+    case 'read_file':
+      try {
+        const content = await deps.tools.read_file(args.path);
+        const by = acted();
+        deps.onProgress?.(stepLine(`read ${args.path}`));
+        // The model gets the content; the round records its size in UTF-8 bytes and the blob id
+        // the content is kept under, never the content, which reaches every reader of the round.
+        const oid = await deps.blobs.write(content);
+        blobs.set(oid, content);
+        return record({ result: { path: args.path, bytes: new TextEncoder().encode(content).length, oid }, ...by });
+      } catch (e) { return failed(e); }
+    case 'edit_file':
+      try {
+        const written = await deps.tools.edit_file(args.path, args.anchor, args.replacement);
+        const by = acted();
+        deps.onProgress?.(stepLine(`edited ${written.path}`));
+        return record({ result: { edited: written.path, oid: written.oid }, ...by });
+      } catch (e) { return failed(e); }
+    default: {
+      // write_file: a PURE write. The path rule is the entry's, so a refused path arrives here as
+      // a throw and is recorded as the call's error.
+      try {
+        const written = await deps.tools.write_file(args.path, args.content);
+        const by = acted();
+        deps.onProgress?.(stepLine(`wrote ${written.path}`));
+        return record({ result: { written: written.path, oid: written.oid }, ...by });
+      } catch (e) { return failed(e); }
+    }
+  }
 }

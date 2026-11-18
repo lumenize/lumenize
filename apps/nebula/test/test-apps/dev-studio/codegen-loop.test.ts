@@ -24,6 +24,8 @@ import { asCaller } from './as-caller';
 import { setDebugSink, clearDebugSink, type DebugLogOutput } from '@lumenize/debug';
 import {
   runCodegenLoop,
+  memoryRoundStore,
+  memoryBlobs,
   assembleCodegenPrompt,
   parseModelTurn,
   unknownToolArgKeys,
@@ -137,6 +139,8 @@ function harness(
       run_in_tab: run_in_tab ?? (async () => ({ ok: true as const, value: 1 })),
     },
     validateToolArgs: async () => ({ ok: true }),
+    rounds: memoryRoundStore(),
+    blobs: memoryBlobs(),
     ...rest,
   };
   return { deps, writes, files, reads, paramsSeen, messagesSeen };
@@ -428,7 +432,7 @@ describe('the build report round-trips into the next round', () => {
 });
 
 describe('the read and edit tools (loop-level; the real deps are the Galaxy layer\'s below)', () => {
-  it('read_file: the model gets the content, the RECORD gets { path, bytes }', async () => {
+  it('read_file: the model gets the content, the RECORD gets { path, bytes, oid }', async () => {
     const VISION = '# Vision\nA wishlist app.';
     const h = harness([
       resp([toolCall('read_file', { path: 'docs/vision.md' }, 'r1')]),
@@ -437,8 +441,10 @@ describe('the read and edit tools (loop-level; the real deps are the Galaxy laye
     const r = await runCodegenLoop(INITIAL, h.deps);
     expect(r.stop).toBe('complete');
     expect(h.reads).toEqual(['docs/vision.md']);
-    // The record never carries the content — it fans to every chat subscriber.
-    expect(r.toolCalls[0]).toEqual({ name: 'read_file', args: { path: 'docs/vision.md' }, result: { path: 'docs/vision.md', bytes: VISION.length } });
+    // The record never carries the content — it fans to every chat subscriber — and names the
+    // blob the content is kept under, which reads back as what the model was sent.
+    expect(r.toolCalls[0]).toEqual({ name: 'read_file', args: { path: 'docs/vision.md' }, result: { path: 'docs/vision.md', bytes: VISION.length, oid: expect.any(String) } });
+    expect(await h.deps.blobs.read((r.toolCalls[0].result as { oid: string }).oid)).toBe(VISION);
     expect(JSON.stringify(r.toolCalls[0])).not.toContain('wishlist');
     // The model DID get it, as the tool result.
     const toolMsg = r.messages.find((m) => m.role === 'tool' && m.tool_call_id === 'r1');
@@ -772,7 +778,7 @@ describe('integration — real Galaxy loop (probe replays a script)', () => {
     // (b) the embedded page, byte-for-byte — mutation: point `.platform/` at the Workspace → ENOENT → red.
     expect(toolMsg('r1')).toEqual({ path: '.platform/docs/resources.md', content: PLATFORM_FILES['.platform/docs/resources.md'] });
     // `bytes` is UTF-8 bytes (the page holds non-ASCII), not UTF-16 code units.
-    expect(result.toolCalls[0].result).toEqual({ path: '.platform/docs/resources.md', bytes: new TextEncoder().encode(PLATFORM_FILES['.platform/docs/resources.md']!).length });
+    expect(result.toolCalls[0].result).toEqual({ path: '.platform/docs/resources.md', bytes: new TextEncoder().encode(PLATFORM_FILES['.platform/docs/resources.md']!).length, oid: expect.any(String) });
     expect(result.toolCalls[1].error).toBe(UNIVERSE_RESERVED_MESSAGE);
     expect(toolMsg('r3').content).toContain('Seed App.vue'); // the Workspace, through readSource
     expect(result.toolCalls[3].error).toBe('no such platform file: .platform/docs/nope.md');
