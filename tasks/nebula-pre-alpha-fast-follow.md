@@ -18,6 +18,7 @@
 | Before wrangler's support ends | 12 `cf` replaces `wrangler` |
 | At the first invite | 17 Turn-log inspection · 19 The feedback loop · 20 Data-bound generation |
 | When a user wants to show their app to someone | 4 The prod ontology install path · 5 The published tier |
+| With a query's sort, paging and limits, so a query's shape breaks once | 21 A query names the node it reads under |
 | When users ask, or a problem shows | 1 Media storage · 2 An app-branded assistant · 3 Outside-world connectivity · 6 Steering a turn mid-generation · 10 Studio drives the preview · 13 A person with no name · 14 Merge patches on the wire · 15 The wake check · 16 Replies, not edits · 18 The superuser join scenario |
 
 ## Item 1: User-app media storage (photos/blobs)
@@ -371,6 +372,28 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 - **A daily digest by 7:30am, v1.** A cron gathers yesterday's turns and behavioural signals, a judge model scores them, and the result lands in the store. A scheduled morning Claude Code session then writes the digest for Larry, with a spend line and suggested prompt changes that are reviewed and never applied automatically. Build it only after Item 17 shows what is worth automating.
 
 **Open: how the digest is phased.** Manual inspection first and the automated digest later, which is the lean, or the 7:30am pipeline up front.
+
+## Item 21: A query names the node it reads under, and its permission check is one look at that node
+
+**Goal:** every query carries a required node, and the plane checks `read` on that node once, before it reads anything. Permissions flow downward in an orgTree, so a caller with `read` there has it on every descendant, and no result's node needs a look of its own. Larry built this in an earlier orgTree system and optimized it hard there (2026-11-18).
+
+**Today:** `QueryDescriptor` is `{ typeName, filter, allowScan? }` and names no node. `#evaluateQuery` in `packages/resources/src/resources.ts` runs the filter over every resource of the type on the host, and `OrgTree.evaluatePermissions` then climbs the tree for each result's node. [nebula-turn-stored-round-by-round.md](nebula-turn-stored-round-by-round.md) § *Phase 1* makes that one climb per distinct node, and stops there.
+
+**It is a breaking change, which is why it is an item and not a backlog row.** A required field changes `QueryDescriptor`, the query hash, every query a generated app has written, and the docs the model reads (`website/docs/nebula/resources.md`, embedded as `.platform/docs/`).
+
+**The query itself has to change, not only the check.** A query under a node must return only what sits at that node or below it. It can do that either way:
+
+- **Add the descendants to the query's own clause.** The older system found every descendant node, up to a limit set by how long an `OR` clause its database allowed, and added that list to the provided query. Past the limit it could not answer.
+- **Run the query once for each descendant.** Larry's lean for an embedded database such as SQLite, where a query is a local call and not a round trip. It has no clause limit to hit.
+
+**What running it per descendant has to settle:**
+
+- **An index that leads with the node.** `Snapshots` has `idx_Snapshots_current` on `(resourceId, validTo)` and nothing on `nodeId`. A query per descendant is cheap only if each one can look its node up.
+- **Order and the cap across the per-node results.** Today one statement orders by `validFrom` and stops at `QUERY_RESULT_CAP`. Many statements have to be merged into that order, which is the same work sort, paging and limits need. That is why this item starts with them.
+- **How many bound parameters one statement may carry on a Durable Object**, if adding the descendants to the clause is weighed at all. Not checked.
+- **What becomes of `deniedNodes`.** ADR-008 has a subscriber told which nodes hold results it cannot read. A query scoped to a node the caller can read has none to report, and one scoped to a node it cannot read is refused whole. Whether a caller with `read` on only part of a subtree asks at each part, or is told what it missed, is the open question.
+
+**Trigger:** the work on a query's sort, paging and limits ([backlog.md](backlog.md) § *Nebula*), so that a query's shape breaks once.
 
 ## Item 20: Data-bound generation
 

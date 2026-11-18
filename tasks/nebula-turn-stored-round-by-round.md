@@ -1,6 +1,6 @@
 # A turn is stored round by round, and continues from storage
 
-**Status:** Pass 1 only, drafted 2026-11-15 and waiting for Larry's read. No phases are written. Larry decided the design's core on 2026-11-14 and named the record on 2026-11-15; § *Decisions* holds those, and § *Design intent* says which items are the drafter's. Where this sits in the pre-alpha order is Larry's to say. It grows out of the row *A turn an eviction cuts off resumes where it stopped* in [backlog.md](backlog.md) § *Other Nebula backlog*, which stays until the phases are written.
+**Status:** ready for `/build-task`. Stage 1 was resolved with Larry on 2026-11-17, and Stage 2 ran twice, on 2026-11-17 and 2026-11-18, with both passes applied. D14 and the edits that followed the second pass have had no panel since, so `/build-task`'s verifiers are their first review. The build ratifies no ADR: Larry holds every ratification until pre-alpha launches. Its backlog row, *A turn an eviction cuts off resumes where it stopped* in [backlog.md](backlog.md) § *Other Nebula backlog*, goes in § *Phase 7*.
 
 ## Conventions
 
@@ -8,25 +8,25 @@ Items carry IDs, numbered in the order they were raised and never reused: `B` is
 
 ## Objective
 
-**A turn of Studio's agent no longer lives in the Galaxy's memory. Each round is stored as it ends, and the turn continues from storage when a tab answers or the Galaxy wakes.**
+**A turn of Studio's agent no longer lives in the Galaxy's memory. Each round is stored as the model's reply arrives, and the turn continues from storage when a tab answers or the Galaxy wakes.**
 
 Take a turn on the app `acme.crm`, working on Austen's post *"check that Gerry can see his own deals"*:
 
 | Round | What the model asked for | Stored when |
 |---|---|---|
-| 1 | `read_file src/App.vue` | the round ends |
-| 2 | `write_file src/App.vue`, then `build` | the round ends |
-| 3 | `run_in_tab gerry`, code that lists his deals | the call leaves for Gerry's tab |
+| 1 | `read_file src/App.vue` | its reply arrives, and again when the file is read |
+| 2 | `write_file src/App.vue`, then `build` | its reply arrives, after the write, and after the build reports |
+| 3 | `run_in_tab gerry`, code that lists his deals | its reply arrives, and again when Gerry's tab answers |
 
 Suppose a deploy resets the Galaxy while round 3's call is out. Today the turn is gone. Nothing records its three rounds, Austen's post shows as waiting, and nothing happens until someone posts again. After this task, Austen's Studio reconnects and the Galaxy finds the turn in storage. It answers the tab call as lost, and round 4's model call is the first thing it pays for.
 
 ## Context
 
-Larry, 2026-11-12: *"any time you need to hold a DO awake, you've designed it wrong."* A turn is the one place the Galaxy still does. `runCodegenLoop` is a single function call that runs for the whole turn, up to 32 rounds and 14 minutes, with the model's transcript in a local array. `ctx.waitUntil` keeps the Galaxy in memory for it.
+Larry, 2026-11-12: *"any time you need to hold a DO awake, you've designed it wrong."* A turn is the one place the Galaxy still does. `runCodegenLoop` is a single function call that runs for the whole turn, up to `DEFAULT_LOOP_CONFIG.maxToolDepth` rounds, 64 today, and 14 minutes, with the model's transcript in a local array. `ctx.waitUntil` keeps the Galaxy in memory for it.
 
 The model itself never waits. It answers one request, and our loop does the waiting: for the next model call, for a build, for a tab. So between any two model calls a turn is only a transcript and a place to continue from, and that fits in storage.
 
-The personas build made this pressing. `run_in_tab` asks a Studio tab to run code, which makes it the first tool call that leaves the Galaxy. It was built waiting in memory for the tab's answer, which `mesh.md` forbids for every other call and marks TEMP for this one.
+The personas build made this pressing. `run_in_tab` asks a Studio tab to run code, which makes it the first tool call that leaves the Galaxy: it is sent to another node with a result handler named, and nothing here awaits it. A build and a model call are awaited where they are made, so by this meaning they have not left. It was built waiting in memory for the tab's answer, which `mesh.md` forbids for every other call and marks TEMP for this one.
 
 These things in today's tree stand in the way:
 
@@ -35,22 +35,28 @@ These things in today's tree stand in the way:
 - **B3.** `Galaxy.#tabAnswers` holds a promise per tab call, and `onTabAnswer` wakes it. An eviction loses both.
 - **B4.** `Galaxy.#takenUp`, the posts running turns took up, is a field on the instance. An eviction empties it while the post it named still waits.
 - **B5.** A `read_file` call records the file's size, `{ path, bytes }`, and not the content the model was sent. So today's record cannot rebuild what the model saw.
-- **B6.** An eviction skips the turn's `finally`, which is what destroys the build box, so a box can outlive its turn.
+- **B7.** `Galaxy.#turnInFlight`, the flag that keeps a Galaxy to one turn at a time, is a field on the instance. An eviction clears it while the turn it stood for is unfinished.
+- **B6.** An eviction skips the turn's `finally`, which is what destroys the build box. Cloudflare stops a container shortly after its Durable Object goes inactive when no inactivity timeout is set, and the Galaxy sets none, so the box is not left running for long. A Galaxy that wakes at once can still find it up, and the run that continues the turn destroys it as it ends, as every run does.
 
 The rest of this file says what a round holds, what the turn's own row holds, how a turn continues from the two, and what a waking Galaxy does first.
 
 ## Goals
 
-- **A restart pays for no model call twice.** Today an eviction at round 20 loses twenty model calls and the turn with them. After this, the waking Galaxy pays for round 21.
-- **No call waits in memory for an answer from outside the Galaxy.** Today `run_in_tab` does (B3). After this the only thing a turn waits on in memory is a model call, since nothing else can.
-- **A turn's record exists while the turn runs.** Today a turn cut off leaves no trace of its calls (B2). After this, each round is on record as soon as it ends, with the claims each call ran under.
+- **A restart pays again for no model call that had returned.** Today an eviction at round 20 loses twenty model calls and the turn with them. After this, a reply is on record before its tools run, so only a model call cut off before it returned is made again.
+- **No call waits in memory for an answer from outside the Galaxy.** Today `run_in_tab` does (B3). After this a turn waits in memory on a model call and on a build, each awaited where it is made, and on nothing sent to another node.
+- **A turn's record exists while the turn runs.** Today a turn cut off leaves no trace of its calls (B2). After this, each round is on record before its tools run, and each call's result joins it with the claims the call ran under.
 - **What a turn has done is read from storage, never remembered.** Today the instance holds it (B1, B4), so an eviction and a hang look alike from outside.
 
 ## Relationships
 
 - **[archive/nebula-personas-are-real-members.md](archive/nebula-personas-are-real-members.md)**, kept and archived on 2026-11-16, built the in-memory tab wait as a temporary one, its D23. This task removes it.
-- **[nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check*** lists what a recovering turn has to decide first. This task decides those for a turn that has a row, and leaves Item 15 the posts that no turn took up.
+- **[nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check*** lists what a recovering turn has to decide first. This task decides those for a turn that has a row. Item 15 keeps the posts that no turn took up, a decision between turns that an eviction cut off, and telling the person what a cut-off turn left uncommitted.
 - **The same file's § *Item 17: Turn-log inspection v0*** reads a person's `Message` Resources to see how their builds went. After this it reads their rounds too.
+- **[nebula-pre-alpha.md](nebula-pre-alpha.md) § *③ Capture live*** names the harvest as each `Message` with its `codegen`, and says a turn that dies at the deadline is never captured. After this task a cut-off turn's calls are on record round by round, and the harvest is the `Message`s and their `Round`s.
+- **It supersedes** the [backlog.md](backlog.md) row *A turn an eviction cuts off resumes where it stopped*, and the TEMP bullet on `Galaxy.runInTab` in `.claude/rules/mesh.md`. § *Phase 6* replaces the bullet and § *Phase 7* removes the row.
+- **It changes the Galaxy's tree:** a `turns` node beside `chat`, and every invite at `chat` also grants `read` there (D14).
+- **It answers these of Item 15's questions:** who writes the post that ends a turn (DI9, DI13), which event frees the latch (DI13, DI14), and what bounds a wake that dies before it posts (D6). § *Phase 7* rewrites that item to what is left.
+- **It owes edits elsewhere**, all in § *Phase 7*: the wording of § *③ Capture live* and of Item 17, the note on today's code in `docs/vision/auth.md` § *When the agent acts*, and what `docs/vision/_ai-security.md` and `.claude/rules/security.md` say a turn's message records.
 
 ## Current state
 
@@ -62,6 +68,8 @@ Built already, and what becomes of each part:
 - **`Message.codegen.toolCalls`** and its readers: `toolCallMarks` in `participants.ts`, which Studio shows, and several `/live` scenarios. **Adapted:** the calls move to rounds, and the readers follow.
 - **`#tabAnswers` and `onTabAnswer`** (B3). The handler is **adapted** to write to storage, and the map is left behind.
 - **`#takenUp`** (B4). **Left behind:** the post a turn took up is on its row.
+- **`#turnInFlight`** (B7). **Adapted:** it says only that a run not cut off by its deadline is live in this isolate (DI14).
+- **`GALAXY_TREE_SEED`** and the plane's node invite. **Adapted:** the seed gains the `turns` node, the agent's protected `write` there, and a declaration that an invite at `chat` also grants `read` at `turns`, which the invite honours (D14). Collaborators arrive by more than one path: `Galaxy.invite`, the agent's tool, and the plane's own `invite` at `chat`, which `apps/nebula/harness/lib/chat-cast.ts` and several scenarios call. The seed covers both.
 - **The generation deadline, the turn's heartbeat and the transient `streamProgress` push.** **Carried over.** Token deltas stay off storage.
 - **The decision between turns, and the closing step.** **Carried over.** A decision is one model call and stores nothing.
 
@@ -72,83 +80,314 @@ Missing:
 3. A way to run one round from stored state, in place of the loop that runs them all.
 4. A result handler for a tool call that leaves the Galaxy, which records the answer and continues the turn.
 5. A waking Galaxy that finds a turn's row and continues it.
+6. A one-time read of a query in the Resources plane (D13), and a node invite that also writes the grants its host's seed declares for that node (D14).
 
 ## Design intent
 
-The core is Larry's, from 2026-11-14, and § *Decisions* holds it. DI5 and DI7 to DI12 are the drafter's, as is what the others add to his words, and all of that is Larry's to overrule.
+The core is Larry's, and § *Decisions* holds it. Each item below that rests on a decision names its D row. An item that names none is the drafter's, and Larry's to overrule.
 
-- **DI1. A turn is its row and its rounds.** The row is written before the first model call. A `Round` is written for each round. Between rounds nothing about the turn lives on the instance.
-- **DI2. A round holds what the model returned and what each call came to.** That is the model's text and reasoning for the round, each tool call as the model wrote it, and each call's result or error with the post it acted for and the claims it ran under. Every round is a new Resource at the chat node, written by the agent as itself.
+- **DI1. A turn is its row and its rounds.** The row is written before the first model call. A `Round` is written for each round (DI3). Between rounds nothing about the turn lives on the instance.
+- **DI2. A round holds what the model returned and what each call came to.** That is the model's text and reasoning for the round, each tool call as the provider returned it, whole, and each call's result or error with the post it acted for and the claims it ran under. The provider's object carries the call's id, name and argument text as the model wrote them, so the arguments are stored once and parsed when read. A `read_file` records `{ path, bytes, oid }`, where `oid` is the git blob id of the content the model was sent, and the content itself stays in the Workspace's git store (D5). Every round is a new Resource at the `turns` node (D14), written by the agent as itself.
 
   ```ts
-  // Round 3 of the turn above, as stored when its call left for Gerry's tab.
+  // Round 3 of the turn above, as first stored, with its call out to Gerry's tab.
   {
-    chat: '…',            // the app's one chat, indexed, as on a Message
+    chat: '…',            // the app's one chat, as on a Message
     message: '6f0c…',     // the agent Message this turn will commit (DI9)
     index: 3,
     text: 'I will check what Gerry sees.',
     calls: [{
-      id: 'call_7', name: 'run_in_tab',
-      args: { tab: 'gerry', code: '…' },
-      post: 'a81e…',      // Austen's post
-      claims: { sub: '…austen', act: { sub: 'agent:lumenize' } },
-      // no `result` and no `error` yet: this call is out
+      raw: { id: 'call_7', type: 'function', function: {
+        name: 'run_in_tab', arguments: '{"tab":"gerry","code":"…"}' } },
+      // no `post`, `claims`, `result` or `error` yet: they arrive with the answer
     }],
   }
   ```
 
-- **DI3. A round is written once, when it ends, unless one of its calls leaves the Galaxy.** Then it is written as that call leaves, and again when the answer comes back, as a second snapshot of the same round (ADR-004). In the example, round 3 is written twice and rounds 1 and 2 once each.
-- **DI4. The turn's row holds only what no round holds, and is deleted when the turn's `Message` commits.** That is the opening prompt as the model was first sent it, the post the turn took up with the `validFrom` it read, the agent `Message`'s id, the source commit the turn started from, and when the turn started.
-- **DI5. Everything else the loop carries between rounds is worked out from the rounds.** The model's messages are rebuilt from the opening prompt and each round, through `modelText`. The round count, the files written, the last build, the detectors' memory of earlier calls and text, and whether the next round is a fix round all come from the same rounds. Larry's 2026-11-14 wording put "the loop's counters" on the row; each one can be counted from the rounds, so the row holds none.
-- **DI6. A tool call that leaves the Galaxy names a result handler, and nothing waits for it.** The handler carries the turn's id and the call's id. It writes the answer onto the round and continues the turn from storage. An answer for a call that already has one is dropped. `run_in_tab` is the only such call today, and `build` could become one (§ *Beyond this task*).
-- **DI7. Where a turn stands is read from its rounds.** If the last round has a call with no result, that call is next. If every call has one and the round did not end the turn, the next model call is next. Nothing stores a position, so a handler, a wake and the ordinary next step all continue the same way.
-- **DI8. A waking Galaxy that finds a turn's row first settles what the eviction left, then continues.** A tab call found out is answered as lost and never sent again, since the code may have run. The build box is destroyed, since no build outlives its Galaxy (B6). A round that was cut off before it ended was never written, so its model call is made again, and the model is told the turn was interrupted and that files may have changed since its last result.
-- **DI9. Every turn that has a row ends in an agent `Message`.** A turn that cannot go on says so in a fixed line of ours, the way a turn that uses all 32 rounds falls back to one today. So the `message` a round names exists once the turn has ended, and Austen never waits on a turn that is gone. A waking Galaxy that finds the `Message` already committed deletes the row and does nothing else.
-- **DI10. A turn continues only from rounds the agent itself recorded.** A round sits at the chat node, where any member with `write` can put a new snapshot over it, as over a `Message` (C3). The model's next call would then run under the poster's claims on a history someone else wrote. So a round whose current snapshot the agent did not record stops the turn with a message saying so, as a post edited mid-turn does today.
-- **DI11. The `Message` stays the crafted reply.** It keeps `content`, `thought`, `answers` and the turn's summary in `codegen`: the model, the source commit, the round count, how the turn stopped, the files written and the last build. `toolCalls` leaves it, and Studio reads its tool-call marks from the rounds.
-- **DI12. The deadline bounds each run of a turn, not the turn.** Today 14 minutes covers the whole turn, set by the 15 minutes `waitUntil` holds one promise. A turn that wakes starts a new run with a deadline of its own, and Q2 bounds how many runs a turn gets.
+  Round 1's one call, once the file is read, shows what a `read_file` records:
+
+  ```ts
+  { raw: { id: 'call_1', type: 'function', function: {
+      name: 'read_file', arguments: '{"path":"src/App.vue"}' } },
+    post: 'a81e…',      // Austen's post
+    claims: { sub: '…austen', profileId: '…', act: { sub: 'agent:lumenize' } },
+    result: { path: 'src/App.vue', bytes: 2140, oid: '3f2a…' } }
+  ```
+
+  The closing step, the one model call a turn makes after its loop when posts arrived while it ran, is stored as the turn's last round. That round names each post it was shown with the `validFrom` it read, so a rebuild writes the same request and the `Message` answers the same snapshots.
+
+- **DI3. A round is written when the model's reply arrives, and again as each call's result lands** (D8, D12). Each write after the first is a new snapshot of the same round (ADR-004), and a call's `post` and `claims` join the round with its result, since they are the claims it ran under. Each write names the `validFrom` of the snapshot it builds on (D14). A repeat of the same write is recognized as one (ADR-005), and any other conflict means another writer changed the round, so the turn ends with DI9's fixed line and nothing is retried. A round whose reply asks for no call ends the turn and is written once. In the example, round 2 is written three times: at the reply, after the write, and after the build.
+- **DI4. The turn's row holds only what no round holds, and is deleted when the turn's `Message` commits.** That is the opening prompt as the model was first sent it, the post the turn took up with the `validFrom` it read, the agent `Message`'s id, the posts the model was shown with the `validFrom` of each, which the closing `Message` answers by, the source commit the turn started from, and the index of each round whose model call was cut off (D6, DI8).
+
+  ```ts
+  // The row of the `acme.crm` turn, which no eviction has touched yet.
+  {
+    prompt: [/* the messages the model was first sent */],
+    post: { id: 'a81e…', validFrom: '2026-11-17T15:02:11.482Z' },
+    message: '6f0c…',
+    read: { 'a81e…': '2026-11-17T15:02:11.482Z' },   // each post shown
+    sourceCommit: '9b1d…',
+    interrupted: [],      // [4] if a later deploy cuts round 4's model call off
+  }
+  ```
+
+- **DI5. Everything else the loop carries between rounds is worked out from the rounds.** The model's messages are rebuilt from the opening prompt and each round, through `modelText`. The round count, the files written, the last build, the detectors' memory of earlier calls and text, and whether the last build failed, so that the next round is told to fix it, all come from the same rounds. The row's list of interrupted rounds is the one thing kept there, since an interruption leaves no round to count (D10).
+- **DI6. A tool call that leaves the Galaxy names a result handler, and nothing waits for it** (D3). The handler carries the turn's id, which is the agent `Message`'s id, the round's resource id and the `validFrom` it was dispatched from, the call's id, and the address of the tab it asked. It writes the answer onto the round as the agent, naming that `validFrom` (DI3), and continues the turn from storage. An answer for a turn with no row, or a row naming another turn, is dropped. `run_in_tab` is the only such call today, and `build` could become one (§ *Beyond this task*).
+- **DI7. Where a turn stands is read from its rounds, in this order.** A stop recorded in the last round ends the turn first: a `mark_complete`, the repeated call the detector stopped at, or a second failed container step, each of which records a result saying so. Otherwise the first call with no result is next. If every call has one, the next model call is next. A turn that has ended goes to the closing step when posts arrived while it ran, and to the commit when none did, and a closing round is followed only by the commit. Nothing stores a position, so a handler, a wake and the ordinary next step all continue the same way.
+- **DI8. A waking Galaxy that finds a turn's row settles what the eviction left, then continues** (D9).
+  - **When it wakes.** The first time a Client reaches a new isolate, by a socket's upgrade or a call whose chain starts at a Client. That is what D9's "next call" means here: a node's call, such as a Star reading its ontology, and the construction a teardown or an alarm makes, start none.
+  - **A call cut off.** In a new isolate every call in flight is gone, a tab's included, since the Gateway's record of it was in memory. At most one call was in flight, the first with no result. It is answered as interrupted and never run again (D4, D12), and the calls after it run. Its error on the round is the record, and it tells the model the call may have run and files may have changed.
+  - **A model call cut off**, the closing step's included, is made again. No round records that, so the row first records the round's index (D6), and a rebuild puts a note saying so after the round before. A closing call cut off twice commits the turn's own last reply and leaves the arrived posts waiting, as a failed closing call does today.
+- **DI9. Every turn that has a row ends in an agent `Message`.** A turn that cannot go on says so in a fixed line of ours, the way a turn that uses every round it is allowed falls back to one today. That covers a turn interrupted twice at one round (D6), a run past its deadline (DI13), a round write that conflicts (DI3), and a run that throws for any other reason. So the `message` a round names exists once the turn has ended, and Austen never waits on a turn that is gone. A waking Galaxy that finds the `Message` already committed deletes the row and does nothing else.
+- **DI11. The `Message` stays the crafted reply.** It keeps `content`, `thought`, `answers` and the turn's summary in `codegen`: the model, the source commit, the round count, how the turn stopped, the files written and the last build. `toolCalls` leaves it whole. Studio reads a message's tool-call marks from that turn's rounds, by a one-time read of `{ typeName: 'Round', filter: { message } }` (D13).
+- **DI12. The deadline bounds each run of a turn, not the turn.** Today 14 minutes covers the whole turn, set by the 15 minutes `waitUntil` holds one promise. A run is what a turn does from one event to its next wait: in the `acme.crm` turn, rounds 1 to 3 are one run, and Gerry's answer starts a second. Each run has a deadline of its own. What bounds the turn is `maxToolDepth`, its cap on rounds, and D6 ends one that is interrupted twice at the same round.
+- **DI13. A run that reaches its deadline ends the turn.** Our own code commits the agent `Message` with DI9's fixed line and deletes the row, which is the target `#takenUp`'s own comment names. No decision follows it, as none follows a cut-off turn today. The run it cut off may still be going. Before it dispatches a tool or writes a round it checks that the row names its own turn, by the agent `Message`'s id, and stops when it does not. A run stopped that way commits nothing and deletes nothing, since the row there may be the next turn's.
+- **DI14. A turn is in flight for as long as its row exists, and only whether a run is live stays on the instance.** The commit trigger and the decision read the row, so a post that arrives while a tab call is out starts no second turn. `#turnInFlight` says a run not cut off by its deadline is live in this isolate (B7), and a second flag says this isolate has looked for a row. Every run entry sets both before its first `await`, so two entries in one isolate cannot both start a run. Losing both in an eviction is the signal and not a fault.
+- **DI16. The warm, the build box and the heartbeat belong to a run.** The first write of a run warms the box, every run destroys it as it ends, a run that ends to wait for a tab included, and the heartbeat beats for the length of a run. Nothing beats while a tab call is out, which the Gateway bounds at 30 s.
+- **DI15. Rounds sit at a `turns` node where only the agent and the app's admins can write** (D14). The node is a sibling of `chat` under the root. The agent holds a protected `write` there, as it does at `chat`, and the Galaxy's seed declares that every invite at `chat` also grants `read` at `turns`, so a collaborator sees a turn's calls and cannot write one, whichever path invited them. An admin's write is recorded as theirs and trusted as their dominion is (ADR-015).
+- **DI17. Every run is the agent's.** A run started by a post, a tab's answer or a wake runs under `lmz.asLocalPrincipal(NEBULA_SUB, …)`, the store reads and writes rounds as the agent, and each tool runs inside `actUnder(row.post)`, as today.
 
 ### Claims this rests on
 
 - **C1. Nothing checks that an id a resource names exists.** A field typed as another ontology type is validated as a string id (ADR-006) and nothing reads the store for it. So a round can name the agent `Message` before that `Message` is committed. Checked 2026-11-15: an ontology's `relationships` reach only the generated validator.
-- **C2. The model's messages are a function of the opening prompt and the rounds.** Each message the loop sends comes from one of these: the model's own reply, a tool's result through `modelText`, or build feedback computed from the build's report and the files written. Checked 2026-11-15 by reading every `messages.push` in `runCodegenLoop`. One exception was found, B5, and Q1 is about it. Unchecked: whether the provider's tool call carries anything the next request needs beyond its id, name and arguments, and what the closing step adds after the loop, which its JSDoc says are the posts that arrived mid-turn.
-- **C3. Any chat member can write over a round.** [backlog.md](backlog.md) § *Other Nebula backlog* says so of messages: a `put` at the chat node needs only `write`. Not run against a round, which does not exist yet.
-- **C4. A turn's tools need nobody's live call.** They run under the claims recorded on the post, read from storage (`actUnder`). Checked 2026-11-15 by reading `runCodegenTurn`.
+- **C2. The model's messages are a function of the opening prompt and the rounds.** Each message the loop sends comes from one of these: the model's own reply, a tool's result through `modelText`, or build feedback computed from the build's report and the files written. Checked 2026-11-15 by reading every `messages.push` in `runCodegenLoop`. One exception was found, B5, and D5 answers it. A round keeps the provider's tool call whole, so whatever else it carries survives, and DI2's closing round carries what the closing step adds. Proved against a stored `Round` and the real provider only once § *Phase 4* runs.
+- **C4. A turn's tools need nobody's live call.** Checked 2026-11-15 by reading `runCodegenTurn`: every tool dispatch goes through `actUnder`.
 - **C5. Each run of a turn gets a hold of its own.** A handler's call and a wake are each a new event, so each can hand `waitUntil` a new promise. Not measured.
+- **C9. A Galaxy a deploy restarts mid-turn is reached again with no one acting.** Since 2026-10-30 Cloudflare defers a Durable Object's code update by up to 300 s by default, so a deploy cuts a turn only if a run is still going then. An update deployed with `--durable-objects-code-update-mode immediate`, or a runtime update, cuts it at once and closes its sockets, so an open Studio's reconnect is the upgrade that wakes it. Nothing has measured an active Galaxy, and § *Phase 7* does.
+- **C7. A blob the Workspace already holds costs nothing to record again, and reads back cheaply.** `@cloudflare/computer` 0.9.0's git client has `hashObject({ dir, content, write: true })` and `catFile({ dir, oid })`, read in its installed types on 2026-11-17. Not measured: whether `hashObject` writes any rows for a blob the store already has, what a `catFile` costs once the repo is packed, and whether anything the Galaxy does to its repo drops a blob no commit points at. A platform doc's blob is one of those, and D5 accepts that it stays for good.
 - **C6. An eviction can be tested where storage survives it.** The vitest-plugin lane's `ctx.abort()` keeps storage and a local `wrangler dev`'s wipes it (`durable-objects.md`). `waiting-posts.test.ts` already resets a Galaxy mid-turn there.
 
 ## Constraints
 
-- **ADR-003:** no node holds a reply promise open across a hop. It is why the tab wait goes, and why the handler carries only two ids.
+- **ADR-003:** no node holds a reply promise open across a hop. It is why the tab wait goes, and why the handler carries ids and an address and no transcript.
 - **ADR-004 and ADR-006:** a round is a snapshot sequence, its second write is a new snapshot, and it names its chat and its `Message` by id.
 - **ADR-002:** a result is stored as the value itself and becomes text only in `modelText`.
-- **ADR-016 and ADR-025:** each call's record names the claims it ran under, and the agent writes each round as itself, under its own grant at the chat node.
+- **ADR-016 and ADR-025:** each call's record names the claims it ran under, and the agent writes each round as itself, under its own grant at the `turns` node.
+- **ADR-005:** each round write names the `validFrom` it read, and a repeat is recognized as one (D14).
 - **ADR-001:** `Round` is declared in `CHAT_MESSAGE_TYPES`, and the change bumps `CHAT_MESSAGE_ONTOLOGY_VERSION`.
 - **`durable-objects.md` § *Wall-clock billing* and § *No mutable instance state*:** no design depends on a Durable Object staying awake, and storage is the source of truth.
-- **`live.md`:** the scenarios come first. Which tool the model calls is its own choice, so an eviction at a chosen round is gated in the lane that scripts the model's output, and its scene still runs in `/live` (C6 says where an eviction can be tested at all).
-- **The pre-alpha wipe:** the `Message` shape changes, which rides the wipe if this lands before it.
+- **`live.md`:** the scenarios come first. A `/live` scenario runs a turn and reads its rounds as they are written. Which tool the model calls is its own choice, so an eviction at a chosen round is gated in the lane that scripts the model's output, where a reset keeps storage (C6). A local `wrangler dev` wipes storage on a reset, so the eviction's own `/live` scene is deployed: a second deploy with an immediate code update while a turn runs (C9).
+- **The gate is `data`, before the first invite** (Larry, 2026-11-17). `toolCalls` moves off `Message.codegen` and the chat ontology's version bumps, so this lands before the wipe or production is wiped again after it ([nebula-pre-alpha.md](nebula-pre-alpha.md) § *What remains*). Every captured turn then has one shape.
 
 ## Beyond this task
 
-- **Item 15's wake check gets smaller.** It is left with posts that no turn took up, and a decision an eviction cut off.
 - **`build` can leave the Galaxy the same way.** It is the longest wait a turn has after the model. A round's call with no result yet is not particular to tabs, so a build that names a result handler needs no new shape.
-- **Studio can show a turn's calls as they happen.** Rounds reach the chat's subscribers as they are written.
-- ⚠️ Design consideration: **nothing here wakes a Galaxy that nobody calls.** After a deploy, an open Studio reconnects and that wakes it. With no Studio open, the turn continues when someone next opens the app. An alarm set as the turn starts could wake it sooner, and nothing here rules one out.
+- **Studio can show a call that is still out.** Each result reaches a round's subscribers as it lands (D12), so one live query on the running turn's rounds would show its calls as they happen. That is later work.
+- ⚠️ Design consideration: **an alarm could continue a cut-off turn that nobody is watching.** D9 leaves it to the next call. An alarm adds no stored shape, so it can come later without a wipe.
 - ⚠️ Design consideration: **the model call could leave too**, if Cloudflare offers a callback that streams. On 2026-11-12 neither AI Gateway's background runs nor Workers AI's async queue did.
 
 ## Open questions
 
-- **Q1. Where does the content of a `read_file` go?** The model's messages cannot be rebuilt without it (B5), and a platform doc can run to tens of kilobytes.
-  1. **In raw storage beside the turn's row, deleted with it.** The round keeps `{ path, bytes }` as today. Nothing large reaches the chat's subscribers or stays after the turn. *Recommended:* it is what D2 already does with the opening prompt, the other large thing only a running turn needs.
-  2. **On the round.** One home for everything, and a turn can be replayed long after it ended. Every Studio on the app then receives each file the model read, and the Galaxy keeps every copy for good.
-  3. **Read again at rebuild.** Stores nothing, and shows the model a file as it is now in place of the one it read, which a write or a deploy in between changes.
-- **Q2. How many times may a turn wake before it gives up?** A turn that kills its Galaxy on every run would otherwise try again on each wake, forever. *Recommended:* three runs, counted on the turn's row, then the fixed line of DI9. The row then also says where each interruption fell, which DI8's note to the model needs.
+None are open. Q1 was answered as D5 and Q2 as D6.
 
 ## Decisions
 
 | ID | Decision | Rejected alternative, and why |
 |---|---|---|
 | D1 | The per-round record is named `Round` (Larry, 2026-11-15). | `TurnRound` repeats what its reference to the turn says. `Step` is what the loop already calls a progress line. |
-| D2 | A round is a Resource, a new one per round. The opening prompt sits in one raw row per turn (Larry, 2026-11-14). | Raw storage for the rounds too. As a Resource, a round reaches the chat's subscribers and records who wrote it with no code of ours. One transcript Resource updated every round: each update would store the whole transcript again. |
-| D3 | The transcript stays in storage, and the result handler carries two ids (Larry, 2026-11-14). | Carrying the transcript in the handler, out and back: it is large, and it belongs in storage. |
-| D4 | A tab call found out on a wake is answered as lost and never sent again (Larry, 2026-11-14). | Sending it again: the code may have run, and running it twice can write twice. |
+| D2 | A round is a Resource, a new one per round. The opening prompt sits in one raw row per turn (Larry, 2026-11-14). | Raw storage for the rounds too. As a Resource, a round reaches the chat's subscribers and records who wrote it with no code of ours. One transcript Resource updated every round: each update would store the whole transcript again. Keeping the opening prompt after the turn: a replay assembles a new one from `codegen.sourceCommit`, which is what the nightly loop does. |
+| D3 | The transcript stays in storage, and the result handler carries two ids (Larry, 2026-11-14). DI6 lists what it carries now. | Carrying the transcript in the handler, out and back: it is large, and it belongs in storage. |
+| D4 | A tab call still unanswered when the Galaxy wakes is answered as lost and never sent again (Larry, 2026-11-14). | Sending it again: the code may have run, and running it twice can write twice. |
+| D5 | A `read_file` is recorded on its round as `{ path, bytes, oid }`. The Galaxy writes the content to the Workspace's git store by `hashObject` as the model reads it, and a rebuild reads it back by `catFile` (Larry, 2026-11-17, was Q1). A committed source file is already there, so nothing new is stored for it. | A raw row beside the turn's row: a second copy of what the Workspace holds, and a finished turn no longer says which version was read. On the round: every Studio on the app would receive each file. Reading again at rebuild: the model would be shown the file as it is now. |
+| D6 | A turn interrupted twice at the same round gives up, with DI9's fixed line. An interruption is a wake that finds a model call was cut off. A cut call's error on its round is its record, and a tab's answer arriving is not one. The row keeps the index of each interrupted round (Larry, 2026-11-17, was Q2). | A fixed cap on interruptions: it ends a healthy turn that spans a third deploy, and lets a broken one pay for three model calls. Counting every run: a tab's answer starts one, so a turn would end at its second `run_in_tab`. A backoff with no bound: the post still shows as waiting. |
+| D7 | Reversed by D11 on the same day. A round is as open to a member's overwrite as a `Message` is, and a turn continues from whatever its rounds hold (Larry, 2026-11-17). An overwrite is a new snapshot naming who wrote it, with the agent's own beneath it in history. The refusal belongs in the orgTree, with the [backlog.md](backlog.md) row *Only a message's author, or nobody, can change it*. | A check on every continue that stops a turn whose round the agent did not record (was DI10): it gives every member a way to stop anyone's turn. A node of the rounds' own where only the agent holds `write`: a second grant on every invite, ahead of the design that row waits for. Rebuilding from the agent's own snapshots only: a check on every rebuild for a risk a `Message` carries unguarded. |
+| D8 | A round is stored when the model's reply arrives, before its tools run (Larry, 2026-11-17). Its second half, running the Galaxy's own unfinished calls again on a wake, is replaced by D12. As first decided: on a wake, a call of the Galaxy's own with no result is run again. Each of today's tools is harmless to repeat: an `edit_file` may report its anchor already replaced, which the model reads as any tool error. | Storing a round only when it ends: an eviction during a build pays again for the reply that carried every file. Answering the Galaxy's own unfinished calls as lost, like a tab's: the model would write the same files again. |
+| D9 | A cut-off turn continues at the next call that reaches its Galaxy, and no alarm wakes it (Larry, 2026-11-17). | The run's deadline as an alarm: a row written and cancelled on every run, and work resumed with nobody watching, to finish a turn a few minutes before its poster returns. The build box needs no waker, since Cloudflare stops it shortly after the Galaxy goes inactive (B6). |
+| D10 | The row holds no counters: the round count, the files written, the last build and the detectors' memory are worked out from the rounds (DI5). Larry's 2026-11-14 wording put the loop's counters on the row, and he read this change on 2026-11-17. | Counters on the row: a write per round for values the rounds already hold, and a second copy that can disagree with them. |
+| D11 | Superseded by D14 on 2026-11-18. A turn reads only the rounds the agent itself recorded, and one a member wrote over ends it (Larry, 2026-11-17, reversing D7). Under D8 a stored call with no result is run with no model in between, under the claims of the post the turn took up, so a member's `Round` holding `invite { scopeAdmin: true }` would have made an admin as the poster. | D7, reading whatever the rounds hold. A node of the rounds' own: a second grant on every invite. Keeping the calls still to run on the row: the row would store a position, against DI7. |
+| D12 | Each call's result is written to its round as it lands, as a new snapshot, and a call in flight when the Galaxy went away is answered as interrupted and never run again (Larry, 2026-11-17). A reply is at most 8,192 tokens, so a round's value is about 32 KB at most and a round with four calls stores about 200 KB. | Running the Galaxy's own calls again (D8's second half): an `edit_file` whose replacement holds its anchor applies twice. Results kept on the row until the round ends: a second home for a result, which the rebuild would merge. A flag per tool for what repeats safely: a table to keep right for every tool added. |
+| D13 | The Resources plane gains a one-time read of a query, with no subscription, and Studio reads a message's marks through it (Larry, 2026-11-18). A page subscribes to what stays on screen and can change, and reads once what will not. | A short list of each call's name, post and claims on the `Message`: a second home for a fact the rounds hold. A subscription to every `Round` in the chat: a query returns its oldest 1000 results, so new turns' marks would vanish. A subscription per message: a stored subscriber row for every round shown, against a limit of 200 live queries a type. |
+| D14 | Rounds sit at a `turns` node beside `chat`, where the agent holds a protected `write` and an invite grants `read`, and every round write names the `validFrom` it read (Larry, 2026-11-18, superseding D11). The node says who may write a round, and `validFrom` decides between the agent's own writers when they race. | Rounds at `chat`, with D11's filter, the agent's round ids on the row and a rule for each conflict: a third and fourth guard on one mechanism, and any member could end anyone's turn with one write. Refusing a later snapshot by anyone but a resource's creator: a second permission mechanism beside the orgTree, which ADR-025 rules out. |
+
+## Phases
+
+Each phase leaves every suite green. A criterion that names a test means a test under `apps/nebula/test/`, `packages/resources/test/` or `packages/mesh/test/`, in the lane that scripts the model's output, unless it says `/live`. Rationale is in § *Design intent* and § *Decisions*, cited by item.
+
+### Phase 1: the Resources plane answers a query once
+
+**Goal:** a Client can read a query's current result with no subscription (D13). This phase changes `packages/resources` and its docs alone.
+
+- Add `query(ontologyVersion, query)` to the plane's `requests` surface in `packages/resources/src/resources.ts`, beside `read`. It runs `#gateClientOp` first, as `read` does, so a stale version throws `OntologyStaleError` (ADR-024). It then compiles and evaluates the query as a subscription does, and answers `{ snapshots, deniedNodes?, more? }` (ADR-008). It accepts `allowScan` as a subscription does, and logs `query scans` when it scans.
+- It takes the caller from `callContext.originAuth`, and a call with none rejects. Its verdict over the host comes from one exported function: the `hostName && hasDominionOver(claims, hostName)` that `Subscriptions.#identity()` computes today, failing closed when the host is unknown. The subscription and the read both call it.
+- One helper evaluates `read` on each distinct node once, and `#broadcastQueries` calls it too. It logs a debug line naming the nodes it checked.
+- A new `Snapshots` method returns the current snapshots for a list of ids through the projection `#getCurrentSnapshot` uses, `toWireRecordedClaims` included. It checks no permission and is not on the wire.
+- The read writes nothing: no subscriber row and no live query. It refuses what a subscription refuses.
+- Add `resources.query(query)` to `packages/resources/src/client-resources.ts`, through `#versioned` and `callAsync`, as `#readResource` is. Its snapshots do not enter the client's store. Reword `#handleStale`'s JSDoc to name every answer and push channel instead of counting them.
+- Document it in `website/docs/nebula/resources.md`, and in `api-reference.md`'s table and a section of its own: subscribe to what stays on screen and can change, and read once what will not change or will not stay. Run `apps/nebula/scripts/gen-platform.mjs` and commit the embed.
+- Add a row to [backlog.md](backlog.md) § *Nebula*: a query cannot sort, page or limit, so it returns its oldest `QUERY_RESULT_CAP` results. A query that names the node it reads under is [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 21*, which starts with that row's work.
+
+**Success criteria (capable of failing).** The first five are in `packages/resources/test`, on the package's own fixtures, with a plain member granted on one node as `act-under-claims-of.test.ts` logs one in. The admin cases are in `apps/nebula/test/test-apps/baseline/confine-org-plane.test.ts`, beside the subscription's.
+
+- A member reads a type's resources at two nodes once and gets each snapshot's value and `meta`. The `Subscriptions` tables hold the same rows before and after, read through a `runInDurableObject` probe.
+- A member with `read` on one of the two nodes gets that node's snapshots, and the other node in `deniedNodes`.
+- Two Clients send a byte-identical descriptor and get different `snapshots` and `deniedNodes`, by their own grants. An impersonated child's read is decided by the subject's grants and not by `act`.
+- A returned snapshot's `meta.recordedClaims` deep-equals what `resources.read` returns for the same resource, and holds no `access` and no `aud`.
+- With three results at each of two nodes, the helper's debug line names two nodes.
+- An admin whose token's `aud` is the host and who holds no grant reads every result. An admin of a descendant scope with no grant gets `deniedNodes` and no snapshots, and so does that admin calling from another host. A chain with no claims rejects.
+- A stale `ontologyVersion` recovers as `read` does. `QUERY_RESULT_CAP` + 1 results answer `QUERY_RESULT_CAP` snapshots and `more: true`. An `it.each` covers the refusals: a filter the engine rejects, one no index can look up, and a descriptor that is not an object.
+- The `@check-example` checker passes on the new doc blocks, and `gen-platform.mjs --check` reports no drift.
+
+**Mutation notes:** register the query before answering and the row count changes. Skip the evaluation and the member without `read` gets the snapshot. Pass the bare `scopeAdmin` bit and the descendant admin reads. Build `meta` from the raw column and the recorded-claims test fails. Evaluate per result and the debug line names six nodes.
+
+### Phase 2: rounds have a type and a node, and a blob is read and written by its id
+
+**Goal:** the stored shape exists, only the agent and admins can write it, and members can read it (D14).
+
+- Add `TURNS_NODE_ID` to `apps/nebula/src/chat-constants.ts` beside `CHAT_NODE_ID`, a fixed id as `CHAT_NODE_ID` is. `GALAXY_TREE_SEED` gains the node `turns` under the root and the agent's protected `write` there. The seed is applied with `INSERT OR IGNORE` on every start (`packages/resources/src/org-tree.ts`), so a Galaxy made before this phase gains the node too.
+- Add `Round` to `CHAT_MESSAGE_TYPES`, bump `CHAT_MESSAGE_ONTOLOGY_VERSION`, and regenerate the validator seeds with `npx tsx scripts/gen-validator-seeds.ts` in `apps/nebula`, in the same step. Fields, per DI2: `chat` (typed `Chat`, not indexed), `message` (`@index`, typed `Message`), `index`, `text`, `reasoning?`, `calls`, and `closing?`, the posts a closing step was shown as `{ id, validFrom }` pairs. Each call holds `raw`, `post?`, `claims?`, `result?` and `error?`, and `post` and `claims` are absent until the call has run.
+- A `TreeSeed` can declare grants that go with an invite at a node, as `inviteAlso: Array<{ at: string; grant: { nodeId: string; tier: PermissionTier } }>`, and the Galaxy's seed declares `read` at `turns` with an invite at `chat`. `#onInviteResult` writes those grants for the minted `sub` with the invite's own, before it flips the invite's row, so one invite still sends one email. The door checks `admin` at the invite's node only, since the host's seed chose the rest. `Galaxy.invite` is unchanged. A grant at `chat` written by `setPermission` carries nothing more, and today every collaborator arrives by invite.
+- Add two Galaxy helpers beside `readSource`, neither with `@mesh()`. One writes content to the Workspace's git store with `hashObject({ dir: WS_ROOT, content, write: true })` and answers its `oid`, and one reads a blob back with `catFile({ dir: WS_ROOT, oid })`.
+- `Message.codegen.toolCalls` stays in this phase, and § *Phase 4* removes it.
+
+**Success criteria (capable of failing):**
+
+- The agent creates a `Round` at `turns` and writes a second snapshot naming the first one's `validFrom`. A test reads both rows from `Snapshots` through a `runInDurableObject` probe, with a comment saying the plane has no history read. A `Round` whose `index` is a string is refused by the validator.
+- A member holding `write` at `chat` is refused with `PermissionDeniedError` when creating a `Round` at `turns`, and when writing over the agent's. The same member reads the agent's `Round`.
+- A `Round` whose `message` names an id no `Message` has is accepted (C1).
+- An invitee accepted from the plane's own invite at `chat`, as `chat-cast.ts` sends it, holds `write` at `chat` and `read` at `turns`, and the invite produced one link. So does one invited by `Galaxy.invite`. An invite at a node the seed declares nothing for writes one grant.
+- A blob written by the helper reads back byte for byte, for content the repo has committed and for content it has not. The test counts the rows of the Workspace's tables before and after each write, and the numbers go into C7 in this file.
+- A blob no commit points at still reads back after a later `writeSource` (C7).
+
+**Mutation notes:** drop the seed's grant and the agent's create is refused. Grant `write` at `turns` on invite and the member's write lands. Drop the seed's declaration and the invitee's read of the agent's `Round` is denied. Call `hashObject` without `write: true` and the uncommitted content's `catFile` throws.
+
+### Phase 3: the loop holds nothing between rounds
+
+**Goal:** `runCodegenLoop` reads everything it needs from a store of rounds and writes to it, so a second invocation on the same store continues the turn (DI1, DI3, DI5, DI7). The store is in memory in this phase.
+
+- Add a `rounds` dep to `CodegenLoopDeps`. It reads the turn's rounds, writes a round when a reply arrives, writes it again as each call's result lands with that call's `post` and `claims` (D12), and reads the turn's interruptions. Each write names the `validFrom` it read (D14) and answers `ok`, `conflict` or `not-this-turn`, and either of the last two stops the invocation before its next dispatch or model call (DI3, DI13).
+- Add a `blobs` dep: `write(content)` answers an `oid` as a file is read, and `read(oid)` answers the content at a rebuild. It may remember what it read by `oid` within one invocation, since the bytes are content-addressed. The loop records `{ path, bytes, oid }`. Tests back it with a map, and § *Phase 4* binds it to § *Phase 2*'s helpers.
+- `runCodegenTurn` in `galaxy.ts` hands the loop an in-memory store and a map-backed `blobs`, so `codegen.toolCalls` is still built from the loop's result.
+- Add a pure function that takes the opening prompt, the rounds and the interruptions, and answers what the loop's locals hold today: `messages`, the params of the next model call, `appliedPaths`, `lastBuild`, both detectors' hashes, `containerFailures`, the round count, and what is next by DI7's order. It parses each call's arguments from its `raw`, and turns each result into the model's text through `modelText`.
+- The loop calls that function before each step and keeps no local across rounds. `mark_complete`, the call the identical-call detector stops at, and a second failed container step each record a result saying so. `error` and `post-moved` are what an invocation returns when a model call or a tool throws, and a moved post is also recorded as that call's error.
+- The first call with no result is dispatched. A dep answers the interrupted error for a call a wake found in flight, in place of running it, and the calls after it run (DI8). A dep says whether a tool leaves the Galaxy, and such a call is sent and the invocation returns `waiting` with nothing awaited (DI6). No tool leaves yet, so `run_in_tab` still awaits in this phase.
+- An interrupted index puts DI8's note into `messages` as a `user` message with fixed text, after the round before it. A store holding two rounds of one index, or a gap in the indexes, ends the invocation with one fixed outcome and no throw.
+
+**Success criteria (capable of failing):**
+
+- Every test in `apps/nebula/test/test-apps/dev-studio/codegen-loop.test.ts` passes, its assertions on `messages` unchanged.
+- A scripted turn runs straight through and again as a fresh invocation per round on a shared store, and `[messages, params]` handed to `callModel` are deeply equal at every round. There is one script per `StopReason`, and `loop-detected` has one for each detector. The scripts include a failed build's feedback, an unparseable call and a `read_file` (C2).
+- A test walks each stop that lands mid-round. Every dispatched call holds its result or error and its claims, and every call after it holds none of them. A call refused as post-moved has an error and no `claims`.
+- An invocation stopped after the first of three calls, a `write_file`, is invoked again. The write is not dispatched a second time, and the model is not called for that round.
+- A round of `[write_file, mark_complete, build]`, invoked again from its stored state, ends `complete` with no model call and never dispatches `build`. So does a round stopped at a repeated call.
+- A round's second of three calls, marked as found in flight, gets the interrupted error and is never dispatched. The third is dispatched, and the next round's `messages` carry the error as the second call's tool message.
+- A rebuild with round N interrupted, before and after round N lands, puts the note after round N-1 both times, and the earlier `messages` is a prefix of the later.
+- A store answering `conflict` or `not-this-turn` stops the invocation before its next dispatch and its next model call.
+- A `blobs` dep that counts reads sees each `oid` read at most once per invocation, over five rounds with two `read_file` calls.
+
+**Mutation notes:** keep `seenCallHashes` in a local and the call detector's per-round run misses a repeat the straight run catches, and the same for `seenTextHashes`. Keep `fixMode` in a local and `params` differ. Rebuild a `read_file` from `{ path, bytes }` and `messages` differ. Write results only when the round ends and the stopped-after-one-call test dispatches the write again. Apply the call-with-no-result rule before the stop rule and the `mark_complete` test dispatches `build`.
+
+### Phase 4: the Galaxy stores a turn as a row and its rounds
+
+**Goal:** a running turn is on record (DI1 to DI5, DI11, DI15, DI17), and its tool calls are read from rounds everywhere.
+
+- First, make the lane able to test a reset. The test Galaxy in `apps/nebula/test/test-apps/baseline/index.ts`, and its dev-studio twin, keep the model's script, the build faults, the deadline override, a hold on one model call, and faults for a round write and a blob read, all in `ctx.storage.kv`, where `ctx.abort()` leaves them. A test arms them through `runInDurableObject`, which starts no wake. Tests count model calls from the debug sink's `nebula.Galaxy.turn` `request` lines.
+- Write the `/live` scenario next, `rounds-as-they-land`, container-free and registered in `drive.ts`. A second member reads the turn's `Round`s by `message`, taking the id from the first stream chunk. It gates on what holds whatever the model does: every `Round` arrives before the `Message`, each is the agent's, the indexes run from 1 with no gap, and each dispatched call ends with `post`, `claims`, and a result or an error. A turn with no tool call is reported as not exercised. From the Worker's logs it reads the store's line per write, and in a round of two or more calls it requires the first call's result to be written before the second is dispatched.
+- Add a container-free `/live` limb for the provider. It imports § *Phase 3*'s rebuild function, feeds it the rounds of a real turn plus one interrupted call and one interrupted index, and posts the result to the Workers AI REST endpoint with the token in `.dev.vars`.
+- The Galaxy keeps the turn's row under one `ctx.storage.kv` key, shaped as DI4 shows. It is written before the first model call, and deleted in the commit step only when `row.message` is this turn's.
+- `runCodegenTurn` hands the loop a store that writes each round as a `Round` at `TURNS_NODE_ID` as the agent, each later write naming the `validFrom` it builds on, and reads a turn's rounds by `message` as the agent. A conflict ends the turn with a fixed line beside `POST_MOVED_LINE`, and the row goes. One entry function starts every run under `lmz.asLocalPrincipal(NEBULA_SUB, …)` (DI17).
+- `blobs` is bound to § *Phase 2*'s helpers. The closing step's reply is written as the turn's last round, and the `Message`'s `read` is built from the row and that round's `closing`.
+- `#codegenTurn` builds the `Message`'s `thought` and `codegen` from the rounds. `codegen` keeps `model`, `sourceCommit`, `rounds`, `stop`, `appliedPaths` and `build`, and loses `toolCalls`, which also leaves `CHAT_MESSAGE_TYPES`, with a second version bump and the seeds regenerated.
+- `toolCallMarks` takes a turn's `Round` snapshots and keys each mark by round index and call index; `ToolCallMark.index`'s JSDoc says so. The marks' query descriptor is exported from one place. `apps/nebula-studio-ui/src/App.vue` keeps marks in a reactive map by message id, filled once through § *Phase 1*'s `resources.query` when a new agent message id appears, outside the thread's `computed`.
+- Every reader of `codegen.toolCalls` moves to rounds: the scenarios and tests `grep -rln 'toolCalls' apps/nebula/harness/scenarios apps/nebula/test` lists, the `toolCallMarks` case in `apps/nebula/test/agent-loop.test.ts` among them.
+
+**Success criteria (capable of failing):**
+
+- `rounds-as-they-land` passes locally, and fails when results are written only as a round ends. The provider limb passes on a 200 with a reply that parses.
+- § *Phase 3*'s per-round equality script runs through the real store, rebuilding from `Round`s read back after each round. `[messages, params]` captured by `takeSeenMessagesForTest` equal the straight run's.
+- A test holds the model's first call. The row holds `prompt`, `post`, `message`, `read` and `sourceCommit`, and no `Round` exists. Held at round 3, a member's client reads rounds 1 and 2 with each call's `post` and `claims`.
+- After the turn's `Message` commits, the row's key is absent, `codegen` has no `toolCalls`, and `codegen.rounds` equals the count of the turn's `Round`s.
+- A turn that reads `src/App.vue`, writes it, and reads it again records two different `oid`s, and each reads back as the content the model was sent at that round.
+- A Galaxy admin writes over a round between two of its calls. The agent's next write conflicts, the turn ends in the fixed line with the row gone, and a later post starts a turn.
+- With more than 1000 `Round`s in the app, `resources.query` by `message` returns the new turn's rounds.
+- `first-app-built` asserts `tool-call-mark` with no condition, its count equal to the calls in that message's rounds.
+- `grep -n 'toolCalls' apps/nebula/src/chat-constants.ts` prints nothing. Run on 2026-11-17, it prints the type's field and a comment on it.
+- `four-party-chat`, `first-app-built`, `agent-invites`, `cast-from-a-tab`, `post-edited-mid-turn`, `shared-lists-turn`, `studio-guidance-loop`, `studio-codegen-rest` and `waiting-posts-answered` pass, read against rounds.
+
+**Mutation notes:** write the row after the first model call and the held-first-call test finds no row. Leave the row at commit and the absent-key assertion fails. Record a `read_file` by path alone and the two-`oid` test reads the later content for the earlier round. Retry a conflicted write and the admin test's turn runs on. Drop `raw` from `Round` and the equality script fails.
+
+### Phase 5: a cut-off turn continues or says it cannot, and every row ends in a `Message`
+
+**Goal:** nothing about a turn is remembered (B4, B6, B7), and no row is left without a run that ends it (DI8, DI9, DI13, DI14, D6, D9). `run_in_tab` still waits in memory in this phase, so a run never ends to wait.
+
+- A turn is in flight while its row exists (DI14). The commit trigger starts no turn beside a row, `#decisionFor` offers no post while one exists, and `#takenUp` goes. Every run entry sets `#turnInFlight` and the looked-for-a-row flag before its first `await`.
+- Add a hook to `ScopedMeshDO` that fires once per isolate, at the first Gateway upgrade or the first request whose `callChain[0]` is a Client, and never for `__rawRpc`, an alarm or a node's call (`mesh.md` § *Nebula platform code never drops to raw primitives*). The Galaxy implements it: it looks for a row, and starts the wake detached under `ctx.waitUntil`. `onStart` starts none.
+- The wake does DI8's steps. For a cut model call it records the round's index on the row with a synchronous `kv.put` before the run starts, since outgoing calls wait for that write. An index already there ends the turn with the fixed line (D6). A turn whose last round ended it goes to the closing step or the commit (DI7). A row beside a committed `Message` is deleted.
+- Every run entry ends the turn with DI9's fixed line and deletes the row when its run rejects. The commit trigger, finding a row with no live run, starts the wake and no new turn.
+- A run that reaches `generationDeadlineMs` commits the fixed-line `Message` and deletes the row. Each dispatch and each round write first compares `row.message` with its own turn's id (DI13), and no decision follows.
+- `StopReason` gains `interrupted` and `deadline`, and each fixed line is a constant beside `POST_MOVED_LINE`. The tests that assert today's behaviour are rewritten: `waiting-posts.test.ts`'s deadline and reset cases, and `dev-studio.test.ts`'s `m-hung` probe.
+
+**Success criteria (capable of failing):**
+
+- A turn whose round 1 is `read_file src/App.vue` and round 2 a `write_file` of it is reset while round 4's model call is held, and a Client reconnects. The row's `interrupted` is `[4]` while the repeated call is held, rounds 1 to 3 are not called again, the repeated request's round-1 tool message holds the original content, and the `Message` commits.
+- Reset a second time at round 4, the turn ends in the fixed line with `codegen.stop` of `interrupted` and its `rounds`, `appliedPaths` and `sourceCommit`, the row gone, and no third call for that round.
+- Reset at round 4 and again at round 6, the turn commits the model's own `Message`, and `interrupted` holds both while round 6's call is held.
+- Reset while a scripted `build` is out, in a round whose first call is an `edit_file` whose replacement contains its anchor: the replacement appears once, the build holds the interrupted error, `interrupted` is empty, and the model is called for the next round.
+- Reset while the `build` of a round `[read_file, build, write_file]` is out: after the wake the `write_file` is dispatched.
+- Reset while the closing step's call is held: the loop's rounds are not called again, one closing request is made, and one `Message` commits with its `answers`. Cut a second time, the turn's own last reply commits and the arrived posts wait.
+- Reset after a final round with no closing step due: the `Message` commits with no model call. A row seeded beside a committed `Message` is deleted, with no model call and no second `Message`.
+- A round write that throws, and a blob read that throws, each leave a fixed-line `Message` and no row, with no reset. A post committed beside a row with no live run starts no second turn.
+- After a reset, two Clients reconnect and one posts at once. One wake marker appears, `interrupted` holds the index once, and the turn commits the model's own `Message`.
+- With a short deadline, a held model call's reply is a `write_file`, the deadline passes, and a second person's turn starts before the reply is released. The fixed-line `Message` has `codegen.stop` of `deadline`, the file is absent, no `writeSource` line follows the fixed line in the debug sink, and the second turn's row survives the release and its turn commits its own `Message`. The test waits on the marker the stopped run logs.
+- A Galaxy holding a row and a held call, with every Client disposed, is reset and then deleted through real scope deletion: no wake marker appears before teardown, and its storage is wiped. A mesh alarm fired on such a Galaxy, within a budget of at least 15 s, logs no wake marker and leaves the row as it was.
+- In `packages/mesh/test`, the hook fires once per isolate on an upgrade and on a Client's call, and never on `__rawRpc`, an alarm or a node's call.
+- `grep -n 'takenUp' apps/nebula/src/galaxy.ts` prints nothing. Run on 2026-11-17, it prints the field and its uses.
+
+**Mutation notes:** record the index after the run starts and the twice-at-one-round test loops. End a turn at any second interruption and the rounds-4-and-6 test fails. Run the cut call again and the `edit_file` test finds the replacement twice. Answer every call with no result as interrupted and the `[read_file, build, write_file]` test never writes. Start the wake from `onStart` and the alarm test logs a wake. Set the flags after an `await` and the two-Client test logs two wakes. Delete the row by its presence and the deadline test's second turn loses its row.
+
+### Phase 6: a tab call leaves by its result handler, and nothing waits for it
+
+**Goal:** `#tabAnswers` and its promise are gone (B3, DI6, DI16, D3, D4).
+
+- `Galaxy.runInTab` sends the call and returns. Its result handler, `onTabAnswer(turnId, roundId, validFrom, callId, address, answer)`, has no `@mesh()`, and its whole body sits in a `try`/`catch` that ends the turn with DI9's fixed line (`mesh.md` § *Explicit-callback error delivery*).
+- The handler writes the answer onto the round as the agent, through `clipRunResult`, naming the `validFrom` it carried. A repeat is recognized as one, any other conflict ends the turn (DI3), and an answer for a turn with no row or another turn's row is dropped. It then starts a run through DI17's entry, handed to `ctx.waitUntil` (C5), unless a run is live in the isolate.
+- A tab that ran nothing, one its host reports gone or one with no preview, leads to a call to the next tab. The handler picks it inside `actUnder(row.post)`, from the poster's own subscriptions hosted here, as `runInTab` does today. A post that has moved ends the turn with `POST_MOVED_LINE` and asks no further tab. A tab that stayed silent is recorded as `TAB_STAYED_SILENT`, and no tab at all as `NO_STUDIO_TAB`, each as the call's error.
+- The loop's dep reports `run_in_tab` as a tool that leaves the Galaxy. The warm latch, the box's teardown and the heartbeat become a run's (DI16), their markers carry a run's id, and `chat-trigger.test.ts`'s T5a, T5b and T5d are reworded from a turn to a run.
+- In `.claude/rules/mesh.md`, replace the TEMP bullet on `Galaxy.runInTab` with: a node MUST NOT wait in memory on a mesh call it sends, and the call's result handler is the only wait. In `.claude/rules/security.md`, extend the *The Galaxy* bullet's no-`@mesh()` and tab-choice rules to `onTabAnswer`, which writes only the result or error of the call its continuation names.
+
+**Success criteria (capable of failing):**
+
+- `grep -n 'tabAnswers' apps/nebula/src/galaxy.ts` prints nothing. Run on 2026-11-17, it prints the field and its uses.
+- `grep -n 'waits in memory' .claude/rules/mesh.md` prints nothing, and `grep -c 'MUST NOT wait in memory on a mesh call' .claude/rules/mesh.md` prints 1. Run on 2026-11-17, the first prints the TEMP bullet.
+- Every case in `apps/nebula/test/test-apps/baseline/run-in-tab.test.ts` passes: the answer, the silent tab, the passed-over tab, no Studio open, and a post written while impersonating. The answered round's newest snapshot is the agent's.
+- A second person posts while a tab call is out. No model call is made for their post until the first turn's `Message` commits, and a decision then takes it up.
+- With the post edited while the first tab reports no preview, the second tab is never called and the turn ends in `POST_MOVED_LINE`.
+- A reset before the tab answers, then a Client reconnecting: the call holds the interrupted error, the model is called once for the next round and never for an earlier one, `interrupted` is empty while that call is held, and the turn ends in a `Message` (D4, D6).
+- The same answer delivered twice adds one snapshot, and the model is called once.
+- A Galaxy admin writes over the round while its tab call is out. When the tab answers, the turn ends in the fixed line, the row is gone, and a later post starts a turn.
+- In a turn that writes, runs code in a tab, then builds, run 1 logs a warm and a teardown and run 2 logs a teardown only, and run 1's teardown comes before the tab's answer.
+- With a short deadline D, a run of about 0.6 D that ends on a tab call and a second run of about 0.6 D end in the model's own `Message`. A second run alone past D ends in the deadline line.
+- `/live`: `cast-from-a-tab` and `persona-tabs` pass, and `cast-from-a-tab` asserts its `run_in_tab` round arrived with the call unresolved before it arrived answered.
+
+**Mutation notes:** keep an in-memory wait and the reset test never finishes its turn. Let the trigger ignore the row and the second person's post starts a turn. Drop the answer on a conflict and the admin test leaves the row. Measure the deadline from the turn's start and the 0.6 D test ends in the deadline line. Start a handler's run with no deadline and the past-D test never ends.
+
+### Phase 7: the deployed pass, and every file that describes a turn agrees
+
+**Goal:** the design holds where a real deploy does the evicting, and no standing text describes the old loop.
+
+- Run the whole registry locally, `npx tsx apps/nebula/harness/drive.ts all`, since `galaxy.ts` and the chat ontology changed under scenarios this task did not write.
+- Deploy with `bash apps/nebula/scripts/deploy-test.sh`, wait for `Test worker live and matches HEAD`, and run this task's scenarios against it with `HARNESS_TARGET_URL`.
+- Let `deploy-test.sh` pass `--durable-objects-code-update-mode` through to wrangler. Add a deployed-only scenario, `deploy-cuts-a-turn`, which exports `skip` unless `HARNESS_REDEPLOY=1` and a deployed target are set, and stays out of the sweep. It starts a turn with Studio open and deploys again with `immediate` while the turn runs.
+- It watches only through subscriptions opened before the deploy, records each tab's connection states, and makes no call to the Galaxy until the `Message` arrives or a bound passes. If its own call at that bound is what continued the turn, it reports that, and C9 is recorded as false. It is inconclusive, and fails as such, without a line in the Worker's logs showing a new isolate between the first `Round` and the `Message`. It reads repeated model calls from the rounds and the row's interruptions.
+- Read the target's Workers Issues since the pass began, `node scripts/issues.mjs --worker test-nebula --since <start>`.
+- Edit what § *Relationships* lists as owed, and also: `.claude/rules/security.md`'s bullet *The record*, and its paragraph on work the agent does for a person, which now has no time bound while the orgTree grant is still read per call; the header of `apps/nebula/src/participants.ts`; and every description of the Galaxy's tree that `grep -rln 'chat node\|CHAT_NODE_ID' website/docs/nebula .claude/rules docs/vision` lists. Reword the Objective and DI8 if C9 came out false.
+- Delete the backlog row, move this task's row in `nebula-pre-alpha.md` to § *Shipped*, rewrite `#underDeadline`'s RESIDENCY comment and `ToolCall`'s JSDoc to what the code now does, and update the memory `project_turn_stored_round_by_round.md`.
+
+**Success criteria (capable of failing):**
+
+- The local sweep exits zero, or `drive.ts all --rerun` does after a fix, and any flake is named as one.
+- `deploy-cuts-a-turn` passes deployed with its new-isolate line found, and the deploy's self-check matched `HEAD` both times.
+- The Issues read lists nothing new, or each new issue is recorded here as a finding.
+- With `F` the source files the build changed, `[ -z "$F" ] || grep -nE '\b(DI|[SDQCB])(1[0-9]|[1-9])\b|\bPhase[ -][0-9]+\b|\bChild [0-9]+\b' $F` prints no handle of this file.
+- `node scripts/check-prose.mjs` passes on every prose file the build touched.
+
+**Mutation notes:** revert § *Phase 5*'s wake and `deploy-cuts-a-turn` waits out its bound with the post unanswered. Deploy without `immediate` and the scenario is inconclusive, since the turn finishes on the old code.
+
+## Non-goals
+
+- **Waking a turn nobody is watching.** D9 leaves it to the next call, and § *Beyond this task* keeps the alarm as a note.
+- **A build that leaves the Galaxy.** It is awaited where it is made, and § *Beyond this task* says what would change.
+- **Refusing a member's overwrite of a `Message` or a `ServedBuild`.** D14 puts rounds where members cannot write, and the rest stays with the [backlog.md](backlog.md) row *Only a message's author, or nobody, can change it*.
+- **Posts that no turn took up, and a decision an eviction cut off.** They stay with [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check*.
+- **Showing a call in Studio while it is out.** Studio's marks move to rounds in § *Phase 4* and show what they show today.
+- **Sorting, paging or limiting a query, and a query that names its node.** § *Phase 1* adds a backlog row for the first, and the second is [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 21*.
+- **A terminal `status` on the `Message`** other than what `codegen.stop` says. § *③ Capture live* owns that field.

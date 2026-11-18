@@ -20,6 +20,7 @@
 | # | Item | Specified in | Gate |
 |---|---|---|---|
 | — | **Shared pages** — Universe Signup and Galaxy create capture each scope's full name, and each page decides whether an app forwards to ours or runs its own | § *Shared pages*. The names are stored by [nebula-upgrade-universe-with-a-data-plane.md](nebula-upgrade-universe-with-a-data-plane.md), which has its design intent and no phases yet | data |
+| — | **A turn is stored round by round** — each round of an agent turn is a `Round` Resource, so a turn continues from storage and its calls are on record as it runs | [nebula-turn-stored-round-by-round.md](nebula-turn-stored-round-by-round.md), which has its design intent and no phases yet | data |
 
 **Before the first invite, in this order:**
 
