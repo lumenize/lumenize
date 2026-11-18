@@ -387,6 +387,17 @@ Each phase leaves every suite green. A criterion that names a test means a test 
 
 **Sweep cadence (Larry, 2026-11-18):** a full sweep is about 52 minutes of scenario time. Phases 4 and 6 sweep only the scenarios that run a chat turn, read its record or render Studio's chat, plus the phase's own new scenario. Phase 5 adds a hook every node's entry runs, so it sweeps in full, and so does Phase 7, its closing gate.
 
+### Open decisions, in the order to take them
+
+Gathered from the phases' notes, merged, and ordered by what depends on what, then by risk. Each goes to Larry on its own at the hand-off.
+
+- **What wakes a cut-off turn.** DI8's example is wrong in a way that matters. A Star reading its ontology from the Galaxy rides the asking Client's chain, so to the Galaxy it is a Client arriving, and it wakes a cut-off turn. A tenant using a Star can therefore continue a Studio turn with no Studio open, which is the outcome D9 rejected the alarm for. The code follows § *Phase 5*'s rule, a call whose chain starts at a Client. Keep it, or count only a Client this Galaxy hosts.
+- **A member taken off the chat keeps the `read` at `turns` their invite brought.** They can still read every turn's rounds, file contents included. `OrgTree.revokePermission` deletes the grant at the node it names and nothing else, and nothing says what a revoke at `chat` does to the grant the invite paired with it.
+- **A tab's answer for a turn whose post moved on records the moved-post error, with no claims, though the code ran.** The turn then ends `post-moved`, as it does at any other call. `security.md`'s *The record* bullet says the rounds record each call with the claims it ran under, and this is the one call they do not.
+- **The flag for a tab's answer that lands while its run is still ending.** Such an answer would be written with no run left to continue the turn, so the Galaxy keeps a flag, and the run continues the turn when it ends. No test arranges it, and its mutation survived: after a send the run ends without awaiting any I/O, while an answer crosses a socket, so today the answer always lands after the run. I kept it, since an answer lost that way stalls its turn until the next isolate. Keep it, or delete it until something makes the window real.
+- **Mesh's docs.** `ScopedMeshDO.onFirstClient()` is in none of them. `website/docs/mesh/lumenize-do.mdx` has the lifecycle table it belongs in, but that page still names the class `LumenizeDO`, from before `ScopedMeshDO`, so a row there would sit beside a stale name. The `resources.query` block in `website/docs/nebula/api-reference.md` is `@skip-check` like the rest of that page, which `documentation.md` says to ask about first.
+- **The fixed lines are mine to word and yours to change.** A turn cut off twice at one model call ends in *"I was interrupted twice at the same step, so I stopped. What I saved is kept: ask again and I will carry on from it."* A run past the deadline ends in *"This ran past the time I am allowed, so I stopped."*, and a run that throws in *"Something went wrong on my side, so I stopped."*, each followed by the same second sentence. They follow whatever the model last wrote, as `ROUND_CONFLICT_LINE` did in § *Phase 4*, and stand alone when it wrote nothing. That changed the conflict line too, which no longer follows *"I couldn't finish cleanly — see the thought process."*
+
 ### Phase 1
 
 **For the human:** nothing open.
@@ -517,10 +528,8 @@ Each phase leaves every suite green. A criterion that names a test means a test 
 
 ### Phase 5
 
-**For the human:**
+**For the human:** the fixed lines and Mesh's docs moved to § *Open decisions, in the order to take them*.
 
-- The fixed lines are mine to word and yours to change. A turn cut off twice at one model call ends in *"I was interrupted twice at the same step, so I stopped. What I saved is kept: ask again and I will carry on from it."* A run past the deadline ends in *"This ran past the time I am allowed, so I stopped."*, and a run that throws in *"Something went wrong on my side, so I stopped."*, each followed by the same second sentence. They follow whatever the model last wrote, as `ROUND_CONFLICT_LINE` did in § *Phase 4*, and stand alone when it wrote nothing. That last part changed the conflict line too, which no longer follows *"I couldn't finish cleanly — see the thought process."*
-- Mesh gained a hook, `ScopedMeshDO.onFirstClient()`, and its docs do not mention it. `website/docs/mesh/lumenize-do.mdx` has the lifecycle table it belongs in, but that page still names the class `LumenizeDO`, from before `ScopedMeshDO`, so a row there would sit beside a stale name. I left both for you to decide.
 - The criterion on a blob read that throws "with no reset" cannot hold as written. A run reads back only blobs it did not write, and in this phase only a wake is such a run, so the test resets the Galaxy and the woken run's read throws. The round-write case runs with no reset.
 
 **Retro notes:**
@@ -559,11 +568,9 @@ Each phase leaves every suite green. A criterion that names a test means a test 
 
 ### Phase 6
 
-**For the human:**
+**For the human:** the flag for an answer that lands while its run is ending, and a moved post's tab answer, moved to § *Open decisions, in the order to take them*.
 
-- An answer that lands while the run that sent its call is still ending would be written with no run left to continue the turn. The Galaxy keeps a flag for that case, and the run continues the turn when it ends. No test arranges it, and its mutation survived: after a send the run ends without awaiting any I/O, while an answer crosses a socket, so today the answer always lands after the run. I kept it, since an answer lost that way stalls its turn until the next isolate. Say if you would rather delete it until something makes the window real.
 - The phase says the loop's dep "reports `run_in_tab` as a tool that leaves the Galaxy". That is now the dep's own shape: `run_in_tab(tab, code, at)` takes where its answer goes and returns once the call is sent. The `leaves` and `send` pair § *Phase 3* added for it is gone, since a dep that answered in place could no longer be built without the in-memory wait. A later tool that leaves takes the same shape.
-- A tab's answer for a turn whose post moved on records the moved-post error and not the code's result, though the code ran. The turn then ends `post-moved`, as it does at any other call.
 
 **Retro notes:**
 
@@ -597,10 +604,7 @@ Each phase leaves every suite green. A criterion that names a test means a test 
 **For the human:**
 
 - Three edits this phase owes sit in files another session has uncommitted edits in, so I made none of them: deleting the [backlog.md](backlog.md) row this task supersedes, moving this task's row in [nebula-pre-alpha.md](nebula-pre-alpha.md) to § *Shipped*, and rewriting [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check* to what is left. The proposed text is in the hand-off note. That session already brought pre-alpha's section on reading turns back, and Item 17, up to rounds.
-- DI8's example is wrong in a way that matters. A Star reading its ontology from the Galaxy rides the asking Client's chain, so to the Galaxy it is a Client arriving, and it wakes a cut-off turn. A tenant using a Star can therefore continue a Studio turn with no Studio open, which is the outcome D9 rejected the alarm for. The code follows the phase's rule, a call whose chain starts at a Client. Keep it, or count only a Client this Galaxy hosts.
-- A member taken off the chat keeps the `read` at `turns` their invite brought, so they can still read every turn's rounds, file contents included. Nothing says what a revoke at `chat` does to the grant paired with it.
-- `.claude/rules/security.md`'s *The record* bullet now says the rounds record each call with the claims it ran under. A tab's answer for a post that moved on is the exception: it records the moved-post error with no claims, though the code ran.
-- `ScopedMeshDO.onFirstClient()` is not in Mesh's docs, and the `resources.query` block in `website/docs/nebula/api-reference.md` is `@skip-check` like the rest of that page, which `documentation.md` says to ask about first.
+- What wakes a cut-off turn, a revoke at `chat`, the record a moved post's tab answer leaves, and the docs moved to § *Open decisions, in the order to take them*.
 - The define-the-cast skill now reads another persona's records with `client.resources.query`, the one-time read § *Phase 1* added, where it subscribed and disposed. The model reads that skill on every turn.
 
 **After the panel:** the verifiers found these, and each is fixed, with a test that reddens under its mutation unless it says otherwise.
@@ -616,6 +620,14 @@ Each phase leaves every suite green. A criterion that names a test means a test 
 - The rest were comments, JSDoc above the wrong method, a shadowing parameter (now `holdsDominion`), a `[C7]` handle in a test's log label, and prose describing a turn's message as its calls' record.
 
 **Closing suites and sweep, on the tree after the panel's fixes:** Resources passed 11 files and 263 tests. Mesh passed 85 files and 1103 tests with 4 skipped, which is § *Phase 5*'s 1102 and the host test the panel's fixes added. `apps/nebula` passed 143 files and 1324 tests with 2 skipped, which is § *Phase 6*'s 1320 and those fixes' four. The full sweep passed 79 of 79 in 65.5 minutes, with no rerun and no flake, and parked `redeploy-strands-no-client` and `deploy-cuts-a-turn`, which run only deployed.
+
+**The deployed pass**, on `test-nebula` deployed from 8b01493, whose self-check matched `HEAD`. The scenarios this build wrote or touched ran against it, two at a time:
+
+- **`agent-invites`, `cast-from-a-tab`, `first-app-built`, `post-edited-mid-turn`, `shared-lists-turn`, `studio-codegen-rest`, `studio-guidance-loop` and `waiting-posts-answered` passed.**
+- **`rounds-as-they-land` failed limb 4, and the fault was the scenario's.** Its wait returned at the first round-write line in, round 2's, before round 1's lines had arrived, since a deployed capture comes one invocation at a time. The wait now holds out for every multi-call round's lines, as its assertion reads them. Under § *Phase 4*'s mutation that holds a round's results back, limb 4 reddened locally with resolved counts `[0,2]`, and deployed it passed every limb.
+- **`studio-guidance-loop` recorded (a) and (b1) as fails**: no `App.vue` was written and nothing was asked, the shape `nebula-pre-alpha-fast-follow.md` § *Item 20: Data-bound generation* records as variance three times. The same tree's local closing sweep passed both. That file is another session's, so the dated line is in the hand-off note.
+- **`deploy-cuts-a-turn` passed, so C9 holds**, measured on an active Galaxy. Once the turn stored its first round, the scenario deployed again with `immediate`, and that deploy's self-check matched `HEAD` too. Both Studios went `connected`, `reconnecting`, `connected` twice, the Galaxy started again between the first round and the `Message`, and the turn ended in its `Message` with no call from the scenario. The eviction cut round 6's model call and left a call of round 5 answered as interrupted. The scenario counted three wakes beside two starts, counting lines as they arrived, and now counts them by when each was logged, as `live-scenarios.md` requires.
+- **Workers Issues since the pass began show nothing new.** `scope-deleted` is standing. `teardown failed` with *"Durable Object reset because its code was updated"* has recurred 22 times since 2026-10-14; this time it was the scenario's cleanup, run just after its own `immediate` deploy.
 
 ## Non-goals
 

@@ -32,7 +32,8 @@ import { DEFAULT_CHAT_ID, roundsOf, turnCalls } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
 import { chatCast } from '../lib/chat-cast';
-import { waitForDebugLines, LOG_WAIT_MS } from '../lib/stdio';
+import { debugLines, waitForDebugLines, LOG_WAIT_MS } from '../lib/stdio';
+import type { DebugLine } from '../lib/stdio';
 import { testSlug } from '../lib/test-scopes';
 import {
   rebuildTurn, assembleCodegenPrompt, parseModelTurn, TOOL_CONTRACT, CODEGEN_TOOLS, DEFAULT_LOOP_CONFIG,
@@ -111,12 +112,18 @@ export async function run(stack: DevStack): Promise<void> {
     if (multi.length === 0) {
       console.error('  · limb 4 not exercised: no round had two or more calls');
     } else {
-      const written = (await waitForDebugLines(stack, (all) => all.some((l) =>
-        l.namespace === 'nebula.Galaxy.rounds' && l.data.message === messageId), 'the store\'s round writes', LOG_WAIT_MS))
-        .filter((l) => l.namespace === 'nebula.Galaxy.rounds' && l.data.message === messageId);
+      // Each round's resolved counts, from the store's write lines. The wait holds out for every
+      // multi-call round's lines, not the first line in: deployed, a capture arrives one invocation
+      // at a time and out of order, and on 2026-11-18 round 2's line came in before round 1's.
+      const resolvedOf = (lines: DebugLine[], index: number): number[] => lines
+        .filter((l) => l.namespace === 'nebula.Galaxy.rounds' && l.data.message === messageId && l.data.index === index)
+        .map((l) => l.data.resolved as number);
+      const landedOneByOne = (resolved: number[]): boolean => resolved.includes(1) && Math.max(...resolved) > 1;
+      const written = await waitForDebugLines(stack, (all) => multi.every((r) => landedOneByOne(resolvedOf(all, r.index))),
+        'every multi-call round\'s writes as its calls landed', LOG_WAIT_MS).catch(() => debugLines(stack.logs()));
       for (const r of multi) {
-        const resolved = written.filter((l) => l.data.index === r.index).map((l) => l.data.resolved as number);
-        assert.ok(resolved.includes(1) && Math.max(...resolved) > 1,
+        const resolved = resolvedOf(written, r.index);
+        assert.ok(landedOneByOne(resolved),
           `round ${r.index}, with ${r.calls.length} calls, must be written once its first call ran and again after; resolved counts ${JSON.stringify(resolved)}`);
       }
       console.error(`  ✓ limb 4 — each of ${multi.length} multi-call round(s) was written as its calls landed`);

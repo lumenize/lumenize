@@ -152,7 +152,9 @@ export async function run(stack: DevStack): Promise<void> {
     const restarts = restartsOf(lines);
     const wakes = lines.filter((l) => l.namespace === 'nebula.Galaxy.wake' && l.message === 'woke' && l.data.instanceName === scope && between(l));
     assert.ok(restarts.length > 0, 'INCONCLUSIVE: no Galaxy start was logged between the first round and the Message, so the deploy did not cut the turn');
-    console.log(`  ✓ limb 2 — ${restarts.length} Galaxy start(s) and ${wakes.length} wake(s) between the first round and the Message`);
+    // Counted by when each was logged: deployed, the tail and Workers Logs can both deliver one line.
+    const distinct = (ls: DebugLine[]): number => new Set(ls.map((l) => l.at)).size;
+    console.log(`  ✓ limb 2 — ${distinct(restarts)} Galaxy start(s) and ${distinct(wakes)} wake(s) between the first round and the Message`);
 
     // What the eviction cost, reported and never gated.
     const cut = lines.filter((l) => l.namespace === 'nebula.Galaxy.rounds' && l.message === 'cut model call recorded' && l.data.message === message);
