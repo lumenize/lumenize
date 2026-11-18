@@ -89,9 +89,12 @@ Measured 2026-08-03 on real Cloudflare hardware (`experiments/computer-vfs-build
 - **Startup is a net win:** shell → computer is **−12.4 ms / −207 KiB** (22.5 ms → 10.1 ms active CPU).
 
 ⚠️ **Costs that are real:**
-- **`node_modules` MUST stay on ext4** — deps in the VFS work and survive container death, but cost
-  ~2× the build; bulk-copying them out is worse. Registry egress from a tenant container works, so
-  user extras go through `npm install` at build time.
+- **`node_modules` MUST stay on the container's own disk, never on a mount** — deps in the VFS work
+  and survive container death, but cost ~2× the build; bulk-copying them out is worse. An R2 FUSE
+  mount is far worse: a build on s3fs was killed at 15 minutes, against ~5 s on local disk
+  (`experiments/container-deps-r2/RESULTS.md`). Registry egress from a tenant container works; how a
+  Galaxy's extras reach the disk is `tasks/nebula-pre-alpha-fast-follow.md` § *Item 11: An R2
+  archive replaces the deps baked into the build-box image*.
 - **Cold start + FUSE mount is ~3.2 s**, up ~1.5–2 s over the old 0.3–1.6 s.
 - **The container holds a Cap'n Web session to `computerd`, so its lifetime MUST sit strictly inside
   one in-flight request.** `ctx.container.destroy()` while that session is open fails the request with
@@ -212,7 +215,8 @@ stuck verdict; the build drive logs any match and expects zero ([[cf-container-s
 - **Each object starts the image of the Worker version running it**, so a deploy never leaves new code driving an old image — what the default policy's `rollout_step_percentage: [100]` pin approximated.
 - **An application cannot change policy in place.** A `durable_object` application's id is its Durable Object namespace's id, so switching meant deleting the old application with `wrangler containers delete` and deploying, which created the new one (`test-nebula`, 2026-10-08). Its name is the config's top-level `name` plus the class, lowercased, and `wrangler deploy --name` does not reach it, so two Workers deployed from one config claim one name unless the config sets `containers[].name` — `apps/nebula/scripts/test-deploy-config.mjs` does.
 - **`/` is owned by uid 2346, not root, and only deployed.** `@swc/core` 1.16.12+ then refuses to load its native binding (`ERR_SWC_NATIVE_CACHE`), so a build green under `wrangler dev` fails deployed. `apps/nebula/container/compiler/job.ts` hands `/` back to root before `vite build`, marked TEMP.
-- **Container snapshots exist only under this policy, and a snapshot carries its image**: after a deploy it restores the old image without complaint. `experiments/container-snapshot-deps/RESULTS.md` has the measurements, and `tasks/nebula-pre-alpha-fast-follow.md` § *Item 11: Snapshots replace the deps baked into the build-box image* the plan.
+- **Container snapshots exist only under this policy, and a snapshot carries its image**: after a deploy it restores the old image without complaint. `experiments/container-snapshot-deps/RESULTS.md` has the measurements. That tie is why a Galaxy's dependencies come from an R2 archive instead (`tasks/nebula-pre-alpha-fast-follow.md` § *Item 11: An R2 archive replaces the deps baked into the build-box image*).
+- **With `enableInternet: false`, a DNS lookup hangs about 56 s before it fails**, measured deployed. A step that resolves a hostname stalls with nothing in its output to say why: npm's update notifier did, through `npx`, on an image with no `~/.npm/_update-notifier-last-checked` (`experiments/container-deps-r2/RESULTS.md`). The build job spawns `vite` directly, so it does not hit that one.
 - **Local `wrangler dev` runs all of it, but delivers `start()`'s `entrypoint` as the container's CMD.** An image ENTRYPOINT that does not exec its arguments therefore swallows the override; computerd's is never overridden, so the build box is unaffected.
 
 ## The `Container` base is optional — drive raw `ctx.container`, steal the base's homework

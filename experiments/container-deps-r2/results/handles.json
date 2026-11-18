@@ -1,0 +1,22 @@
+{
+  "at": "2026-11-18T19:20:26.623Z",
+  "keys": {
+    "full": "deps/full-7e6b41464b05baf0.tar.zst",
+    "extras": "deps/extras-7e6b41464b05baf0.tar.zst"
+  },
+  "full": {
+    "id": "ac087093-ab7f-4d97-8ff8-1f8cfaebb358",
+    "size": 176690592,
+    "name": "deps-full"
+  },
+  "base": {
+    "id": "edd20a80-759b-4b63-ab93-1ad5e2489545",
+    "size": 142457620,
+    "name": "deps-base"
+  },
+  "delta": {
+    "id": "4c914f91-6fb7-4f28-a74b-0ff633aa7100",
+    "size": 34387436,
+    "name": "deps-delta"
+  }
+}

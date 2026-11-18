@@ -14,7 +14,7 @@
 
 | When | Items |
 |---|---|
-| Now: the trigger has fired | 11 Snapshots replace the deps baked into the image |
+| Now: the trigger has fired | 11 An R2 archive replaces the deps baked into the image |
 | Before wrangler's support ends | 12 `cf` replaces `wrangler` |
 | At the first invite | 17 Turn-log inspection · 19 The feedback loop · 20 Data-bound generation |
 | When a user wants to show their app to someone | 4 The prod ontology install path · 5 The published tier |
@@ -218,20 +218,41 @@ If the model still cannot close a loop it should, real turns will by then say wh
 
 Every dependency here needs Larry's approval. Selector generation in the style of `@medv/finder` is well under 1,000 lines, so it is copied with attribution rather than installed. All of it would ship in the preview's bundle rather than the Worker's, and whether it ships only on `.dev` is part of the re-derivation.
 
-## Item 11: Snapshots replace the deps baked into the build-box image
+## Item 11: An R2 archive replaces the deps baked into the build-box image
 
-**Goal:** the image stops carrying dependencies. One shared snapshot holds the scaffold's installed tree, a snapshot per Galaxy holds a user-developer's extras, and the image changes only when the toolchain does.
+**Goal:** the image stops carrying dependencies. It holds the toolchain only, Debian, Node, computerd and the compiler under `/build`, and changes only when the toolchain does. A Galaxy's whole `node_modules` is one `tar.zst` in R2, named by the hash of its lockfile, and the build box unpacks it to `/node_modules` before vite runs.
 
-**Trigger: fired on 2026-10-02, and nothing blocks it.** The build box already runs under the `durable_object` scheduling policy, the only one with snapshots, and since 0.4.0 `@cloudflare/computer` passes an image name or a `containerSnapshot` through `start()`. It does not wrap `snapshotContainer()`; the Galaxy calls that on its own `ctx.container`. The next step is the task file, drafted with `/write-task` from the outline at the end of [experiments/container-snapshot-deps/RESULTS.md](../experiments/container-snapshot-deps/RESULTS.md), which is the authority until then.
+**Trigger: fired, and nothing blocks it.** The experiment behind this design ran on `apps/nebula`'s own wrangler and compatibility date. The next step is the task file, drafted with `/write-task`. [experiments/container-deps-r2/RESULTS.md](../experiments/container-deps-r2/RESULTS.md) holds every number below and is the authority until then. The outline at the end of [experiments/container-snapshot-deps/RESULTS.md](../experiments/container-snapshot-deps/RESULTS.md) still holds for what gets deleted, with the archive in place of the snapshot.
+
+**How it works:**
+
+- **The archive is named by what it holds:** `deps/<platform>-<lockfile hash>.tar.zst`, where the platform is the Node major and the architecture. Every Galaxy that has added no package shares the scaffold's archive, and Galaxies that added the same packages at the same versions share one too. An image change that keeps the platform invalidates nothing.
+- **The container reaches R2 through the Worker, never the internet.** `interceptOutboundHttp` sends requests for a made-up host to a WorkerEntrypoint holding the R2 binding, registered before every start. The build keeps `enableInternet: false`, and no credential enters the container.
+- **The download starts with the box.** The turn's first `write_file` already starts the container, and the fetch starts with it, so generation covers it. Measured turns ran 7.5–38 s from the first write to the build, and the whole tree fetched and unpacked in about 5 s. A `buildNow` with no turn in front of it waits those 5 s.
+- **A lockfile with no archive yet is installed once.** A container that can reach the registry runs `npm ci`, and the build goes on with that tree. Packing and uploading follow once `dist` has gone back, so nobody waits on them. That install is the only step that reaches the registry.
 
 **What it buys:**
 
 - **No curated dependency list baked into `apps/nebula/container/Dockerfile`.**
 - **A generated app can import a package the scaffold does not carry.** Today it can import only `vue`, `lucide-vue-next` and `@lumenize/resources/frontend`, because the build job installs nothing, and `apps/nebula/platform/AGENTS.md` § *Rules for the code you write* tells the model so. That line goes when this lands (Larry, 2026-11-17: keep the ban until then).
 - **Extras install once per lockfile change, not once per build.** On vite 8 the install is the largest term in a build with extras (`experiments/computer-vfs-build/RESULTS.md` § *ROUND 5*).
-- **The `@lumenize` frontend packages arrive through npm instead of a `COPY` into the image.** That needs no release to npmjs.org: npm installs from a tarball URL, which our own Worker can serve.
+- **The `@lumenize` frontend packages arrive through npm instead of a `COPY` into the image.** That needs no release to npmjs.org: npm installs from a tarball URL our own Worker serves, and the package then sits in the lockfile like any other, so it is part of the archive's name.
+- **A deploy that changes the image leaves every Galaxy's dependencies valid.** A snapshot would have restored the old image until each Galaxy made a new one.
 
-**What the design has to handle:** a snapshot restores its own image, so after a deploy it brings back the old one without complaint. The experiment's `RESULTS.md` § *Findings* has it.
+**What the design has to handle:**
+
+- **Offline, a DNS lookup hangs 56 s before it fails.** Any step in the build that resolves a hostname waits a minute, with nothing in its output to say why. npm's update notifier did, through `npx`; Nebula's job spawns `vite` directly. A package a user-developer adds that looks up a host would do the same.
+- **An install inside a deployed container runs after `/` is handed back to root.** Otherwise swc's postinstall cannot load its native binding and installs `@swc/wasm` as a fallback.
+- **The intercept is registered on `ctx.container` before `@cloudflare/computer`'s backend starts it.** The experiment drove `ctx.container` directly, so how the two meet is unverified.
+- **Each new lockfile's upload is container egress**, about 65 MB, inside the 1 TB a month the plan includes. Downloads cost no egress, and intercepted calls are not Worker requests.
+- **Nothing deletes an archive no Galaxy uses any more**, so the bucket needs an R2 lifecycle rule.
+- **The scaffold has no committed lockfile** (`tasks/backlog.md`, the row on the container app's missing lockfile), and the archive is named by one.
+
+**Rejected:**
+
+- **Container snapshots, one shared and one per Galaxy**, this item's plan until Larry moved it to the archive on 2026-11-18. A Galaxy's own snapshot restored in 0.5 s and built in 6.5 s, against 10.9 s for the archive. But a snapshot carries its image, so after every deploy that changes the image it restores the old one until each Galaxy makes a new snapshot. It also needs a handle and an image digest per Galaxy, expires 30 days after its last restore, and has no announced price past the beta.
+- **An R2 FUSE mount of `node_modules`.** A build on an s3fs mount was killed at 15 minutes, against about 5 s on local disk, because a build makes thousands of filesystem lookups and each one became a round trip to R2.
+- **Only the extras from R2, over a baked scaffold.** It unpacks in about 2 s and uploads a third as much. But npm places an extra's own dependencies by the tree it was installed into, so its archive is valid only over that exact scaffold, and the curated set stays in the Dockerfile. It is the optimization to add if the whole-tree download ever shows in a measured turn or in `buildNow`.
 
 ## Item 12: `cf` and `cloudflare.config.ts` replace `wrangler` and `wrangler.jsonc`
 
