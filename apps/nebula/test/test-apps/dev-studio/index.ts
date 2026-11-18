@@ -14,9 +14,6 @@ import { mesh } from '@lumenize/mesh';
 import { Galaxy } from '../../../src/galaxy';
 import { TURN_ROW_KEY } from '../../../src/galaxy';
 import type { TookUp } from '../../../src/galaxy';
-
-/** Where the probe keeps its model script, which a reset leaves. */
-const KV_SCRIPT = 'test:chatScript';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '../../../src/chat-constants';
 import type { Snapshot, TransactionResult } from '@lumenize/resources';
 import { Star } from '../../../src/star';
@@ -31,6 +28,9 @@ import type { BuildFaults } from '../fake-build';
 import type { ChatMessage, ModelParams, CodegenLoopConfig, LoopResult } from '../../../src/codegen-loop';
 import { getParserValidatorFacet } from '@lumenize/ts-runtime-parser-validator/runtime';
 import type { ParseResult } from '@lumenize/ts-runtime-parser-validator/runtime';
+
+/** Where the probe keeps its model script, which a reset leaves. */
+const KV_SCRIPT = 'test:chatScript';
 
 /**
  * The GALAXY class under test — a Galaxy whose `callModel` replays a **synthetic

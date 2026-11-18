@@ -135,10 +135,9 @@ The agent `Message` carries one optional value object, absent on human messages.
                                      //   CLEAN, and each finding line carries file+line
                                      //   itself ("src/App.vue(42,7): error TS2339: …").
                                      //   ← was TurnRecord.validate + .error
-    toolCalls: [                     // ← unchanged in shape; every dispatched call
-      { name: 'write_file', args: { path: 'src/App.vue', content: '…' } },
-      { name: 'mark_complete', args: {} },
-    ],
+    // No `toolCalls`: since 2026-11-18 every dispatched call, with what it came to and the
+    // claims it ran under, is on the turn's `Round` Resources, read as `Round where message == id`
+    // (nebula-turn-stored-round-by-round.md). A replay reads the rounds beside the Message.
   },
 }
 ```

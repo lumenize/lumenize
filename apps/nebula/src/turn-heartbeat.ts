@@ -7,10 +7,11 @@
  * round — is whole-response (nothing arrives until it returns), and a container build emits nothing
  * until it exits. A slow-but-alive stretch therefore crossed the window and painted `failed` over a
  * turn that then completed — the flash seen on the first hand drive of a 90 s build. So the
- * heartbeat wraps the WHOLE turn (`Galaxy.#chatTurn`), not chosen awaits: a first cut wrapped only
- * the loop's two, and the live watch caught the banner painting before codegen had even begun. A
- * keepalive while the turn runs is TRUTHFUL — the DO genuinely is mid-turn — and it keeps the window
- * short rather than lengthening it to cover the slow case.
+ * heartbeat wraps the WHOLE run of a turn (`Galaxy.#asRun`), not chosen awaits: a first cut wrapped
+ * only the loop's two, and the live watch caught the banner painting before codegen had even begun.
+ * A keepalive while a run goes on is TRUTHFUL — the DO genuinely is mid-turn — and it keeps the
+ * window short rather than lengthening it to cover the slow case. Nothing beats while a turn waits
+ * for a tab, which the Gateway bounds at 30 s.
  *
  * ⚠️ **BOUNDED, deliberately.** The model fetch has no timeout of its own; a hung call runs until
  * the generation deadline releases the latch. Beating past that deadline would mask the very hang

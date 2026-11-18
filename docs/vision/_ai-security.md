@@ -365,7 +365,7 @@ at knowing within seconds when something has gone sideways and exactly who did i
 | A record names the agent that acted for a human | server-composed actor, [ADR-016](../adr/016-record-the-acting-principal.md) | **Designed, not built** |
 | Destructive and authority-changing acts record the caller's full claims | one shared projection, ADR-016 | **Partially built**; durable sink absent |
 | A shared answer is the permission-holder's disclosure decision | the consent loop (§ *A worked scenario*); ADR-019 withdrawn 2026-08-26 | **Model settled; brokered ask planned** (`tasks/archive/nebula-agent-posts-as-itself.md`) |
-| The inference layer is recorded, not just the message | the agent `Message`'s `codegen` value object | **Designed, not built** |
+| The inference layer is recorded, not just the message | the agent `Message`'s `codegen` value object, and its turn's `Round`s | **Built**, but for the scaffold's id |
 | Every outbound call is recorded and cannot be bypassed | the egress broker as `globalOutbound` | **Designed**; the record itself unspecified |
 | The system changes itself from outcome signal | [`self-improving-platform.md`](self-improving-platform.md) | **Direction committed, timing gated** |
 | A user-developer's agent has no workstation to compromise | Studio's agent runs in an ephemeral container, not on a laptop (§ *Level 2*) | **Built** |
@@ -482,10 +482,11 @@ decision — nothing is left to capture.
 
 **What the model actually did.** The three above concern the application layer. The inference layer is a
 fourth part, and Studio's chat is where it gets recorded: the agent `Message` carries a `codegen` value object
-holding the model id, the tool calls actually dispatched, the self-correction round count, the stop reason,
-the gate result, the source commit the turn read, and — separately from `content` — the reasoning that never
-surfaced in the message. That is the "nine agents, four tools, three providers" problem answered inside one
-turn. It is designed, pinned, and unbuilt.
+holding the model id, the self-correction round count, the stop reason, the last build's result and the source
+commit the turn read, and each round of the turn is a `Round` Resource holding the model's reply, the reasoning
+that never surfaced in the message, and each tool call actually dispatched with what it came to and the claims it
+ran under. That is the "nine agents, four tools, three providers" problem answered inside one turn. It is built,
+all but the scaffold's id.
 
 ### One primitive, two payoffs
 
@@ -517,12 +518,13 @@ What the platform owes a domain expert who is not an agentic-development expert:
 - **A working starting point for standing guidance,** derived from ours, rather than a blank `AGENTS.md`.
 - **A system prompt that pushes toward the loop,** so improving the guidance is the default motion at the end
   of a piece of work rather than a practice they would have to invent.
-- **Guidance as files in the app's own git repo,** beside the source it describes, with the agent Message as
-  the record: a guidance edit is a commit whose git author is the person whose authority it used, and the
-  turn that made it stores, on each tool call, the claims it ran under, beside the chat that shows who asked
-  and which paths it wrote — so "who loosened this rule and when" is in `git log`, and in full a join through the Message, and reverting
-  is a git revert. Guidance as Resources was the earlier draft, rejected 2026-09-02: it would split the
-  guidance from the tree it describes and buy nothing git and the Message do not already record.
+- **Guidance as files in the app's own git repo,** beside the source it describes, with the agent Message and
+  its turn's `Round`s as the record: a guidance edit is a commit whose git author is the person whose authority
+  it used, and the turn that made it stores, on each tool call of its rounds, the claims it ran under, beside
+  the chat that shows who asked and which paths it wrote — so "who loosened this rule and when" is in
+  `git log`, and in full a join through the Message's rounds, and reverting is a git revert. Guidance as
+  Resources was the earlier draft, rejected 2026-09-02: it would split the guidance from the tree it describes
+  and buy nothing git and the turn's record do not already record.
 - **Chat history as Resources,** so the record of how an app came to be is durable, attributable, subscribable,
   and governed by the same grants as everything else in the Galaxy.
 - **Chat participation is a uniform floor; permissions above it vary.** Anyone whose message lands in the

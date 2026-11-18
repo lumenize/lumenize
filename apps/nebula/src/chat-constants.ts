@@ -29,10 +29,12 @@ export const DEFAULT_CHAT_ID = '00000000-0000-4000-8000-000000000001';
 export const CHAT_NODE_ID = '00000000-0000-4000-8000-000000000002';
 
 /**
- * The DAG node every `Round` of a turn lives under, a sibling of {@link CHAT_NODE_ID} beneath the
- * root, at a fixed id as that one is. The seed grants `write` here to the agent alone, and an
- * invite at the chat node brings only `read` here with it ({@link GALAXY_TREE_SEED}), so a round is
- * written by the agent, by an app admin through dominion, or by someone an admin granted more.
+ * The DAG node a turn's rounds live under, a sibling of {@link CHAT_NODE_ID} beneath the root, at a
+ * fixed id as that one is. The seed grants `write` here to the agent alone, and an invite at the
+ * chat node brings only `read` here with it ({@link GALAXY_TREE_SEED}), so a round here is written
+ * by the agent, by an app admin through dominion, or by someone an admin granted more. Nothing ties
+ * the `Round` type to this node, so a member can write a `Round` at `chat`; a turn reads only the
+ * rounds here, which is what keeps such a `Round` out of it.
  */
 export const TURNS_NODE_ID = '00000000-0000-4000-8000-000000000003';
 
@@ -110,8 +112,8 @@ export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v6';
  * subscribes to `ServedBuild where chat == DEFAULT_CHAT_ID`, so every Studio on the app
  * hears every landing. `star` names the Star slug whose host serves it.
  *
- * `Round` is one round of a turn, a Resource of its own at {@link TURNS_NODE_ID}, written by the
- * agent as itself: the model's text and reasoning, each tool call as the provider returned it
+ * `Round` is one round of a turn, a Resource of its own at {@link TURNS_NODE_ID}, where the turn
+ * reads it, written by the agent as itself: the model's text and reasoning, each tool call as the provider returned it
  * (`raw`, kept whole, so the arguments are stored once and parsed when read), and each call's
  * result or error with the post it acted for and the claims it ran under, all four absent until
  * the call has run. `message` names the agent `Message` the turn will commit, which need not exist

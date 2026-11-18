@@ -184,7 +184,8 @@ describe('loop driver: stop conditions', () => {
     const r = await runCodegenLoop(INITIAL, h.deps);
     expect(r.stop).toBe('error');
     expect(r.detail).toContain('429');
-    expect(r.rounds).toBe(1);
+    // `rounds` counts the turn's stored rounds, and the failed call stored none.
+    expect(r.rounds).toBe(0);
     expect(r.toolCalls).toEqual([]);
   });
 

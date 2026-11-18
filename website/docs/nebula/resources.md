@@ -79,7 +79,7 @@ const { snapshots, deniedNodes, more } = await client.resources.query({
 const titles = snapshots.map(({ value }) => value.title);   // in the query's order
 ```
 
-A query read once takes the same descriptor as a subscription, and is refused for the same reasons. Its snapshots do not enter `store.resources`, so nothing in the page updates when one of them changes later.
+A query read once takes the same descriptor as a subscription, and is refused for the same reasons, all but one: the cap on how many live queries a type may hold, since a read holds none. Its snapshots do not enter `store.resources`, so nothing in the page updates when one of them changes later.
 
 ## Optimistic concurrency
 

@@ -21,7 +21,7 @@ The rest of this ADR commits the orgTree as a node's one fine-grained access con
 ### Terminology
 
 - **Membership** — a grant in the Registry: one address in one scope, which every session rests on ([`auth.md`](../vision/auth.md) § *Identity and membership*).
-- **Local principal** — an identity that holds grants in one node's orgTree and no membership. `agent:lumenize` in the Galaxy `acme.crm` is the first: it holds `write` on the Galaxy's `chat` node, and the Registry has no row for it.
+- **Local principal** — an identity that holds grants in one node's orgTree and no membership. `agent:lumenize` in the Galaxy `acme.crm` is the first: it holds `write` on the Galaxy's `chat` and `turns` nodes, and the Registry has no row for it.
 
 **`local principal` names the pattern, not the agent.** The agent is its first case.
 

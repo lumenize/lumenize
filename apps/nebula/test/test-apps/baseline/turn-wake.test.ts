@@ -380,7 +380,9 @@ describe('a run that cannot go on', { timeout: 120_000 }, () => {
 });
 
 describe('two Clients reaching a reset Galaxy at once', { timeout: 120_000 }, () => {
-  // MUTATION: set the wake's flags after an `await` → the post's trigger wakes the turn a second time.
+  // A reconnect and a post at once wake the turn once. Setting the wake's flags after an `await`
+  // passes here, since a Client that reconnects before it posts sets them long before its post
+  // lands; the post-beside-a-row test catches that.
   it('wake it once, record the cut round once, and the turn commits the model\'s own message', async () => {
     const a = await app();
     const member = await a.collaborator();
@@ -408,8 +410,9 @@ describe('two Clients reaching a reset Galaxy at once', { timeout: 120_000 }, ()
 });
 
 describe('a run past its deadline', { timeout: 120_000 }, () => {
-  // MUTATIONS: delete the row by its presence, not by its message → the second turn loses its row;
-  // drop the stopped run's check on the row → the late reply writes its file.
+  // MUTATIONS: drop the stopped run's check on the row → the late reply stores its round and
+  // writes its file; end no turn past its deadline → no line of ours. Deleting the row by its
+  // presence passes here, since the stopped run returns before its commit's delete.
   it('ends its turn in a line of ours, and its run, released later, touches nothing of the next turn', async () => {
     const a = await app();
     const member = await a.collaborator();
@@ -445,6 +448,53 @@ describe('a run past its deadline', { timeout: 120_000 }, () => {
     await a.probe((g) => g.releaseForTest(2));
     expect(((await a.replyTo(second)).value as { content: string }).content).toBe('The second turn, done.');
     expect(await a.row()).toBeUndefined();
+    member[Symbol.dispose]();
+    a.dispose();
+  });
+});
+
+describe('a decision the deadline cuts off', { timeout: 120_000 }, () => {
+  // MUTATION: drop the decision's check that it is still live → its late pick writes a row over
+  // the next turn's, and that turn never commits.
+  it('starts nothing when its model call returns late, so the next turn keeps its row', async () => {
+    const a = await app();
+    const member = await a.collaborator();
+    // A script is seeded so the post starts a turn; the whole script follows once the second
+    // post's id is known, and the held first call has consumed nothing of it.
+    await a.probe((g) => g.seedChatScriptForTest([reply([], 'placeholder')]));
+    await a.probe((g) => g.holdModelCallForTest(1));
+    const first = await a.admin.postUserMessage('The first request.');
+    await held(a.scope, 'model call held', 1);
+    const waiting = await a.admin.postUserMessage('A request that waits for a decision.');
+    await a.probe((g) => g.seedChatScriptForTest([
+      reply([], 'The first, done.'),
+      reply([], 'Seen your second request.'),
+      reply([toolCall('take_up', { postId: waiting }, 't1')], ''),
+      reply([toolCall('mark_complete', {}, 'c1')], 'The next turn, done.'),
+    ]));
+    // The decision after the first turn has a short deadline of its own, and its call is held past it.
+    await a.probe((g) => g.setGenerationDeadlineForTest(3_000));
+    await a.probe((g) => g.holdModelCallForTest(3));
+    await a.probe((g) => g.releaseForTest(1));
+    await a.replyTo(first);
+    await held(a.scope, 'model call held', 3);
+    await vi.waitFor(() => expect(entries.some((e) => e.namespace === 'nebula.Galaxy.trigger'
+      && e.message === 'turn failed: generation exceeded the deadline')).toBe(true), { timeout: 15_000 });
+
+    await a.probe((g) => g.setGenerationDeadlineForTest(60_000));
+    await a.probe((g) => g.holdModelCallForTest(4));
+    const next = await member.postUserMessage('A request after the decision was cut off.');
+    await held(a.scope, 'model call held', 4);
+    const row = (await a.row())!;
+    expect(row.post.id).toBe(next);
+
+    await a.probe((g) => g.releaseForTest(3));
+    await vi.waitFor(() => expect(entries.filter((e) => e.namespace === 'nebula.Galaxy.turn' && e.message === 'took up')
+      .some((e) => e.data?.postId === waiting)).toBe(false));
+    expect((await a.row())!.message).toBe(row.message);
+    await a.probe((g) => g.releaseForTest(4));
+    expect(((await a.replyTo(next)).value as { content: string }).content).toBe('The next turn, done.');
+    expect(await a.probe((g) => g.waitingPostsForTest())).toEqual([waiting]);
     member[Symbol.dispose]();
     a.dispose();
   });

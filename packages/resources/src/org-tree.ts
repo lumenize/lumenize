@@ -99,17 +99,8 @@ export class OrgTree {
     `)
   }
 
-  /**
-   * Create the tree's skeleton: the root every tree has, then what this host declares. None of it
-   * passes a permission check: creating the tree is bookkeeping no one person asked for (ADR-025).
-   *
-   * A declared node's edge, and an unprotected grant on it, are written only by the construction
-   * that creates the node. Both can be changed afterwards, since a declared node may be moved and
-   * an unprotected grant revoked, and a seed that re-asserted them on every wake would undo that
-   * change with no check and no broadcast. A protected grant is written whenever it is missing: it
-   * cannot be revoked or lowered, so there is no change of anyone's to undo. Either way a wake
-   * after the first writes nothing.
-   */
+  // Sets the module's `writeInviteAlsoGrants` from inside the class, where it reaches the private
+  // writer, so no member of the class carries the write onto the wire.
   static {
     writeInviteAlsoGrants = (tree, inviteNodeId, sub) => tree.#writeInviteAlso(inviteNodeId, sub)
   }
@@ -133,6 +124,17 @@ export class OrgTree {
     return written
   }
 
+  /**
+   * Create the tree's skeleton: the root every tree has, then what this host declares. None of it
+   * passes a permission check: creating the tree is bookkeeping no one person asked for (ADR-025).
+   *
+   * A declared node's edge, and an unprotected grant on it, are written only by the construction
+   * that creates the node. Both can be changed afterwards, since a declared node may be moved and
+   * an unprotected grant revoked, and a seed that re-asserted them on every wake would undo that
+   * change with no check and no broadcast. A protected grant is written whenever it is missing: it
+   * cannot be revoked or lowered, so there is no change of anyone's to undo. Either way a wake
+   * after the first writes nothing.
+   */
   #ensureSeed() {
     const sql = this.#ctx.storage.sql
     sql.exec(
@@ -545,12 +547,12 @@ export class OrgTree {
    *   2. **No short-circuit** — every `nodeId` is evaluated so the `denied` set is
    *      COMPLETE (it drives request-access; a query caller already named these
    *      nodes — ADR-008). Do NOT early-return on the first denial.
-   *   3. **Explicit `sub` + stored `hasDominionOverHost` VERDICT** — at push time we don't hold the
+   *   3. **Explicit `sub` + a `holdsDominion` VERDICT** — at push time we don't hold the
    *      subscriber's live JWT, so `requirePermission`'s scope-admin bypass (any admin whose
    *      dominion reaches this host, a Star's own admin included, none of whom is granted anything
    *      in the DAG by being an admin)
-   *      is replicated here from the flag stored on the subscriber row at subscribe time.
-   *      `hasDominionOverHost:true` ⇒ ALL allowed. Otherwise `resolvePermission` per node, which
+   *      is replicated here from the flag stored on the subscriber row at subscribe time, or from
+   *      the one computed live by a one-time read. `holdsDominion: true` ⇒ ALL allowed. Otherwise `resolvePermission` per node, which
    *      honors the DAG grants in the tree.
    *
    * ⚠️ **This method takes no scope and no host name, so it is NOT a confinement point** — do not
@@ -564,12 +566,12 @@ export class OrgTree {
    *   - **Wire path** — every host's `resources` door is a bare `@mesh()` handing back
    *     `resources.orgTree`, and mesh's "gate once, then chain" checks for `@mesh()` only on a chain's
    *     ENTRY op, so a caller can
-   *     reach this method directly with an attacker-chosen `hasDominionOverHost`. **That is harmless for a
+   *     reach this method directly with an attacker-chosen `holdsDominion`. **That is harmless for a
    *     separate reason**: this method is read-only, non-throwing, and echoes back only the
    *     caller's OWN `nodeIds` — disclosing nothing the tree itself does not already show anyone
    *     with passage into the host, on a Star or a Galaxy alike (ADR-008's visibility ≠ capability,
    *     carried up the hierarchy for the tree kind in `subscriptions.ts`).
-   *     A forged `hasDominionOverHost:true` therefore grants no capability, it only relabels a set the
+   *     A forged `holdsDominion: true` therefore grants no capability, it only relabels a set the
    *     caller already named. Keep the confined paths' justification and this one distinct; conflating them would assert
    *     an invariant nothing enforces.
    *
@@ -580,12 +582,12 @@ export class OrgTree {
     nodeIds: string[],
     tier: PermissionTier,
     sub: string,
-    hasDominionOverHost: boolean,
+    holdsDominion: boolean,
   ): { allowed: Set<string>; denied: Set<string> } {
     const allowed = new Set<string>()
     const denied = new Set<string>()
     for (const nodeId of nodeIds) {
-      if (hasDominionOverHost || resolvePermission(this.#view, sub, nodeId, tier)) {
+      if (holdsDominion || resolvePermission(this.#view, sub, nodeId, tier)) {
         allowed.add(nodeId)
       } else {
         denied.add(nodeId)

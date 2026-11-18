@@ -131,7 +131,8 @@ async function perRound(script: unknown[], w: World, config: CodegenLoopConfig =
   throw new Error('the turn never ended');
 }
 
-/** One script per way a turn stops. */
+/** One script per way a run of the loop stops on its own. `interrupted` needs a wake, which the
+ *  woken tests below and `turn-wake.test.ts` drive, and `deadline` is our own code's, never the loop's. */
 const SCRIPTS: Array<{ stop: string; script: unknown[]; seed?: Record<string, string>; config?: CodegenLoopConfig; setup?: (w: World) => void; store?: () => RoundStore }> = [
   {
     stop: 'complete',
@@ -341,6 +342,20 @@ describe('an invocation continues the turn the one before it left', () => {
     const toolMessages = seen[0]![0].filter((m) => m.role === 'tool');
     expect(toolMessages.map((m) => m.tool_call_id)).toEqual(['w1', 'w2', 'w3']);
     expect(JSON.parse(toolMessages[1]!.content)).toEqual({ error: INTERRUPTED_CALL_ERROR });
+  });
+
+  // MUTATION: count an interrupted call in the identical-call detector → the model's retry of the
+  // same write ends the turn `loop-detected`, and nothing is written.
+  it('lets the model retry a call a wake answered as interrupted', async () => {
+    const w = world();
+    const write = call('write_file', { path: 'a.vue', content: 'a' }, 'w1');
+    const store = await seeded([{ index: 1, text: 'writing', calls: [{ raw: write }] }]);
+    const seen: Seen = [];
+    const result = await runCodegenLoop(INITIAL, { ...depsOf(w, store, memoryBlobs(), model([
+      resp([call('write_file', { path: 'a.vue', content: 'a' }, 'w2')], 'writing it again'),
+      resp([call('mark_complete', {}, 'c1')], 'done'),
+    ], seen, { i: 0 })), woken: true });
+    expect([result.stop, w.writes]).toEqual(['complete', ['a.vue']]);
   });
 
   // MUTATION: run a woken invocation as an ordinary one → the cut call is made again with no record.

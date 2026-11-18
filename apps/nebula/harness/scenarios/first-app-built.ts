@@ -405,6 +405,8 @@ export async function run(stack: DevStack): Promise<void> {
     // the rounds when the reply appears. Mutation: build the marks from the message's value, which
     // holds no calls, and none render.
     const expectedMarks = await markedCalls(stack, galaxy, { accessToken: provisioned.accessToken, sub: provisioned.sub });
+    // The turn built the app, so its rounds hold calls, each with the claims it ran under.
+    assert.ok(expectedMarks > 0, 'the turn\'s rounds must record at least one call with its claims');
     const marksOnPage = async (): Promise<number> => page.locator('[data-testid="tool-call-mark"]').count();
     for (const until = Date.now() + 15_000; (await marksOnPage()) !== expectedMarks && Date.now() < until;) await new Promise((r) => setTimeout(r, 250));
     assert.equal(await marksOnPage(), expectedMarks, `Studio must mark each of the ${expectedMarks} call(s) the turn's rounds record`);

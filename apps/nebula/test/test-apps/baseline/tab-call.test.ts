@@ -244,6 +244,37 @@ describe('a tab call leaves by its result handler', { timeout: 120_000 }, () => 
     c.dispose();
   });
 
+  // MUTATION: pass over the tab before checking the round's version → the admin's rewritten code
+  // is sent to Austen's second tab, and runs there under his session.
+  it('a round rewritten while its first tab shows no preview ends the turn, and its code reaches no other tab', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    const a2 = await studioTab(c.austenBrowser, scope);
+    using s1 = c.a.resources.subscribeQuery(chatQuery); await s1.ready;
+    using s2 = a2.resources.subscribeQuery(chatQuery); await s2.ready;
+    const [first, second] = [c.a, a2].sort((x, y) => addressOfClient(x) < addressOfClient(y) ? -1 : 1);
+    const noPreview = held<RunAnswer>(() => { throw Object.assign(new Error('no preview here'), { name: 'NoPreviewError' }); });
+    c.answers(first!, 'first', noPreview.answer);
+    c.answers(second!, 'second');
+    await c.seed([call('run_in_tab', { tab: 'me', code: 'return 1' }), call('mark_complete', {}, 'never sent')]);
+    await second!.postUserMessage('Run something for me.');
+    await asked(c);
+    const { message } = (await c.row())!;
+    const [round] = await c.rounds(message);
+    const rewritten = { ...round!.round, calls: round!.round.calls.map((cl) => ({ raw: {
+      ...(cl.raw as object), function: { name: 'run_in_tab', arguments: JSON.stringify({ tab: 'me', code: 'return "rewritten"' }) },
+    } })) };
+    expect((await c.j.resources.transaction({
+      [round!.id]: { op: 'put', typeName: 'Round', ifValidFromMatches: round!.validFrom, value: { chat: DEFAULT_CHAT_ID, message, ...rewritten } },
+    })).kind).toBe('committed');
+    noPreview.release();
+
+    await c.message(ROUND_CONFLICT);
+    expect(c.ran).toEqual([['first', 'me', 'return 1']]);
+    a2[Symbol.dispose]();
+    c.dispose();
+  });
+
   // MUTATION: give the warm latch and the teardown to the turn rather than the run → run 1 keeps
   // the box through the tab call, and its teardown comes after the answer.
   it('run 1 warms and tears down before the tab answers, and run 2 tears down only', async () => {

@@ -2,13 +2,15 @@
  * A turn's rounds are stored as the turn runs, each by the agent, before the turn's message.
  *
  * Jennifer founds the app and posts a request that asks for two reads in one reply. Austen, a
- * collaborator with `read` at the `turns` node from his invite, takes the agent message's id from
- * the first progress chunk and subscribes to that message's rounds, so he sees each round as the
+ * collaborator with `read` at the `turns` node from her invite, takes the agent message's id from
+ * the first progress chunk and subscribes to that message's rounds, so she sees each round as the
  * Galaxy stores it. The model is the real one, so what it calls is its own choice: each limb gates
  * only on what holds whatever it calls, and says when there was nothing to check.
  *
- *  1. **Every round arrives before the message.** Mutation: store the rounds only as the turn
- *     commits, and the message arrives first.
+ *  1. **Every round arrives before the message.** Each push is stamped as it lands, the rounds' and
+ *     the thread's alike, and both ride one socket, so they land in the order the Galaxy sent them.
+ *     No one-line edit makes the Galaxy write its rounds after the message, so this limb has no
+ *     mutation of its own.
  *  2. **Each round is the agent's, and the indexes run from 1 with no gap.**
  *  3. **Each call that ran ends with its post, its claims, and a result or an error.** A call
  *     refused before it ran, for its shape, has only its error. A turn that called no tool is
@@ -63,18 +65,18 @@ export async function run(stack: DevStack): Promise<void> {
 
     messageId = await Promise.race([chunk, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('no progress chunk arrived for the turn')), TURN_TIMEOUT_MS))]);
     rounds = austen.client.resources.subscribeQuery(roundsOf(messageId));
-    rounds.onChange(() => { for (const id of rounds!.resourceIds) if (!seen.has(id)) seen.set(id, Date.now()); });
+    rounds.onChange(() => { for (const id of rounds!.resourceIds) if (!seen.has(id)) seen.set(id, performance.now()); });
     await rounds.ready;
-    for (const id of rounds.resourceIds) if (!seen.has(id)) seen.set(id, Date.now());
+    for (const id of rounds.resourceIds) if (!seen.has(id)) seen.set(id, performance.now());
 
-    // The message is committed when the turn ends.
+    // The message is committed when the turn ends, stamped as its push lands.
     let messageAt: number | undefined;
+    const stampMessage = (): void => { if (messageAt === undefined && thread.resourceIds.includes(messageId!)) messageAt = performance.now(); };
+    thread.onChange(stampMessage);
+    stampMessage();
     for (const until = Date.now() + TURN_TIMEOUT_MS; messageAt === undefined;) {
-      if (thread.resourceIds.includes(messageId)) messageAt = Date.now();
-      else {
-        assert.ok(Date.now() < until, `the turn never committed its message ${messageId}`);
-        await new Promise((r) => setTimeout(r, 250));
-      }
+      assert.ok(Date.now() < until, `the turn never committed its message ${messageId}`);
+      await new Promise((r) => setTimeout(r, 250));
     }
     const message = await austen.client.resources.read('Message', messageId) as Snapshot;
     assert.equal((message.value as { replyTo?: string }).replyTo, posted, 'the message must reply to the post its turn took up');
@@ -84,7 +86,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.ok(snapshots.length > 0, 'a turn must store at least one round');
     for (const s of snapshots) {
       const at = seen.get(s.resourceId);
-      assert.ok(at !== undefined && at <= messageAt, `round ${(s.value as StoredRound).index} must arrive before the message`);
+      assert.ok(at !== undefined && at < messageAt, `round ${(s.value as StoredRound).index} must arrive before the message`);
     }
     console.error(`  ✓ limb 1 — all ${snapshots.length} round(s) arrived before the message`);
 

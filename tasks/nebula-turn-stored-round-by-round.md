@@ -399,7 +399,7 @@ Each phase leaves every suite green. A criterion that names a test means a test 
 - No Client can send a chain without claims, and a node's own chain carries the node's, so the no-claims case builds a bare plane over a Galaxy's storage with a call context carrying none.
 - Reading `store.resources.todo[id]` in the for-docs test subscribes to it, so whether a one-time read's snapshots stayed out of the store cannot be asserted through the store. The assertion was dropped rather than kept as one that subscribes.
 - The first sweep failed five scenarios, `signup-to-first-app`, `first-app-built`, `invites-land-on-their-host`, `logout-ends-every-host` and `cast-from-a-tab`, and none of them for this phase's code. Larry's hand-driven stack was stopped for the sweep, but its Studio vite (pid 65918) went on holding `[::1]:5174` and proxying to the stopped `wrangler dev`, so every request a scenario sent to Studio's port answered 502 or closed. With it stopped, `drive.ts all --rerun` passed all five, and the harness names each a flake, since none of their files changed. Four are explained by the port: a picture, the preview, Studio's socket and the wipe all went through it. `invites-land-on-their-host` failed on the email-test socket closing before its mail arrived, which the port does not obviously explain, so it stands as a flake. A sweep's check for a hand-driven stack (`pgrep -fl 'wrangler dev'`) does not see a vite left behind.
-- The first whole `apps/nebula` run had four failures, every one an inventory of the `requests` surface: `resources-door.test.ts` for each host, `galaxy-resource-surface.test.ts`, and `scope-isolation.test.ts`'s table of a written reason per member a descendant Star may reach. Each now lists `query`. No narrow run could have shown them.
+- The first whole `apps/nebula` run failed only in inventories of the `requests` surface: `resources-door.test.ts` for each host, `galaxy-resource-surface.test.ts`, and `scope-isolation.test.ts`'s table of a written reason per member a descendant Star may reach. Each now lists `query`. No narrow run could have shown them.
 
 **Close-out notes:**
 
@@ -591,6 +591,31 @@ Each phase leaves every suite green. A criterion that names a test means a test 
 - In `cast-from-a-tab`, no log line for a round write with a call still out: the new check, which found round 3 logged only answered. Its first run under the mutation died on the email-test Worker's socket before limb 1, so it was run again.
 
 **Suites and sweep:** `apps/nebula`'s 143 files and 1320 tests passed with 2 skipped, which is § *Phase 5*'s 1313 and the 7 in `tab-call.test.ts`. The turn subset passed, `cast-from-a-tab` twice with its new check, under the real model's three `run_in_tab` calls across runs. `rounds-as-they-land` failed once on a mail Resend delivered and the email-test Worker lost, and passed alone with nothing changed, so it is a **flake**.
+
+### Phase 7
+
+**For the human:**
+
+- Three edits this phase owes sit in files another session has uncommitted edits in, so I made none of them: deleting the [backlog.md](backlog.md) row this task supersedes, moving this task's row in [nebula-pre-alpha.md](nebula-pre-alpha.md) to § *Shipped*, and rewriting [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check* to what is left. The proposed text is in the hand-off note. That session already brought pre-alpha's section on reading turns back, and Item 17, up to rounds.
+- DI8's example is wrong in a way that matters. A Star reading its ontology from the Galaxy rides the asking Client's chain, so to the Galaxy it is a Client arriving, and it wakes a cut-off turn. A tenant using a Star can therefore continue a Studio turn with no Studio open, which is the outcome D9 rejected the alarm for. The code follows the phase's rule, a call whose chain starts at a Client. Keep it, or count only a Client this Galaxy hosts.
+- A member taken off the chat keeps the `read` at `turns` their invite brought, so they can still read every turn's rounds, file contents included. Nothing says what a revoke at `chat` does to the grant paired with it.
+- `.claude/rules/security.md`'s *The record* bullet now says the rounds record each call with the claims it ran under. A tab's answer for a post that moved on is the exception: it records the moved-post error with no claims, though the code ran.
+- `ScopedMeshDO.onFirstClient()` is not in Mesh's docs, and the `resources.query` block in `website/docs/nebula/api-reference.md` is `@skip-check` like the rest of that page, which `documentation.md` says to ask about first.
+- The define-the-cast skill now reads another persona's records with `client.resources.query`, the one-time read § *Phase 1* added, where it subscribed and disposed. The model reads that skill on every turn.
+
+**After the panel:** the verifiers found these, and each is fixed, with a test that reddens under its mutation unless it says otherwise.
+
+- **A turn read rounds written anywhere.** A member with `write` at `chat` could write a `Round` there naming a running turn, and the turn would dispatch its calls under the poster's claims, an admin invite included. The store now reads only rounds at the `turns` node. Test: a member's round at `chat` written while round 1's build is out is never sent to the model.
+- **A call answered as interrupted counted toward the identical-call detector**, so the model's retry of it ended the turn `loop-detected`. It no longer counts.
+- **A decision the deadline cut off could pick a post when its call returned**, and write a row over the next turn's. A run's body now asks whether the deadline cut it, after a decision's model call and before a turn writes its row. The decision's check has a test; no test reaches the row-write check, which needs the deadline to pass during a turn's setup reads.
+- **`onTabAnswer` passed over a tab before checking the round's version**, so an admin's rewrite could reach another tab. The version is checked first, and the whole handler sits in its `try`.
+- **`cast-from-a-tab`'s new check could not fail**, since every round is written unresolved first. It now asserts that the run that sent the call tore down before the tab answered, and that the answer's run is another.
+- **`rounds-as-they-land` limb 1 compared a push's time with a 250 ms poll.** It now stamps the message's push as it stamps the rounds'. No one-line edit writes rounds after the message, so the limb has no mutation of its own.
+- **`deploy-cuts-a-turn` read an upgrade's lines while the socket was open**, which deployed never arrive. It now closes both Studios first, records both sockets' states, and bounds the redeploy at 15 minutes.
+- **`codegen.rounds` counted a model call that failed**, which leaves no round. It now counts the turn's rounds, and the loop test that held the old count says why it changed.
+- The rest were comments, JSDoc above the wrong method, a shadowing parameter (now `holdsDominion`), a `[C7]` handle in a test's log label, and prose describing a turn's message as its calls' record.
+
+**Closing suites and sweep, on the tree after the panel's fixes:** Resources passed 11 files and 263 tests. Mesh passed 85 files and 1103 tests with 4 skipped, which is § *Phase 5*'s 1102 and the host test the panel's fixes added. `apps/nebula` passed 143 files and 1324 tests with 2 skipped, which is § *Phase 6*'s 1320 and those fixes' four. The full sweep passed 79 of 79 in 65.5 minutes, with no rerun and no flake, and parked `redeploy-strands-no-client` and `deploy-cuts-a-turn`, which run only deployed.
 
 ## Non-goals
 

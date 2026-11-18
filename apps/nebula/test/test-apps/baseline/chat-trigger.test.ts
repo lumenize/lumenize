@@ -198,8 +198,8 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
   // decides); the container warm is STRUCTURAL — the turn's first write — and the
   // classifier's last job, an earlier warm hint, was deleted on 2026-09-06 after five real
   // turns showed the write warm hiding the cold start on its own. The successors below
-  // assert the latch, as MARKER ORDER: one warm per turn however many writes, a teardown
-  // on every turn, and no warm at all on a turn that never writes.
+  // assert the latch, as MARKER ORDER: one warm per run however many writes, a teardown
+  // on every run, and no warm at all on a run that never writes.
 
   /** Marker indices, in emission order, for the namespaces the latch tests read — filtered
    *  by the Galaxy's `instanceName`, the discriminator every marker carries (`testing.md`),

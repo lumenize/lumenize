@@ -68,12 +68,8 @@ The preview has a tab for the person you are working for, `me`, and a tab for ea
 
    ```js
    // run_in_tab tab: "ollie"
-   const q = client.resources.subscribeQuery({ typeName: 'Wish', filter: {}, allowScan: true });
-   await q.ready;
-   const wishes = [];
-   for (const id of q.resourceIds) wishes.push((await client.resources.read('Wish', id)).value);
-   q[Symbol.dispose]();
-   return wishes;
+   const { snapshots, deniedNodes } = await client.resources.query({ typeName: 'Wish', filter: {}, allowScan: true });
+   return { wishes: snapshots.map((s) => s.value), deniedNodes };
    ```
 
 The tool's own description says what a run returns and how to read it. `.platform/docs/api-reference.md` has every call the code may make.

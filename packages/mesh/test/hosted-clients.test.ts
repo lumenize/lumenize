@@ -386,6 +386,16 @@ describe('a host node\'s first Client in each isolate', { timeout: 30000 }, () =
     expect(firstClients(h)).toBe(2);
   });
 
+  // MUTATION: fire on every upgrade the host answers, refused or not → the refused one counts.
+  it('does not fire for an upgrade the host refuses', async () => {
+    const h = uniqueScope('h');
+    const login = await loginAt(h);
+    expect((await upgrade(h, `/gateway/CLIENT_HOST_DO/${h}`, login)).status).toBe(400);
+    expect(firstClients(h)).toBe(0);
+    expect((await upgrade(h, `/gateway/CLIENT_HOST_DO/${h}/${login.sub}.tab1`, login)).status).toBe(101);
+    expect(firstClients(h)).toBe(1);
+  });
+
   // MUTATION: fire only on an upgrade → the universe, which holds no socket, counts none.
   it('fires for a Client\'s call to a node that holds no socket of its', async () => {
     const h = uniqueScope('h');

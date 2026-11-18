@@ -192,7 +192,7 @@ describe('a blob is kept in the Workspace\'s git store by its id', { timeout: 60
     const afterCommitted = await a.probe((g) => g.workspaceRowsForTest());
     const freshOid = await a.probe((g) => g.writeBlobForTest(fresh));
     const afterFresh = await a.probe((g) => g.workspaceRowsForTest());
-    console.log('[C7] workspace rows', JSON.stringify({ before, afterCommitted, afterFresh }));
+    console.log('[blob cost] workspace rows', JSON.stringify({ before, afterCommitted, afterFresh }));
 
     expect(await a.probe((g) => g.readBlobForTest(committedOid))).toBe(committed);
     expect(await a.probe((g) => g.readBlobForTest(freshOid))).toBe(fresh);

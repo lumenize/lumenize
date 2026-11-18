@@ -92,7 +92,7 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
     // `invite` is on no wire: a loop tool calls it in-process, under the claims recorded on its turn's post, and a
     // client already has `resources.invite`, so a decorated entry would only be a second door.
     // `runInTab` likewise: the loop reaches it under the claims recorded on the post its turn
-    // took up, and records the call on the turn's message, which a direct call would not.
+    // took up, and records the call on the turn's round, which a direct call would not.
     expect(named.filter((name) => !callable.has(name))).toEqual(['invite', 'runInTab']);
     expect(typeof (Galaxy.prototype as unknown as Record<string, unknown>).runInTab).toBe('function');
     expect(typeof (Galaxy.prototype as unknown as Record<string, unknown>).invite).toBe('function'); // it exists, undecorated

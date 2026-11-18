@@ -17,7 +17,7 @@
  *
  *  1. **The cast is built from the asker's own tab.** O asks for the cast to be built as the file
  *     says. Gerry's tab comes to open as Gerry with O in `act`, and Gerry holds `write` on the
- *     node `deals`. Every `run_in_tab` call on the turn's message ran under O's claims, O's Studio
+ *     node `deals`. Every `run_in_tab` call of the turn ran under O's claims, O's Studio
  *     heard its tabs answer, and P's Studio heard nothing. *Reds if the Galaxy asks a Studio of
  *     anyone but the person the turn works for.*
  *  2. **A persona's data is made in that persona's tab.** O asks for a deal as Gerry, one the file
@@ -267,18 +267,27 @@ export async function run(stack: DevStack): Promise<void> {
     record('turn 1', built);
     assert.ok(builtRuns.some((tc) => tc.result?.ok === true), `the turn ran no code in a tab that returned: ${describe(built)}`);
     assert.ok(builtRuns.every((tc) => tc.claims?.sub === oToken.sub), "every run_in_tab call must run under O's claims, whose post the turn took up");
-    // The call left the Galaxy: its round was stored with the call unresolved, and stored again
-    // answered once the tab's answer reached the call's result handler. The Worker logs each
-    // write of a round with how many of its calls have run.
-    const answeredRound = builtRuns.find((tc) => tc.result?.ok === true)!.round;
-    const writesOf = (all: DebugLine[]) => all.filter((l) =>
-      l.namespace === 'nebula.Galaxy.rounds' && l.message === 'round written' && l.data.message === built.id && l.data.index === answeredRound);
-    // In the order they were logged, since a deployed capture arrives one invocation at a time.
-    const writes = writesOf(await waitForDebugLines(stack, (all) => writesOf(all).some((l) => l.data.resolved === l.data.calls),
-      'the tab call\'s round written answered', LOG_WAIT_MS)).sort((a, b) => (loggedAfter(a, b) ? 1 : -1));
-    const firstAnswered = writes.findIndex((l) => l.data.resolved === l.data.calls);
-    assert.ok(writes.slice(0, firstAnswered).some((l) => (l.data.resolved as number) < (l.data.calls as number)),
-      `round ${answeredRound}, whose run_in_tab call returned, must be stored unresolved before it is stored answered: ${JSON.stringify(writes.map((l) => [l.data.op, l.data.resolved, l.data.calls]))}`);
+    // The call left the Galaxy, and nothing waited for it: the run that sent it ended, tearing its
+    // box down, before the tab's answer reached the call's result handler, and the answer started
+    // a run of its own. Each run's teardown names the run, so the turn's first answer sits between
+    // two runs' teardowns. A Galaxy that waited for the tab in memory would log none between them.
+    const tookUpOf = (all: DebugLine[]) => all.find((l) => l.namespace === 'nebula.Galaxy.turn' && l.message === 'took up' && l.data.postId === built.replyTo);
+    const answersOf = (all: DebugLine[]) => all.filter((l) => l.namespace === 'nebula.Galaxy.runInTab' && l.message === 'a tab answered' && l.data.message === built.id)
+      .sort((a, b) => (loggedAfter(a, b) ? 1 : -1));
+    const runTeardownsOf = (all: DebugLine[]) => all.filter((l) => l.namespace === 'nebula.Galaxy.teardown' && l.data.instanceName === galaxy && typeof l.data.run === 'string');
+    const boundary = (all: DebugLine[]) => {
+      const tookUp = tookUpOf(all);
+      const [answer] = answersOf(all);
+      if (!tookUp || !answer) return undefined;
+      const teardowns = runTeardownsOf(all);
+      const before = teardowns.filter((l) => loggedAfter(l, tookUp) && loggedAfter(answer, l)).sort((a, b) => (loggedAfter(a, b) ? -1 : 1))[0];
+      const after = teardowns.filter((l) => loggedAfter(l, answer)).sort((a, b) => (loggedAfter(a, b) ? 1 : -1))[0];
+      return { before, after };
+    };
+    const lines = await waitForDebugLines(stack, (all) => boundary(all)?.after !== undefined, 'a run\'s teardown after the turn\'s first tab answer', LOG_WAIT_MS);
+    const around = boundary(lines)!;
+    assert.ok(around.before, 'the run that sent the turn\'s first run_in_tab call must have ended, tearing down, before the tab answered');
+    assert.notEqual(around.before.data.run, around.after!.data.run, 'the tab\'s answer must continue the turn in a run of its own');
     const oHeard = await heard(o.page);
     assert.ok(oHeard.length >= builtRuns.filter((tc) => tc.result !== undefined).length,
       `O's Studio must have heard a tab answer each run that returned: heard ${oHeard.length}`);

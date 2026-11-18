@@ -452,14 +452,15 @@ export interface LoopResult {
   /** How the turn stopped, or how this invocation paused: `waiting` for a call that left the
    *  Galaxy, `not-this-turn` when the turn's row names another turn. */
   stop: StopReason | 'waiting' | 'not-this-turn';
-  /** Model inferences performed (rounds). */
+  /** The turn's stored rounds, the closing step's not counted: the whole turn's, however many
+   *  invocations it took. A model call that failed left no round and is not counted. */
   rounds: number;
   /** Every call of the turn with its result or error, worked out from its rounds: what the
    *  agent `Message`'s thought panel shows of what was written. */
   toolCalls: ToolCall[];
   /** The full assembled transcript (system + user + assistant/tool/user rounds). */
   messages: ChatMessage[];
-  /** Paths written this run (normalized) — `write_file` and `edit_file` alike. */
+  /** Paths the turn wrote (normalized), worked out from its rounds — `write_file` and `edit_file` alike. */
   appliedPaths: string[];
   /** The last container build's report (the codegen record's `build` source). */
   lastBuild?: BuildReport;
@@ -893,8 +894,9 @@ const REPEATED_CALL = 'loop-detected';
 /** The error a `take_up` inside a turn records. */
 const TAKE_UP_IN_TURN = 'take_up picks a post when you are asked to decide; this turn has already taken one up, and every tool in it runs under that post. Another person\'s work waits for a turn that takes up their post.';
 
-/** A store kept in memory, for a turn that keeps none, and for tests. A write names the version
- *  it read, as the real store's does, and a later write over a changed round answers `conflict`. */
+/** A store kept in memory, for the loop's own tests: the Galaxy keeps a turn's rounds as `Round`
+ *  Resources. A write names the version it read, as the real store's does, and a later write over
+ *  a changed round answers `conflict`. */
 export function memoryRoundStore(interrupted: number[] = []): RoundStore {
   const rows = new Map<string, { version: number; round: StoredRound }>();
   let ids = 0;
@@ -917,7 +919,8 @@ export function memoryRoundStore(interrupted: number[] = []): RoundStore {
   };
 }
 
-/** Blobs kept in a map, ids made up, for a turn that keeps none, and for tests. */
+/** Blobs kept in a map, ids made up, for the loop's own tests: the Galaxy keeps them in the
+ *  Workspace's git store. */
 export function memoryBlobs(): BlobStore {
   const byOid = new Map<string, string>();
   return {
@@ -1086,7 +1089,9 @@ export function rebuildTurn(input: {
         next = { kind: 'stop', stop: 'loop-detected', detail: result.detail ?? `repeated tool call ${tc.name}` };
         break rounds;
       }
-      if (detected(tc)) callHashes.add(callHash(tc));
+      // A call a wake answered as interrupted may not have run, and its error tells the model so,
+      // so the same call again is a retry, and the detector does not count the first.
+      if (detected(tc) && call.error !== INTERRUPTED_CALL_ERROR) callHashes.add(callHash(tc));
       if (call.error !== undefined) {
         toolCalls.push({ name: tc.name, args: tc.args ?? tc.rawArgs, error: call.error, ...acted });
         if (call.error === POST_MOVED_DETAIL) { next = { kind: 'stop', stop: 'post-moved', detail: POST_MOVED_DETAIL }; break rounds; }
@@ -1241,7 +1246,8 @@ export async function runCodegenLoop(
         // A refused or broken model call is a CONTROLLED end, never an uncaught throw: the
         // turn still commits a reply that names the cause, so nobody waits on a turn that
         // already died (2026-09-06: a Workers AI 429 threw out of the turn and no reply landed).
-        return { ...resultOf(state, 'error', `the model call failed: ${e instanceof Error ? e.message : String(e)}`), rounds: state.rounds + 1 };
+        // `rounds` stays the count of the turn's stored rounds: a failed call left none.
+        return resultOf(state, 'error', `the model call failed: ${e instanceof Error ? e.message : String(e)}`);
       }
       const turn = parseModelTurn(raw);
       // Emit this round's thinking as a progress step (coarse, not tokens) — unless it

@@ -533,8 +533,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   #lookedForRow = false;
   // A tab's answer landed while a run of a turn was live here, so that run continues the turn once
   // it ends (`#continueAfterAnswer`). In memory with `#turnInFlight`, which it qualifies. No test
-  // arranges it: after a send the run ends without awaiting I/O, and an answer crosses a socket, so
-  // today it lands after the run. Without it, an answer that did land first would stall its turn.
+  // arranges it. An answer mostly crosses a socket; one for a tab with no socket comes back at once
+  // in this isolate, and what keeps it after the run today is the await in its own round write.
+  // Without the flag, an answer that did land first would stall its turn until the next isolate.
   #answered = false;
   /** The generation deadline of each run of a turn — a hung `env.AI` await past this ends the
    *  turn in a line of ours, releases the latch and ends the heartbeat, so a fresh message can
@@ -730,7 +731,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
 
   /**
    * Keep `content` in the Workspace's git store as a blob, and answer its id, the `oid` a round
-   * records for a file the model read. A blob the repo already holds, a committed file's say, is
+   * records for a file the model read. A blob the repo already holds, a committed file's, say, is
    * found and written again for nothing. A blob no commit points at stays: nothing here ever
    * collects one. No `@mesh()`: only a turn's own code keeps what its model was sent.
    */
@@ -1543,7 +1544,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    *
    * Each kind goes where its collaborator does. A collaborator goes through the Resources
    * plane's node invite, which writes the pending row, calls the facade, and grants `write` at
-   * the chat node when it answers. An admin goes straight to the facade, with the bit. Either
+   * the chat node when it answers, with the `read` at the `turns` node the seed pairs with it. An admin goes straight to the facade, with the bit. Either
    * way the membership, and whether the mail went out, land after the turn, so what the turn
    * could not know is posted to the chat by the handler: a failure on either path, and an admin
    * invite's result ({@link onAdminInviteResult}, {@link #onNodeInviteOutcome}).
@@ -1607,7 +1608,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * Run `code` in a preview tab of the person these claims name, for the loop's `run_in_tab`
    * tool: `tab` is "me", their own page on the dev Star, or a persona's slug. It has NO `@mesh()`,
    * on purpose: a loop tool calls it in-process, under the claims recorded on the post its turn
-   * took up, where its call is recorded on the turn's message. Decorated, it would be a second way
+   * took up, where its call is recorded on the turn's round. Decorated, it would be a second way
    * for a person to run code in their own tabs, and one that leaves no such record.
    *
    * The preview's frames live in Studio, so the request goes to a Studio tab: one this Galaxy
@@ -1671,8 +1672,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    */
   async onTabAnswer(message: string, roundId: string, version: string, callId: string, address: string, answer?: unknown): Promise<void> {
     const log = debug('nebula.Galaxy.runInTab');
-    await this.lmz.asLocalPrincipal(NEBULA_SUB, async () => {
-      try {
+    try {
+      await this.lmz.asLocalPrincipal(NEBULA_SUB, async () => {
         const row = this.turnRow();
         if (row?.message !== message) {
           log.warn('a tab answered for a turn that is not running', { instanceName: this.lmz.instanceName, message, address });
@@ -1686,41 +1687,51 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
           await this.#endTurn(message, 'conflict', 'the round of a tab call is not as it was sent');
           return;
         }
-        const outcome = this.#tabOutcome(row, entry.round.calls[i]!, { message, roundId, version, callId }, address, answer);
-        if (outcome === 'asked another') return;
+        const stored = entry.round.calls[i]!;
+        const reply: TabReply = { message, roundId, version, callId };
+        const passedOver = answer instanceof Error && (answer.name === NO_PREVIEW_ERROR
+          || (answer.name === 'ClientDisconnectedError' && !(answer as { unanswered?: boolean }).unanswered));
         if (entry.version !== version) {
-          // A second delivery of an answer already written changes nothing; any other write over
-          // the round is someone else's.
-          if (sameOutcome(entry.round.calls[i]!, outcome)) return;
+          // Checked before anything is sent on. A second delivery of an answer already written
+          // changes nothing; any other write over the round is someone else's, and its code must
+          // reach no other tab.
+          const repeat = passedOver ? undefined : this.#tabOutcome(row, stored, reply, address, answer, false);
+          if (repeat !== undefined && repeat !== 'asked another' && sameOutcome(stored, repeat)) return;
           await this.#endTurn(message, 'conflict', 'a round of this turn changed while its tab call was out');
           return;
         }
+        const outcome = this.#tabOutcome(row, stored, reply, address, answer, passedOver);
+        if (outcome === 'asked another') return;
         const written = await store.update(roundId, {
           ...entry.round, calls: entry.round.calls.map((c, j) => (j === i ? { raw: c.raw, ...outcome } : c)),
         }, version);
         if (written === 'conflict') await this.#endTurn(message, 'conflict', 'a round of this turn changed while its tab call was out');
         else if (written === 'ok') this.#continueAfterAnswer();
-      } catch (error) {
-        log.error('a tab answer could not be written', { instanceName: this.lmz.instanceName, message, error });
-        await this.#endTurn(message, 'error', `a tab's answer could not be written: ${error instanceof Error ? error.message : String(error)}`, TURN_FAILED_LINE);
+      });
+    } catch (error) {
+      log.error('a tab answer could not be written', { instanceName: this.lmz.instanceName, message, error });
+      try {
+        await this.lmz.asLocalPrincipal(NEBULA_SUB, () => this.#endTurn(message, 'error',
+          `a tab's answer could not be written: ${error instanceof Error ? error.message : String(error)}`, TURN_FAILED_LINE));
+      } catch (e) {
+        log.error('a turn whose tab answer failed could not be ended', { instanceName: this.lmz.instanceName, message, error: e });
       }
-    });
+    }
   }
 
   /**
    * What a tab's `answer` comes to for the call `stored`, with the post it acted for and the claims
-   * it ran under, or `asked another` when the tab ran nothing and the person's next tab was asked.
+   * it ran under, or `asked another` when the tab ran nothing (`passedOver`) and the person's next
+   * tab was asked. With `passedOver` false it sends nothing.
    */
-  #tabOutcome(row: TurnRow, stored: StoredCall, reply: TabReply, address: string, answer: unknown): Omit<StoredCall, 'raw'> | 'asked another' {
-    const passedOver = answer instanceof Error && (answer.name === NO_PREVIEW_ERROR
-      || (answer.name === 'ClientDisconnectedError' && !(answer as { unanswered?: boolean }).unanswered));
+  #tabOutcome(row: TurnRow, stored: StoredCall, reply: TabReply, address: string, answer: unknown, passedOver: boolean): Omit<StoredCall, 'raw'> | 'asked another' {
     try {
       return this.actUnder(row.post, () => {
         const claims = this.#claimsIfAny();
         const acted = wireClaims(claims);
         const by = { post: row.post.id, ...(acted ? { claims: acted } : {}) };
         if (passedOver) {
-          debug('nebula.Galaxy.runInTab').debug('passed over a tab that ran nothing', { instanceName: this.lmz.instanceName, address, why: answer.name });
+          debug('nebula.Galaxy.runInTab').debug('passed over a tab that ran nothing', { instanceName: this.lmz.instanceName, address, why: (answer as Error).name });
           const { tab, code } = JSON.parse((stored.raw as { function: { arguments: string } }).function.arguments) as { tab: string; code: string };
           try {
             this.#askNextTab(claims!.sub, reply, tab, code, address);
@@ -1878,8 +1889,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     if (this.#turnInFlight) return;
     this.#turnInFlight = true;
     this.#lookedForRow = true;
-    await this.#runTurns(async (started) => {
-      await this.#chatTurn(post, content, started);
+    await this.#runTurns(async (started, live) => {
+      await this.#chatTurn(post, content, started, live);
       return true;
     });
   }
@@ -1961,17 +1972,17 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   /**
    * Race one turn against the generation deadline, and answer what the turn answered, or `'cut'`.
    *
-   * RESIDENCY: the turn runs DETACHED (a floating promise off the commit), so no in-flight
-   * request pins the Galaxy. What holds it is `ctx.waitUntil`, which the commit trigger hands
-   * the turn: from compatibility date 2026-10-01 that keeps a DO in memory for up to 15 minutes
-   * from the promise's start, and the deadline (14 min) keeps every turn under that. Before that
-   * date nothing held a production turn: it calls the model through the `env.AI` BINDING
+   * RESIDENCY: a run runs DETACHED (a floating promise off the event that started it), so no
+   * in-flight request pins the Galaxy. What holds it is `ctx.waitUntil`, which each run entry
+   * hands its run: from compatibility date 2026-10-01 that keeps a DO in memory for up to 15
+   * minutes from the promise's start, and the deadline (14 min) keeps every run under that. Before
+   * that date nothing held a production turn: it calls the model through the `env.AI` BINDING
    * (neither deployed worker has a `WORKERS_AI_TOKEN`, so `modelLane()` never takes the REST
    * lane), and a detached binding call was evicted as early as a timer, about 70 s
    * (durable-objects.md § Wall-clock billing). A timer heartbeat is not the hold either: it held
-   * nothing at the old date, and `waitUntil` states the hold directly. An eviction mid-turn — a
-   * restart or a deploy — is covered as designed: input is durable before the LLM runs, the
-   * in-memory latch dies with the isolate, and a fresh message starts a fresh generation.
+   * nothing at the old date, and `waitUntil` states the hold directly. An eviction mid-run — a
+   * restart or a deploy — loses only the run: the turn's row and rounds are in storage, and the
+   * first Client to reach the new isolate wakes the turn where it stopped ({@link #wake}).
    *
    * The GENERATION DEADLINE stays, one per run: past it our own code ends the turn in a line of
    * ours and deletes its row, and the latch releases, so a hung await cannot wedge the loop for
@@ -1983,7 +1994,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // The agent Message this turn will commit, once it has one: a decision has none until it picks.
     let message: string | undefined;
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-    const running = turn((id) => { message = id; });
+    // Whether the deadline has cut this run off: a run cut off before its turn began starts none.
+    let cut = false;
+    const running = turn((id) => { message = id; }, () => !cut);
     // Each turn holds the Galaxy on its own promise, so a decision's turn gets a hold that
     // starts with it and not with the turn before it. Whether a later hold outlasts the 15
     // minutes of the trigger's own, which is still pending around it, is not measured. A run the
@@ -1998,6 +2011,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
             debug('nebula.Galaxy.trigger').error('turn failed: generation exceeded the deadline', {
               message, deadlineMs: this.generationDeadlineMs,
             });
+            cut = true;
             resolve('cut');
           }, this.generationDeadlineMs);
         }),
@@ -2047,7 +2061,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     const thread = this.#thread();
     const waiting = this.#waiting(thread);
     if (waiting.length === 0) return undefined;
-    return async (started) => {
+    return async (started, live) => {
       const { bundle: history, labelFor } = this.#historyBundle(thread);
       const posts = thread.filter(({ id }) => waiting.includes(id));
       const request = renderDecisionRequest(posts.map(({ id, snap }) => ({
@@ -2065,6 +2079,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         debug('nebula.Galaxy.turn').warn('decision: the model call failed', { instanceName: this.lmz.instanceName, error: e });
         return false;
       }
+      // A decision the deadline cut off decides nothing: another turn may hold the row by now.
+      if (!live()) return false;
       const parsed = parseModelTurn(raw);
       const named = (name: string): Record<string, unknown> =>
         (parsed.toolCalls.find((tc) => tc.name === name)?.args ?? {}) as Record<string, unknown>;
@@ -2074,7 +2090,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       if (typeof picked === 'string' && waiting.includes(picked)) {
         debug('nebula.Galaxy.turn').info('decision', { instanceName: this.lmz.instanceName, step: 'decision', postId: picked });
         const post = posts.find(({ id }) => id === picked)!;
-        await this.#chatTurn({ id: picked, validFrom: post.snap.meta.validFrom }, (post.snap.value as { content?: string }).content ?? '', started);
+        await this.#chatTurn({ id: picked, validFrom: post.snap.meta.validFrom }, (post.snap.value as { content?: string }).content ?? '', started, live);
         return true;
       }
       const answers = (Array.isArray(named('mark_complete').answers) ? named('mark_complete').answers as unknown[] : [])
@@ -2095,7 +2111,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
 
   /** The turn body the trigger races against the generation deadline: ONE assembly with
    *  every layer and the full tool set, the model deciding whether to act. */
-  async #chatTurn(post: TookUp, message: string, started: (message: string) => void): Promise<void> {
+  async #chatTurn(post: TookUp, message: string, started: (message: string) => void, live: () => boolean): Promise<void> {
     const userMessageId = post.id;
     // Whose claims this turn's tools run under: the poster's as recorded, with the agent as
     // actor. A post that moved on before this line logs none, and the first tool call stops.
@@ -2110,7 +2126,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // Minted first so the heartbeat below has an id from the first ms.
     const agentMessageId = crypto.randomUUID();
     started(agentMessageId);
-    await this.#asRun(agentMessageId, userMessageId, (warm) => this.#codegenTurn(message, agentMessageId, post, warm));
+    await this.#asRun(agentMessageId, userMessageId, (warm) => this.#codegenTurn(message, agentMessageId, post, warm, live));
   }
 
   /**
@@ -2174,11 +2190,11 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     };
   }
 
-  /** The turn's body: the loop, then the durable reply. `warm` is the turn's latch, fired by
-   *  the first write. */
+  /** The turn's body: the loop, then the durable reply. `warm` is the run's latch, fired by
+   *  the run's first write. */
   async #codegenTurn(
     message: string, agentMessageId: string, post: TookUp,
-    warm: { fire(): void },
+    warm: { fire(): void }, live: () => boolean,
   ): Promise<void> {
     const result = await this.runCodegenTurn(
       message, DEFAULT_LOOP_CONFIG,
@@ -2188,8 +2204,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         // bundle carries it, once, and the post every tool call acts for.
         tookUp: post,
         message: agentMessageId,
-        // The structural warm: the first write of the turn.
+        // The structural warm: the first write of the run.
         onFirstWrite: () => warm.fire(),
+        live,
       },
     );
     await this.#commitTurn(agentMessageId, result);
@@ -2342,6 +2359,15 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   }
 
   /**
+   * Write `ops` as the agent, through the plane's own transaction and its checks, and answer what
+   * the plane answered: a conflict or a refusal comes back as a value. A turn stores its rounds this
+   * way, under the agent's protected `write` at the `turns` node.
+   */
+  protected writeAsAgent(ops: Record<string, OperationDescriptor>): Promise<TransactionResult> {
+    return this.lmz.asLocalPrincipal(NEBULA_SUB, () => this.#resources.doTransaction(ops, ''));
+  }
+
+  /**
    * Commit the DURABLE agent `Message` at completion — ONE create at `messageId`, which
    * the query rerun fans to every chat subscriber (and the client reconciles against its
    * ephemeral stream by id). Create-if-absent via the capability (a fresh Galaxy-minted
@@ -2359,15 +2385,6 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * the other posts it answers, and `agentMessageValue` keeps the two consistent. `codegen` is
    * the folded corpus record, present on every codegen-path reply.
    */
-  /**
-   * Write `ops` as the agent, through the plane's own transaction and its checks, and answer what
-   * the plane answered: a conflict or a refusal comes back as a value. A turn stores its rounds this
-   * way, under the agent's protected `write` at the `turns` node.
-   */
-  protected writeAsAgent(ops: Record<string, OperationDescriptor>): Promise<TransactionResult> {
-    return this.lmz.asLocalPrincipal(NEBULA_SUB, () => this.#resources.doTransaction(ops, ''));
-  }
-
   protected async commitAgentMessage(
     chatId: string, messageId: string, content: string, nodeId: string,
     replyTo: string | undefined,
@@ -2689,6 +2706,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       /** Called before the turn's FIRST write (`write_file` or `edit_file`) — the
        *  structural container warm (`#asRun`). */
       onFirstWrite?: () => void;
+      /** Whether the run is still live: a run the deadline cut off writes no row, since the next
+       *  turn may hold it by then. */
+      live?: () => boolean;
     },
   ): Promise<LoopResult> {
     // The tree the turn READ — captured before the loop writes (the codegen record's
@@ -2718,6 +2738,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       ...(sourceCommit ? { sourceCommit } : {}),
       interrupted: [],
     };
+    // Checked with no `await` before the put, so the row is never written by a run already cut off.
+    if (opts.live?.() === false) throw new Error('the run was cut off by the deadline before its turn began');
     this.ctx.storage.kv.put(TURN_ROW_KEY, row);
     return this.#runFromRow(row, config, onProgress, opts.onFirstWrite);
   }
@@ -2736,8 +2758,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     row: TurnRow, config: CodegenLoopConfig, onProgress: ((step: string) => void) | undefined,
     onFirstWrite?: () => void, woken = false,
   ): Promise<LoopResult> {
-    // No per-await heartbeat here: liveness is a property of the TURN, and `#chatTurn` beats
-    // around the whole body — every round here is a silent model call.
+    // No per-await heartbeat here: liveness is a property of the RUN, and `#asRun` beats around
+    // the whole body — every round here is a silent model call.
     // Live deltas ride the same `onProgress` seam as the coarse steps — the client appends
     // either — so a round's thinking streams batch by batch instead of landing whole when the
     // model returns. `onDelta` on the deps tells the loop not to re-emit that thinking.
@@ -2802,7 +2824,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   /**
    * Where a turn's rounds are kept: a `Round` Resource at {@link TURNS_NODE_ID} per round, each
    * written by the agent as itself under its protected `write` there, and read by `message` as
-   * the agent. A write first checks that the turn's row names this turn, and answers
+   * the agent, keeping only those at that node: a `Round` anyone writes elsewhere is never the
+   * turn's. A write first checks that the turn's row names this turn, and answers
    * `not-this-turn` when it does not, since the row may then be the next turn's. Each later write
    * of a round names the `validFrom` it read, so one over a round someone else changed answers
    * `conflict`, and a repeat of a write already made is recognized as one (ADR-005). Any other
@@ -2829,7 +2852,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     return {
       read: async () => {
         const { snapshots } = this.lmz.asLocalPrincipal(NEBULA_SUB, () => this.#resources.doQuery(roundsOf(message)));
-        return snapshots.map(({ resourceId, value: stored, meta }) => {
+        // Only the rounds at the `turns` node are the turn's. A member with `write` at `chat` can
+        // write a `Round` there naming a running turn, and a turn that read it would run its calls
+        // under the claims of the post the turn took up.
+        return snapshots.filter(({ meta }) => meta.nodeId === TURNS_NODE_ID).map(({ resourceId, value: stored, meta }) => {
           const { chat: _chat, message: _message, ...round } = stored as StoredRound & { chat: string; message: string };
           return { id: resourceId, version: meta.validFrom, round };
         });
@@ -2848,6 +2874,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         if (row?.message !== message) return 'not-this-turn';
         if (row.interrupted.includes(index)) return 'again';
         this.ctx.storage.kv.put(TURN_ROW_KEY, { ...row, interrupted: [...row.interrupted, index] });
+        log.info('cut model call recorded', { instanceName: this.lmz.instanceName, message, index });
         return 'recorded';
       },
       isCurrent: async () => mine(),
@@ -3076,9 +3103,10 @@ const GALAXY_LAYER_PREFACE = "The app's own AGENTS.md — the layer below the pl
 
 /**
  * One turn, as the deadline races it: it names the agent `Message` it will commit as soon as it
- * has one, and answers whether a decision may follow it.
+ * has one, asks `live()` before it starts anything the deadline may have handed to the next turn,
+ * and answers whether a decision may follow it.
  */
-type TurnBody = (started: (message: string) => void) => Promise<boolean>;
+type TurnBody = (started: (message: string) => void, live: () => boolean) => Promise<boolean>;
 
 /** The post a turn took up: its id, and the `validFrom` of the snapshot of it the turn read. */
 export interface TookUp { id: string; validFrom: string }
