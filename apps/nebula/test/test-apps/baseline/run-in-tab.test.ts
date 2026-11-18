@@ -24,7 +24,7 @@ import type { Snapshot } from '@lumenize/resources';
 import type { RunAnswer } from '@lumenize/resources/frontend';
 import { NO_STUDIO_TAB, TAB_STAYED_SILENT } from '../../../src/galaxy';
 import { RUN_RESULT_MAX_CHARS, RUN_ERROR_MAX_CHARS } from '../../../src/codegen-loop';
-import { universeAdminClient, createSubject, createInvitedClient, addressOfClient, pageOf, ORIGIN } from '../../test-helpers';
+import { universeAdminClient, createSubject, createInvitedClient, addressOfClient, pageOf, ORIGIN, turnCallsOf } from '../../test-helpers';
 import { StudioClientTest } from './index';
 import type { GalaxyTest } from './index';
 
@@ -90,17 +90,18 @@ async function cast(scope: string) {
   };
 }
 
-/** The tool calls on the agent message whose content is `content`, once it has landed. */
+/** The tool calls of the turn whose agent message's content is `content`, once it has landed,
+ *  read from that turn's rounds on the Galaxy `client`'s page is on. */
 async function toolCallsOf(client: StudioClientTest, ids: () => readonly string[], content: string, timeout = 20_000): Promise<ToolCall[]> {
-  let found: Snapshot | undefined;
+  let found: string | undefined;
   await vi.waitFor(async () => {
     for (const id of ids()) {
       const snap = await client.resources.read('Message', id) as Snapshot | null;
-      if (snap && snap.meta.recordedClaims.sub === NEBULA_SUB && (snap.value as { content: string }).content === content) found = snap;
+      if (snap && snap.meta.recordedClaims.sub === NEBULA_SUB && (snap.value as { content: string }).content === content) found = id;
     }
     expect(found).toBeDefined();
   }, { timeout, interval: 250 });
-  return (found!.value as { codegen: { toolCalls: ToolCall[] } }).codegen.toolCalls;
+  return await turnCallsOf(client, client.claims!.aud, found!) as ToolCall[];
 }
 
 const turnUnderWay = (scope: string) => vi.waitFor(() => expect(entries.some((e) =>

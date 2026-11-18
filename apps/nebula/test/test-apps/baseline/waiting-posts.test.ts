@@ -25,7 +25,8 @@ import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
-import { universeAdminClient, createSubject, createInvitedClient } from '../../test-helpers';
+import { universeAdminClient, createSubject, createInvitedClient, turnCallsOf } from '../../test-helpers';
+import type { TurnCall } from '../../../src/participants';
 import { StudioClientTest } from './index';
 import type { GalaxyTest } from './index';
 
@@ -92,7 +93,6 @@ const someone = () => `friend-${crypto.randomUUID().slice(0, 8)}@example.com`;
 /** What a turn's message says when the post it took up changed while it worked. */
 const POST_MOVED = 'The post I was working on was changed while I worked, so I stopped. I will take it up again as it reads now.';
 const NOT_AN_ADMIN = 'Inviting into this app needs one of its admins, and the person this turn is working for is not one. Say so, and ask an admin in the chat to ask for the invite.';
-type ToolCalls = { codegen: { toolCalls: Array<{ name: string; args?: Record<string, unknown>; result?: Record<string, unknown>; error?: string; post?: string; claims?: { sub: string } }> } };
 
 /** Post a Message at an id the test chose, so a script written beforehand can name it. */
 async function post(client: StudioClientTest, id: string, content: string, extra: Record<string, unknown> = {}): Promise<void> {
@@ -102,15 +102,19 @@ async function post(client: StudioClientTest, id: string, content: string, extra
   expect(out.kind).toBe('committed');
 }
 
-/** Every agent message in the thread, by its content. */
-async function agentMessages(client: StudioClientTest, ids: readonly string[]): Promise<Map<string, Snapshot>> {
-  const out = new Map<string, Snapshot>();
+/** Every agent message in the thread, by its content, each with its id. */
+async function agentMessages(client: StudioClientTest, ids: readonly string[]): Promise<Map<string, Snapshot & { id: string }>> {
+  const out = new Map<string, Snapshot & { id: string }>();
   for (const id of ids) {
     const snap = await client.resources.read('Message', id) as Snapshot | null;
-    if (snap && snap.meta.recordedClaims.sub === NEBULA_SUB) out.set((snap.value as { content: string }).content, snap);
+    if (snap && snap.meta.recordedClaims.sub === NEBULA_SUB) out.set((snap.value as { content: string }).content, { ...snap, id });
   }
   return out;
 }
+
+/** The calls of the turn that committed `message`, read from its rounds as `client` may. */
+const callsOf = (client: StudioClientTest, scope: string, message: { id: string }): Promise<TurnCall[]> =>
+  turnCallsOf(client, scope, message.id);
 
 /**
  * Resolve once the turn now starting at `scope` has read the thread and sent its first request.
@@ -277,7 +281,7 @@ describe('a post edited while its turn runs', () => {
     });
     expect(out.kind).toBe('committed');
   }
-  const valueOf = (snap: Snapshot) => snap.value as { content: string; replyTo?: string; answers?: string[] } & ToolCalls;
+  const valueOf = (snap: Snapshot) => snap.value as { content: string; replyTo?: string; answers?: string[] };
 
   // Mutations: act under the post's current record whatever its `validFrom` → the turn's write
   // lands, under Austen; drop the trigger's check on a taken-up post → the edit starts a second
@@ -306,8 +310,8 @@ describe('a post edited while its turn runs', () => {
     const stopped = valueOf(messages.get(POST_MOVED)!);
     expect([stopped.replyTo, stopped.answers]).toEqual([undefined, undefined]);
     // The write is on record as refused, with no claims, since nothing ran under them.
-    expect(stopped.codegen.toolCalls).toEqual([{
-      name: 'write_file', args: { path: 'src/jennifer.txt', content: 'asked for by Jennifer' },
+    expect(await callsOf(c.j, scope, messages.get(POST_MOVED)!)).toEqual([{
+      round: 1, call: 0, name: 'write_file', args: { path: 'src/jennifer.txt', content: 'asked for by Jennifer' },
       error: 'the post this turn took up was edited or deleted while it ran',
     }]);
     await expect(c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<Galaxy>().readSource('src/jennifer.txt'))).rejects.toThrow();
@@ -316,7 +320,7 @@ describe('a post edited while its turn runs', () => {
     expect(turnLines(scope, 'decision').map((l) => l.postId)).toEqual([j1]);
     // The edited post, worked under its editor, and answered.
     const done = valueOf(messages.get('Done with the edited request.')!);
-    expect(done.codegen.toolCalls.filter((tc) => tc.name === 'write_file').map((tc) => [tc.post, tc.claims?.sub])).toEqual([[j1, c.aSub]]);
+    expect((await callsOf(c.j, scope, messages.get('Done with the edited request.')!)).filter((tc) => tc.name === 'write_file').map((tc) => [tc.post, tc.claims?.sub])).toEqual([[j1, c.aSub]]);
     expect([done.replyTo, done.answers]).toEqual([j1, [j1]]);
     expect(await c.waiting()).toEqual([]);
     c.dispose();
@@ -371,10 +375,11 @@ describe('a post edited while its turn runs', () => {
     await rewrite(c.j, j1, 'Write me two files.');
     await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(2), { timeout: 20_000 });
 
-    const first = valueOf((await agentMessages(c.j, sub.resourceIds)).get(`Done.\n\n${POST_MOVED}`)!);
+    const firstMessage = (await agentMessages(c.j, sub.resourceIds)).get(`Done.\n\n${POST_MOVED}`)!;
+    const first = valueOf(firstMessage);
     expect([first.replyTo, first.answers]).toEqual([undefined, undefined]);
     // The write made before the edit stands: it ran under the snapshot the turn had read.
-    expect(first.codegen.toolCalls.map((tc) => [tc.name, tc.error])).toContainEqual(['write_file', undefined]);
+    expect((await callsOf(c.j, scope, firstMessage)).map((tc) => [tc.name, tc.error])).toContainEqual(['write_file', undefined]);
     c.dispose();
   });
 
@@ -671,7 +676,7 @@ describe('each source commit names whose authority it used', () => {
     // The record on the agent's message: which post the call acted for, and whose claims it ran
     // under, with nothing a client must not be sent.
     const reply = (await agentMessages(c.j, sub.resourceIds)).get('Done, Austen.')!;
-    const [write] = (reply.value as { codegen: { toolCalls: Array<{ name: string; post?: string; claims?: object; result?: { oid?: string } }> } }).codegen.toolCalls;
+    const [write] = (await callsOf(c.j, scope, reply)) as Array<{ name: string; post?: string; claims?: object; result?: { oid?: string } }>;
     expect(write!.post).toBe(a1);
     expect(write!.claims).toEqual({ sub: c.aSub, profileId: c.aProfile, act: AGENT });
     // The commit that call made: Austen's authority, the agent's hand.
@@ -727,9 +732,9 @@ describe('a post whose turn an eviction cut off', () => {
       [j1, { sub: c.jSub, profileId: c.jProfile, act: AGENT }],
     ]);
     const built = (await agentMessages(c.j, sub.resourceIds)).get('Jennifer, your wishlist is built.')!;
-    const value = built.value as { replyTo?: string; answers?: string[] } & ToolCalls;
+    const value = built.value as { replyTo?: string; answers?: string[] };
     expect([value.replyTo, value.answers]).toEqual([j1, [j1]]);
-    expect(value.codegen.toolCalls.filter((tc) => tc.name === 'write_file').map((tc) => [tc.post, tc.claims?.sub, tc.error])).toEqual([[j1, c.jSub, undefined]]);
+    expect((await callsOf(c.j, scope, built)).filter((tc) => tc.name === 'write_file').map((tc) => [tc.post, tc.claims?.sub, tc.error])).toEqual([[j1, c.jSub, undefined]]);
     const commits = entries.filter((e) => e.namespace === 'nebula.Galaxy.writeSource' && e.data?.instanceName === scope)
       .map((e) => [e.data!.path, (e.data!.recordedClaims as { sub: string }).sub, (e.data!.recordedClaims as { act?: { sub: string } }).act?.sub]);
     expect(commits).toEqual([['src/wishlist.txt', c.jSub, NEBULA_SUB]]);
@@ -802,8 +807,8 @@ describe('the agent invites, under the claims of the post its turn took up', () 
     await new Promise((r) => setTimeout(r, 1200));
 
     const messages = await agentMessages(c.j, sub.resourceIds);
-    const calls = (messages.get('Both invites are on their way.')!.value as ToolCalls).codegen.toolCalls;
-    expect(calls.map((tc) => [tc.name, tc.result?.as, tc.claims?.sub])).toEqual([
+    const calls = await callsOf(c.j, scope, messages.get('Both invites are on their way.')!);
+    expect(calls.map((tc) => [tc.name, (tc.result as { as?: string } | undefined)?.as, tc.claims?.sub])).toEqual([
       ['invite', 'collaborator', c.jSub], ['invite', 'admin', c.jSub], ['mark_complete', undefined, undefined],
     ]);
     // A collaborator: a plain member of the app, and the admin of its `.dev` workspace.
@@ -853,7 +858,7 @@ describe('the agent invites, under the claims of the post its turn took up', () 
     expect(await adminAt()).toBe(false);
     await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).has('Invited.')).toBe(true), { timeout: 20_000 });
 
-    const [invite] = ((await agentMessages(c.j, sub.resourceIds)).get('Invited.')!.value as ToolCalls).codegen.toolCalls;
+    const [invite] = await callsOf(c.j, scope, (await agentMessages(c.j, sub.resourceIds)).get('Invited.')!);
     expect([invite!.name, invite!.error, invite!.post, invite!.claims?.sub]).toEqual(['invite', undefined, m1, morgan.payload.sub]);
     await vi.waitFor(async () => expect((await membershipsOf(friend)).map(([at]) => at)).toEqual([scope, `${scope}.dev`]), { timeout: 15_000 });
     // Nothing was posted about a failure: the turn's message is the agent's only one.
@@ -884,10 +889,10 @@ describe('the agent invites, under the claims of the post its turn took up', () 
     await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(3), { timeout: 20_000 });
 
     const reply = (await agentMessages(c.j, sub.resourceIds)).get('Austen, I cannot invite your friend: that needs an admin of the app.')!;
-    expect((reply.value as ToolCalls).codegen.toolCalls[0]).toMatchObject({ name: 'invite', error: NOT_AN_ADMIN });
+    const [refused] = await callsOf(c.j, scope, reply);
+    expect(refused).toMatchObject({ name: 'invite', error: NOT_AN_ADMIN });
     // The refused call still records whose claims it ran under. Mutation: record a failed
     // call without them → `post` and `claims` are absent.
-    const refused = (reply.value as ToolCalls).codegen.toolCalls[0]!;
     expect([refused.post, refused.claims?.sub]).toEqual([a1, c.aSub]);
     expect(await membershipsOf(friend)).toEqual([]);
     c.dispose();
@@ -909,7 +914,7 @@ describe('the agent invites, under the claims of the post its turn took up', () 
 
     const messages = await agentMessages(c.j, sub.resourceIds);
     expect([...messages.keys()]).toEqual(['I cannot invite them: that needs an admin of the app.']);
-    expect((messages.values().next().value!.value as ToolCalls).codegen.toolCalls[0]).toMatchObject({ name: 'invite', error: NOT_AN_ADMIN });
+    expect((await callsOf(c.j, scope, messages.values().next().value!))[0]).toMatchObject({ name: 'invite', error: NOT_AN_ADMIN });
     expect(await membershipsOf(friend)).toEqual([]);
     c.dispose();
   });

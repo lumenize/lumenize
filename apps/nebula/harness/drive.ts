@@ -65,6 +65,7 @@ import * as buildBox from './scenarios/build-box';
 import * as fourPartyChat from './scenarios/four-party-chat';
 import * as waitingPostsAnswered from './scenarios/waiting-posts-answered';
 import * as postEditedMidTurn from './scenarios/post-edited-mid-turn';
+import * as roundsAsTheyLand from './scenarios/rounds-as-they-land';
 import * as closingStep from './scenarios/closing-step';
 import * as agentInvites from './scenarios/agent-invites';
 import * as loginTwoMemberships from './scenarios/login-two-memberships';
@@ -193,6 +194,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'four-party-chat': fourPartyChat,        // HEADLINE — owner + coach + invited collaborator + Nebula, one thread, attributed (no Docker)
   'waiting-posts-answered': waitingPostsAnswered, // two people post during one turn; each post is worked under its own poster's recorded claims (no Docker)
   'post-edited-mid-turn': postEditedMidTurn, // a post edited while its turn runs is not acted on and not marked answered (no Docker)
+  'rounds-as-they-land': roundsAsTheyLand, // a turn's rounds are stored by the agent as it runs, before its message, and a rebuild of them is a request the provider takes (no Docker)
   'closing-step': closingStep,              // a post that arrives mid-turn is read by that turn's closing step, offered no tool that acts (no Docker)
   'agent-invites': agentInvites,            // the agent invites under the asker's claims; only an app's admin can; outcomes are posted to the chat (no Docker)
   // ── prove-then-choose: the login re-order, driven end to end on real mail (no Docker) ──────────

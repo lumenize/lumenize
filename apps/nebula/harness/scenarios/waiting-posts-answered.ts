@@ -57,6 +57,7 @@ import { bootStudioVite, launchChromium, instrumentedPage } from '../lib/browser
 import { chatCast } from '../lib/chat-cast';
 import { debugLines, waitForDebugLines, type DebugLine } from '../lib/stdio';
 import { testSlug } from '../lib/test-scopes';
+import { turnCallsOf } from '../lib/turn-calls';
 
 /** Chat and auth only: the requests ask for a file to be read and for words, never for code. */
 export const needsContainer = false;
@@ -66,10 +67,7 @@ const SCOPE = `${testSlug('waits')}.app`;
 const TURN_TIMEOUT_MS = 240_000;
 const chatQuery = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 
-type Value = {
-  content?: string; replyTo?: string; answers?: string[];
-  codegen?: { toolCalls?: Array<{ name: string; error?: string; post?: string; claims?: Record<string, unknown> & { sub?: string; act?: { sub?: string } } }> };
-};
+type Value = { content?: string; replyTo?: string; answers?: string[] };
 /** The tools that act, each of which runs under a post's recorded claims and records it. */
 const LOOP_TOOLS = ['read_file', 'write_file', 'edit_file', 'build', 'invite'];
 
@@ -238,8 +236,9 @@ export async function run(stack: DevStack): Promise<void> {
     // ── LIMB 6: each tool call's record, and Studio's mark for it ──
     // Every loop tool call that ran, whether or not it recorded anything: one with no record
     // is the failure, so the list cannot be built from the records.
-    const recorded = agentMessages.flatMap(({ snap }) => (snap.value as Value).codegen?.toolCalls ?? [])
-      .filter((call) => LOOP_TOOLS.includes(call.name) && call.error === undefined);
+    const recorded = (await Promise.all(agentMessages.map(({ id }) => turnCallsOf(jennifer.client, id)))).flat()
+      .filter((call) => LOOP_TOOLS.includes(call.name) && call.error === undefined)
+      .map((call) => call as typeof call & { claims?: { sub?: string; act?: { sub?: string } } });
     for (const call of recorded) {
       assert.ok(call.post && call.claims, `a ${call.name} that ran must record the post it acted for and the claims it ran under, and recorded ${JSON.stringify({ post: call.post, claims: call.claims })}`);
       assert.equal(call.claims!.sub, writerOf(call.post!), `a ${call.name} for post ${call.post} must record its poster's claims`);

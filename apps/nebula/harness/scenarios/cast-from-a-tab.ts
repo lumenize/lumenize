@@ -46,6 +46,7 @@ import type { Frame, Page } from 'playwright';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
+import { turnCallsOf } from '../lib/turn-calls';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
 import { askFrame } from '../lib/ask-frame';
 import { refreshAccessToken } from '../../test/lib/email-login';
@@ -109,7 +110,8 @@ type BuildReportLike = { bundle: { indexSha256?: string }; preview: { refreshed:
 type RunAnswer = { ok: boolean; value?: any; error?: string };
 type Heard = { origin: string; ok: boolean };
 type ToolCall = { name: string; args?: Record<string, unknown>; result?: { ok?: boolean }; error?: string; claims?: { sub?: string } };
-type Value = { content?: string; replyTo?: string; codegen?: { toolCalls?: ToolCall[] } };
+/** An agent message's value, with its turn's calls read from the turn's rounds. */
+type Value = { content?: string; replyTo?: string; calls?: ToolCall[] };
 type FrameRead = { origin: string; sub?: string; actSub?: string };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -236,22 +238,22 @@ export async function run(stack: DevStack): Promise<void> {
       const composer = as.page.getByPlaceholder(COMPOSER);
       await composer.fill(text);
       await composer.press('Enter');
-      let reply: Value | undefined;
+      let reply: { id: string; snap: Snapshot } | undefined;
       const landed = await until(TURN_TIMEOUT_MS, async () => {
         const all = await messages();
         const post = all.find(({ snap }) => snap.meta.recordedClaims.sub === as.sub && (snap.value as Value).content === text);
-        reply = post && all.find(({ snap }) => snap.meta.recordedClaims.sub === NEBULA_SUB && (snap.value as Value).replyTo === post.id)?.snap.value as Value | undefined;
+        reply = post && all.find(({ snap }) => snap.meta.recordedClaims.sub === NEBULA_SUB && (snap.value as Value).replyTo === post.id);
         return reply !== undefined;
       });
       assert.ok(landed, `the agent never answered "${text.slice(0, 40)}…"`);
-      return reply!;
+      return { ...(reply!.snap.value as Value), calls: await turnCallsOf(watcher.client, reply!.id) as ToolCall[] };
     };
-    const runsOf = (reply: Value) => (reply.codegen?.toolCalls ?? []).filter((tc) => tc.name === 'run_in_tab');
-    const describe = (reply: Value) => JSON.stringify((reply.codegen?.toolCalls ?? []).map((tc) => [tc.name, tc.args?.tab, tc.result?.ok, tc.error?.slice(0, 160)]));
+    const runsOf = (reply: Value) => (reply.calls ?? []).filter((tc) => tc.name === 'run_in_tab');
+    const describe = (reply: Value) => JSON.stringify((reply.calls ?? []).map((tc) => [tc.name, tc.args?.tab, tc.result?.ok, tc.error?.slice(0, 160)]));
     /** Recorded, never gated: what the model ran in each tab and what came back. */
     const record = (turn: string, reply: Value): void => {
       console.error(`  · ${turn} said: ${(reply.content ?? '').slice(0, 300)}`);
-      for (const tc of reply.codegen?.toolCalls ?? []) {
+      for (const tc of reply.calls ?? []) {
         if (tc.name !== 'run_in_tab') { console.error(`  · ${turn} ${tc.name} ${JSON.stringify(tc.args?.path ?? '')}${tc.error ? ` ERROR ${tc.error.slice(0, 200)}` : ''}`); continue; }
         console.error(`  · ${turn} run_in_tab ${String(tc.args?.tab)}: ${String(tc.args?.code).replace(/\s+/g, ' ').slice(0, 500)}`);
         console.error(`      → ${(tc.error ? `TOOL ERROR ${tc.error}` : JSON.stringify(tc.result)).slice(0, 400)}`);

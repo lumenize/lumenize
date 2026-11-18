@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { NEBULA_SUB } from '@lumenize/mesh/client';
-import { messageByline, toolCallMarks, waitingPosts } from '../src/participants';
+import { messageByline, toolCallMarks, turnCalls, roundsOf, waitingPosts } from '../src/participants';
 import type { ParticipantRef } from '../src/participants';
 import { CODEGEN_TOOLS, DECISION_TOOLS, MESSAGE_ONLY_TOOLS, TOOL_CONTRACT, unknownToolArgKeys } from '../src/codegen-loop';
 import type { LoopToolDeps } from '../src/codegen-loop';
@@ -95,25 +95,43 @@ describe('what the prompt says about waiting posts', () => {
   });
 });
 
-describe('toolCallMarks', () => {
+describe('toolCallMarks and turnCalls, read from a turn\'s rounds', () => {
   const AGENT = { sub: NEBULA_SUB, profileId: NEBULA_SUB };
-  const value = { codegen: { toolCalls: [
-    { name: 'read_file', post: 'j1', claims: { sub: 'jennifer', profileId: 'p-jennifer', act: AGENT } },
-    { name: 'mark_complete' },
-    { name: 'write_file', post: 'a1', claims: { sub: 'austen', profileId: 'p-austen', act: AGENT } },
-  ] } };
+  const raw = (name: string, args: string, id: string) => ({ id, type: 'function', function: { name, arguments: args } });
+  const byAgent = { recordedClaims: AGENT };
+  // Out of order, as a query may answer them.
+  const rounds = [
+    { value: { index: 2, text: 'writing', calls: [
+      { raw: raw('write_file', '{"path":"a.vue","content":"x"}', 'w1'), post: 'a1', claims: { sub: 'austen', profileId: 'p-austen', act: AGENT }, result: { written: 'a.vue' } },
+    ] }, meta: byAgent },
+    { value: { index: 1, text: 'reading', calls: [
+      { raw: raw('read_file', '{"path":"AGENTS.md"}', 'r1'), post: 'j1', claims: { sub: 'jennifer', profileId: 'p-jennifer', act: AGENT }, result: { path: 'AGENTS.md' } },
+      { raw: raw('mark_complete', '{ not json', 'c1'), error: 'malformed tool arguments' },
+    ] }, meta: byAgent },
+  ];
 
-  // Mutation: build each mark from the message's own record → every mark names the agent alone.
-  it('marks each tool call that recorded its claims, the agent first and the person it acted for last', () => {
-    expect(toolCallMarks(AGENT, value).map((m) => [m.index, m.name, m.post, m.parties.map((p) => p.sub)])).toEqual([
-      [0, 'read_file', 'j1', [NEBULA_SUB, 'jennifer']],
-      [2, 'write_file', 'a1', [NEBULA_SUB, 'austen']],
+  // Mutation: key a mark by its place in the list rather than its round and call → `0`, `1`.
+  it('marks each tool call that recorded its claims, by round and call, the agent first and the person it acted for last', () => {
+    expect(toolCallMarks(rounds).map((m) => [m.index, m.name, m.post, m.parties.map((p) => p.sub)])).toEqual([
+      ['1.0', 'read_file', 'j1', [NEBULA_SUB, 'jennifer']],
+      ['2.0', 'write_file', 'a1', [NEBULA_SUB, 'austen']],
     ]);
   });
 
-  // Mutation: read the value whoever wrote the message → a person's forged record is marked.
-  it('marks nothing on a message a person wrote, whatever its value carries', () => {
-    expect(toolCallMarks({ sub: 'austen' }, value)).toEqual([]);
+  // Mutation: read every round whoever wrote it → the round an admin wrote over is marked.
+  it('marks nothing on a round whose current snapshot a person wrote, whatever its value carries', () => {
+    const overwritten = [{ ...rounds[0]!, meta: { recordedClaims: { sub: 'admin' } } }, rounds[1]!];
+    expect(toolCallMarks(overwritten).map((m) => m.index)).toEqual(['1.0']);
+  });
+
+  // Mutation: keep the order the query answered in → the write comes first.
+  it('lists a turn\'s calls in round order, each with its arguments parsed, or as written when they do not parse', () => {
+    expect(turnCalls(rounds).map((c) => [c.round, c.call, c.name, c.args, c.error])).toEqual([
+      [1, 0, 'read_file', { path: 'AGENTS.md' }, undefined],
+      [1, 1, 'mark_complete', '{ not json', 'malformed tool arguments'],
+      [2, 0, 'write_file', { path: 'a.vue', content: 'x' }, undefined],
+    ]);
+    expect(roundsOf('m1')).toEqual({ typeName: 'Round', filter: { message: 'm1' } });
   });
 });
 

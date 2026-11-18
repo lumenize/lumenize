@@ -38,6 +38,7 @@ import type { Snapshot } from '@lumenize/resources/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
+import { turnCallsOf } from '../lib/turn-calls';
 import { debugLines } from '../lib/stdio';
 
 /** `nebula.Galaxy.model` writes only when Workers AI refuses a call, with the whole body the reply cuts short. */
@@ -88,11 +89,12 @@ export async function run(stack: DevStack): Promise<void> {
     // The completion observation: a SECOND Message appears whose replyTo is the posted id.
     const deadline = Date.now() + TURN_TIMEOUT_MS;
     let agent: Snapshot | undefined;
+    let agentId = '';
     while (Date.now() < deadline && !agent) {
       for (const id of sub.resourceIds) {
         if (id === userMessageId) continue;
         const snap = await driver.client.resources.read('Message', id) as Snapshot | null;
-        if (snap && (snap.value as { replyTo?: string }).replyTo === userMessageId) { agent = snap; break; }
+        if (snap && (snap.value as { replyTo?: string }).replyTo === userMessageId) { agent = snap; agentId = id; break; }
       }
       if (!agent) await new Promise((r) => setTimeout(r, 2000));
     }
@@ -132,9 +134,9 @@ export async function run(stack: DevStack): Promise<void> {
     // per-round cost bookkeeping (rounds; build tool calls = container cycles; the
     // build-granularity check record). Never gated: a threshold invented before anyone
     // has felt loop latency is a number to argue with, not evidence.
-    const cg = (agent.value as { codegen?: { rounds?: number; toolCalls?: Array<{ name: string }>; build?: { checked: string[]; findings: string[] } } }).codegen;
+    const cg = (agent.value as { codegen?: { rounds?: number; build?: { checked: string[]; findings: string[] } } }).codegen;
     if (cg) {
-      const buildCalls = (cg.toolCalls ?? []).filter((t) => t.name === 'build').length;
+      const buildCalls = (await turnCallsOf(driver.client, agentId)).filter((t) => t.name === 'build').length;
       console.error(`[studio-codegen-rest] rounds=${cg.rounds} buildCycles=${buildCalls} ` +
         `checked=${JSON.stringify(cg.build?.checked ?? [])} findings=${(cg.build?.findings ?? []).length}`);
     }

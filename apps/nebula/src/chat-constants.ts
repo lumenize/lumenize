@@ -68,7 +68,7 @@ export const GALAXY_TREE_SEED: TreeSeed = {
  * in its Workspace repo. The chat loader's bundle id derives from it, so a changed seed
  * row MUST come with a new label (`scripts/gen-validator-seeds.ts`).
  */
-export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v5';
+export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v6';
 
 /**
  * The Chat/Message ontology, in source (ADR-001 — TS types ARE the schema).
@@ -95,9 +95,9 @@ export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v5';
  * inline literal is the compiler's one value-object vehicle. (Named non-resource
  * value objects are a parser-validator feature gap — tracked as package feedback.)
  *
- * Each `toolCalls` entry can name the post it acted for and the wire form of the claims it ran
- * under: `sub`, `act` and `profileId`, never `access` or `aud`, which stay off anything a
- * client is sent (ADR-016).
+ * `codegen` is the turn's summary. Its calls are on its rounds (`Round`, below), each naming the
+ * post it acted for and the wire form of the claims it ran under: `sub`, `act` and `profileId`,
+ * never `access` or `aud`, which stay off anything a client is sent (ADR-016).
  *
  * `codegen.build` replaced the per-write `gate` when the compilers left the Worker
  * (tasks/archive/nebula-move-compilers-out-of-the-worker.md): a write does no work at all now,
@@ -149,11 +149,6 @@ export const CHAT_MESSAGE_TYPES = [
       stop: string;
       appliedPaths: string[];
       build?: { checked: string[]; findings: string[] };
-      toolCalls: Array<{
-        name: string; args?: unknown; result?: unknown; error?: string;
-        post?: string;
-        claims?: { sub: string; profileId?: string; act?: unknown };
-      }>;
     };
     answers?: Message[];
   }`,

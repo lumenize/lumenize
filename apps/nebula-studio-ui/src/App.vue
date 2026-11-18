@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { viewState, navigate, leaveTo, pageScope, scopeUrl, personaUrl, platformUrl } from "./view-state";
-import { ref, shallowRef, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, shallowRef, shallowReactive, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { Send, RotateCw, Loader2, User, UserRound, LogOut, Home, Mail, Settings, X, Plus, ExternalLink, Copy, Check } from "lucide-vue-next";
 import UniverseView from "./UniverseView.vue";
 import AppSettings from "./AppSettings.vue";
@@ -8,8 +8,8 @@ import ConfirmDelete from "./ConfirmDelete.vue";
 import HostWait from "./HostWait.vue";
 import { needsFreshLogin } from "./auth/home-logic";
 import { createNebulaClient } from "@lumenize/resources/frontend";
-import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, toolCallMarks, postAnswered, messageByline, startTurn, signalTurn, signalOtherTurn, settleTurn, evaluateTurn, deriveTurnDisplay, previewLocked, streamSteps, formatElapsed, decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS, TabRunner, ME_TAB } from "@lumenize/nebula/client";
-import type { StoredMessage } from "@lumenize/nebula/client";
+import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, deriveKind, toolCallMarks, roundsOf, postAnswered, messageByline, startTurn, signalTurn, signalOtherTurn, settleTurn, evaluateTurn, deriveTurnDisplay, previewLocked, streamSteps, formatElapsed, decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS, TabRunner, ME_TAB } from "@lumenize/nebula/client";
+import type { StoredMessage, ToolCallMark } from "@lumenize/nebula/client";
 import type { FactoryResult } from "@lumenize/resources/frontend";
 import type { TurnLiveness, PreviewFrameState, PreviewFrameEvent, PreviewFrameAction, CastEntry, TabMessage } from "@lumenize/nebula/client";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
@@ -154,7 +154,7 @@ type ThreadMsg = {
   content: string; thought?: string;
   /** One per tool call the agent made under a person's claims: which tool, and whose authority it
    *  used, read from the record the Galaxy wrote as the call ran, never from the reply's text. */
-  marks: Array<{ index: number; name: string; post: string; sub: string; who: string }>;
+  marks: Array<{ index: string; name: string; post: string; sub: string; who: string }>;
 };
 /** What a hover reveals: the full name, when the person set one and it is not what the byline
  *  already shows. A `title` rather than a hover-only widget, so assistive tech and keyboards get
@@ -205,7 +205,7 @@ const thread = computed<ThreadMsg[]>(() => {
       })),
       content: String(snap.value.content ?? ""),
       thought: typeof snap.value.thought === "string" ? snap.value.thought : undefined,
-      marks: toolCallMarks(at, snap.value as Parameters<typeof toolCallMarks>[1]).map((mark) => {
+      marks: (marksByMessage.get(id) ?? []).map((mark) => {
         const person = mark.parties[mark.parties.length - 1]!;
         return { index: mark.index, name: mark.name, post: mark.post, sub: person.sub, who: participantName(person) };
       }),
@@ -290,7 +290,32 @@ const streamElapsed = computed(() => {
 });
 const streamProgress = computed(() => streamSteps(streaming.value?.text ?? ""));
 const nebula = shallowRef<FactoryResult<StudioClient> | null>(null);
-
+/**
+ * Each agent message's marks, by its id, read once from that turn's rounds when the message
+ * appears. A turn's rounds are all stored before its message commits and change no more, so a
+ * read once shows what a subscription would, and holds no live query open per message.
+ */
+const marksByMessage = shallowReactive(new Map<string, ToolCallMark[]>());
+const marksAsked = new Set<string>();
+const agentMessageIds = computed(() => {
+  const messages = (nebula.value?.store.resources as Record<string, Record<string, { meta?: { recordedClaims?: Parameters<typeof deriveKind>[0] } }>> | undefined)?.Message;
+  return messageIds.value.filter((id) => {
+    const at = messages?.[id]?.meta?.recordedClaims;
+    return at !== undefined && deriveKind(at) === "agent";
+  });
+});
+watch(agentMessageIds, (ids) => {
+  const client = nebula.value?.client;
+  if (!client) return;
+  for (const id of ids) {
+    if (marksAsked.has(id)) continue;
+    marksAsked.add(id);
+    client.resources.query(roundsOf(id)).then(
+      ({ snapshots }) => { marksByMessage.set(id, toolCallMarks(snapshots)); },
+      () => { marksAsked.delete(id); },
+    );
+  }
+});
 // account / hierarchy
 const menuOpen = ref(false);
 

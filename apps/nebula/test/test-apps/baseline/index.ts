@@ -68,7 +68,10 @@ import type { ResourcesResults } from '@lumenize/resources';
 import type { NebulaClientConfig, OrgTreeState, PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload, ResourceDenied } from '@lumenize/resources';
 import type { StudioClientConfig, TookUp } from '@lumenize/nebula';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '../../../src/chat-constants';
-import type { ChatMessage, ModelParams, BuildReport } from '../../../src/codegen-loop';
+import type { ChatMessage, ModelParams, BuildReport, LoopToolDeps } from '../../../src/codegen-loop';
+import { runCodegenLoop, assembleCodegenPrompt } from '../../../src/codegen-loop';
+import { TURN_ROW_KEY } from '../../../src/galaxy';
+import type { TurnRow } from '../../../src/galaxy';
 import type { CertificateApi, CertificatePack, CertificateResult } from '../../../src/certificate';
 
 /**
@@ -455,7 +458,28 @@ export class StarTest extends Star {
 // exposed for tests that can't run the wrangler-dev-only `chat` codegen loop.
 // ============================================
 
+/** The keys the test Galaxy keeps its levers under, which a reset leaves. */
+const KV_SCRIPT = 'test:chatScript';
+const KV_SEEN_MESSAGES = 'test:seenMessages:';
+const KV_SEEN_TOOLS = 'test:seenTools:';
+const KV_MODEL_CALLS = 'test:modelCalls';
+const KV_HOLD_MODEL_CALL = 'test:holdModelCall';
+const KV_HOLD_BUILD = 'test:holdBuild';
+const KV_BUILD_FAULTS = 'test:buildFaults';
+const KV_STORE_FAULTS = 'test:storeFaults';
+const KV_DEADLINE = 'test:deadline';
+/** What a probe's model call throws to end an invocation between rounds. */
+const PAUSED = 'paused between rounds (test)';
+
 export class GalaxyTest extends Galaxy {
+  /** What each model request since the last take recorded under `prefix`, oldest first, then cleared. */
+  #takeSeen<T>(prefix: string): T[] {
+    const kv = this.ctx.storage.kv;
+    const entries = [...kv.list<T>({ prefix })];
+    for (const [key] of entries) kv.delete(key);
+    return entries.map(([, seen]) => seen);
+  }
+
   /** Test-only: a call target that checks nothing past the passage step. */
   @mesh()
   admitted(): string {
@@ -539,21 +563,32 @@ export class GalaxyTest extends Galaxy {
   // entry sleeps then falls through — the lever for spanning a generation across
   // commits (the single-flight tests). The REAL container drive is the build-box /live
   // scenario; nothing here reaches ctx.container (absent under vitest-plugin anyway).
-  #chatScript: unknown[] = [];
-  /** Every `messages` array handed to the model, across turns — the prompt as assembled,
-   *  so a test can read a turn's system layer (`messages[0]`) and its request. Cleared by
-   *  the reader. */
-  #seenMessages: unknown[][] = [];
-  /** The tool NAMES handed to the model per call — the full set, on every turn. */
-  #seenToolNames: string[][] = [];
+  //
+  // The script, the build faults, the deadline, the holds and the write faults live in
+  // `ctx.storage.kv`, which `ctx.abort()` leaves, so a test resets the Galaxy mid-turn and the
+  // next run reads them. Only a held call's own wait is in memory, which a reset ends.
+  /** Every model call this Galaxy has made, counted across resets. */
+  #modelCalls(): number { return this.ctx.storage.kv.get<number>(KV_MODEL_CALLS) ?? 0; }
+  /** The waits held calls and builds are parked on, released by {@link releaseForTest}. */
+  #held: Array<() => void> = [];
   protected override async runModel(_model: string, body: Record<string, unknown>): Promise<unknown> {
+    const kv = this.ctx.storage.kv;
+    const n = this.#modelCalls() + 1;
+    kv.put(KV_MODEL_CALLS, n);
     if (Array.isArray(body.messages)) {
-      this.#seenMessages.push(body.messages.map((m) => ({ ...(m as object) })));
       const tools = Array.isArray(body.tools) ? body.tools as Array<{ function?: { name?: string } }> : [];
-      this.#seenToolNames.push(tools.map((t) => t.function?.name ?? '?'));
+      const at = String(n).padStart(6, '0');
+      kv.put(`${KV_SEEN_MESSAGES}${at}`, body.messages.map((m) => ({ ...(m as object) })));
+      kv.put(`${KV_SEEN_TOOLS}${at}`, tools.map((t) => t.function?.name ?? '?'));
+    }
+    if (kv.get<number>(KV_HOLD_MODEL_CALL) === n) {
+      debug('nebula.GalaxyTest.hold').info('model call held', { instanceName: this.lmz.instanceName, call: n });
+      await new Promise<void>((resolve) => this.#held.push(resolve));
     }
     for (;;) {
-      const next = this.#chatScript.shift();
+      const script = kv.get<unknown[]>(KV_SCRIPT) ?? [];
+      const next = script.shift();
+      kv.put(KV_SCRIPT, script);
       if (next === undefined) throw new Error('GalaxyTest chat script exhausted');
       const delay = (next as { __delayMs?: number }).__delayMs;
       if (typeof delay === 'number') {
@@ -564,16 +599,125 @@ export class GalaxyTest extends Galaxy {
     }
   }
   /** The build job, faked as the real one behaves where the Galaxy reads it (`fake-build.ts`),
-   *  so the landing decision and the landing above it run unchanged. */
+   *  so the landing decision and the landing above it run unchanged. A held build waits here,
+   *  as a long build would, until {@link releaseForTest}. */
   protected override async build(opts: { ontology?: { version: string } } = {}): Promise<BuildReport> {
-    return fakeBuildJob(this.workspaceFs(), opts, this.#buildFaults);
+    if (this.ctx.storage.kv.get<boolean>(KV_HOLD_BUILD)) {
+      this.ctx.storage.kv.delete(KV_HOLD_BUILD);
+      debug('nebula.GalaxyTest.hold').info('build held', { instanceName: this.lmz.instanceName });
+      await new Promise<void>((resolve) => this.#held.push(resolve));
+    }
+    return fakeBuildJob(this.workspaceFs(), opts, this.ctx.storage.kv.get<BuildFaults>(KV_BUILD_FAULTS) ?? {});
   }
 
-  #buildFaults: BuildFaults = {};
-  /** What the next builds do wrong, until set again. Ephemeral, as the fake is. */
+  /** What the next builds do wrong, until set again. */
   @mesh(requireDominionHere)
   setBuildFaultsForTest(faults: BuildFaults): void {
-    this.#buildFaults = faults;
+    this.ctx.storage.kv.put(KV_BUILD_FAULTS, faults);
+  }
+
+  /** Hold the model call this Galaxy makes `n`th, counted across resets, until released. */
+  @mesh(requireDominionHere)
+  holdModelCallForTest(n: number): void {
+    this.ctx.storage.kv.put(KV_HOLD_MODEL_CALL, n);
+  }
+
+  /** Hold the next build until released. */
+  @mesh(requireDominionHere)
+  holdNextBuildForTest(): void {
+    this.ctx.storage.kv.put(KV_HOLD_BUILD, true);
+  }
+
+  /** Release every held call and build. */
+  @mesh(requireDominionHere)
+  releaseForTest(): void {
+    for (const release of this.#held.splice(0)) release();
+  }
+
+  /** How many model calls this Galaxy has made, across resets. */
+  @mesh(requireDominionHere)
+  modelCallsForTest(): number {
+    return this.#modelCalls();
+  }
+
+  /** Make a round write or a blob read throw, until set again. */
+  @mesh(requireDominionHere)
+  setStoreFaultsForTest(faults: { roundWrite?: boolean; blobRead?: boolean }): void {
+    this.ctx.storage.kv.put(KV_STORE_FAULTS, faults);
+  }
+
+  /** A turn's round store is what writes through here, so a round write fault fails each of them. */
+  protected override writeAsAgent(ops: Record<string, OperationDescriptor>): Promise<TransactionResult> {
+    if (this.ctx.storage.kv.get<{ roundWrite?: boolean }>(KV_STORE_FAULTS)?.roundWrite) {
+      return Promise.reject(new Error('injected round write failure (test)'));
+    }
+    return super.writeAsAgent(ops);
+  }
+
+  protected override readBlob(oid: string): Promise<string> {
+    if (this.ctx.storage.kv.get<{ blobRead?: boolean }>(KV_STORE_FAULTS)?.blobRead) {
+      return Promise.reject(new Error('injected blob read failure (test)'));
+    }
+    return super.readBlob(oid);
+  }
+
+  /** The running turn's row, as stored. */
+  @mesh(requireDominionHere)
+  turnRowForTest(): ReturnType<Galaxy['turnRow']> {
+    return this.turnRow();
+  }
+
+  /**
+   * Run the loop over this Galaxy's own round store and blob store, with the scripted model and
+   * the real tools under the claims of a post this caller writes: straight through, or as a fresh
+   * invocation per round, each answering one model call and stopping at its next. A row naming
+   * `message` stands in for the one a turn writes, since the store writes only for the turn a row
+   * names, and goes when the run ends. No trigger is involved, so no commit follows.
+   */
+  @mesh(requireDominionHere)
+  async runOverStoreForTest(message: string, request: string, script: unknown[], perRound: boolean): Promise<{ stop: string; invocations: number; params: unknown[] }> {
+    const post = await this.postAsCallerForTest(crypto.randomUUID(), request);
+    this.ctx.storage.kv.put(KV_SCRIPT, script);
+    const initial = assembleCodegenPrompt({ systemBundles: ['sys'], userRequest: request });
+    const row: TurnRow = { prompt: [initial.system, initial.user], post, message, read: {}, interrupted: [] };
+    this.ctx.storage.kv.put(TURN_ROW_KEY, row);
+    const entries = this.loopToolDeps();
+    const under = <T>(run: () => T): T => this.actUnder(post, run);
+    const tools: LoopToolDeps = {
+      read_file: (path) => under(() => entries.read_file(path)),
+      write_file: (path, content) => under(() => entries.write_file(path, content)),
+      edit_file: (path, anchor, replacement) => under(() => entries.edit_file(path, anchor, replacement)),
+      build: (opts) => under(() => entries.build(opts)),
+      invite: (email, scopeAdmin) => under(() => entries.invite(email, scopeAdmin)),
+      run_in_tab: (tab, code) => under(() => entries.run_in_tab(tab, code)),
+    };
+    const params: unknown[] = [];
+    for (let invocations = 1; ; invocations++) {
+      let answered = false;
+      const result = await runCodegenLoop(initial, {
+        rounds: this.roundStore(message),
+        blobs: { write: (content) => this.writeBlob(content), read: (oid) => this.readBlob(oid) },
+        callModel: async (messages, modelParams) => {
+          if (perRound && answered) throw new Error(PAUSED);
+          answered = true;
+          params.push(modelParams);
+          return this.callModel(messages, modelParams);
+        },
+        tools,
+        validateToolArgs: async () => ({ ok: true }),
+      });
+      if (!(result.stop === 'error' && result.detail?.includes(PAUSED))) {
+        this.ctx.storage.kv.delete(TURN_ROW_KEY);
+        return { stop: result.stop, invocations, params };
+      }
+    }
+  }
+
+  /** The deadline a test set, read again after a reset. */
+  override async onStart(): Promise<void> {
+    await super.onStart();
+    const deadline = this.ctx.storage.kv.get<number>(KV_DEADLINE);
+    if (deadline !== undefined) this.generationDeadlineMs = deadline;
   }
 
   /** No script seeded → NO turn. Tests that post user Messages without a script assert on
@@ -582,7 +726,7 @@ export class GalaxyTest extends Galaxy {
    *  now commits an error reply (the controlled `error` stop), so the no-turn is explicit. */
   protected override async runTriggeredTurn(post: TookUp, message: string): Promise<void> {
     if (this.#probePosting) return;
-    if (this.#chatScript.length === 0) {
+    if ((this.ctx.storage.kv.get<unknown[]>(KV_SCRIPT) ?? []).length === 0) {
       debug('nebula.GalaxyTest.trigger').debug('no script seeded — the turn is a no-op', { userMessageId: post.id });
       return;
     }
@@ -621,7 +765,7 @@ export class GalaxyTest extends Galaxy {
     // The post is written first, as this caller, so the turn's tools run under the claims the
     // server recorded for it, as they do for any poster.
     const post = await this.postAsCallerForTest(userMessageId, message);
-    this.#chatScript = script;
+    this.ctx.storage.kv.put(KV_SCRIPT, script);
     await this.runTriggeredTurn(post, message);
   }
 
@@ -658,7 +802,7 @@ export class GalaxyTest extends Galaxy {
    *  seeded script is what its generation consumes). Ephemeral by design. */
   @mesh(requireDominionHere)
   seedChatScriptForTest(script: unknown[]): void {
-    this.#chatScript = [...script];
+    this.ctx.storage.kv.put(KV_SCRIPT, [...script]);
   }
 
   /** Whom the Workspace's newest commit names. */
@@ -678,23 +822,20 @@ export class GalaxyTest extends Galaxy {
   @mesh(requireDominionHere)
   setGenerationDeadlineForTest(ms: number): void {
     this.generationDeadlineMs = ms;
+    this.ctx.storage.kv.put(KV_DEADLINE, ms);
   }
 
   /** The prompts the model saw since the last read (one `messages` array per model call),
    *  then cleared. */
   @mesh(requireDominionHere)
   takeSeenMessagesForTest(): unknown[][] {
-    const out = this.#seenMessages;
-    this.#seenMessages = [];
-    return out;
+    return this.#takeSeen<unknown[]>(KV_SEEN_MESSAGES);
   }
 
   /** The tool names each model call carried since the last read, then cleared. */
   @mesh(requireDominionHere)
   takeSeenToolNamesForTest(): string[][] {
-    const out = this.#seenToolNames;
-    this.#seenToolNames = [];
-    return out;
+    return this.#takeSeen<string[]>(KV_SEEN_TOOLS);
   }
 
   /** The row the chat-ontology source answers instead of the platform seed, when a test set one. */

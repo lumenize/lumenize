@@ -9,9 +9,10 @@
  * and nothing here reads it.
  *
  * A message's value is read in the places that say so, and only on a message whose recorded
- * subject is the agent: {@link toolCallMarks}, {@link waitingPosts} and {@link messageByline}. No client can write
- * such a message, since only the Galaxy's own code runs under the agent's claims, so what its
- * value says is the Galaxy's word and never a person's.
+ * subject is the agent: {@link waitingPosts} and {@link messageByline}. {@link toolCallMarks}
+ * reads a round's value on the same terms. No client can write as the agent, since only the
+ * Galaxy's own code runs under the agent's claims, so what such a value says is the Galaxy's word
+ * and never a person's.
  *
  * `kind` is DERIVED, never stored: a stored kind would be a second, client-writable
  * source of truth that can contradict the stamp, and deriving means a future agent type
@@ -92,32 +93,79 @@ export function waitingPosts(thread: readonly ThreadMessage[]): string[] {
 /** What Studio marks one tool call with: the post it acted for, and whose claims it ran under,
  *  in byline order, the agent first and the person it acted for last. */
 export interface ToolCallMark {
-  /** The call's position in the message's `codegen.toolCalls`. */
-  index: number;
+  /** Where the call sits in its turn, `{round}.{call}`: `3.0` is round 3's first call. */
+  index: string;
   name: string;
   post: string;
   parties: ParticipantRef[];
 }
 
 /**
- * The marks for an agent message's tool calls, one per call that recorded the claims it ran
- * under. They attest whose authority each call used: the model also says so in its reply, and
- * only this record, which the Galaxy wrote as the call ran, can be relied on.
- *
- * This is the one place display reads a message's VALUE, and only on a message whose recorded
- * subject is the agent. No client can write such a message, since only the Galaxy's own code
- * runs under the agent's claims, so a person's message carrying a forged `codegen.toolCalls`
- * is given none.
+ * The query that reads one agent message's rounds: `Round where message == id`. Studio's marks
+ * and every other reader of a turn's calls ask it, and it is built only here.
  */
-export function toolCallMarks(
-  recordedClaims: Pick<WireRecordedClaims, 'sub'>,
-  value: { codegen?: { toolCalls?: ReadonlyArray<{ name?: string; post?: string; claims?: WireRecordedClaims }> } } | undefined,
-): ToolCallMark[] {
-  if (recordedClaims.sub !== NEBULA_SUB) return [];
+export function roundsOf(messageId: string): { typeName: 'Round'; filter: { message: string } } {
+  return { typeName: 'Round', filter: { message: messageId } };
+}
+
+/** One call of a turn, read from its round: where it sits, what the model asked for, and what
+ *  it came to. `post`, `claims`, `result` and `error` are absent on a call that never ran. */
+export interface TurnCall {
+  /** Its round's index, from 1. */
+  round: number;
+  /** Its place in the round, from 0. */
+  call: number;
+  name: string;
+  /** The arguments the model wrote, parsed, or the text itself when it did not parse. */
+  args: unknown;
+  result?: unknown;
+  error?: string;
+  post?: string;
+  claims?: WireRecordedClaims;
+}
+
+/** A round as a query answers it: its value and who wrote it. */
+type RoundSnapshot = { value: unknown; meta: { recordedClaims: Pick<WireRecordedClaims, 'sub'> } };
+type StoredCallValue = { raw?: { function?: { name?: string; arguments?: string } }; post?: string; claims?: WireRecordedClaims; result?: unknown; error?: string };
+
+/** Every call of a turn, in order, from its rounds as a query answers them. Reads any round's
+ *  value: a reader that attests only what the agent wrote filters first, as {@link toolCallMarks} does. */
+export function turnCalls(rounds: ReadonlyArray<RoundSnapshot>): TurnCall[] {
+  const values = rounds.map((r) => r.value as { index?: number; calls?: StoredCallValue[] })
+    .filter((v) => typeof v?.index === 'number' && Array.isArray(v.calls))
+    .sort((a, b) => a.index! - b.index!);
+  const out: TurnCall[] = [];
+  for (const round of values) {
+    round.calls!.forEach((c, call) => {
+      const text = c.raw?.function?.arguments;
+      let args: unknown = text;
+      try { args = text === undefined ? undefined : JSON.parse(text); } catch { /* the text stands */ }
+      out.push({
+        round: round.index!, call, name: c.raw?.function?.name ?? '', args,
+        ...(c.result !== undefined ? { result: c.result } : {}),
+        ...(c.error !== undefined ? { error: c.error } : {}),
+        ...(c.post !== undefined ? { post: c.post } : {}),
+        ...(c.claims !== undefined ? { claims: c.claims } : {}),
+      });
+    });
+  }
+  return out;
+}
+
+/**
+ * The marks for an agent message's tool calls, read from that turn's rounds, one per call that
+ * recorded the claims it ran under. They attest whose authority each call used: the model also
+ * says so in its reply, and only this record, which the Galaxy wrote as the call ran, can be
+ * relied on.
+ *
+ * Only a round whose current snapshot the agent wrote is read. A round an app admin wrote over is
+ * given no marks, since what it says is no longer the Galaxy's word.
+ */
+export function toolCallMarks(rounds: ReadonlyArray<RoundSnapshot>): ToolCallMark[] {
   const marks: ToolCallMark[] = [];
-  (value?.codegen?.toolCalls ?? []).forEach((call, index) => {
-    if (call.post && call.claims?.sub) marks.push({ index, name: call.name ?? '', post: call.post, parties: deriveParticipants(call.claims) });
-  });
+  for (const c of turnCalls(rounds.filter((r) => r.meta.recordedClaims.sub === NEBULA_SUB))) {
+    if (c.post && c.claims?.sub) marks.push({ index: `${c.round}.${c.call}`, name: c.name, post: c.post, parties: deriveParticipants(c.claims) });
+  }
   return marks;
 }
 

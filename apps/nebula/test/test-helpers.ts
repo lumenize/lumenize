@@ -11,6 +11,11 @@ import type { AuthClaims } from '@lumenize/mesh/auth';
 import { hostOrigin } from '@lumenize/mesh/client';
 import { NebulaClient } from '@lumenize/resources';
 import type { NebulaClientConfig } from '@lumenize/resources';
+import type { QueryReadResult } from '@lumenize/resources';
+import type { Galaxy } from '../src/galaxy';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '../src/chat-constants';
+import { roundsOf, turnCalls } from '../src/participants';
+import type { TurnCall } from '../src/participants';
 import {
   requestUniverseClaim, requestStarClaim, requestMagicLink, createGalaxyViaFacade, consumeLink,
 } from './lib/email-login';
@@ -607,4 +612,15 @@ export async function createInvitedClient<T extends NebulaClient, C extends Nebu
   const { accessToken, payload } = await browserLogin(browser, authScope, email, activeScope);
   const client = await connectClient(ClientClass, browser, activeScope, ontologyVersion, extraConfig);
   return { client, payload, accessToken };
+}
+
+/**
+ * The calls of the turn that committed `messageId`, read once from that turn's rounds as `client`
+ * may read them: an app admin through dominion, a collaborator through the `read` an invite at the
+ * chat node brings at the turns node.
+ */
+export async function turnCallsOf(client: NebulaClient, scope: string, messageId: string): Promise<TurnCall[]> {
+  const read = await client.lmz.callAsync('GALAXY', scope,
+    client.ctn<Galaxy>().resources.query(CHAT_MESSAGE_ONTOLOGY_VERSION, roundsOf(messageId))) as QueryReadResult;
+  return turnCalls(read.snapshots);
 }

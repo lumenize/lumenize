@@ -483,6 +483,38 @@ Each phase leaves every suite green. A criterion that names a test means a test 
 - A write recorded without its claims: all four mid-round cases.
 - A stored result read as unrun: no verdict, as above.
 
+### Phase 4
+
+**For the human:** nothing open.
+
+**Retro notes:**
+
+- The turn's row lives under `turn:row` in `ctx.storage.kv`, and `TURN_ROW_KEY` is exported only so a test probe that runs a turn with no commit can delete what it wrote. A run's store answers `not-this-turn` already here, for a row naming another turn, since it costs one read and § *Phase 5*'s deadline needs it.
+- `roundStore` is `protected`, so a test probe can run the loop over the Galaxy's own store one invocation per round. Its read is § *Phase 1*'s one-time query, as the agent, so a store read costs a query and a point read per round.
+- The closing step's round is stored before its message commits, and a run that finds a closing round goes straight to the commit, as DI7 says. A closing call cut off before its round is stored is § *Phase 5*'s.
+- `ToolCallMark.index` is now `{round}.{call}`, a string. Studio reads each agent message's marks once, when the message first appears, through `resources.query`; the watch sits after `nebula`'s declaration, since a `watch` reads its source at setup.
+- The test Galaxies keep their script, faults, deadline, holds and request log in `ctx.storage.kv`. A held model call or build waits in memory, which a reset ends, and `holdModelCallForTest(n)` counts model calls across resets.
+- `STUDIO_MODEL` moved to `src/studio-model.ts`, a leaf, so `rounds-as-they-land`'s provider limb sends to the same model from Node.
+- `rounds-as-they-land` passed every limb on its first local run, with a real round of two reads. Mutated one limb at a time, limbs 2 to 5 each failed alone. Workers AI accepted a `tool` message with no `tool_call_id`, so limb 5's mutation is the invalid-JSON arguments the provider is known to refuse (`8007`). Limb 1 has no single-edit mutation: rounds that arrive after their message need a store that holds every write until the commit, which no edit of one line makes.
+- Every reader of `codegen.toolCalls` moved to the rounds: `turnCallsOf` in `test/test-helpers.ts` for the vitest lanes and in `harness/lib/turn-calls.ts` for the scenarios. `turnCalls` lists a `mark_complete` with its `{ ok: true }` result, and calls left unrun after a stop.
+
+**Close-out notes:**
+
+- The [backlog.md](backlog.md) row on undoing a bad turn's writes named the turn's `toolCalls` entries, and now names its `Round`s.
+- `tasks/on-hold/nebula-studio-self-improvement.md` § *The folded shape* still shows `toolCalls` on `codegen`; § *Phase 7* edits it with the other files that describe a turn's record.
+
+**Mutations run** (each caught by the test named):
+
+- A `Round` stored without its provider call: four of `turn-stored.test.ts`'s five tests.
+- The row written after the first model call: the held-first-call test.
+- The row left at the commit: the held-first-call test and the admin-overwrite test.
+- A read recorded by a blob of its path: the two-`oid` test and the per-round equality test.
+- A conflicted round write taken as written: the admin-overwrite test, whose turn runs on.
+- The rounds' query by scan rather than by `message`: the thousand-rounds test.
+- In `rounds-as-they-land`, one per limb: results held back until a round's calls have all run (limb 4), no claims recorded (limb 3), indexes from 0 (limb 2), echoed arguments that are not JSON (limb 5).
+
+**Suites and sweep:** the whole `apps/nebula` suite passed, 140 files, 1295 tests and 2 skipped. The turn subset, the 21 scenarios that run a turn, read its record or render Studio's chat, plus `rounds-as-they-land`, passed 22 of 22 on its first run, each scenario alone on a fresh stack. No flake, and the tree did not change during it.
+
 ## Non-goals
 
 - **Waking a turn nobody is watching.** D9 leaves it to the next call, and § *Beyond this task* keeps the alarm as a note.

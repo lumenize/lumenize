@@ -26,7 +26,7 @@ import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveKin
 import type { Galaxy } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
 import { ROW_PATH } from '../../../src/build-report';
-import { universeAdminClient, createSubject, createInvitedClient, addressOfClient } from '../../test-helpers';
+import { universeAdminClient, createSubject, createInvitedClient, addressOfClient, turnCallsOf } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';
 
 const uniqueScope = () => `scf-${crypto.randomUUID().slice(0, 8)}.app`;
@@ -179,13 +179,14 @@ describe('the source entries sit at the chat floor', () => {
     await owner.lmz.callAsync('GALAXY', scope, owner.ctn<Galaxy>().resources.orgTree.revokePermission(CHAT_NODE_ID, payload.sub));
     try {
       await vi.waitFor(async () => {
-        const snaps = await Promise.all(sub.resourceIds.map((id) => owner.resources.read('Message', id) as Promise<Snapshot | null>));
-        const reply = snaps.find((x) => x && deriveKind(x.meta.recordedClaims) === 'agent' && (x.value as { replyTo?: string }).replyTo === posted);
-        expect(reply).toBeTruthy();
-        expect((reply!.value as { content?: string }).content).toBe('Still here after the revoke.');
+        const ids = [...sub.resourceIds];
+        const snaps = await Promise.all(ids.map((id) => owner.resources.read('Message', id) as Promise<Snapshot | null>));
+        const at = snaps.findIndex((x) => x && deriveKind(x.meta.recordedClaims) === 'agent' && (x.value as { replyTo?: string }).replyTo === posted);
+        expect(at).toBeGreaterThanOrEqual(0);
+        expect((snaps[at]!.value as { content?: string }).content).toBe('Still here after the revoke.');
         // The write the turn tried after the revoke: under the member's claims, and refused with
         // the message a direct call gets, naming the chat node.
-        const [write] = (reply!.value as { codegen: { toolCalls: Array<{ name: string; error?: string; claims?: { sub: string }; result?: { oid?: string } }> } }).codegen.toolCalls;
+        const [write] = await turnCallsOf(owner, scope, ids[at]!);
         expect([write!.name, write!.error, write!.claims?.sub]).toEqual(['write_file', `write permission required on node ${CHAT_NODE_ID}`, payload.sub]);
         expect(write!.result).toBeUndefined();
       }, { timeout: 15000 });

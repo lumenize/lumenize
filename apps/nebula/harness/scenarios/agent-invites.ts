@@ -49,6 +49,7 @@ import { readDevVar } from '../lib/harness';
 import { chatCast } from '../lib/chat-cast';
 import { waitForDebugLines } from '../lib/stdio';
 import { testSlug } from '../lib/test-scopes';
+import { turnCallsOf } from '../lib/turn-calls';
 import { refreshAccessToken, refreshTokenForScope, setCookieHeaders, consumeLink } from '../../test/lib/email-login';
 
 /** Chat, auth and mail only: nothing asks for code. */
@@ -60,7 +61,7 @@ const DEV = `${SCOPE}.dev`;
 const TURN_TIMEOUT_MS = 240_000;
 const chatQuery = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 const address = (who: string) => `test-${who}-${crypto.randomUUID().slice(0, 8)}@lumenize-test.dev`;
-type Value = { content?: string; replyTo?: string; answers?: string[]; codegen?: { toolCalls?: Array<{ name: string; error?: string; result?: unknown; post?: string }> } };
+type Value = { content?: string; replyTo?: string; answers?: string[] };
 
 export async function run(stack: DevStack): Promise<void> {
   const testToken = readDevVar('TEST_TOKEN');
@@ -202,15 +203,16 @@ export async function run(stack: DevStack): Promise<void> {
     // ── Recorded, never gated: Austen, who is no admin, asks the agent for an invite ──
     const asked = address('asked');
     const a1 = await austen.client.postUserMessage(`Please invite ${asked} to this app as a collaborator. Change no code.`);
-    let answer: Snapshot | undefined;
-    for (const deadline = Date.now() + TURN_TIMEOUT_MS; !answer && Date.now() < deadline;) {
-      answer = (await agentPosts()).find(({ snap }) => ((snap.value as Value).answers ?? []).includes(a1))?.snap;
-      if (!answer) await new Promise((r) => setTimeout(r, 1000));
+    let answered: { id: string; snap: Snapshot } | undefined;
+    for (const deadline = Date.now() + TURN_TIMEOUT_MS; !answered && Date.now() < deadline;) {
+      answered = (await agentPosts()).find(({ snap }) => ((snap.value as Value).answers ?? []).includes(a1));
+      if (!answered) await new Promise((r) => setTimeout(r, 1000));
     }
+    const answer = answered?.snap;
     // Only the invite calls that acted for Austen's post. One message can answer several posts:
     // a turn still working for Jennifer when Austen posts answers both in its closing message,
     // and its invites, which acted for Jennifer's post under her claims, are no invites of Austen's.
-    const tried = (answer?.value as Value | undefined)?.codegen?.toolCalls?.filter((tc) => tc.name === 'invite' && tc.post === a1) ?? [];
+    const tried = answered ? (await turnCallsOf(jennifer.client, answered.id)).filter((tc) => tc.name === 'invite' && tc.post === a1) : [];
     console.error(`  · recorded — asked by Austen, the agent ${tried.length === 0 ? 'called no invite for her post' : tried.some((tc) => tc.error) ? 'called invite for her post and was refused within the turn' : 'called invite for her post and it LANDED'}: ${JSON.stringify(((answer?.value as Value | undefined)?.content ?? '(no answer)').slice(0, 200))}`);
     assert.ok(!tried.some((tc) => !tc.error), "an invite that acted for Austen's post must never land: she is no admin of the app");
 

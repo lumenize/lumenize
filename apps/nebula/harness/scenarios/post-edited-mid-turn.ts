@@ -37,6 +37,7 @@ import { readDevVar } from '../lib/harness';
 import { chatCast } from '../lib/chat-cast';
 import { waitForDebugLines, LOG_WAIT_MS, type DebugLine } from '../lib/stdio';
 import { testSlug } from '../lib/test-scopes';
+import { turnCallsOf } from '../lib/turn-calls';
 
 /** Chat and auth only: the requests ask for a file to be read and for a word, never for code. */
 export const needsContainer = false;
@@ -49,21 +50,23 @@ const LOOP_TOOLS = ['read_file', 'write_file', 'edit_file', 'build', 'invite'];
 const MOVED = 'The post I was working on was changed while I worked';
 
 type ToolCall = { name: string; error?: string; post?: string; claims?: { sub?: string; act?: { sub?: string } } };
-type Value = { content?: string; replyTo?: string; answers?: string[]; codegen?: { stop?: string; toolCalls?: ToolCall[] } };
+type Value = { content?: string; replyTo?: string; answers?: string[]; codegen?: { stop?: string } };
 
 export async function run(stack: DevStack): Promise<void> {
   const cast = await chatCast(stack, SCOPE, readDevVar('TEST_TOKEN'));
   const { jennifer, austen } = cast;
   try {
     using thread = jennifer.client.resources.subscribeQuery(chatQuery); await thread.ready;
-    const agentMessages = async (): Promise<Snapshot[]> => {
-      const out: Snapshot[] = [];
+    const agentMessages = async (): Promise<Array<Snapshot & { id: string }>> => {
+      const out: Array<Snapshot & { id: string }> = [];
       for (const id of thread.resourceIds) {
         const snap = await jennifer.client.resources.read('Message', id) as Snapshot | null;
-        if (snap && snap.meta.recordedClaims.sub === NEBULA_SUB) out.push(snap);
+        if (snap && snap.meta.recordedClaims.sub === NEBULA_SUB) out.push({ ...snap, id });
       }
       return out.sort((a, b) => a.meta.validFrom.localeCompare(b.meta.validFrom));
     };
+    /** The calls of the turn that committed `message`, read from its rounds. */
+    const callsOf = async (message: { id: string }): Promise<ToolCall[]> => await turnCallsOf(jennifer.client, message.id) as ToolCall[];
 
     const j1 = await jennifer.client.postUserMessage(
       'Read AGENTS.md with read_file, then reply with the one word READY and nothing else. Do not change any code.');
@@ -81,7 +84,7 @@ export async function run(stack: DevStack): Promise<void> {
 
     // The stopped turn's message is the first the agent posts.
     const deadline = Date.now() + TURN_TIMEOUT_MS;
-    let first: Snapshot | undefined;
+    let first: (Snapshot & { id: string }) | undefined;
     while (!first) {
       first = (await agentMessages())[0];
       assert.ok(first || Date.now() < deadline, "the turn on Jennifer's post never posted a message");
@@ -90,7 +93,7 @@ export async function run(stack: DevStack): Promise<void> {
     const value = first.value as Value;
 
     // ── LIMB 1: the turn on the first words acted on nothing ──
-    const ran = (value.codegen?.toolCalls ?? []).filter((tc) => LOOP_TOOLS.includes(tc.name) && tc.error === undefined);
+    const ran = (await callsOf(first)).filter((tc) => LOOP_TOOLS.includes(tc.name) && tc.error === undefined);
     assert.deepEqual(ran.map((tc) => tc.name), [],
       'a turn whose post was edited before its first tool call must record no tool call that ran');
     // The model may have answered without calling a tool at all, in which case nothing was
@@ -116,7 +119,7 @@ export async function run(stack: DevStack): Promise<void> {
       console.error(`  · limb 3 not exercised: the decision took up ${decision.data.postId ?? 'no post'}, answering ${JSON.stringify(decision.data.answers ?? [])}`);
       return;
     }
-    let reply: Snapshot | undefined;
+    let reply: (Snapshot & { id: string }) | undefined;
     for (const until = Date.now() + TURN_TIMEOUT_MS; !reply;) {
       reply = (await agentMessages()).find((snap) => (snap.value as Value).replyTo === j1);
       assert.ok(reply || Date.now() < until, 'the turn that took the edited post up never posted its message');
@@ -126,7 +129,7 @@ export async function run(stack: DevStack): Promise<void> {
       'both took-up lines for the post'));
     const claims = turnLines(tookUp, 'took up').filter((l) => l.data.postId === j1).map((l) => (l.data.claims as { sub?: string } | null)?.sub);
     assert.ok(claims.includes(cast.austenSub), `a turn on the edited post must run under Austen; the took-up lines name ${JSON.stringify(claims)}`);
-    const under = ((reply.value as Value).codegen?.toolCalls ?? []).filter((tc) => LOOP_TOOLS.includes(tc.name));
+    const under = (await callsOf(reply)).filter((tc) => LOOP_TOOLS.includes(tc.name));
     for (const tc of under) {
       assert.deepEqual([tc.post, tc.claims?.sub, tc.claims?.act?.sub], [j1, cast.austenSub, NEBULA_SUB],
         `${tc.name} on the edited post must be recorded under Austen with the agent as actor`);

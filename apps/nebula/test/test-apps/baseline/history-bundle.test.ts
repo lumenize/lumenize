@@ -2,13 +2,13 @@
  * The chat HISTORY in the prompt (`.claude/rules/studio-guidance.md`): an append-only
  * bundle projected from the chat's own ordered query — per message its speaker (`agent`,
  * or `human N` in first-appearance order), its `content`, and from an agent message only
- * the manifest of what that turn changed — never `toolCalls` (whole files ride their
- * args) and never `thought`. Driven through the REAL commit path on the baseline test app,
+ * the manifest of what that turn changed — never the turn's calls, which live on its rounds
+ * (whole files ride their args), and never `thought`. Driven through the REAL commit path on the baseline test app,
  * whose scripted model captures every prompt it is handed (`takeSeenMessagesForTest`).
  *
  *  - H-f  turn N+1 carries turn N's request text, speaker label, the agent's content and
  *         its appliedPaths; a turn that wrote 400 lines and a turn that wrote nothing yield
- *         bundles identical apart from the `applied=` entry — no toolCalls, no thought.
+ *         bundles identical apart from the `applied=` entry — no calls, no thought.
  *  - H-g  the triggering message is never in the history; the request bundle carries it once.
  *  - H-h  turn one emits no history bundle.
  *  - H-i  two messages posted during one generation, then a third turn: the skipped
@@ -114,7 +114,6 @@ describe('the chat history in the prompt', () => {
     // Never the tool calls' args (400 lines of App.vue) and never the thought panel.
     expect(t2.system).not.toContain('line 7 of a long App.vue');
     expect(t2.system).not.toContain('thinking hard');
-    expect(t2.system).not.toContain('toolCalls');
     // (g) the triggering message is not in the history, and the request bundle carries it once.
     expect(history).not.toContain('Now add a remove button.');
     expect(t2.request.split('Now add a remove button.').length - 1).toBe(1);
@@ -124,9 +123,9 @@ describe('the chat history in the prompt', () => {
   });
 
   it('H-f: a turn that wrote 400 lines and a turn that wrote nothing yield history bundles identical apart from the applied entry', async () => {
-    // Two Galaxies, same conversation; only turn one's tool use differs. Mutation: include
-    // `toolCalls` in the projection → bundle A carries 400 lines and the diff is not one
-    // entry → red. Drop the speaker → the owner's line and a peer's aside are one string.
+    // Two Galaxies, same conversation; only turn one's tool use differs. Mutation: carry the
+    // turn's calls, read from its rounds, in the projection → bundle A carries 400 lines and
+    // the diff is not one entry → red. Drop the speaker → the owner's line and a peer's aside are one string.
     const [a, b] = [uniqueScope(), uniqueScope()];
     const bundles: string[] = [];
     for (const [scope, script] of [[a, writeThenComplete(FOUR_HUNDRED_LINES)], [b, [round('Saved the changes; nothing was built, so the preview is unchanged.')]]] as const) {

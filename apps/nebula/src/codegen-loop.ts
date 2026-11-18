@@ -449,7 +449,8 @@ export interface LoopResult {
   stop: StopReason | 'waiting' | 'not-this-turn';
   /** Model inferences performed (rounds). */
   rounds: number;
-  /** Every dispatched call + its result/error — folds into the agent Message's codegen object. */
+  /** Every call of the turn with its result or error, worked out from its rounds: what the
+   *  agent `Message`'s thought panel shows of what was written. */
   toolCalls: ToolCall[];
   /** The full assembled transcript (system + user + assistant/tool/user rounds). */
   messages: ChatMessage[];

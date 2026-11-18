@@ -12,7 +12,11 @@
  */
 import { mesh } from '@lumenize/mesh';
 import { Galaxy } from '../../../src/galaxy';
+import { TURN_ROW_KEY } from '../../../src/galaxy';
 import type { TookUp } from '../../../src/galaxy';
+
+/** Where the probe keeps its model script, which a reset leaves. */
+const KV_SCRIPT = 'test:chatScript';
 import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '../../../src/chat-constants';
 import type { Snapshot, TransactionResult } from '@lumenize/resources';
 import { Star } from '../../../src/star';
@@ -39,15 +43,15 @@ import type { ParseResult } from '@lumenize/ts-runtime-parser-validator/runtime'
  * unchanged (all real methods inherited).
  */
 export class GalaxyLoopProbe extends Galaxy {
-  // Ephemeral — set + consumed synchronously within one runLoopForTest call (the
-  // whole loop is awaited inside it; nothing persists across invocations).
-  #script: unknown[] = [];
-  #scriptIdx = 0;
+  // The script lives in `ctx.storage.kv`, which `ctx.abort()` leaves, so a run after a reset reads
+  // what is left of it. The transcripts are returned by the call that ran them.
   #seenMessages: ChatMessage[][] = [];
 
   protected override async callModel(messages: ChatMessage[], _params: ModelParams): Promise<unknown> {
     this.#seenMessages.push(messages.map((m) => ({ ...m })));
-    const next = this.#script[this.#scriptIdx++];
+    const script = this.ctx.storage.kv.get<unknown[]>(KV_SCRIPT) ?? [];
+    const next = script.shift();
+    this.ctx.storage.kv.put(KV_SCRIPT, script);
     if (next === undefined) throw new Error('fake model script exhausted');
     return next;
   }
@@ -72,8 +76,7 @@ export class GalaxyLoopProbe extends Galaxy {
 
   /** Seed the fake-model script (subclass-reachable — the `#` fields are class-private). */
   protected setScriptForTest(script: unknown[]): void {
-    this.#script = script;
-    this.#scriptIdx = 0;
+    this.ctx.storage.kv.put(KV_SCRIPT, script);
     this.#seenMessages = [];
   }
 
@@ -115,15 +118,16 @@ export class GalaxyLoopProbe extends Galaxy {
     script: unknown[],
     config?: Partial<CodegenLoopConfig>,
   ): Promise<{ result: LoopResult; seenMessages: ChatMessage[][] }> {
-    this.#script = script;
-    this.#scriptIdx = 0;
+    this.ctx.storage.kv.put(KV_SCRIPT, script);
     this.#seenMessages = [];
     const cfg: CodegenLoopConfig = { ...DEFAULT_LOOP_CONFIG, ...(config ?? {}) };
     // runCodegenTurn + callModel are protected on Galaxy — reachable here. The post is written
     // first, as this caller, so the loop's tools run under the claims the server recorded for
     // it, as they do for any poster.
     const tookUp = await this.postAsCallerForTest(crypto.randomUUID(), userRequest);
-    const result = await this.runCodegenTurn(userRequest, cfg, undefined, { tookUp });
+    const result = await this.runCodegenTurn(userRequest, cfg, undefined, { tookUp, message: crypto.randomUUID() });
+    // No commit follows a probe's run, so the row it wrote goes here, as a commit's would.
+    this.ctx.storage.kv.delete(TURN_ROW_KEY);
     return { result, seenMessages: this.#seenMessages };
   }
 

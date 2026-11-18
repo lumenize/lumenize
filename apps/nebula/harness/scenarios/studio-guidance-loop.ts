@@ -15,7 +15,7 @@
  *      is still in `AGENTS.md` after N further turns (N = HARNESS_GUIDANCE_TURNS, default 10);
  *  (c) after the stated convention, the reply names `AGENTS.md`;
  *  (d) a request matching `define-ontology` reads the skill body — visible in the read
- *      tool's call log (`codegen.toolCalls`);
+ *      tool's call log (the turn's rounds);
  *  (f) asked what was requested first, the reply names it.
  *
  * ⚠️ Container-free BY DESIGN (`needsContainer = false`), so every sweep runs it; the
@@ -33,6 +33,8 @@ import { deriveKind, StudioClient } from '@lumenize/nebula/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
+import { turnCallsOf } from '../lib/turn-calls';
+import type { TurnCall } from '@lumenize/nebula/client';
 
 export const needsContainer = false;
 
@@ -43,8 +45,9 @@ const FURTHER_TURNS = Number(process.env.HARNESS_GUIDANCE_TURNS ?? '10');
 
 const chatQuery = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 
-type Codegen = { toolCalls?: Array<{ name: string; args?: unknown; result?: unknown; error?: string }>; appliedPaths?: string[]; stop?: string; rounds?: number };
-type Reply = { content: string; codegen?: Codegen };
+type Codegen = { appliedPaths?: string[]; stop?: string; rounds?: number };
+/** An agent reply, with its turn's calls read from the turn's rounds. */
+type Reply = { content: string; codegen?: Codegen; calls: TurnCall[] };
 
 /** Post, then wait for the durable agent reply — the ASSERTED half of every turn. */
 async function turn(driver: Driver<StudioClient>, sub: { resourceIds: string[] }, text: string): Promise<Reply> {
@@ -57,7 +60,7 @@ async function turn(driver: Driver<StudioClient>, sub: { resourceIds: string[] }
       if (snap && deriveKind(snap.meta.recordedClaims) === 'agent' && (snap.value as { replyTo?: string }).replyTo === id) {
         const v = snap.value as { content?: string; codegen?: Codegen };
         console.error(`  ↳ turn "${text.slice(0, 48)}…" replied in ${((Date.now() - t0) / 1000).toFixed(1)}s — stop=${v.codegen?.stop} rounds=${v.codegen?.rounds} applied=${(v.codegen?.appliedPaths ?? []).join(',') || '-'}`);
-        return { content: v.content ?? '', codegen: v.codegen };
+        return { content: v.content ?? '', codegen: v.codegen, calls: await turnCallsOf(driver.client, rid) };
       }
     }
     assert.ok(Date.now() < deadline,
@@ -119,7 +122,7 @@ export async function run(stack: DevStack): Promise<void> {
     report('(b1)', wroteApp ? !/countdown|setInterval\(/i.test(app) : (asked ? 'asked' : false),
       wroteApp ? (/countdown/i.test(app) ? 'the next turn\'s App.vue mentions a countdown despite the rule' : 'the next turn\'s output honours "no countdown timers"') : (asked ? 'not exercised — the model asked first' : 'no App.vue this turn and nothing asked — not exercised, counted as a fail'));
     // (d) did a data-bound request activate the ontology skill?
-    const reads = (r2.codegen?.toolCalls ?? []).filter((t) => t.name === 'read_file').map((t) => (t.args as { path?: string })?.path ?? '');
+    const reads = r2.calls.filter((t) => t.name === 'read_file').map((t) => (t.args as { path?: string })?.path ?? '');
     report('(d)', reads.includes('.platform/skills/define-ontology/SKILL.md'),
       reads.length > 0 ? `read_file calls this turn: ${reads.join(', ')}` : 'the turn read no file at all');
 

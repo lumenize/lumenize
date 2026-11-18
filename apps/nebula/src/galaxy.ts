@@ -54,7 +54,8 @@ import { Resources } from '@lumenize/resources';
 import type { NodeInviteOutcome, OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from '@lumenize/resources';
 import type { QueryDescriptor, TransactionResult, WireOperationDescriptor as OperationDescriptor } from '@lumenize/resources';
 import { chatOntologySeedRow } from './chat-ontology';
-import { DEFAULT_CHAT_ID, CHAT_NODE_ID, GALAXY_TREE_SEED } from './chat-constants';
+import { DEFAULT_CHAT_ID, CHAT_NODE_ID, TURNS_NODE_ID, GALAXY_TREE_SEED } from './chat-constants';
+import { STUDIO_MODEL } from './studio-model';
 import { parseCast, type CastEntry } from './cast';
 import { NO_PREVIEW_ERROR } from './studio-client';
 import type { StudioClient } from './studio-client';
@@ -65,7 +66,7 @@ import type { CertificateApi, CertificateState } from './certificate';
 import { PUBLIC_PREFIX, PUBLIC_SCOPE_HEADER } from './page-forward';
 import { LUMENIZE_ORIGIN_META } from '@lumenize/mesh/client';
 import { deploymentOrigin, hostOrigin, personaMailDomain } from '@lumenize/mesh/client';
-import { deriveKind, waitingPosts } from './participants';
+import { deriveKind, waitingPosts, roundsOf } from './participants';
 import { SCAFFOLD_FILES } from './scaffold-seed';
 import { PLATFORM_FILES, PLATFORM_AGENTS_MD } from './platform-embed';
 import type { Snapshot } from '@lumenize/resources/client';
@@ -73,8 +74,6 @@ import { TOOL_ARGS_BUNDLE_ID } from './tool-args-constants';
 import { TOOL_ARGS_VALIDATOR_MODULE } from './validator-seeds';
 import {
   runCodegenLoop,
-  memoryRoundStore,
-  memoryBlobs,
   parseModelTurn,
   assembleCodegenPrompt,
   renderHistoryBundle,
@@ -97,6 +96,10 @@ import {
   type ModelParams,
   type LoopResult,
   type ActedUnder,
+  type RoundStore,
+  type RoundWriteOutcome,
+  type StoredRound,
+  type StopReason,
 } from './codegen-loop';
 
 // Type-only re-exports survive (erased — no value edge to the compile half); the old
@@ -129,9 +132,6 @@ const CERTIFICATE_ALARM_ID = 'galaxy-certificate';
 /** How long a teardown waits for an order already in flight before listing packs. */
 const CERTIFICATE_ORDER_WAIT_MS = 20_000;
 
-/** The codegen model id — the ONE place a vendor id appears. Swappable: Studio is
- *  model-agnostic, and the model name is never surfaced in the UI or elsewhere. */
-const STUDIO_MODEL = '@cf/moonshotai/kimi-k2.7-code';
 
 /**
  * The default generation deadline, at module scope so a test can assert the
@@ -2001,56 +2001,64 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     };
   }
 
-  /** The turn's body — the loop, then the durable reply. `warm` is the turn's latch,
-   *  fired by the first write. */
+  /** The turn's body: the loop, then the durable reply. `warm` is the turn's latch, fired by
+   *  the first write. */
   async #codegenTurn(
     message: string, agentMessageId: string, post: TookUp,
     warm: { fire(): void },
   ): Promise<void> {
-    const userMessageId = post.id;
-    // The tree the turn READ — captured BEFORE the loop writes (the codegen record's
-    // `sourceCommit`; git is local to this DO's VFS, so the ref recovers the bytes).
-    const sourceCommit = (await this.headCommit())?.oid;
-    // Each post the model is shown this turn, with the `validFrom` of the snapshot it was shown.
-    const read = new Map<string, string>();
     const result = await this.runCodegenTurn(
       message, DEFAULT_LOOP_CONFIG,
-      (step) => this.#chatProgress(agentMessageId, step, userMessageId),
+      (step) => this.#chatProgress(agentMessageId, step, post.id),
       {
         // The post the turn took up: excluded from the history bundle, since the request
         // bundle carries it, once, and the post every tool call acts for.
         tookUp: post,
-        read,
+        message: agentMessageId,
         // The structural warm: the first write of the turn.
         onFirstWrite: () => warm.fire(),
       },
     );
+    await this.#commitTurn(agentMessageId, result);
+  }
+
+  /**
+   * Commit the agent `Message` that ends a turn, built from what the turn's rounds hold, then
+   * delete the turn's row. Both happen only while the row names this turn, by its message's id:
+   * a run that finds another turn's row commits nothing and deletes nothing, since the row is the
+   * other turn's. A run that ended waiting on a call commits nothing either.
+   */
+  async #commitTurn(agentMessageId: string, result: LoopResult): Promise<void> {
     debug('nebula.Galaxy.chat').debug('loop', {
       instanceName: this.lmz.instanceName, stop: result.stop,
       rounds: result.rounds, applied: result.appliedPaths.length,
     });
-
+    const row = this.turnRow();
+    if (result.stop === 'waiting' || result.stop === 'not-this-turn' || row?.message !== agentMessageId) return;
+    const stop: StopReason = result.stop;
     // The reply is the model's own final text on EVERY stop — what the person reads, and
     // what the history bundle carries as "the agent's reply" — with the fixed strings only
     // when it is empty (a `mark_complete` with no words, a bound that tripped mid-sentence).
     const text = result.output.trim();
     // A turn whose last build did not land says so in our own words, whatever the model wrote,
     // so it never reads as done while the preview still shows the last build.
-    const heldBack = result.stop === 'build-unavailable' ? undefined : heldBackLine(result.lastBuild);
-    const fallback = result.stop === 'complete'
+    const heldBack = stop === 'build-unavailable' ? undefined : heldBackLine(result.lastBuild);
+    // A turn that could not go on says so in our own words, whatever the model wrote last.
+    const cutShort = stop === 'conflict' ? ROUND_CONFLICT_LINE : undefined;
+    const fallback = stop === 'complete'
       ? completedTurnFallback(result.appliedPaths.length, result.lastBuild)
-      : result.stop === 'no-tool-calls'
+      : stop === 'no-tool-calls'
         ? 'See the thought process.'
-        : result.stop === 'build-unavailable'
+        : stop === 'build-unavailable'
           ? 'Your changes are saved, but the build box could not run just now, so the preview is unchanged. Ask me to build again in a moment.'
-          : result.stop === 'post-moved'
+          : stop === 'post-moved'
             ? POST_MOVED_LINE
-          : result.stop === 'error'
+          : stop === 'error'
             ? `I couldn't finish — ${result.detail}. Try again in a moment.`
-            : result.stop === 'max-depth'
+            : stop === 'max-depth'
               ? stepLimitFallback(result.appliedPaths.length, result.lastBuild, unbuiltWrites(result.toolCalls))
               : "I couldn't finish cleanly — see the thought process.";
-    const reply = [text || fallback, heldBack].filter(Boolean).join('\n\n');
+    const reply = [text || fallback, cutShort, heldBack].filter(Boolean).join('\n\n');
 
     // The tool-calling loop carries the generated code in `write_file` *args*, not the
     // model's reply text — so surface the final content of each written file here, else the
@@ -2077,23 +2085,19 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     if (result.reasoning) parts.push(`🧠 Reasoning\n\n${result.reasoning}`);
     if (result.output) parts.push(`📄 ${result.output}`);
     for (const [path, content] of written) parts.push(`📝 ${path}\n\`\`\`\n${content}\n\`\`\``);
-    parts.push(`🔧 ${result.detail ?? result.stop}\nFiles: ${files.join(', ') || '(none)'} — ${check}`);
+    parts.push(`🔧 ${result.detail ?? stop}\nFiles: ${files.join(', ') || '(none)'} — ${check}`);
     const thought = parts.join('\n\n— — —\n\n');
-    // The folded codegen corpus record (the deleted Turns table's successor — the
-    // field-by-field pin is nebula-studio-self-improvement.md § The folded shape;
-    // `build` replaced the per-write `gate` when the compilers left the Worker —
-    // per-FILE credit assignment survives at build granularity via `checked`).
-    // `scaffold` stays absent until the scaffold store exists (Part B).
+    // The turn's summary. Its calls are its rounds', which `Round where message == id` reads.
+    // `scaffold` stays absent until the scaffold store exists.
     const codegen: Record<string, unknown> = {
       model: STUDIO_MODEL,
-      ...(sourceCommit ? { sourceCommit } : {}),
+      ...(row.sourceCommit ? { sourceCommit: row.sourceCommit } : {}),
       rounds: result.rounds,
-      stop: result.stop,
-      appliedPaths: [...new Set(result.appliedPaths)],
+      stop,
+      appliedPaths: files,
       ...(result.lastBuild
         ? { build: { checked: result.lastBuild.typeCheck.checked, findings: result.lastBuild.typeCheck.findings } }
         : {}),
-      toolCalls: result.toolCalls,
     };
     // The DURABLE agent Message — the source of truth, fanned to every chat subscriber
     // via the query rerun (history-restore + multi-participant + disconnect-recovery).
@@ -2102,10 +2106,13 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // posts in this thread: the model's word is the one source for what a message answers.
     const posts = new Set(this.#thread().filter(({ snap }) => deriveKind(snap.meta.recordedClaims) === 'human').map(({ id }) => id));
     const answers = (result.answers ?? []).filter((id) => posts.has(id));
-    // The post this turn took up is read as the snapshot the turn took up, whatever the thread
-    // held when the history was built.
-    read.set(userMessageId, post.validFrom);
-    await this.#commitAnswering(agentMessageId, reply, userMessageId, answers, read, { thought, codegen });
+    // Each post the model was shown, as it was shown: the thread as the turn started, the posts a
+    // closing step added, and the post the turn took up as the snapshot it took up.
+    const read = new Map(Object.entries(row.read));
+    for (const shown of result.closing?.closing ?? []) read.set(shown.id, shown.validFrom);
+    read.set(row.post.id, row.post.validFrom);
+    await this.#commitAnswering(agentMessageId, reply, row.post.id, answers, read, { thought, codegen });
+    if (this.turnRow()?.message === agentMessageId) this.ctx.storage.kv.delete(TURN_ROW_KEY);
     // (No reload is asked for here: a turn's last build that landed recorded `.dev`'s newest
     // `ServedBuild`, which every Studio on the app hears, as a manual `buildNow()`'s does.)
   }
@@ -2478,15 +2485,14 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   }
 
   /**
-   * Drive one bounded, self-correcting codegen turn: walk the guidance tree into the
-   * system layer, stable first — the tool contract, the platform layer (the embed), the
-   * app's own `AGENTS.md` when the Workspace holds one, the chat history when there is
-   * any — put the ontology and the current source in the user message with the request,
-   * run {@link runCodegenLoop}, and return the loop result. Every turn reads the Galaxy
-   * file at turn start, which is what makes an edit take effect on the next message with
-   * nothing to restart; the platform layer is an import, so the walk costs one VFS read.
-   * The former turn-recorder side table is DELETED — the corpus folds into the agent
-   * `Message`'s `codegen` value object.
+   * Start one bounded, self-correcting codegen turn. It walks the guidance tree into the system
+   * layer, stable first — the tool contract, the platform layer (the embed), the app's own
+   * `AGENTS.md` when the Workspace holds one, the chat history when there is any — and puts the
+   * ontology and the current source in the user message with the request. It stores that prompt
+   * as the turn's row, with the post the turn took up, the posts it was shown and the commit its
+   * source started from, before the first model call, then runs the turn from storage
+   * ({@link #runFromRow}). Every turn reads the Galaxy file at turn start, which is what makes an
+   * edit take effect on the next message with nothing to restart.
    *
    * `protected` (not `@mesh`): an internal capability, not a remote API. The test
    * harness reaches it through a test-only `@mesh` entry on a subclass.
@@ -2499,21 +2505,22 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       /** The post this turn took up, and the snapshot of it the turn read. The history bundle
        *  leaves it out, and every tool call runs under its recorded claims. */
       tookUp: TookUp;
-      /** Filled with each post the model is shown, and the `validFrom` of the snapshot shown:
-       *  the thread as the turn starts, and the posts a closing step adds. A message answers a
-       *  post only as it read here ({@link Galaxy.#commitAnswering}). */
-      read?: Map<string, string>;
+      /** The agent `Message` the turn will commit. Its id names the turn, on its row and on
+       *  every round. */
+      message: string;
       /** Called before the turn's FIRST write (`write_file` or `edit_file`) — the
        *  structural container warm (`#chatTurnBody`). */
       onFirstWrite?: () => void;
     },
   ): Promise<LoopResult> {
+    // The tree the turn READ — captured before the loop writes (the codegen record's
+    // `sourceCommit`; git is local to this DO's VFS, so the ref recovers the bytes).
+    const sourceCommit = (await this.headCommit())?.oid;
     let currentSource = '';
     try { currentSource = await (await this.#workspace()).fs.readFile(wsPath('src/App.vue'), 'utf8'); } catch { /* none yet */ }
     let ontologyDts: string | undefined;
     try { ontologyDts = await (await this.#workspace()).fs.readFile(wsPath(ONTOLOGY_PATH), 'utf8'); } catch { /* none yet */ }
     const thread = this.#thread();
-    for (const { id, snap } of thread) opts.read?.set(id, snap.meta.validFrom);
     const { bundle: history, labelFor } = this.#historyBundle(thread, opts.tookUp.id);
     const tookUpBy = thread.find(({ id }) => id === opts.tookUp.id)?.snap.meta.recordedClaims.sub;
 
@@ -2524,23 +2531,46 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       currentSource,
       ...(tookUpBy ? { posterLabel: labelFor(tookUpBy) } : {}),
     });
+    const row: TurnRow = {
+      prompt: [initial.system, initial.user],
+      post: opts.tookUp,
+      message: opts.message,
+      // Each post the model is shown, with the `validFrom` of the snapshot shown.
+      read: Object.fromEntries(thread.map(({ id, snap }) => [id, snap.meta.validFrom])),
+      ...(sourceCommit ? { sourceCommit } : {}),
+      interrupted: [],
+    };
+    this.ctx.storage.kv.put(TURN_ROW_KEY, row);
+    return this.#runFromRow(row, config, onProgress, opts.onFirstWrite);
+  }
+
+  /**
+   * Run a turn from its row and its stored rounds until it ends: the loop, which reads the
+   * rounds before every step and stores each reply and each call's outcome as it arrives, then
+   * the closing step when posts arrived while the turn ran.
+   *
+   * Every tool call runs under the claims recorded on the post the row names, with the agent as
+   * actor ({@link actUnder}). So the entry it reaches, and every record that entry's calls leave
+   * on any node, carries the person and the agent both, and nothing here needs anyone's live
+   * call. A post that has moved on throws before anything runs, and the loop stops on it.
+   */
+  async #runFromRow(
+    row: TurnRow, config: CodegenLoopConfig, onProgress: ((step: string) => void) | undefined,
+    onFirstWrite?: () => void,
+  ): Promise<LoopResult> {
     // No per-await heartbeat here: liveness is a property of the TURN, and `#chatTurn` beats
     // around the whole body — every round here is a silent model call.
     // Live deltas ride the same `onProgress` seam as the coarse steps — the client appends
     // either — so a round's thinking streams batch by batch instead of landing whole when the
     // model returns. `onDelta` on the deps tells the loop not to re-emit that thinking.
     const onDelta = onProgress ? (text: string) => onProgress(text) : undefined;
-    // Every tool call runs under the claims recorded on the post this turn took up, with the
-    // agent as actor. So the entry it reaches, and every record that entry's calls leave on any
-    // node, carries the person and the agent both. A post that has moved on throws before
-    // anything runs, and the loop stops on it.
     const entries = this.loopToolDeps();
     // What the latest call ran under, kept from inside the same block the tool ran in, so the
     // record of a call and the call itself can never name two snapshots.
     let acted: { post: string; claims: ActedUnder } | undefined;
     const under = <T>(run: () => T): T => {
       acted = undefined;
-      const post = opts.tookUp;
+      const post = row.post;
       return this.actUnder(post, () => {
         const claims = wireClaims(this.#claimsIfAny());
         if (claims) acted = { post: post.id, claims };
@@ -2553,7 +2583,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     const atChatFloor = <T>(run: () => T): T => under(() => { requireChatWrite(this); return run(); });
     // The write deps fire the warm before they write — the latch makes the second and later
     // calls no-ops, so firing from both is what "the first write" means.
-    const fire = opts.onFirstWrite ?? ((): void => {});
+    const fire = onFirstWrite ?? ((): void => {});
     const tools: LoopToolDeps = {
       read_file: (path) => atChatFloor(() => entries.read_file(path)),
       write_file: (path, content) => atChatFloor(() => { fire(); return entries.write_file(path, content); }),
@@ -2566,12 +2596,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       // tab themself, and writes none of the app's source.
       run_in_tab: (tab, code) => under(() => entries.run_in_tab(tab, code)),
     };
-    const offered = { tools: CODEGEN_TOOLS, step: 'turn' as const, postId: opts.tookUp.id };
+    const offered = { tools: CODEGEN_TOOLS, step: 'turn' as const, postId: row.post.id };
     const deps: CodegenLoopDeps = {
-      // TEMP → target: the turn's rounds stored as `Round` Resources and its blobs in the
-      // Workspace's git store, so a turn continues from storage. In memory until then.
-      rounds: memoryRoundStore(),
-      blobs: memoryBlobs(),
+      rounds: this.roundStore(row.message),
+      blobs: { write: (content) => this.writeBlob(content), read: (oid) => this.readBlob(oid) },
       // What the latest tool call's record says it acted for, read after the call.
       actsFor: () => acted,
       callModel: (m, p) => this.callModel(m, p, onDelta, offered),
@@ -2580,8 +2608,60 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       validateToolArgs: (n, a) => this.#validateToolArgs(n, a),
       onProgress,
     };
-    const result = await runCodegenLoop(initial, deps, config);
-    return this.#closingStep(result, thread, opts.tookUp.id, labelFor, opts.read);
+    const [system, user] = row.prompt;
+    const result = await runCodegenLoop({ system: system!, user: user! }, deps, config);
+    return this.#closingStep(result, row);
+  }
+
+  /**
+   * Where a turn's rounds are kept: a `Round` Resource at {@link TURNS_NODE_ID} per round, each
+   * written by the agent as itself under its protected `write` there, and read by `message` as
+   * the agent. A write first checks that the turn's row names this turn, and answers
+   * `not-this-turn` when it does not, since the row may then be the next turn's. Each later write
+   * of a round names the `validFrom` it read, so one over a round someone else changed answers
+   * `conflict`, and a repeat of a write already made is recognized as one (ADR-005). Any other
+   * refusal throws. Every write logs one line, with how many of the round's calls have run.
+   * `protected` so a test probe can run the loop over it.
+   */
+  protected roundStore(message: string): RoundStore {
+    const log = debug('nebula.Galaxy.rounds');
+    const mine = (): boolean => this.turnRow()?.message === message;
+    const value = (round: StoredRound): Record<string, unknown> => ({ chat: DEFAULT_CHAT_ID, message, ...round });
+    const written = async (id: string, op: OperationDescriptor, round: StoredRound): Promise<RoundWriteOutcome> => {
+      const result = await this.writeAsAgent({ [id]: op });
+      const outcome: RoundWriteOutcome | undefined = result.ok ? 'ok' : result.errors[id]?.type === 'conflict' ? 'conflict' : undefined;
+      log.info('round written', {
+        instanceName: this.lmz.instanceName, message, index: round.index, calls: round.calls.length,
+        resolved: round.calls.filter((c) => c.result !== undefined || c.error !== undefined).length,
+        op: op.op, outcome: outcome ?? 'refused',
+      });
+      if (!outcome) throw new Error(`a round of this turn was refused: ${JSON.stringify(result.ok ? undefined : result.errors[id])}`);
+      return outcome;
+    };
+    return {
+      read: async () => {
+        const { snapshots } = this.lmz.asLocalPrincipal(NEBULA_SUB, () => this.#resources.doQuery(roundsOf(message)));
+        return snapshots.map(({ resourceId, value: stored, meta }) => {
+          const { chat: _chat, message: _message, ...round } = stored as StoredRound & { chat: string; message: string };
+          return { id: resourceId, version: meta.validFrom, round };
+        });
+      },
+      create: async (round) => {
+        if (!mine()) return 'not-this-turn';
+        return written(crypto.randomUUID(), { op: 'create', typeName: 'Round', nodeId: TURNS_NODE_ID, value: value(round) }, round);
+      },
+      update: async (id, round, version) => {
+        if (!mine()) return 'not-this-turn';
+        return written(id, { op: 'put', ifValidFromMatches: version, value: value(round) }, round);
+      },
+      interrupted: async () => this.turnRow()?.interrupted ?? [],
+    };
+  }
+
+  /** The running turn's row, or `undefined` when no turn has one. `protected` so a test probe
+   *  can read it. */
+  protected turnRow(): TurnRow | undefined {
+    return this.ctx.storage.kv.get<TurnRow>(TURN_ROW_KEY);
   }
 
   /**
@@ -2593,22 +2673,23 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * steering a tool call made under the claims of the post the turn took up. It costs one more
    * model call, only when a post arrived mid-turn, and only after the model finished on its
    * own: a turn a bound stopped mid-round has a transcript no further request can follow.
+   *
+   * Its reply is stored as the turn's last round, naming each post it was shown with the
+   * `validFrom` it read, so a turn whose closing round is stored goes straight to its commit.
    */
-  async #closingStep(
-    result: LoopResult, atStart: Array<{ id: string }>, tookUp: string, labelFor: (sub: string) => string,
-    read?: Map<string, string>,
-  ): Promise<LoopResult> {
+  async #closingStep(result: LoopResult, row: TurnRow): Promise<LoopResult> {
     if (result.stop !== 'complete' && result.stop !== 'no-tool-calls') return result;
-    const seen = new Set(atStart.map(({ id }) => id));
+    if (result.closing) return withClosing(result, result.closing);
+    const seen = new Set(Object.keys(row.read));
     const now = this.#thread();
     const waiting = new Set(this.#waiting(now));
-    const arrived = now.filter(({ id }) => !seen.has(id) && id !== tookUp && waiting.has(id));
+    const arrived = now.filter(({ id }) => !seen.has(id) && id !== row.post.id && waiting.has(id));
     if (arrived.length === 0) return result;
-    for (const { id, snap } of arrived) read?.set(id, snap.meta.validFrom);
     const posts = arrived.map(({ id }) => id);
     debug('nebula.Galaxy.turn').info('closing step', {
-      instanceName: this.lmz.instanceName, step: 'closing', postId: tookUp, posts,
+      instanceName: this.lmz.instanceName, step: 'closing', postId: row.post.id, posts,
     });
+    const { labelFor } = this.#historyBundle(now, row.post.id);
     const request = renderClosingRequest(arrived.map(({ id, snap }) => ({
       postId: id, speaker: labelFor(snap.meta.recordedClaims.sub), content: (snap.value as { content?: string }).content ?? '',
     })));
@@ -2616,7 +2697,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     try {
       raw = await this.callModel(
         [...result.messages, { role: 'user', content: request }], DEFAULT_LOOP_CONFIG.fixParams, undefined,
-        { tools: MESSAGE_ONLY_TOOLS, step: 'closing', postId: tookUp },
+        { tools: MESSAGE_ONLY_TOOLS, step: 'closing', postId: row.post.id },
       );
     } catch (e) {
       // The turn's own reply stands, and the posts wait for a decision.
@@ -2624,21 +2705,16 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       return result;
     }
     const parsed = parseModelTurn(raw);
-    const named = (parsed.toolCalls.find((tc) => tc.name === 'mark_complete')?.args as { answers?: unknown } | undefined)?.answers;
-    // A step that wrote nothing leaves the turn's reply, which was written before the model saw
-    // these posts, so the posts the step names are not answered by it and wait for a decision.
-    const wrote = parsed.text.trim().length > 0;
-    const answers = [
-      ...(result.answers ?? []),
-      ...(wrote && Array.isArray(named) ? named.filter((id): id is string => typeof id === 'string' && posts.includes(id)) : []),
-    ];
-    return {
-      ...result,
-      rounds: result.rounds + 1,
-      // The closing message replaces the turn's reply.
-      ...(wrote ? { output: parsed.text } : {}),
-      ...(answers.length > 0 ? { answers } : {}),
+    const closing: StoredRound = {
+      index: result.rounds + 1,
+      text: parsed.text,
+      ...(parsed.reasoning.trim().length > 0 ? { reasoning: parsed.reasoning } : {}),
+      calls: (parsed.rawToolCalls as unknown[]).map((call) => ({ raw: call })),
+      closing: arrived.map(({ id, snap }) => ({ id, validFrom: snap.meta.validFrom })),
     };
+    const stored = await this.roundStore(row.message).create(closing);
+    if (stored !== 'ok') return { ...result, stop: stored };
+    return withClosing(result, closing);
   }
 
   /**
@@ -2722,8 +2798,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * `agent`, or a stable per-`sub` label in first-appearance order (`human 1`) — its `content`,
    * a person's post with its id, an agent message with the posts it answers, and from an agent
    * message's `codegen` record only the manifest (`stop`, `rounds`, `appliedPaths`,
-   * `sourceCommit`, `build.findings`). Never `toolCalls`, whose `write_file` args carry
-   * whole files, and never `thought`. `exclude` is the post a turn took up, which the request
+   * `sourceCommit`, `build.findings`). Never a turn's calls, whose `write_file` args carry
+   * whole files and which live on its rounds, and never `thought`. `exclude` is the post a turn took up, which the request
    * bundle carries instead. A message with no reply is carried as itself, in order. `labelFor`
    * answers the label of any person, numbering one who is not in the history next.
    */
@@ -2805,6 +2881,59 @@ export interface TookUp { id: string; validFrom: string }
 
 /** What a turn's message says when the post it took up changed while it worked. */
 const POST_MOVED_LINE = 'The post I was working on was changed while I worked, so I stopped. I will take it up again as it reads now.';
+
+/** The storage key of the running turn's row. One turn runs at a time, so a Galaxy holds one.
+ *  Exported for a test probe that runs a turn with no commit, which deletes the row itself. */
+export const TURN_ROW_KEY = 'turn:row';
+
+/**
+ * A running turn's row: what no round of it holds. It is written before the turn's first model
+ * call and deleted when the turn's `Message` commits, so a turn is on record from its first request.
+ */
+export interface TurnRow {
+  /** The messages the model was first sent: the system layer, then the request. */
+  prompt: ChatMessage[];
+  /** The post the turn took up, and the snapshot of it the turn read. */
+  post: TookUp;
+  /** The id of the agent `Message` the turn will commit, which every round of it names. */
+  message: string;
+  /** Each post the model was shown as the turn started, with the `validFrom` it was shown at. */
+  read: Record<string, string>;
+  /** The commit the turn's source started from. */
+  sourceCommit?: string;
+  /** The index of each round whose model call a wake found cut off. */
+  interrupted: number[];
+}
+
+/** What a turn's message says when another writer changed one of its rounds while it ran. */
+const ROUND_CONFLICT_LINE = 'Someone else changed my record of this turn while I worked, so I stopped. Ask again and I will start over.';
+
+/**
+ * A loop's result with its closing step's round applied: the step's message replaces the turn's
+ * reply when it wrote one, and adds to what the message answers each post it names that arrived
+ * while the turn ran. A step that wrote nothing leaves the turn's reply, which was written before
+ * the model saw those posts, so the posts it names are not answered by it.
+ */
+function withClosing(result: LoopResult, closing: StoredRound): LoopResult {
+  const posts = (closing.closing ?? []).map(({ id }) => id);
+  const mark = closing.calls
+    .map((c) => c.raw as { function?: { name?: string; arguments?: string } } | undefined)
+    .find((raw) => raw?.function?.name === 'mark_complete');
+  let named: unknown;
+  try { named = mark ? (JSON.parse(mark.function?.arguments ?? '{}') as { answers?: unknown }).answers : undefined; } catch { named = undefined; }
+  const wrote = closing.text.trim().length > 0;
+  const answers = [
+    ...(result.answers ?? []),
+    ...(wrote && Array.isArray(named) ? named.filter((id): id is string => typeof id === 'string' && posts.includes(id)) : []),
+  ];
+  return {
+    ...result,
+    rounds: result.rounds + 1,
+    ...(wrote ? { output: closing.text } : {}),
+    ...(answers.length > 0 ? { answers } : {}),
+    closing,
+  };
+}
 
 /**
  * Who a source commit names, from the claims it ran under. The author is the person whose

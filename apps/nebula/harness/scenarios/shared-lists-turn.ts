@@ -36,6 +36,7 @@ import { NEBULA_SUB } from '@lumenize/mesh/client';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
+import { turnCallsOf } from '../lib/turn-calls';
 import { launchChromium, bootStudioVite, instrumentedPage, signUpInBrowser } from '../lib/browser';
 import { askFrame } from '../lib/ask-frame';
 import { refreshAccessToken } from '../../test/lib/email-login';
@@ -52,7 +53,8 @@ const REQUEST = 'I want to build a shopping list app. I want users to have multi
 const ANSWER = "The owner manages the list and who it is shared with. Someone with write access can add, change and check off items, and nothing else. Someone with read-only access can only look. A list shared with me shows under a 'Shared with me' heading. Use your judgment on anything else, and build it.";
 
 type ToolCall = { name: string; args?: Record<string, unknown>; result?: any; error?: string };
-type Value = { content?: string; replyTo?: string; thought?: string; codegen?: { rounds?: number; stop?: string; toolCalls?: ToolCall[]; build?: { findings?: unknown } } };
+/** An agent message's value, with its turn's calls read from the turn's rounds. */
+type Value = { content?: string; replyTo?: string; thought?: string; codegen?: { rounds?: number; stop?: string; build?: { findings?: unknown } }; calls?: ToolCall[] };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const until = async (ms: number, check: () => Promise<boolean>): Promise<boolean> => {
@@ -130,7 +132,7 @@ export async function run(stack: DevStack): Promise<void> {
       const composer = o.page.getByPlaceholder(COMPOSER);
       await composer.fill(text);
       await composer.press('Enter');
-      let answer: Value | undefined;
+      let answer: { id: string; snap: Snapshot } | undefined;
       const landed = await until(TURN_TIMEOUT_MS, async () => {
         const all: Array<{ id: string; snap: Snapshot }> = [];
         for (const id of thread.resourceIds) {
@@ -138,13 +140,13 @@ export async function run(stack: DevStack): Promise<void> {
           if (snap) all.push({ id, snap });
         }
         const post = all.find(({ snap }) => snap.meta.recordedClaims.sub === oToken.sub && (snap.value as Value).content === text);
-        answer = post && all.find(({ snap }) => snap.meta.recordedClaims.sub === NEBULA_SUB && (snap.value as Value).replyTo === post.id)?.snap.value as Value | undefined;
+        answer = post && all.find(({ snap }) => snap.meta.recordedClaims.sub === NEBULA_SUB && (snap.value as Value).replyTo === post.id);
         return answer !== undefined;
       });
       assert.ok(landed && answer, `the agent never answered "${text.slice(0, 40)}…" inside ${TURN_TIMEOUT_MS / 60_000} minutes`);
-      return answer;
+      return { ...(answer.snap.value as Value), calls: await turnCallsOf(watcher.client, answer.id) as ToolCall[] };
     };
-    const wrote = (v: Value) => (v.codegen?.toolCalls ?? []).some((tc) => tc.name === 'write_file' || tc.name === 'edit_file');
+    const wrote = (v: Value) => (v.calls ?? []).some((tc) => tc.name === 'write_file' || tc.name === 'edit_file');
     let reply = await ask(REQUEST);
     // Asking first is the `define-ontology` skill's own judgment. The answer is what Larry would
     // say, and the turn that builds is the one the findings read.
@@ -157,7 +159,7 @@ export async function run(stack: DevStack): Promise<void> {
     const minutes = ((Date.now() - started) / 60_000).toFixed(1);
 
     // ── What it built, read from the source and from O's own page ──
-    const calls = reply.codegen?.toolCalls ?? [];
+    const calls = reply.calls ?? [];
     const read = (path: string) => galaxyCall<string>(driver.client.ctn<Galaxy>().readSource(path)).catch(() => '');
     const [appVue, ontology, permissions, personas] = await Promise.all(
       ['src/App.vue', 'src/ontology.d.ts', 'docs/permissions.md', 'docs/personas.md'].map(read));

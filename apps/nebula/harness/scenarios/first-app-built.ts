@@ -66,6 +66,7 @@ import { DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar, connectDriver, NEW_HOST_TIMEOUT_MS } from '../lib/harness';
 import { testSlug } from '../lib/test-scopes';
+import { turnCallsOf } from '../lib/turn-calls';
 import { LOG_WAIT_MS, loggedAfter } from '../lib/stdio';
 import { launchChromium, bootStudioVite, instrumentedPage, captureArtifacts } from '../lib/browser';
 import { provisionAndLogin, requestMagicLink } from '../../test/lib/email-login';
@@ -109,15 +110,15 @@ async function latestAgentTurn(stack: DevStack, galaxy: string, session: { acces
   const driver = await connectDriver(stack, { scope: galaxy, session });
   try {
     using sub = driver.client.resources.subscribeQuery(chatQuery); await sub.ready;
-    const replies: Array<{ at: string; v: Record<string, unknown> }> = [];
+    const replies: Array<{ id: string; at: string; v: Record<string, unknown> }> = [];
     for (const rid of sub.resourceIds) {
       const snap = await driver.client.resources.read('Message', rid) as Snapshot | null;
-      if (snap && deriveKind(snap.meta.recordedClaims) === 'agent') replies.push({ at: String((snap.meta as { validFrom?: string }).validFrom ?? ''), v: snap.value as Record<string, unknown> });
+      if (snap && deriveKind(snap.meta.recordedClaims) === 'agent') replies.push({ id: rid, at: String((snap.meta as { validFrom?: string }).validFrom ?? ''), v: snap.value as Record<string, unknown> });
     }
     const last = replies.sort((a, b) => a.at.localeCompare(b.at)).at(-1);
     if (!last) return { manifest: 'no agent reply found', reply: '', heldBack: false };
-    const cg = last.v.codegen as { stop?: string; rounds?: number; appliedPaths?: string[]; toolCalls?: Array<{ name: string; result?: unknown; error?: string }> } | undefined;
-    const builds = (cg?.toolCalls ?? []).filter((t) => t.name === 'build');
+    const cg = last.v.codegen as { stop?: string; rounds?: number; appliedPaths?: string[] } | undefined;
+    const builds = (await turnCallsOf(driver.client, last.id)).filter((t) => t.name === 'build');
     const lastBuild = builds.at(-1);
     const r = lastBuild?.result as { preview?: { refreshed?: boolean; why?: string }; typeCheck?: { findings?: unknown[] } } | undefined;
     const reply = String(last.v.content ?? '');
@@ -125,6 +126,24 @@ async function latestAgentTurn(stack: DevStack, galaxy: string, session: { acces
       ` reply=${JSON.stringify(reply.slice(0, 200))}` +
       (lastBuild ? (lastBuild.error ? ` lastBuild=error: ${lastBuild.error}` : ` lastBuild.preview=${JSON.stringify(r?.preview ?? null)} findings=${JSON.stringify(r?.typeCheck?.findings ?? null).slice(0, 1200)}`) : '');
     return { manifest, reply, heldBack: !!lastBuild && !lastBuild.error && r?.preview?.refreshed === false };
+  } finally {
+    driver.dispose();
+  }
+}
+
+/** The calls across every agent reply's rounds that recorded the post they acted for and the
+ *  claims they ran under: each is one mark Studio shows. */
+async function markedCalls(stack: DevStack, galaxy: string, session: { accessToken: string; sub: string }): Promise<number> {
+  const driver = await connectDriver(stack, { scope: galaxy, session });
+  try {
+    using sub = driver.client.resources.subscribeQuery(chatQuery); await sub.ready;
+    let marked = 0;
+    for (const rid of sub.resourceIds) {
+      const snap = await driver.client.resources.read('Message', rid) as Snapshot | null;
+      if (!snap || deriveKind(snap.meta.recordedClaims) !== 'agent') continue;
+      marked += (await turnCallsOf(driver.client, rid)).filter((c) => c.post && c.claims?.sub).length;
+    }
+    return marked;
   } finally {
     driver.dispose();
   }
@@ -382,6 +401,14 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(await agentChat.locator('[data-testid="party-avatar"].z-10').getAttribute('data-name'), 'Lumenize',
       'the agent\'s face must be the one in front');
     console.error('  ✓ limb 4 — no failure banner survived the turn; the agent\'s reply is bylined "Lumenize, re:" its poster, the agent\'s face in front');
+    // Studio marks each call the turn's rounds record with its post and claims, read once from
+    // the rounds when the reply appears. Mutation: build the marks from the message's value, which
+    // holds no calls, and none render.
+    const expectedMarks = await markedCalls(stack, galaxy, { accessToken: provisioned.accessToken, sub: provisioned.sub });
+    const marksOnPage = async (): Promise<number> => page.locator('[data-testid="tool-call-mark"]').count();
+    for (const until = Date.now() + 15_000; (await marksOnPage()) !== expectedMarks && Date.now() < until;) await new Promise((r) => setTimeout(r, 250));
+    assert.equal(await marksOnPage(), expectedMarks, `Studio must mark each of the ${expectedMarks} call(s) the turn's rounds record`);
+    console.error(`  ✓ limb 4b — Studio marked the ${expectedMarks} call(s) the turn's rounds record with whose claims each ran under`);
 
     // ── LIMB 5: the preview serves the BUILT app ──────────────────────────────────────────────
     /** The preview frame's document, evaluated across origins; `undefined` between documents. */

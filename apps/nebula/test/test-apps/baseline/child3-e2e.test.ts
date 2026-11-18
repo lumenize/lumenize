@@ -101,7 +101,6 @@ describe('child3 Phase 6 — history-restore + multi-participant e2e', () => {
       model: 'test-model', rounds: 1, stop: 'complete',
       appliedPaths: ['src/App.vue', 'src/ping.ts'],
       build: { checked: ['src/App.vue'], findings: [] },
-      toolCalls: [{ name: 'write_file', args: { path: 'src/ping.ts' } }],
     };
     const a1 = crypto.randomUUID();
     client.callGalaxyCommitAgent(scope, DEFAULT_CHAT_ID, a1, 'Added it.', CHAT_NODE_ID, u1, codegen);
