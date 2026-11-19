@@ -21,6 +21,7 @@
 
 import { NEBULA_SUB } from '@lumenize/mesh/client';
 import type { WireRecordedClaims } from '@lumenize/resources/client';
+import type { MessageSnapshot } from './chat-constants';
 
 /** A message participant's kind: `agent` when the agent wrote the message, else `human`. */
 export type ParticipantKind = 'agent' | 'human';
@@ -90,13 +91,13 @@ export function waitingPosts(thread: readonly ThreadMessage[]): string[] {
   return thread.filter((m) => m.sub !== NEBULA_SUB && !answered.has(m.id)).map((m) => m.id);
 }
 
-/** What Studio marks one tool call with: the post it acted for, and whose claims it ran under,
- *  in byline order, the agent first and the person it acted for last. */
+/** What Studio marks one tool call with: the id of the person's message it acted for, and whose
+ *  claims it ran under, in byline order, the agent first and the person it acted for last. */
 export interface ToolCallMark {
   /** Where the call sits in its turn, `{round}.{call}`: `3.0` is round 3's first call. */
   index: string;
   name: string;
-  post: string;
+  message: string;
   parties: ParticipantRef[];
 }
 
@@ -109,7 +110,7 @@ export function roundsOf(messageId: string): { typeName: 'Round'; filter: { mess
 }
 
 /** One call of a turn, read from its round: where it sits, what the model asked for, and what
- *  it came to. `post`, `claims`, `result` and `error` are absent on a call that never ran. */
+ *  it came to. `messageSnapshot`, `claims`, `result` and `error` are absent on a call that never ran. */
 export interface TurnCall {
   /** Its round's index, from 1. */
   round: number;
@@ -120,13 +121,13 @@ export interface TurnCall {
   args: unknown;
   result?: unknown;
   error?: string;
-  post?: string;
+  messageSnapshot?: MessageSnapshot;
   claims?: WireRecordedClaims;
 }
 
 /** A round as a query answers it: its value and who wrote it. */
 type RoundSnapshot = { value: unknown; meta: { recordedClaims: Pick<WireRecordedClaims, 'sub'> } };
-type StoredCallValue = { raw?: { function?: { name?: string; arguments?: string } }; post?: string; claims?: WireRecordedClaims; result?: unknown; error?: string };
+type StoredCallValue = { raw?: { function?: { name?: string; arguments?: string } }; messageSnapshot?: MessageSnapshot; claims?: WireRecordedClaims; result?: unknown; error?: string };
 
 /** Every call of a turn, in order, from its rounds as a query answers them. Reads any round's
  *  value: a reader that attests only what the agent wrote filters first, as {@link toolCallMarks} does. */
@@ -144,7 +145,7 @@ export function turnCalls(rounds: ReadonlyArray<RoundSnapshot>): TurnCall[] {
         round: round.index!, call, name: c.raw?.function?.name ?? '', args,
         ...(c.result !== undefined ? { result: c.result } : {}),
         ...(c.error !== undefined ? { error: c.error } : {}),
-        ...(c.post !== undefined ? { post: c.post } : {}),
+        ...(c.messageSnapshot !== undefined ? { messageSnapshot: c.messageSnapshot } : {}),
         ...(c.claims !== undefined ? { claims: c.claims } : {}),
       });
     });
@@ -164,7 +165,7 @@ export function turnCalls(rounds: ReadonlyArray<RoundSnapshot>): TurnCall[] {
 export function toolCallMarks(rounds: ReadonlyArray<RoundSnapshot>): ToolCallMark[] {
   const marks: ToolCallMark[] = [];
   for (const c of turnCalls(rounds.filter((r) => r.meta.recordedClaims.sub === NEBULA_SUB))) {
-    if (c.post && c.claims?.sub) marks.push({ index: `${c.round}.${c.call}`, name: c.name, post: c.post, parties: deriveParticipants(c.claims) });
+    if (c.messageSnapshot && c.claims?.sub) marks.push({ index: `${c.round}.${c.call}`, name: c.name, message: c.messageSnapshot.id, parties: deriveParticipants(c.claims) });
   }
   return marks;
 }

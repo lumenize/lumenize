@@ -154,7 +154,7 @@ type ThreadMsg = {
   content: string; thought?: string;
   /** One per tool call the agent made under a person's claims: which tool, and whose authority it
    *  used, read from the record the Galaxy wrote as the call ran, never from the reply's text. */
-  marks: Array<{ index: string; name: string; post: string; sub: string; who: string }>;
+  marks: Array<{ index: string; name: string; message: string; sub: string; who: string }>;
 };
 /** What a hover reveals: the full name, when the person set one and it is not what the byline
  *  already shows. A `title` rather than a hover-only widget, so assistive tech and keyboards get
@@ -207,7 +207,7 @@ const thread = computed<ThreadMsg[]>(() => {
       thought: typeof snap.value.thought === "string" ? snap.value.thought : undefined,
       marks: (marksByMessage.get(id) ?? []).map((mark) => {
         const person = mark.parties[mark.parties.length - 1]!;
-        return { index: mark.index, name: mark.name, post: mark.post, sub: person.sub, who: participantName(person) };
+        return { index: mark.index, name: mark.name, message: mark.message, sub: person.sub, who: participantName(person) };
       }),
     });
   }
@@ -1014,7 +1014,7 @@ const confirmingAccount = ref(false);
             <summary class="cursor-pointer select-none">💭 thought process</summary>
             <!-- Whose authority each tool call used, from the record the Galaxy wrote as it ran. -->
             <ul v-if="m.marks.length" class="mt-2 flex flex-col gap-1" data-testid="tool-call-marks">
-              <li v-for="mark in m.marks" :key="mark.index" data-testid="tool-call-mark" :data-post="mark.post" :data-sub="mark.sub">
+              <li v-for="mark in m.marks" :key="mark.index" data-testid="tool-call-mark" :data-message="mark.message" :data-sub="mark.sub">
                 <span class="badge badge-ghost badge-sm">{{ mark.name }}</span> under {{ mark.who }}'s authority
               </li>
             </ul>

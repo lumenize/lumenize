@@ -105,8 +105,8 @@ describe('a turn is stored as a row and its rounds', { timeout: 90_000 }, () => 
     const posted = await a.admin.postUserMessage('Look around the app.');
     await held(a.scope, 'model call held', 1);
 
-    const row = await a.probe((g) => g.turnRowForTest()) as { prompt: unknown[]; post: { id: string }; message: string; read: Record<string, string>; sourceCommit?: string; interrupted: number[] };
-    expect(row.post.id).toBe(posted);
+    const row = await a.probe((g) => g.turnRowForTest()) as { prompt: unknown[]; messageSnapshot: { id: string }; message: string; read: Record<string, string>; sourceCommit?: string; interrupted: number[] };
+    expect(row.messageSnapshot.id).toBe(posted);
     expect(row.prompt).toHaveLength(2);
     expect(Object.keys(row.read)).toContain(posted);
     expect(typeof row.sourceCommit).toBe('string');
@@ -118,7 +118,7 @@ describe('a turn is stored as a row and its rounds', { timeout: 90_000 }, () => 
     await held(a.scope, 'model call held', 3);
     // Mid-turn, a collaborator reads the first two rounds, each call with whose claims it ran under.
     const calls = await turnCallsOf(member, a.scope, row.message);
-    expect(calls.map((c) => [c.round, c.name, c.post, c.claims?.sub])).toEqual([
+    expect(calls.map((c) => [c.round, c.name, c.messageSnapshot?.id, c.claims?.sub])).toEqual([
       [1, 'read_file', posted, a.admin.claims!.sub], [2, 'read_file', posted, a.admin.claims!.sub], [2, 'build', posted, a.admin.claims!.sub],
     ]);
 

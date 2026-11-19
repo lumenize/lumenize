@@ -141,7 +141,7 @@ async function markedCalls(stack: DevStack, galaxy: string, session: { accessTok
     for (const rid of sub.resourceIds) {
       const snap = await driver.client.resources.read('Message', rid) as Snapshot | null;
       if (!snap || deriveKind(snap.meta.recordedClaims) !== 'agent') continue;
-      marked += (await turnCallsOf(driver.client, rid)).filter((c) => c.post && c.claims?.sub).length;
+      marked += (await turnCallsOf(driver.client, rid)).filter((c) => c.messageSnapshot && c.claims?.sub).length;
     }
     return marked;
   } finally {

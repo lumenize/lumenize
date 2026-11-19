@@ -13,7 +13,7 @@
 import { mesh } from '@lumenize/mesh';
 import { Galaxy } from '../../../src/galaxy';
 import { TURN_ROW_KEY } from '../../../src/galaxy';
-import type { TookUp } from '../../../src/galaxy';
+import type { MessageSnapshot } from '../../../src/chat-constants';
 import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '../../../src/chat-constants';
 import type { Snapshot, TransactionResult } from '@lumenize/resources';
 import { Star } from '../../../src/star';
@@ -89,7 +89,7 @@ export class GalaxyLoopProbe extends Galaxy {
    * server stamps from that Client's verified claims, which is what a turn then acts under. A post
    * already at `id` is taken as it stands.
    */
-  protected async postAsCallerForTest(id: string, content: string): Promise<TookUp> {
+  protected async postAsCallerForTest(id: string, content: string): Promise<MessageSnapshot> {
     const existing = await Promise.resolve().then(() => this.resources.read(CHAT_MESSAGE_ONTOLOGY_VERSION, id)).catch(() => null);
     if (existing) return { id, validFrom: (existing as Snapshot).meta.validFrom };
     this.#probePosting = true;
@@ -105,7 +105,7 @@ export class GalaxyLoopProbe extends Galaxy {
   }
 
   /** A probe's own post starts no turn: the probe runs the turn it means to. */
-  protected override async runTriggeredTurn(post: TookUp, content: string): Promise<void> {
+  protected override async runTriggeredTurn(post: MessageSnapshot, content: string): Promise<void> {
     if (this.#probePosting) return;
     await super.runTriggeredTurn(post, content);
   }

@@ -240,16 +240,16 @@ export async function run(stack: DevStack): Promise<void> {
       .filter((call) => LOOP_TOOLS.includes(call.name) && call.error === undefined)
       .map((call) => call as typeof call & { claims?: { sub?: string; act?: { sub?: string } } });
     for (const call of recorded) {
-      assert.ok(call.post && call.claims, `a ${call.name} that ran must record the post it acted for and the claims it ran under, and recorded ${JSON.stringify({ post: call.post, claims: call.claims })}`);
-      assert.equal(call.claims!.sub, writerOf(call.post!), `a ${call.name} for post ${call.post} must record its poster's claims`);
+      assert.ok(call.messageSnapshot && call.claims, `a ${call.name} that ran must record the post it acted for and the claims it ran under, and recorded ${JSON.stringify({ messageSnapshot: call.messageSnapshot, claims: call.claims })}`);
+      assert.equal(call.claims!.sub, writerOf(call.messageSnapshot!.id), `a ${call.name} for post ${call.messageSnapshot!.id} must record its poster's claims`);
       assert.equal(call.claims!.act?.sub, NEBULA_SUB, 'with the agent as actor');
       assert.deepEqual(Object.keys(call.claims!).filter((k) => k === 'access' || k === 'aud'), [], 'and nothing a client must not be sent');
     }
     const marksLocator = page.getByTestId('tool-call-mark');
     if (recorded.length > 0) await marksLocator.first().waitFor({ state: 'attached', timeout: 30_000 });
-    const marks = await marksLocator.evaluateAll((els) => els.map((el) => ({ post: el.getAttribute('data-post'), sub: el.getAttribute('data-sub') })));
+    const marks = await marksLocator.evaluateAll((els) => els.map((el) => ({ message: el.getAttribute('data-message'), sub: el.getAttribute('data-sub') })));
     assert.equal(marks.length, recorded.length, `Studio must mark each of the ${recorded.length} recorded tool call(s), and marked ${marks.length}`);
-    for (const mark of marks) assert.equal(mark.sub, writerOf(mark.post!), `the mark on a call for post ${mark.post} must name its poster`);
+    for (const mark of marks) assert.equal(mark.sub, writerOf(mark.message!), `the mark on a call for post ${mark.message} must name its poster`);
     console.error(recorded.length > 0
       ? `  ✓ limb 6 — ${recorded.length} tool call(s) recorded under their post's poster, and Studio marked each with that person`
       : '  ✓ limb 6 — the model called no tool that acts, so no record was checked (not exercised)');

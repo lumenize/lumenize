@@ -102,17 +102,17 @@ describe('toolCallMarks and turnCalls, read from a turn\'s rounds', () => {
   // Out of order, as a query may answer them.
   const rounds = [
     { value: { index: 2, text: 'writing', calls: [
-      { raw: raw('write_file', '{"path":"a.vue","content":"x"}', 'w1'), post: 'a1', claims: { sub: 'austen', profileId: 'p-austen', act: AGENT }, result: { written: 'a.vue' } },
+      { raw: raw('write_file', '{"path":"a.vue","content":"x"}', 'w1'), messageSnapshot: { id: 'a1', validFrom: '2026-11-19T00:00:00.001Z' }, claims: { sub: 'austen', profileId: 'p-austen', act: AGENT }, result: { written: 'a.vue' } },
     ] }, meta: byAgent },
     { value: { index: 1, text: 'reading', calls: [
-      { raw: raw('read_file', '{"path":"AGENTS.md"}', 'r1'), post: 'j1', claims: { sub: 'jennifer', profileId: 'p-jennifer', act: AGENT }, result: { path: 'AGENTS.md' } },
+      { raw: raw('read_file', '{"path":"AGENTS.md"}', 'r1'), messageSnapshot: { id: 'j1', validFrom: '2026-11-19T00:00:00.002Z' }, claims: { sub: 'jennifer', profileId: 'p-jennifer', act: AGENT }, result: { path: 'AGENTS.md' } },
       { raw: raw('mark_complete', '{ not json', 'c1'), error: 'malformed tool arguments' },
     ] }, meta: byAgent },
   ];
 
   // Mutation: key a mark by its place in the list rather than its round and call → `0`, `1`.
   it('marks each tool call that recorded its claims, by round and call, the agent first and the person it acted for last', () => {
-    expect(toolCallMarks(rounds).map((m) => [m.index, m.name, m.post, m.parties.map((p) => p.sub)])).toEqual([
+    expect(toolCallMarks(rounds).map((m) => [m.index, m.name, m.message, m.parties.map((p) => p.sub)])).toEqual([
       ['1.0', 'read_file', 'j1', [NEBULA_SUB, 'jennifer']],
       ['2.0', 'write_file', 'a1', [NEBULA_SUB, 'austen']],
     ]);

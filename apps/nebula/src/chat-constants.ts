@@ -20,6 +20,10 @@ import { NEBULA_SUB } from '@lumenize/mesh/client';
  */
 export const DEFAULT_CHAT_ID = '00000000-0000-4000-8000-000000000001';
 
+/** One snapshot of a `Message`, named by its whole key: a later edit to the message does not
+ *  change which version this names. A turn's calls name the person's message they acted for so. */
+export interface MessageSnapshot { id: string; validFrom: string }
+
 /**
  * The DAG node the whole conversation hangs from: a node of its own beneath the Galaxy's root, at a
  * fixed id as the root's is, so a grant on it covers the chat and nothing a later node beside it
@@ -80,7 +84,7 @@ export const GALAXY_TREE_SEED: TreeSeed = {
  * in its Workspace repo. The chat loader's bundle id derives from it, so a changed seed
  * row MUST come with a new label (`scripts/gen-validator-seeds.ts`).
  */
-export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v6';
+export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v7';
 
 /**
  * The Chat/Message ontology, in source (ADR-001 — TS types ARE the schema).
@@ -108,7 +112,7 @@ export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v6';
  * value objects are a parser-validator feature gap — tracked as package feedback.)
  *
  * `codegen` is the turn's summary. Its calls are on its rounds (`Round`, below), each naming the
- * post it acted for and the wire form of the claims it ran under: `sub`, `act` and `profileId`,
+ * snapshot of the person's message it acted for and the wire form of the claims it ran under: `sub`, `act` and `profileId`,
  * never `access` or `aud`, which stay off anything a client is sent (ADR-016).
  *
  * `codegen.build` replaced the per-write `gate` when the compilers left the Worker
@@ -125,8 +129,10 @@ export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v6';
  * `Round` is one round of a turn, a Resource of its own at {@link TURNS_NODE_ID}, where the turn
  * reads it, written by the agent as itself: the model's text and reasoning, each tool call as the provider returned it
  * (`raw`, kept whole, so the arguments are stored once and parsed when read), and each call's
- * result or error with the post it acted for and the claims it ran under, all four absent until
- * the call has run. `message` names the agent `Message` the turn will commit, which need not exist
+ * result or error with `messageSnapshot`, the person's message it acted for named by its whole key
+ * `{ id, validFrom }`, and the claims it ran under, all four absent until the call has run. The
+ * turn copies the snapshot and its claims when it takes the message up, so a call answered after
+ * an edit to that message still names the version it ran under. `message` names the agent `Message` the turn will commit, which need not exist
  * yet (ADR-006: an id, never looked up). `closing` marks the closing step's round: each post it was
  * shown, with the `validFrom` it read.
  *
@@ -173,7 +179,7 @@ export const CHAT_MESSAGE_TYPES = [
     reasoning?: string;
     calls: Array<{
       raw: unknown;
-      post?: string;
+      messageSnapshot?: { id: string; validFrom: string };
       claims?: { sub: string; profileId?: string; act?: unknown };
       result?: unknown;
       error?: string;

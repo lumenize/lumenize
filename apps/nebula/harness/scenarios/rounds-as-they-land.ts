@@ -12,7 +12,7 @@
  *     No one-line edit makes the Galaxy write its rounds after the message, so this limb has no
  *     mutation of its own.
  *  2. **Each round is the agent's, and the indexes run from 1 with no gap.**
- *  3. **Each call that ran ends with its post, its claims, and a result or an error.** A call
+ *  3. **Each call that ran ends with the message snapshot it acted for, its claims, and a result or an error.** A call
  *     refused before it ran, for its shape, has only its error. A turn that called no tool is
  *     reported as not exercised.
  *  4. **Each call's result is written as it lands.** For a round of two or more calls, the Worker's
@@ -97,15 +97,15 @@ export async function run(stack: DevStack): Promise<void> {
     for (const s of snapshots) assert.equal(s.meta.recordedClaims.sub, NEBULA_SUB, 'every round must be written by the agent');
     console.error('  ✓ limb 2 — every round is the agent\'s, indexes 1..' + indexes.length);
 
-    // ── LIMB 3: each call that ran ends with post, claims, and an outcome ──
+    // ── LIMB 3: each call that ran ends with its message snapshot, claims, and an outcome ──
     const calls = turnCalls(snapshots);
     const ran = calls.filter((c) => LOOP_TOOLS.includes(c.name) && (c.result !== undefined || c.claims !== undefined));
     for (const c of ran) {
-      assert.ok(c.post === posted && c.claims?.sub && (c.result !== undefined || c.error !== undefined),
-        `call ${c.round}.${c.call} (${c.name}) must end with its post, its claims and an outcome: ${JSON.stringify({ post: c.post, claims: c.claims, error: c.error })}`);
+      assert.ok(c.messageSnapshot?.id === posted && c.claims?.sub && (c.result !== undefined || c.error !== undefined),
+        `call ${c.round}.${c.call} (${c.name}) must end with its message snapshot, its claims and an outcome: ${JSON.stringify({ messageSnapshot: c.messageSnapshot, claims: c.claims, error: c.error })}`);
     }
     if (ran.length === 0) console.error('  · limb 3 not exercised: the turn ran no tool');
-    else console.error(`  ✓ limb 3 — ${ran.length} call(s) ran, each with its post, claims and outcome`);
+    else console.error(`  ✓ limb 3 — ${ran.length} call(s) ran, each with its message snapshot, claims and outcome`);
 
     // ── LIMB 4: a round's results are written as each lands ──
     const multi = snapshots.map((s) => s.value as StoredRound).filter((r) => r.calls.length >= 2);

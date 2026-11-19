@@ -5,7 +5,7 @@
 // DO classes
 export { Universe } from './universe';
 export { Galaxy, requireChatFloor, assertModelPath, LOOP_TOOL_ENTRIES } from './galaxy';
-export type { TookUp } from './galaxy';
+export type { MessageSnapshot } from './chat-constants';
 export { Star } from './star';
 // The session entry, with the hooks that wipe this Worker's Durable Objects on a deletion or creation.
 export { NebulaAuthFacade } from './nebula-auth-facade';

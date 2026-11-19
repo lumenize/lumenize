@@ -66,7 +66,7 @@ import { fakeBuildJob } from '../fake-build';
 import type { BuildFaults } from '../fake-build';
 import type { ResourcesResults } from '@lumenize/resources';
 import type { NebulaClientConfig, OrgTreeState, PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload, ResourceDenied } from '@lumenize/resources';
-import type { StudioClientConfig, TookUp } from '@lumenize/nebula';
+import type { StudioClientConfig, MessageSnapshot } from '@lumenize/nebula';
 import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '../../../src/chat-constants';
 import type { ChatMessage, ModelParams, BuildReport, LoopToolDeps } from '../../../src/codegen-loop';
 import { runCodegenLoop, assembleCodegenPrompt } from '../../../src/codegen-loop';
@@ -688,9 +688,9 @@ export class GalaxyTest extends Galaxy {
 
   /** Store a row naming `message`, for the post `post`, as a turn writes one. */
   @mesh(requireDominionHere)
-  seedTurnRowForTest(message: string, post: TookUp): void {
+  seedTurnRowForTest(message: string, post: MessageSnapshot): void {
     const initial = assembleCodegenPrompt({ systemBundles: ['sys'], userRequest: 'a seeded turn' });
-    const row: TurnRow = { prompt: [initial.system, initial.user], post, message, read: {}, interrupted: [] };
+    const row: TurnRow = { prompt: [initial.system, initial.user], messageSnapshot: post, message, read: {}, interrupted: [] };
     this.ctx.storage.kv.put(TURN_ROW_KEY, row);
   }
 
@@ -707,7 +707,7 @@ export class GalaxyTest extends Galaxy {
     const post = await this.postAsCallerForTest(crypto.randomUUID(), request);
     this.ctx.storage.kv.put(KV_SCRIPT, script);
     const initial = assembleCodegenPrompt({ systemBundles: ['sys'], userRequest: request });
-    const row: TurnRow = { prompt: [initial.system, initial.user], post, message, read: {}, interrupted: [] };
+    const row: TurnRow = { prompt: [initial.system, initial.user], messageSnapshot: post, message, read: {}, interrupted: [] };
     this.ctx.storage.kv.put(TURN_ROW_KEY, row);
     const entries = this.loopToolDeps();
     const under = <T>(run: () => T): T => this.actUnder(post, run);
@@ -753,7 +753,7 @@ export class GalaxyTest extends Galaxy {
    *  their own messages alone; until 2026-09-06 an unscripted turn threw script-exhausted
    *  and died silently, which those tests leaned on without saying so. A failed model call
    *  now commits an error reply (the controlled `error` stop), so the no-turn is explicit. */
-  protected override async runTriggeredTurn(post: TookUp, message: string): Promise<void> {
+  protected override async runTriggeredTurn(post: MessageSnapshot, message: string): Promise<void> {
     if (this.#probePosting) return;
     if ((this.ctx.storage.kv.get<unknown[]>(KV_SCRIPT) ?? []).length === 0) {
       debug('nebula.GalaxyTest.trigger').debug('no script seeded — the turn is a no-op', { userMessageId: post.id });
@@ -771,7 +771,7 @@ export class GalaxyTest extends Galaxy {
    * server stamps from that Client's verified claims, which is what a turn then acts under. A post
    * already at `id` is taken as it stands.
    */
-  protected async postAsCallerForTest(id: string, content: string): Promise<TookUp> {
+  protected async postAsCallerForTest(id: string, content: string): Promise<MessageSnapshot> {
     const existing = await Promise.resolve().then(() => this.resources.read(CHAT_MESSAGE_ONTOLOGY_VERSION, id)).catch(() => null);
     if (existing) return { id, validFrom: (existing as Snapshot).meta.validFrom };
     this.#probePosting = true;

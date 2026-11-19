@@ -22,6 +22,7 @@
  *
  * @see tasks/archive/nebula-codegen-loop.md
  */
+import type { MessageSnapshot } from './chat-constants';
 import { stepFailed } from './build-report';
 import { stepLine } from './turn-liveness';
 import type { BuildReport, Finding, StepResult } from './build-report';
@@ -40,15 +41,15 @@ export interface ToolCall {
   args: unknown;
   result?: unknown;
   error?: string;
-  /** The post a loop tool acted for: the one its turn took up. */
-  post?: string;
+  /** The person's message a loop tool acted for, the one its turn took up, by its whole key. */
+  messageSnapshot?: MessageSnapshot;
   /** The claims that call ran under, in the form a client may be sent: who, and for whom. */
-  claims?: ActedUnder;
+  claims?: CallClaims;
 }
 
 /** Whose claims a tool call ran under: `sub`, `act` and `profileId`, never `access` or `aud`,
  *  since the record reaches every subscriber of the chat (ADR-016). */
-export interface ActedUnder { sub: string; profileId?: string; act?: unknown }
+export interface CallClaims { sub: string; profileId?: string; act?: unknown }
 
 // ─── Tool surface (read_file + write_file + edit_file + build + mark_complete) ───
 // The tool-args TYPES + bundle id live in the Node-safe leaf `./tool-args-constants`,
@@ -549,11 +550,12 @@ export interface CodegenLoopDeps {
   /** The entry-reaching tools, keyed by tool name ({@link LoopToolDeps}). */
   tools: LoopToolDeps;
   /**
-   * The post the latest loop tool call acted for and the claims it ran under, or `undefined`
-   * when it ran under none. Asked after the call, whether it returned or threw, and written on
-   * the call's record: the claims are the ones read inside the block the tool ran in.
+   * The person's message the latest loop tool call acted for and the claims it ran under, or
+   * `undefined` when it ran under none. Asked after the call, whether it returned or threw, and
+   * written on the call's record. The turn copied both when it took the message up, and the call
+   * ran only once its block found that message still current, so they are what it ran under.
    */
-  actsFor?: () => { post: string; claims: ActedUnder } | undefined;
+  attribution?: () => { messageSnapshot: MessageSnapshot; claims: CallClaims } | undefined;
   /** typia shape validation of tool args (+ the unknown-key refusal). Async — the validator is a facet. */
   validateToolArgs(toolName: string, args: unknown): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
@@ -827,10 +829,10 @@ export interface StoredCall {
   /** The call as the provider returned it, `{ id, type, function: { name, arguments } }`, with
    *  the argument text as the model wrote it. The arguments are stored here once and parsed when read. */
   raw: unknown;
-  /** The post the call acted for, the one its turn took up. */
-  post?: string;
+  /** The person's message the call acted for, the one its turn took up, by its whole key. */
+  messageSnapshot?: MessageSnapshot;
   /** The claims the call ran under, in the form a client may be sent. */
-  claims?: ActedUnder;
+  claims?: CallClaims;
   result?: unknown;
   error?: string;
 }
@@ -1084,7 +1086,7 @@ export function rebuildTurn(input: {
       const call = round.calls[i]!;
       const tc = parsed[i]!;
       if (!ran(call)) { next = { kind: 'dispatch', index: round.index, call: i }; break rounds; }
-      const acted = { ...(call.post !== undefined ? { post: call.post } : {}), ...(call.claims !== undefined ? { claims: call.claims } : {}) };
+      const acted = { ...(call.messageSnapshot !== undefined ? { messageSnapshot: call.messageSnapshot } : {}), ...(call.claims !== undefined ? { claims: call.claims } : {}) };
       const result = call.result as { stopped?: string; detail?: string } | undefined;
       if (result?.stopped === REPEATED_CALL) {
         next = { kind: 'stop', stop: 'loop-detected', detail: result.detail ?? `repeated tool call ${tc.name}` };
@@ -1293,7 +1295,7 @@ async function dispatch(
     deps.rounds.update(entry.id, {
       ...round, calls: round.calls.map((c, j) => (j === i ? { raw: c.raw, ...outcome } : c)),
     }, entry.version);
-  const acted = (): Omit<StoredCall, 'raw'> => deps.actsFor?.() ?? {};
+  const acted = (): Omit<StoredCall, 'raw'> => deps.attribution?.() ?? {};
   /** A tool's throw as the call's outcome. A moved post is recorded with no claims: nothing ran. */
   const failed = (e: unknown): Promise<RoundWriteOutcome> => postMoved(e)
     ? record({ error: POST_MOVED_DETAIL })

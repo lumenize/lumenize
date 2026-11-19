@@ -63,6 +63,9 @@ interface World {
 const world = (seed: Record<string, string> = {}): World =>
   ({ files: new Map(Object.entries(seed)), writes: [], builds: 0, buildScript: [], movedOn: new Set() });
 
+/** The person's message every call in these turns acts for, by its whole key. */
+const POST_1 = { id: 'post-1', validFrom: '2026-11-19T00:00:00.000Z' };
+
 /** The deps a turn runs with, over one shared world, store and blob store. */
 function depsOf(w: World, store: RoundStore, blobs = memoryBlobs(), callModel: CodegenLoopDeps['callModel']): CodegenLoopDeps {
   return {
@@ -70,7 +73,7 @@ function depsOf(w: World, store: RoundStore, blobs = memoryBlobs(), callModel: C
     rounds: store,
     blobs,
     validateToolArgs: async () => ({ ok: true }),
-    actsFor: () => ({ post: 'post-1', claims: { sub: 'austen', profileId: 'p-austen' } }),
+    attribution: () => ({ messageSnapshot: POST_1, claims: { sub: 'austen', profileId: 'p-austen' } }),
     tools: {
       read_file: async (path) => {
         const c = w.files.get(path);
@@ -254,7 +257,7 @@ describe('a stop that lands mid-round', () => {
     await straight(script, w, DEFAULT_LOOP_CONFIG, store);
     const last = (await rounds(store)).at(-1)!;
     const [before, stopper, after] = last.calls;
-    expect(before).toMatchObject({ post: 'post-1', claims: { sub: 'austen' }, result: { written: 'b.vue' } });
+    expect(before).toMatchObject({ messageSnapshot: POST_1, claims: { sub: 'austen' }, result: { written: 'b.vue' } });
     expect(after).toEqual({ raw: expect.anything() });
     expect(w.writes).not.toContain('c.vue');
     if (what === 'a post that moved on') {
@@ -298,7 +301,7 @@ describe('an invocation continues the turn the one before it left', () => {
     for (const r of stored) await store.create(r);
     return store;
   }
-  const done = (raw: unknown, result: unknown) => ({ raw, post: 'post-1', claims: { sub: 'austen' }, result });
+  const done = (raw: unknown, result: unknown) => ({ raw, messageSnapshot: POST_1, claims: { sub: 'austen' }, result });
 
   // MUTATION: look for the first call with no outcome before looking for a recorded stop, and
   // `build` is dispatched.

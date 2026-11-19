@@ -32,7 +32,7 @@ const INTERRUPTED_LINE = 'I was interrupted twice at the same step, so I stopped
 const DEADLINE_LINE = 'This ran past the time I am allowed, so I stopped. What I saved is kept: ask again and I will carry on from it.';
 const TURN_FAILED_LINE = 'Something went wrong on my side, so I stopped. What I saved is kept: ask again and I will carry on from it.';
 
-type Row = { post: { id: string; validFrom: string }; message: string; sourceCommit?: string; interrupted: number[] };
+type Row = { messageSnapshot: { id: string; validFrom: string }; message: string; sourceCommit?: string; interrupted: number[] };
 type Codegen = { stop: string; rounds: number; appliedPaths: string[]; sourceCommit?: string };
 
 const entries: Array<{ namespace: string; message: string; data?: Record<string, unknown> }> = [];
@@ -433,7 +433,7 @@ describe('a run past its deadline', { timeout: 120_000 }, () => {
     const second = await member.postUserMessage('A request after the deadline.');
     await held(a.scope, 'model call held', 2);
     const next = (await a.row())!;
-    expect(next.post.id).toBe(second);
+    expect(next.messageSnapshot.id).toBe(second);
 
     await a.probe((g) => g.releaseForTest(1));
     await vi.waitFor(() => expect(lines(a.scope, 'nebula.Galaxy.turn', 'stopped: the row names another turn')
@@ -484,7 +484,7 @@ describe('a decision the deadline cuts off', { timeout: 120_000 }, () => {
     const next = await member.postUserMessage('A request after the decision was cut off.');
     await held(a.scope, 'model call held', 4);
     const row = (await a.row())!;
-    expect(row.post.id).toBe(next);
+    expect(row.messageSnapshot.id).toBe(next);
 
     await a.probe((g) => g.releaseForTest(3));
     await vi.waitFor(() => expect(entries.filter((e) => e.namespace === 'nebula.Galaxy.turn' && e.message === 'took up')

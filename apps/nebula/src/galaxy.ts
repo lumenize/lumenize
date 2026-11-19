@@ -54,7 +54,7 @@ import { Resources } from '@lumenize/resources';
 import type { NodeInviteOutcome, OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from '@lumenize/resources';
 import type { QueryDescriptor, TransactionResult, WireOperationDescriptor as OperationDescriptor } from '@lumenize/resources';
 import { chatOntologySeedRow } from './chat-ontology';
-import { DEFAULT_CHAT_ID, MESSAGES_NODE_ID, TURNS_NODE_ID, GALAXY_TREE_SEED } from './chat-constants';
+import { DEFAULT_CHAT_ID, MESSAGES_NODE_ID, TURNS_NODE_ID, GALAXY_TREE_SEED, type MessageSnapshot } from './chat-constants';
 import { STUDIO_MODEL } from './studio-model';
 import { parseCast, type CastEntry } from './cast';
 import { NO_PREVIEW_ERROR } from './studio-client';
@@ -99,7 +99,7 @@ import {
   type ChatMessage,
   type ModelParams,
   type LoopResult,
-  type ActedUnder,
+  type CallClaims,
   type RoundStore,
   type RoundWriteOutcome,
   type StoredRound,
@@ -1724,10 +1724,10 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    */
   #tabOutcome(row: TurnRow, stored: StoredCall, reply: TabReply, address: string, answer: unknown, passedOver: boolean): Omit<StoredCall, 'raw'> | 'asked another' {
     try {
-      return this.actUnder(row.post, () => {
+      return this.actUnder(row.messageSnapshot, () => {
         const claims = this.#claimsIfAny();
         const acted = wireClaims(claims);
-        const by = { post: row.post.id, ...(acted ? { claims: acted } : {}) };
+        const by = { messageSnapshot: row.messageSnapshot, ...(acted ? { claims: acted } : {}) };
         if (passedOver) {
           debug('nebula.Galaxy.runInTab').debug('passed over a tab that ran nothing', { instanceName: this.lmz.instanceName, address, why: (answer as Error).name });
           const { tab, code } = JSON.parse((stored.raw as { function: { arguments: string } }).function.arguments) as { tab: string; code: string };
@@ -1749,7 +1749,15 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       });
     } catch (e) {
       // The post moved on: nothing more runs under its old snapshot, and the turn ends on that.
-      if (e instanceof Error && e.name === 'ResourceMovedOnError') return { error: POST_MOVED_DETAIL };
+      // The code was sent under the snapshot the turn took up, so the call names it and the claims
+      // copied from it then, and keeps what the tab answered beside the error.
+      if (e instanceof Error && e.name === 'ResourceMovedOnError') {
+        let ran: { result?: unknown } = {};
+        if (!passedOver && !(answer instanceof Error)) {
+          try { ran = { result: clipRunResult(runAnswerOf(answer)) }; } catch { /* nothing readable came back */ }
+        }
+        return { error: POST_MOVED_DETAIL, ...ran, messageSnapshot: row.messageSnapshot, ...(row.claims ? { claims: row.claims } : {}) };
+      }
       throw e;
     }
   }
@@ -1782,7 +1790,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * the Resources plane reads that snapshot's record, so no claims pass through here. Throws
    * `ResourceMovedOnError` before `run` when the post was edited or deleted since.
    */
-  protected actUnder<T>(post: TookUp, run: () => T): T {
+  protected actUnder<T>(post: MessageSnapshot, run: () => T): T {
     return this.#resources.actUnderClaimsOf(post.id, post.validFrom, NEBULA_SUB, run);
   }
 
@@ -1877,7 +1885,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    *
    * ⚠️ Run with `wrangler dev` — the turn calls `env.AI.run` (or the REST lane).
    */
-  protected async runTriggeredTurn(post: TookUp, content: string): Promise<void> {
+  protected async runTriggeredTurn(post: MessageSnapshot, content: string): Promise<void> {
     // SINGLE-FLIGHT: one run at a time in this object, and the trigger starts none beside a row.
     // The latch is set before the first `await`. The latch stays set from a turn's end through
     // the decision that follows, with no `await` between, so a post that lands in that gap waits
@@ -1952,8 +1960,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       debug('nebula.Galaxy.wake').info('woke beside its committed message', { instanceName: this.lmz.instanceName, message: row.message });
       return false;
     }
-    await this.#asRun(row.message, row.post.id, async (warm) => {
-      const progress = (step: string): void => this.#chatProgress(row.message, step, row.post.id);
+    await this.#asRun(row.message, row.messageSnapshot.id, async (warm) => {
+      const progress = (step: string): void => this.#chatProgress(row.message, step, row.messageSnapshot.id);
       const result = await this.#runFromRow(row, DEFAULT_LOOP_CONFIG, progress, () => warm.fire(), woken);
       await this.#commitTurn(row.message, result);
     });
@@ -2102,11 +2110,11 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
 
   /** The turn body the trigger races against the generation deadline: ONE assembly with
    *  every layer and the full tool set, the model deciding whether to act. */
-  async #chatTurn(post: TookUp, message: string, started: (message: string) => void, live: () => boolean): Promise<void> {
+  async #chatTurn(post: MessageSnapshot, message: string, started: (message: string) => void, live: () => boolean): Promise<void> {
     const userMessageId = post.id;
     // Whose claims this turn's tools run under: the poster's as recorded, with the agent as
     // actor. A post that moved on before this line logs none, and the first tool call stops.
-    let claims: ActedUnder | null = null;
+    let claims: CallClaims | null = null;
     try { claims = this.actUnder(post, () => wireClaims(this.#claimsIfAny())) ?? null; } catch { /* moved on, or no person's record */ }
     debug('nebula.Galaxy.turn').info('took up', {
       instanceName: this.lmz.instanceName, step: 'turn', postId: userMessageId, claims,
@@ -2184,7 +2192,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   /** The turn's body: the loop, then the durable reply. `warm` is the run's latch, fired by
    *  the run's first write. */
   async #codegenTurn(
-    message: string, agentMessageId: string, post: TookUp,
+    message: string, agentMessageId: string, post: MessageSnapshot,
     warm: { fire(): void }, live: () => boolean,
   ): Promise<void> {
     const result = await this.runCodegenTurn(
@@ -2296,8 +2304,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // closing step added, and the post the turn took up as the snapshot it took up.
     const read = new Map(Object.entries(row.read));
     for (const shown of result.closing?.closing ?? []) read.set(shown.id, shown.validFrom);
-    read.set(row.post.id, row.post.validFrom);
-    await this.#commitAnswering(agentMessageId, reply, row.post.id, answers, read, { thought, codegen });
+    read.set(row.messageSnapshot.id, row.messageSnapshot.validFrom);
+    await this.#commitAnswering(agentMessageId, reply, row.messageSnapshot.id, answers, read, { thought, codegen });
     if (this.turnRow()?.message === agentMessageId) this.ctx.storage.kv.delete(TURN_ROW_KEY);
     // (No reload is asked for here: a turn's last build that landed recorded `.dev`'s newest
     // `ServedBuild`, which every Studio on the app hears, as a manual `buildNow()`'s does.)
@@ -2690,7 +2698,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     opts: {
       /** The post this turn took up, and the snapshot of it the turn read. The history bundle
        *  leaves it out, and every tool call runs under its recorded claims. */
-      tookUp: TookUp;
+      tookUp: MessageSnapshot;
       /** The agent `Message` the turn will commit. Its id names the turn, on its row and on
        *  every round. */
       message: string;
@@ -2720,9 +2728,14 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       currentSource,
       ...(tookUpBy ? { posterLabel: labelFor(tookUpBy) } : {}),
     });
+    // The claims on the snapshot taken up, copied now so a call answered after the message moves
+    // on still names them. One that has moved on already copies none, and its first call stops.
+    let claims: CallClaims | undefined;
+    try { claims = this.actUnder(opts.tookUp, () => wireClaims(this.#claimsIfAny())) ?? undefined; } catch { /* moved on, or no person's record */ }
     const row: TurnRow = {
       prompt: [initial.system, initial.user],
-      post: opts.tookUp,
+      messageSnapshot: opts.tookUp,
+      ...(claims ? { claims } : {}),
       message: opts.message,
       // Each post the model is shown, with the `validFrom` of the snapshot shown.
       read: Object.fromEntries(thread.map(({ id, snap }) => [id, snap.meta.validFrom])),
@@ -2758,13 +2771,13 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     const entries = this.loopToolDeps();
     // What the latest call ran under, kept from inside the same block the tool ran in, so the
     // record of a call and the call itself can never name two snapshots.
-    let acted: { post: string; claims: ActedUnder } | undefined;
+    let acted: { messageSnapshot: MessageSnapshot; claims: CallClaims } | undefined;
     const under = <T>(run: () => T): T => {
       acted = undefined;
-      const post = row.post;
-      return this.actUnder(post, () => {
+      const snapshot = row.messageSnapshot;
+      return this.actUnder(snapshot, () => {
         const claims = wireClaims(this.#claimsIfAny());
-        if (claims) acted = { post: post.id, claims };
+        if (claims) acted = { messageSnapshot: snapshot, claims };
         return run();
       });
     };
@@ -2787,7 +2800,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       // tab themself, and writes none of the app's source.
       run_in_tab: (tab, code, at) => under(() => entries.run_in_tab(tab, code, at)),
     };
-    const offered = { tools: CODEGEN_TOOLS, step: 'turn' as const, postId: row.post.id };
+    const offered = { tools: CODEGEN_TOOLS, step: 'turn' as const, postId: row.messageSnapshot.id };
     // Whether this run wrote a round: a woken run that wrote none found its turn already ended.
     let stepped = false;
     const store = this.roundStore(row.message);
@@ -2800,7 +2813,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       woken,
       blobs: { write: (content) => this.writeBlob(content), read: (oid) => this.readBlob(oid) },
       // What the latest tool call's record says it acted for, read after the call.
-      actsFor: () => acted,
+      attribution: () => acted,
       callModel: (m, p) => this.callModel(m, p, onDelta, offered),
       ...(onDelta ? { onDelta } : {}),
       tools,
@@ -2900,7 +2913,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     const seen = new Set(Object.keys(row.read));
     const now = this.#thread();
     const waiting = new Set(this.#waiting(now));
-    const arrived = now.filter(({ id }) => !seen.has(id) && id !== row.post.id && waiting.has(id));
+    const arrived = now.filter(({ id }) => !seen.has(id) && id !== row.messageSnapshot.id && waiting.has(id));
     if (arrived.length === 0) return result;
     if (wokeAtClosing) {
       const recorded = await this.roundStore(row.message).recordInterrupted(result.rounds + 1);
@@ -2909,9 +2922,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     }
     const posts = arrived.map(({ id }) => id);
     debug('nebula.Galaxy.turn').info('closing step', {
-      instanceName: this.lmz.instanceName, step: 'closing', postId: row.post.id, posts,
+      instanceName: this.lmz.instanceName, step: 'closing', postId: row.messageSnapshot.id, posts,
     });
-    const { labelFor } = this.#historyBundle(now, row.post.id);
+    const { labelFor } = this.#historyBundle(now, row.messageSnapshot.id);
     const request = renderClosingRequest(arrived.map(({ id, snap }) => ({
       postId: id, speaker: labelFor(snap.meta.recordedClaims.sub), content: (snap.value as { content?: string }).content ?? '',
     })));
@@ -2919,7 +2932,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     try {
       raw = await this.callModel(
         [...result.messages, { role: 'user', content: request }], DEFAULT_LOOP_CONFIG.fixParams, undefined,
-        { tools: MESSAGE_ONLY_TOOLS, step: 'closing', postId: row.post.id },
+        { tools: MESSAGE_ONLY_TOOLS, step: 'closing', postId: row.messageSnapshot.id },
       );
     } catch (e) {
       // The turn's own reply stands, and the posts wait for a decision.
@@ -3099,9 +3112,6 @@ const GALAXY_LAYER_PREFACE = "The app's own AGENTS.md — the layer below the pl
  */
 type TurnBody = (started: (message: string) => void, live: () => boolean) => Promise<boolean>;
 
-/** The post a turn took up: its id, and the `validFrom` of the snapshot of it the turn read. */
-export interface TookUp { id: string; validFrom: string }
-
 /** Where a tab's answer goes: the turn, by its agent `Message`'s id, and the call's place in its round. */
 interface TabReply { message: string; roundId: string; version: string; callId: string }
 
@@ -3126,8 +3136,11 @@ export const TURN_ROW_KEY = 'turn:row';
 export interface TurnRow {
   /** The messages the model was first sent: the system layer, then the request. */
   prompt: ChatMessage[];
-  /** The post the turn took up, and the snapshot of it the turn read. */
-  post: TookUp;
+  /** The person's message the turn took up, by the whole key of the snapshot it read. */
+  messageSnapshot: MessageSnapshot;
+  /** The claims recorded on that snapshot, copied when the turn took it up, which every call of
+   *  the turn ran under; kept so a call answered after the message moved on still names them. */
+  claims?: CallClaims;
   /** The id of the agent `Message` the turn will commit, which every round of it names. */
   message: string;
   /** Each post the model was shown as the turn started, with the `validFrom` it was shown at. */

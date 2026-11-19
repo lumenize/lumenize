@@ -322,7 +322,7 @@ describe('a post edited while its turn runs', () => {
     expect(turnLines(scope, 'decision').map((l) => l.postId)).toEqual([j1]);
     // The edited post, worked under its editor, and answered.
     const done = valueOf(messages.get('Done with the edited request.')!);
-    expect((await callsOf(c.j, scope, messages.get('Done with the edited request.')!)).filter((tc) => tc.name === 'write_file').map((tc) => [tc.post, tc.claims?.sub])).toEqual([[j1, c.aSub]]);
+    expect((await callsOf(c.j, scope, messages.get('Done with the edited request.')!)).filter((tc) => tc.name === 'write_file').map((tc) => [tc.messageSnapshot?.id, tc.claims?.sub])).toEqual([[j1, c.aSub]]);
     expect([done.replyTo, done.answers]).toEqual([j1, [j1]]);
     expect(await c.waiting()).toEqual([]);
     c.dispose();
@@ -678,8 +678,8 @@ describe('each source commit names whose authority it used', () => {
     // The record on the agent's message: which post the call acted for, and whose claims it ran
     // under, with nothing a client must not be sent.
     const reply = (await agentMessages(c.j, sub.resourceIds)).get('Done, Austen.')!;
-    const [write] = (await callsOf(c.j, scope, reply)) as Array<{ name: string; post?: string; claims?: object; result?: { oid?: string } }>;
-    expect(write!.post).toBe(a1);
+    const [write] = (await callsOf(c.j, scope, reply)) as Array<{ name: string; messageSnapshot?: { id: string; validFrom: string }; claims?: object; result?: { oid?: string } }>;
+    expect(write!.messageSnapshot?.id).toBe(a1);
     expect(write!.claims).toEqual({ sub: c.aSub, profileId: c.aProfile, act: AGENT });
     // The commit that call made: Austen's authority, the agent's hand.
     const turnCommit = await head();
@@ -728,7 +728,7 @@ describe('a post whose turn an eviction cut off', () => {
     const built = (await agentMessages(c.j, sub.resourceIds)).get('Jennifer, your wishlist is built.')!;
     const value = built.value as { replyTo?: string; answers?: string[] };
     expect([value.replyTo, value.answers]).toEqual([j1, [j1]]);
-    expect((await callsOf(c.j, scope, built)).filter((tc) => tc.name === 'write_file').map((tc) => [tc.post, tc.claims?.sub, tc.error])).toEqual([[j1, c.jSub, undefined]]);
+    expect((await callsOf(c.j, scope, built)).filter((tc) => tc.name === 'write_file').map((tc) => [tc.messageSnapshot?.id, tc.claims?.sub, tc.error])).toEqual([[j1, c.jSub, undefined]]);
     const commits = entries.filter((e) => e.namespace === 'nebula.Galaxy.writeSource' && e.data?.instanceName === scope)
       .map((e) => [e.data!.path, (e.data!.recordedClaims as { sub: string }).sub, (e.data!.recordedClaims as { act?: { sub: string } }).act?.sub]);
     expect(commits).toEqual([['src/wishlist.txt', c.jSub, NEBULA_SUB]]);
@@ -849,7 +849,7 @@ describe('the agent invites, under the claims of the post its turn took up', () 
     await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).has('Invited.')).toBe(true), { timeout: 20_000 });
 
     const [invite] = await callsOf(c.j, scope, (await agentMessages(c.j, sub.resourceIds)).get('Invited.')!);
-    expect([invite!.name, invite!.error, invite!.post, invite!.claims?.sub]).toEqual(['invite', undefined, m1, morgan.payload.sub]);
+    expect([invite!.name, invite!.error, invite!.messageSnapshot?.id, invite!.claims?.sub]).toEqual(['invite', undefined, m1, morgan.payload.sub]);
     await vi.waitFor(async () => expect((await membershipsOf(friend)).map(([at]) => at)).toEqual([scope, `${scope}.dev`]), { timeout: 15_000 });
     // Nothing was posted about a failure: the turn's message is the agent's only one.
     expect([...(await agentMessages(c.j, sub.resourceIds)).keys()]).toEqual(['Invited.']);
@@ -882,8 +882,8 @@ describe('the agent invites, under the claims of the post its turn took up', () 
     const [refused] = await callsOf(c.j, scope, reply);
     expect(refused).toMatchObject({ name: 'invite', error: NOT_AN_ADMIN });
     // The refused call still records whose claims it ran under. Mutation: record a failed
-    // call without them → `post` and `claims` are absent.
-    expect([refused.post, refused.claims?.sub]).toEqual([a1, c.aSub]);
+    // call without them → `messageSnapshot` and `claims` are absent.
+    expect([refused.messageSnapshot?.id, refused.claims?.sub]).toEqual([a1, c.aSub]);
     expect(await membershipsOf(friend)).toEqual([]);
     c.dispose();
   });

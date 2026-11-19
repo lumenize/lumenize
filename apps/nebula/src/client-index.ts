@@ -24,6 +24,7 @@ export type {
 // Chat identity + the platform chat-ontology version label (pure strings — the value a
 // chat client sends as its `ontologyVersion`).
 export { DEFAULT_CHAT_ID, CHAT_NODE_ID, MESSAGES_NODE_ID, TURNS_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from './chat-constants';
+export type { MessageSnapshot } from './chat-constants';
 
 // Participant derivation — display identity from the stamped `meta.recordedClaims`
 // (author from `sub`, kind from whether that subject is the agent). Pure.

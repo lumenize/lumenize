@@ -212,7 +212,7 @@ export async function run(stack: DevStack): Promise<void> {
     // Only the invite calls that acted for Austen's post. One message can answer several posts:
     // a turn still working for Jennifer when Austen posts answers both in its closing message,
     // and its invites, which acted for Jennifer's post under her claims, are no invites of Austen's.
-    const tried = answered ? (await turnCallsOf(jennifer.client, answered.id)).filter((tc) => tc.name === 'invite' && tc.post === a1) : [];
+    const tried = answered ? (await turnCallsOf(jennifer.client, answered.id)).filter((tc) => tc.name === 'invite' && tc.messageSnapshot?.id === a1) : [];
     console.error(`  · recorded — asked by Austen, the agent ${tried.length === 0 ? 'called no invite for her post' : tried.some((tc) => tc.error) ? 'called invite for her post and was refused within the turn' : 'called invite for her post and it LANDED'}: ${JSON.stringify(((answer?.value as Value | undefined)?.content ?? '(no answer)').slice(0, 200))}`);
     assert.ok(!tried.some((tc) => !tc.error), "an invite that acted for Austen's post must never land: she is no admin of the app");
 

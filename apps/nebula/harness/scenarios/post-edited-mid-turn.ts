@@ -49,7 +49,7 @@ const chatQuery = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
 const LOOP_TOOLS = ['read_file', 'write_file', 'edit_file', 'build', 'invite'];
 const MOVED = 'The post I was working on was changed while I worked';
 
-type ToolCall = { name: string; error?: string; post?: string; claims?: { sub?: string; act?: { sub?: string } } };
+type ToolCall = { name: string; error?: string; messageSnapshot?: { id: string; validFrom: string }; claims?: { sub?: string; act?: { sub?: string } } };
 type Value = { content?: string; replyTo?: string; answers?: string[]; codegen?: { stop?: string } };
 
 export async function run(stack: DevStack): Promise<void> {
@@ -131,7 +131,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.ok(claims.includes(cast.austenSub), `a turn on the edited post must run under Austen; the took-up lines name ${JSON.stringify(claims)}`);
     const under = (await callsOf(reply)).filter((tc) => LOOP_TOOLS.includes(tc.name));
     for (const tc of under) {
-      assert.deepEqual([tc.post, tc.claims?.sub, tc.claims?.act?.sub], [j1, cast.austenSub, NEBULA_SUB],
+      assert.deepEqual([tc.messageSnapshot?.id, tc.claims?.sub, tc.claims?.act?.sub], [j1, cast.austenSub, NEBULA_SUB],
         `${tc.name} on the edited post must be recorded under Austen with the agent as actor`);
     }
     console.error(`  ✓ limb 3 — the edited post was taken up under Austen (${under.length} tool call(s) recorded)`);

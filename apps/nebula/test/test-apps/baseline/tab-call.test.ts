@@ -19,7 +19,7 @@ import type { Galaxy } from '@lumenize/nebula';
 import type { Snapshot, QueryReadResult } from '@lumenize/resources';
 import type { RunAnswer } from '@lumenize/resources/frontend';
 import { roundsOf } from '../../../src/participants';
-import { INTERRUPTED_CALL_ERROR, type StoredRound } from '../../../src/codegen-loop';
+import { INTERRUPTED_CALL_ERROR, POST_MOVED_DETAIL, type StoredRound } from '../../../src/codegen-loop';
 import { universeAdminClient, createSubject, createInvitedClient, addressOfClient, pageOf, ORIGIN } from '../../test-helpers';
 import { StudioClientTest } from './index';
 import type { GalaxyTest } from './index';
@@ -174,6 +174,37 @@ describe('a tab call leaves by its result handler', { timeout: 120_000 }, () => 
     await c.message(POST_MOVED);
     expect(c.ran).toEqual([['first', 'me', 'return 1']]);
     a2[Symbol.dispose]();
+    c.dispose();
+  });
+
+  // MUTATIONS: copy no claims when the turn takes the post up → the call's claims are missing;
+  // drop the tab's answer from a moved-on record → its result is missing; name the post by its id
+  // alone → the version is missing.
+  it('a tab that answers after its post was edited leaves the version and claims its code ran under, beside our stop', async () => {
+    const scope = uniqueScope();
+    const c = await cast(scope);
+    using sub = c.a.resources.subscribeQuery(chatQuery); await sub.ready;
+    const answered = held<RunAnswer>(() => ({ ok: true, value: { from: 'austen' } }));
+    c.answers(c.a, 'austen', answered.answer);
+    await c.seed([call('run_in_tab', { tab: 'me', code: 'return 1' }), call('mark_complete', {}, 'never sent')]);
+    const a1 = await c.a.postUserMessage('Run something for me.');
+    const taken = await c.a.resources.read('Message', a1) as Snapshot;
+    await asked(c);
+    expect((await c.a.resources.transaction({
+      [a1]: { op: 'put', typeName: 'Message', ifValidFromMatches: taken.meta.validFrom, value: { chat: DEFAULT_CHAT_ID, content: 'Reworded while it ran.' } },
+    })).kind).toBe('committed');
+    answered.release();
+
+    const reply = await c.message(POST_MOVED);
+    const tabCalls = (await c.rounds(reply.id)).flatMap((r) => r.round.calls)
+      .filter((x) => (x.raw as { function: { name: string } }).function.name === 'run_in_tab');
+    expect(tabCalls).toHaveLength(1);
+    expect(tabCalls[0]).toMatchObject({
+      error: POST_MOVED_DETAIL,
+      result: { ok: true, value: { from: 'austen' } },
+      messageSnapshot: { id: a1, validFrom: taken.meta.validFrom },
+      claims: { sub: taken.meta.recordedClaims.sub, act: { sub: NEBULA_SUB } },
+    });
     c.dispose();
   });
 
