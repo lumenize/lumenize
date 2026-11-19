@@ -523,7 +523,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   // The same latch one level up, around the whole build-and-land, so each build compares the file
   // with the row only after the build before it has landed.
   #landChain: Promise<unknown> = Promise.resolve();
-  // A run of a turn is live in this object, one at a time. In memory BY DESIGN: an eviction
+  // A run of a turn is live in this DO instance, one at a time. In memory BY DESIGN: an eviction
   // clears it, and the turn's row, which outlives it, is what says a turn is in flight
   // (`runTriggeredTurn`, `#wake`).
   #turnInFlight = false;
@@ -1322,7 +1322,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
 
   // ─── The certificate pack (certificate.ts) ──────────────────────────────────
   // Coordination, not data (`containers.md`'s latch): the order in flight, and whether a teardown
-  // has begun. Both die with the object, which the teardown aborts anyway.
+  // has begun. Both die with the DO instance, which the teardown aborts anyway.
   #certificateOrder?: Promise<void>;
   #tearingDown = false;
   /** How long a teardown waits for an order in flight before listing packs. `protected` so a test
@@ -1759,7 +1759,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * Continue a turn whose tab call was answered: a run through the same entry a post and a wake
    * take, with a deadline of its own. The call's answer is what starts this run, so the run that
    * sent the call has ended by now; if it had not, the answer stays on the round and the turn goes
-   * on when the object is next constructed ({@link #wake}).
+   * on when the constructor next runs ({@link #wake}).
    */
   #continueAfterAnswer(): void {
     if (this.#turnInFlight) return;
@@ -1838,7 +1838,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * A post that arrives while a turn runs waits in storage, with the claims its write recorded,
    * and the decision after that turn can take it up under them. A turn is in flight while its row
    * exists, so a post beside a row waits too: the row's run is live, waits on a tab's answer, or
-   * was woken when the object was constructed ({@link #wake}). An edit to a post an agent
+   * was woken when the constructor ran ({@link #wake}). An edit to a post an agent
    * message has already answered starts nothing, and neither does an edit to a post a running
    * turn took up: that turn's next tool call finds the post moved on and stops.
    */
@@ -1878,7 +1878,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * ⚠️ Run with `wrangler dev` — the turn calls `env.AI.run` (or the REST lane).
    */
   protected async runTriggeredTurn(post: MessageSnapshot, content: string): Promise<void> {
-    // SINGLE-FLIGHT: one run at a time in this object, and the trigger starts none beside a row.
+    // SINGLE-FLIGHT: one run at a time in this DO instance, and the trigger starts none beside a row.
     // The latch is set before the first `await`. The latch stays set from a turn's end through
     // the decision that follows, with no `await` between, so a post that lands in that gap waits
     // for the decision instead of starting a second turn beside it.
@@ -1913,9 +1913,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
 
   /**
    * Continue a turn an eviction cut off, from `onStart`. A row found there is always one: nothing
-   * has run in the object yet, and its run ended with the object an eviction, a hibernation or a
-   * code update took. Whatever constructs the object wakes it, a Client or not: a page load, an
-   * alarm, a node's call, a teardown. A teardown's wipe and abort end a run it woke, and each round
+   * has run on this DO instance yet, and its run ended with the instance an eviction, a hibernation
+   * or a code update replaced. Whatever runs the constructor wakes it, a Client or not: a page load,
+   * an alarm, a node's call, a teardown. A teardown's wipe and abort end a run it woke, and each round
    * write and the commit check the row first, so a run past the wipe writes nothing. The woken run
    * settles what the eviction left, in the loop ({@link CodegenLoopDeps.woken}) and at the closing
    * step, and goes on as any run does, a decision after it included. Detached under `waitUntil`,
@@ -1968,7 +1968,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * (durable-objects.md § Wall-clock billing). A timer heartbeat is not the hold either: it held
    * nothing at the old date, and `waitUntil` states the hold directly. An eviction mid-run — a
    * restart or a deploy — loses only the run: the turn's row and rounds are in storage, and
-   * whatever next constructs the object wakes the turn where it stopped ({@link #wake}).
+   * whatever next runs the constructor wakes the turn where it stopped ({@link #wake}).
    *
    * The GENERATION DEADLINE stays, one per run: past it our own code ends the turn in a line of
    * ours and deletes its row, and the latch releases, so a hung await cannot wedge the loop for

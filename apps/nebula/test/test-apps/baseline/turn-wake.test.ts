@@ -118,7 +118,7 @@ describe('a turn cut off at a model call', { timeout: 120_000 }, () => {
   // MUTATIONS: record the cut round on the row after the repeated call starts → the reset below
   // finds `interrupted` empty; send the file as it reads now, not by its blob → the round-1 tool
   // message holds the rewrite; rebuild without the note → the request does not end in it.
-  it('makes that call again once the Galaxy is constructed again, sending each file as the model first read it', async () => {
+  it('makes that call again once the Galaxy\'s constructor runs again, sending each file as the model first read it', async () => {
     const a = await app();
     const original = await a.source('src/App.vue');
     const posted = await heldAtRound4(a, [reply([toolCall('mark_complete', {}, 'c1')], 'Rewrote the app.')]);
@@ -500,7 +500,7 @@ describe('a decision the deadline cuts off', { timeout: 120_000 }, () => {
 
 describe('a Galaxy with a cut-off turn that no Client reaches', { timeout: 120_000 }, () => {
   // MUTATION: drop the wake from `onStart` → nothing continues the turn, and its row stays.
-  it('continues it when anything constructs the object, and the turn commits its message', async () => {
+  it('continues it whenever the constructor runs, whatever runs it, and the turn commits its message', async () => {
     const a = await app();
     await a.probe((g) => g.seedChatScriptForTest([reply([toolCall('mark_complete', {}, 'c1')], 'Done, with nobody here.')]));
     await a.probe((g) => g.holdModelCallForTest(1));
@@ -510,7 +510,7 @@ describe('a Galaxy with a cut-off turn that no Client reaches', { timeout: 120_0
     a.dispose();
     await reset(a.scope);
 
-    // A read from inside the object is no Client's call, and its construction wakes the turn. A
+    // A read from inside the Galaxy is no Client's call, and the constructor it runs wakes the turn. A
     // stub made before the reset answers with the reset itself, so each read takes a fresh one.
     const rowNow = (): Promise<unknown> => (runInDurableObject as any)(env.GALAXY.getByName(a.scope),
       (_i: unknown, ctx: DurableObjectState) => ctx.storage.kv.get(TURN_ROW_KEY));
