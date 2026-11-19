@@ -208,7 +208,7 @@ For cleanup after a client leaves, **reactive** patterns (e.g. drop-on-failed-br
 - **Our own code MAY reach a mesh node through `@rawRpc()` for an operation no client may call.** This is ADR-023's second bridge, running the other way from a facade: raw-DO infrastructure, or a hook it hands the platform, reaches a mesh node.
   - The node decorates the method `@rawRpc()`, never `@mesh()`. The caller uses `rawRpcStub(binding, instanceName)` from `@lumenize/mesh/raw-rpc`, which only code holding the binding can call. The node's one `__rawRpc` entry verifies the pair, refuses any undecorated name, and stamps identity.
   - The shape that rides it is a **hook seam**: the infrastructure package declares what it needs done to objects it cannot name, as a required property (`ScopeLifecycleHooks` on `AuthFacade`), and the platform supplies it from one module, `apps/nebula/src/scope-lifecycle-hooks.ts`, which holds every `rawRpcStub` call the platform makes.
-  - Canonical: `ScopedMeshDO.teardown()`, which a deletion's hook calls and which `@mesh()` would open to any admin wanting to wipe a live app; and `Profile.readDisplayNames`/`setDisplayNames`, which the consent route calls.
+  - Canonical: `ScopedMeshDO.teardownScope()`, which a deletion's hook calls and which `@mesh()` would open to any admin wanting to wipe a live app; and `Profile.readDisplayNames`/`setDisplayNames`, which the consent route calls.
 
 If neither fits, that's a signal to extend Mesh itself — you MUST ask before dropping down. **Ergonomic friction counts too**: Nebula is Mesh's first (and only) consumer, so "this API is awkward to use from Nebula" is Mesh product feedback — you MUST flag it (backlog item or proposal), and MUST NOT silently absorb it with app-side contortions.
 

@@ -3,7 +3,7 @@
  * operation no client may call (ADR-023), and the subpath `@lumenize/mesh/raw-rpc` that carries it.
  *
  * ```ts
- * await rawRpcStub('GALAXY', 'acme.crm').teardown('deletion', operationId);
+ * await rawRpcStub('GALAXY', 'acme.crm').teardownScope('deletion', operationId);
  * ```
  *
  * The stub turns each method into one Workers RPC call to the node's `__rawRpc` entry, passing the

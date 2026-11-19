@@ -50,7 +50,7 @@ import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { uniqueTestEmail, waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 import { NebulaClient } from '@lumenize/resources/client';
-import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, StudioClient } from '@lumenize/nebula/client';
+import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, StudioClient } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { NodeInviteAck, Snapshot } from '@lumenize/resources';
 import { NEBULA_SUB } from '@lumenize/mesh/client';
@@ -243,7 +243,7 @@ export async function run(stack: DevStack): Promise<void> {
       });
       disposers.push(() => { try { inviter[Symbol.dispose](); } catch { /* already disposed */ } ctx.close(); });
       const ack = await inviter.lmz.callAsync('GALAXY', galaxy,
-        inviter.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, [{ email: pEmail, tier: 'write' }]),
+        inviter.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, [{ email: pEmail, tier: 'write' }]),
         { timeoutMs: 30_000 }) as NodeInviteAck;
       assert.deepEqual(ack, { accepted: 1, errors: [] }, `invite ack: ${JSON.stringify(ack)}`);
       inviteLink = extractMagicLink(await waiter.emailPromise);
@@ -316,7 +316,7 @@ export async function run(stack: DevStack): Promise<void> {
     // A write through the ordinary door, naming the build `.dev` already serves, so no Studio is
     // asked to reload and no turn starts: only its push to the paused page matters.
     const forged = await driver.client.resources.transaction({
-      [crypto.randomUUID()]: { op: 'create', typeName: 'ServedBuild', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, star: 'dev', buildVersion: b2 } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'ServedBuild', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, star: 'dev', buildVersion: b2 } },
     });
     assert.equal(forged.kind, 'committed', `the door write was ${forged.kind}`);
     const reaped = await waitForDebugLines(stack, (all) => all.some(isPsReap), "the paused Studio's reap",

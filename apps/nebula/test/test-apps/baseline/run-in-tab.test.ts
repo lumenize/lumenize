@@ -3,7 +3,7 @@
  * other person's.
  *
  * Two people share one chat, each with Studio open: the app's owner, here Jennifer, and a
- * collaborator holding `write` at the chat node and no admin bit, here Austen. Every test drives
+ * collaborator holding `write` at the `messages` node and no admin bit, here Austen. Every test drives
  * real clients, real Messages and the real commit hook, with only the model scripted
  * (`GalaxyTest.seedChatScriptForTest`), and each Studio answers a run with a handler the test
  * set, where the product's holds the preview's frames. That is why these run here and not
@@ -18,7 +18,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { NEBULA_SUB } from '@lumenize/mesh/auth';
-import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
+import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
 import type { RunAnswer } from '@lumenize/resources/frontend';
@@ -59,7 +59,7 @@ async function studioTab(browser: Browser, scope: string): Promise<StudioClientT
   return client;
 }
 
-/** Jennifer, who owns the app, and Austen, a collaborator with `write` at the chat node. */
+/** Jennifer, who owns the app, and Austen, a collaborator with `write` at the `messages` node. */
 async function cast(scope: string) {
   const jennifer = await universeAdminClient(
     StudioClientTest, new Browser(), scope, scope, `owner-${crypto.randomUUID().slice(0, 8)}@example.com`, CHAT_MESSAGE_ONTOLOGY_VERSION, PAIR(scope),
@@ -73,7 +73,7 @@ async function cast(scope: string) {
   // The dangerous shape, asserted: two people at the chat floor, one of them with no dominion.
   expect(austen.payload.access?.scopeAdmin).toBeFalsy();
   await jennifer.client.lmz.callAsync('GALAXY', scope,
-    jennifer.client.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, austen.payload.sub, 'write'));
+    jennifer.client.ctn<Galaxy>().resources.orgTree.setPermission(MESSAGES_NODE_ID, austen.payload.sub, 'write'));
   const j = jennifer.client;
   const a = austen.client;
   const ran: Ran[] = [];

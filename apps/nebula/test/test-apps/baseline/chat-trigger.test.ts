@@ -24,7 +24,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, deriveKind } from '@lumenize/nebula';
+import { DEFAULT_CHAT_ID, MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, deriveKind } from '@lumenize/nebula';
 import { ROOT_NODE_ID } from '@lumenize/resources';
 import type { Snapshot } from '@lumenize/resources';
 import { NEBULA_SUB } from '@lumenize/mesh/auth';
@@ -145,7 +145,7 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
 
     using sub = client.resources.subscribeQuery(chatQuery); await sub.ready;
     const a1 = crypto.randomUUID();
-    client.callGalaxyCommitAgent(scope, DEFAULT_CHAT_ID, a1, 'agent says something', CHAT_NODE_ID, crypto.randomUUID());
+    client.callGalaxyCommitAgent(scope, DEFAULT_CHAT_ID, a1, 'agent says something', MESSAGES_NODE_ID, crypto.randomUUID());
     await vi.waitFor(() => expect(client.callCompleted).toBe(true));
     expect(client.lastError).toBeUndefined();
     await vi.waitFor(() => expect(sub.resourceIds).toContain(a1));
@@ -158,7 +158,7 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
   it('T4: the DAG door — an ungranted member is refused at the DAG (message matched), zero AI spend; the denial is DISCLOSED', async () => {
     const scope = uniqueChatScope();
     const { client: admin, accessToken } = await devClient(scope);
-    // Put REAL content at the chat node first (the admin's own turn), so the member's
+    // Put REAL content at the `messages` node first (the admin's own turn), so the member's
     // denial below withholds something that exists — an empty node reports nothing.
     await seedScript(admin, scope, [round('seeded reply')]);
     using adminSub = admin.resources.subscribeQuery(chatQuery); await adminSub.ready;
@@ -176,7 +176,7 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     );
 
     // POSITIVE CONTROL first: the member REACHES the chat query surface (passage +
-    // the subscribe op are theirs) — and the chat node's denial is DISCLOSED there
+    // the subscribe op are theirs) — and the `messages` node's denial is DISCLOSED there
     // (ADR-008: the denied-node set is always disclosed, never hidden).
     using memberSub = member.resources.subscribeQuery(chatQuery);
     await memberSub.ready;
@@ -425,7 +425,7 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     await seedScript(b, scope, []);
     const m1 = crypto.randomUUID();
     let out = await b.resources.transaction({
-      [m1]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'one' } },
+      [m1]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'one' } },
     });
     expect(out.kind).toBe('committed');
     await vi.waitFor(() => expect(subA.resourceIds).toContain(m1));
@@ -438,7 +438,7 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
 
     const m2 = crypto.randomUUID();
     out = await b.resources.transaction({
-      [m2]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'two' } },
+      [m2]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'two' } },
     });
     expect(out.kind).toBe('committed');
     await vi.waitFor(() => expect(subA.resourceIds).toContain(m2), { timeout: 10000 });

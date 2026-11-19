@@ -13,7 +13,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import type { Snapshot, QueryReadResult } from '@lumenize/resources';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import { roundsOf } from '../../../src/participants';
 import { INTERRUPTED_CALL_ERROR, INTERRUPTED_ROUND_NOTE, type StoredRound } from '../../../src/codegen-loop';
@@ -87,7 +87,7 @@ async function app() {
   /** A collaborator who can post, on the Galaxy's page in Studio. */
   const collaborator = async () => {
     const address = email('collab');
-    expect(await probe(() => admin.ctn<Galaxy>().resources.invite(V, CHAT_NODE_ID, [{ email: address, tier: 'write' }])))
+    expect(await probe(() => admin.ctn<Galaxy>().resources.invite(V, MESSAGES_NODE_ID, [{ email: address, tier: 'write' }])))
       .toEqual({ accepted: 1, errors: [] });
     return (await createInvitedClient(StudioClientTest, new Browser(), scope, scope, address, V,
       { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope })).client;
@@ -311,7 +311,7 @@ describe('a turn that had ended when the Galaxy went away', { timeout: 120_000 }
     const posted = await a.admin.postUserMessage('Answered already.');
     const snap = await a.admin.resources.read('Message', posted) as Snapshot;
     const message = crypto.randomUUID();
-    await a.probe((g) => g.commitAgentForTest(DEFAULT_CHAT_ID, message, 'An answer from before the reset.', CHAT_NODE_ID, posted));
+    await a.probe((g) => g.commitAgentForTest(DEFAULT_CHAT_ID, message, 'An answer from before the reset.', MESSAGES_NODE_ID, posted));
     await a.probe((g) => g.seedTurnRowForTest(message, { id: posted, validFrom: snap.meta.validFrom }));
     await reset(a.scope);
 

@@ -29,7 +29,7 @@ import { Browser } from '@lumenize/testing';
 import git from 'isomorphic-git';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { ROOT_NODE_ID, canonicalQueryHash } from '@lumenize/resources';
-import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_MESSAGE_TYPES, DEFAULT_CHAT_ID } from '@lumenize/nebula';
+import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_MESSAGE_TYPES, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import type { Galaxy, Star } from '@lumenize/nebula';
 import type { QueryDescriptor, TransactionResult } from '@lumenize/resources';
 import { adminClientAt, universeAdminClient, addressOfClient } from '../../test-helpers';
@@ -90,7 +90,7 @@ describe('a Galaxy serves a newer seed its source answers', () => {
     // The client pinned to the new version posts; its op finds the mismatch, the source answers the
     // newer row, the plane installs it and serves this op.
     const posted = await owner.lmz.callAsync('GALAXY', scope, door(owner).transaction('chat-v2', {
-      [uuid()]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'on v2' } },
+      [uuid()]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'on v2' } },
     }), { timeoutMs: COMPILE_TIMEOUT_MS }) as TransactionResult;
     expect(posted.ok).toBe(true);
     expect(await owner.lmz.callAsync('GALAXY', scope, owner.ctn<GalaxyTest>().installedChatVersionForTest())).toBe('chat-v2');
@@ -116,7 +116,7 @@ describe('a Galaxy serves a newer seed its source answers', () => {
     for (const next of [CHAT_V2, { version: 'chat-v3', types: `${CHAT_V2.types}\ninterface More { n: number }` }]) {
       await owner.lmz.callAsync('GALAXY', scope, owner.ctn<GalaxyTest>().setChatSourceForTest(next), { timeoutMs: COMPILE_TIMEOUT_MS });
       const posted = await owner.lmz.callAsync('GALAXY', scope, door(owner).transaction(next.version, {
-        [uuid()]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: `on ${next.version}` } },
+        [uuid()]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: `on ${next.version}` } },
       }), { timeoutMs: COMPILE_TIMEOUT_MS }) as TransactionResult;
       expect(posted.ok).toBe(true);
       expect(await owner.lmz.callAsync('GALAXY', scope, owner.ctn<GalaxyTest>().installedChatVersionForTest())).toBe(next.version);
@@ -351,7 +351,7 @@ describe('every op on an empty host takes the same path', () => {
     const scope = newGalaxy();
     const owner = await galaxyOwner(scope);
     const txn = await owner.lmz.callAsync('GALAXY', scope, door(owner).transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, {
-      [uuid()]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'first' } },
+      [uuid()]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'first' } },
     })) as TransactionResult;
     expect(txn.ok).toBe(true);
     // A second fresh Galaxy, so each first answer is taken on an empty host.

@@ -1,7 +1,7 @@
 /**
  * The source entries at the CHAT FLOOR (`.claude/rules/security.md`'s design-floor line): `readSource`,
- * `writeSource` and `buildNow` carry `requireChatWrite` — DAG
- * `write` at the chat node, the same check a Message create passes at the door — so a
+ * `writeSource` and `buildNow` carry `requireChatFloor` — DAG
+ * `write` at the `messages` node, the same check a Message create passes at the door — so a
  * collaborator whose message triggers a turn that writes and builds under their own claims
  * can make the same calls directly. Real invited identities, the shape of the real-host
  * block in `confine-org-plane.test.ts`; every refusal is matched on its MESSAGE (a boundary
@@ -22,7 +22,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula';
+import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
 import { ROW_PATH } from '../../../src/build-report';
@@ -61,7 +61,7 @@ async function ownerAndMember(scope: string) {
   // anywhere — a co-minted `.dev` membership is a different `sub` on a different session.
   expect(payload.access?.scopeAdmin).toBeFalsy();
   const grantWrite = () => owner.lmz.callAsync('GALAXY', scope,
-    owner.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, payload.sub, 'write'));
+    owner.ctn<Galaxy>().resources.orgTree.setPermission(MESSAGES_NODE_ID, payload.sub, 'write'));
   return { owner, member, payload, grantWrite };
 }
 
@@ -86,7 +86,7 @@ describe('the source entries sit at the chat floor', () => {
     expect(denied).toMatch(/^write permission required on node /);
     expect(await refusal(g.read('src/App.vue'))).toMatch(/^write permission required on node /);
 
-    // POSITIVE CONTROL: the covering owner grants `write` at the chat node → the SAME
+    // POSITIVE CONTROL: the covering owner grants `write` at the `messages` node → the SAME
     // caller's SAME op lands and returns a commit oid.
     await grantWrite();
     const { oid, path } = await g.write('src/App.vue', '<template><p>granted</p></template>');
@@ -152,7 +152,7 @@ describe('the source entries sit at the chat floor', () => {
   });
 
   it('F5: the poster\'s grant revoked mid-turn refuses the turn\'s source write, which meets the chat floor as it runs, and not the reply, which is the agent\'s own write', async () => {
-    // The agent posts as itself, on its own grant at the chat node, so what happens to the
+    // The agent posts as itself, on its own grant at `chat`, so what happens to the
     // poster's grant after the post cannot refuse the reply: the scripted model pauses two
     // seconds before its reply, the OWNER revokes the member's chat-node write inside that
     // window, and the agent reply commits regardless. Observed on the owner's subscription —
@@ -176,7 +176,7 @@ describe('the source entries sit at the chat floor', () => {
     ]);
     using sub = owner.resources.subscribeQuery(chatQuery); await sub.ready;
     const posted = await member.postUserMessage('are you there?');
-    await owner.lmz.callAsync('GALAXY', scope, owner.ctn<Galaxy>().resources.orgTree.revokePermission(CHAT_NODE_ID, payload.sub));
+    await owner.lmz.callAsync('GALAXY', scope, owner.ctn<Galaxy>().resources.orgTree.revokePermission(MESSAGES_NODE_ID, payload.sub));
     try {
       await vi.waitFor(async () => {
         const ids = [...sub.resourceIds];
@@ -185,9 +185,9 @@ describe('the source entries sit at the chat floor', () => {
         expect(at).toBeGreaterThanOrEqual(0);
         expect((snaps[at]!.value as { content?: string }).content).toBe('Still here after the revoke.');
         // The write the turn tried after the revoke: under the member's claims, and refused with
-        // the message a direct call gets, naming the chat node.
+        // the message a direct call gets, naming the `messages` node.
         const [write] = await turnCallsOf(owner, scope, ids[at]!);
-        expect([write!.name, write!.error, write!.claims?.sub]).toEqual(['write_file', `write permission required on node ${CHAT_NODE_ID}`, payload.sub]);
+        expect([write!.name, write!.error, write!.claims?.sub]).toEqual(['write_file', `write permission required on node ${MESSAGES_NODE_ID}`, payload.sub]);
         expect(write!.result).toBeUndefined();
       }, { timeout: 15000 });
     } catch (e) {

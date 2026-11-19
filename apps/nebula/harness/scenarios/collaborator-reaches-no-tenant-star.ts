@@ -7,7 +7,7 @@
  * asking where it was earned would hand a collaborator every tenant's data.
  *
  * The owner founds the app and a tenant Star by a real login, and the collaborator is enrolled by
- * the real node invite at the chat node, followed as sent. The first assertion is that the
+ * the real node invite at the `messages` node, followed as sent. The first assertion is that the
  * collaborator really holds both memberships, the admin one included.
  *
  *  1. **From `.dev`'s host, where the collaborator is admin, the tenant Star refuses them**, by
@@ -30,7 +30,7 @@ import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { ROOT_NODE_ID } from '@lumenize/resources/client';
 import type { NodeInviteAck, OrgTreeState } from '@lumenize/resources';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID } from '@lumenize/nebula/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID } from '@lumenize/nebula/client';
 import type { Galaxy, Star } from '@lumenize/nebula';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
@@ -70,13 +70,13 @@ export async function run(stack: DevStack): Promise<void> {
     const owner = await provisionAndLogin({ baseUrl: origin, scope: TENANT, testToken });
     const ownerOnApp = await connect(APP, await refreshAccessToken(origin, owner.session, APP));
 
-    // The collaborator, by the real node invite at the chat node, followed as sent.
+    // The collaborator, by the real node invite at the `messages` node, followed as sent.
     const email = uniqueTestEmail();
     const waiter = waitForEmail({ testToken, instance: APP, to: email, timeout: 60_000 });
     let cookies: string[];
     try {
       const ack = await ownerOnApp.client.lmz.callAsync('GALAXY', APP,
-        ownerOnApp.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, [{ email, tier: 'write' }])) as NodeInviteAck;
+        ownerOnApp.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, [{ email, tier: 'write' }])) as NodeInviteAck;
       assert.deepEqual(ack, { accepted: 1, errors: [] }, `invite ack: ${JSON.stringify(ack)}`);
       const mail = await waiter.emailPromise;
       const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(mail.html ?? '')?.[1];

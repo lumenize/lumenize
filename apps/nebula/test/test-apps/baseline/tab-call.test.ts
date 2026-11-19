@@ -14,7 +14,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { NEBULA_SUB } from '@lumenize/mesh/auth';
-import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
+import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import type { Snapshot, QueryReadResult } from '@lumenize/resources';
 import type { RunAnswer } from '@lumenize/resources/frontend';
@@ -67,7 +67,7 @@ async function studioTab(browser: Browser, scope: string): Promise<StudioClientT
   return client;
 }
 
-/** Jennifer, who owns the app, and Austen, a collaborator with `write` at the chat node. */
+/** Jennifer, who owns the app, and Austen, a collaborator with `write` at the `messages` node. */
 async function cast(scope: string) {
   const jennifer = await universeAdminClient(
     StudioClientTest, new Browser(), scope, scope, `owner-${crypto.randomUUID().slice(0, 8)}@example.com`, V, PAIR(scope),
@@ -77,7 +77,7 @@ async function cast(scope: string) {
   const austenBrowser = new Browser();
   const austen = await createInvitedClient(StudioClientTest, austenBrowser, scope, scope, austenEmail, V, PAIR(scope));
   await jennifer.client.lmz.callAsync('GALAXY', scope,
-    jennifer.client.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, austen.payload.sub, 'write'));
+    jennifer.client.ctn<Galaxy>().resources.orgTree.setPermission(MESSAGES_NODE_ID, austen.payload.sub, 'write'));
   const j = jennifer.client;
   const a = austen.client;
   const ran: Array<[who: string, tab: string, code: string]> = [];

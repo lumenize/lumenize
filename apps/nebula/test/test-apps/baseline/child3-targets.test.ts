@@ -6,10 +6,10 @@
  * COMPOUND gate (`dominionOverHostAtSubscribe || resolvePermission`). testing.md requires each
  * operand be exercised + mutation-checked independently. The filter is private to the plane, so
  * this drives it the way production does — a real scripted turn, whose progress streams under
- * `CHAT_NODE_ID` — with three subscribers on the chat query:
+ * `MESSAGES_NODE_ID` — with three subscribers on the chat query:
  *   - admin@example.com  → access.scopeAdmin, NO DAG grant → IN via the dominionOverHostAtSubscribe operand
  *                          (the Galaxy seeds no root admin, so the admin holds no grant on the root)
- *   - granted (non-admin) → explicit read grant on CHAT_NODE_ID → IN via the resolvePermission operand
+ *   - granted (non-admin) → explicit read grant on MESSAGES_NODE_ID → IN via the resolvePermission operand
  *   - denied  (non-admin) → no grant                           → OUT (the negative)
  *
  * Mutation-checks (run by the verifier / by hand against resources.ts `#targetsForQuery`):
@@ -18,7 +18,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import { MESSAGES_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { QueryDescriptor } from '@lumenize/resources';
 import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
@@ -45,19 +45,19 @@ function devClient(scope: string, email = 'admin@example.com') {
   );
 }
 
-describe('child3 — a turn\'s chunks reach the readers of the chat node, and no one else', () => {
+describe('child3 — a turn\'s chunks reach the readers of the `messages` node, and no one else', () => {
   it('reaches the dominionOverHostAtSubscribe-bypass + read-granted subscribers, not the read-denied one', async () => {
     const scope = uniqueChatScope();
     const { client: admin, accessToken } = await devClient(scope);
     const query: QueryDescriptor = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
     const resourcePair = { resourceHostBinding: 'GALAXY' } as const;
 
-    // Non-admin "granted": explicit read on the chat node.
+    // Non-admin "granted": explicit read on the `messages` node.
     const adminBrowser = new Browser();
     await createSubject(adminBrowser, scope, accessToken, 'granted@example.com');
     const { client: granted, payload: grantedP } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'granted@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
-    await admin.orgTree.setPermission(CHAT_NODE_ID, grantedP.sub, 'read');
+    await admin.orgTree.setPermission(MESSAGES_NODE_ID, grantedP.sub, 'read');
 
     // Non-admin "denied": no grant anywhere.
     await createSubject(adminBrowser, scope, accessToken, 'denied@example.com');

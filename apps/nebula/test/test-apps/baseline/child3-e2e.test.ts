@@ -15,7 +15,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import { DEFAULT_CHAT_ID, MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
 import { universeAdminClient } from '../../test-helpers';
 import { deriveKind } from '@lumenize/nebula';
@@ -46,12 +46,12 @@ describe('child3 Phase 6 — history-restore + multi-participant e2e', () => {
     // Build the conversation as durable Messages, alternating user/assistant. Sequential
     // awaits → advancing clock → chronological (validFrom, resourceId) order.
     const u1 = await sender.postUserMessage('add a counter');
-    sender.callGalaxyCommitAgent(scope, DEFAULT_CHAT_ID, a1, 'Added the counter.', CHAT_NODE_ID, u1);
+    sender.callGalaxyCommitAgent(scope, DEFAULT_CHAT_ID, a1, 'Added the counter.', MESSAGES_NODE_ID, u1);
     await vi.waitFor(() => expect(sender.callCompleted).toBe(true));
     expect(sender.lastError).toBeUndefined();
 
     const u2 = await sender.postUserMessage('make it blue');
-    sender.callGalaxyCommitAgent(scope, DEFAULT_CHAT_ID, a2, 'Styled it blue.', CHAT_NODE_ID, u2);
+    sender.callGalaxyCommitAgent(scope, DEFAULT_CHAT_ID, a2, 'Styled it blue.', MESSAGES_NODE_ID, u2);
     await vi.waitFor(() => expect(sender.callCompleted).toBe(true));
     expect(sender.lastError).toBeUndefined();
 
@@ -103,7 +103,7 @@ describe('child3 Phase 6 — history-restore + multi-participant e2e', () => {
       build: { checked: ['src/App.vue'], findings: [] },
     };
     const a1 = crypto.randomUUID();
-    client.callGalaxyCommitAgent(scope, DEFAULT_CHAT_ID, a1, 'Added it.', CHAT_NODE_ID, u1, codegen);
+    client.callGalaxyCommitAgent(scope, DEFAULT_CHAT_ID, a1, 'Added it.', MESSAGES_NODE_ID, u1, codegen);
     await vi.waitFor(() => expect(client.callCompleted).toBe(true));
     expect(client.lastError).toBeUndefined();
 

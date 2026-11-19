@@ -2,11 +2,11 @@
  * The scope lifecycle hooks Mesh's auth layer calls when a scope is deleted or created — `NebulaAuthFacade`
  * on a deletion or `createGalaxy`, and the auth router when a claim is accepted — the one module
  * that holds every `rawRpcStub` call `apps/nebula` makes (ADR-023's `@rawRpc()` bridge): a wipe
- * through `teardown()`, and a galaxy's certificate wake through `orderCertificate()`.
+ * through `teardownScope()`, and a galaxy's certificate wake through `orderCertificate()`.
  *
  * The auth layer decides WHICH scopes a deletion or a creation touches, and cannot name a Galaxy or a
  * Star (dependency direction), so it hands the targets here and this module wipes each one's Durable
- * Object through `ScopedMeshDO.teardown()`. Neither is a mesh method: `@mesh()` would let any admin wipe
+ * Object through `ScopedMeshDO.teardownScope()`. Neither is a mesh method: `@mesh()` would let any admin wipe
  * a live app without deleting it.
  */
 import { debug } from '@lumenize/debug';
@@ -19,7 +19,7 @@ const BINDING: Record<ScopeTarget['tier'], 'UNIVERSE' | 'GALAXY' | 'STAR'> = {
 };
 
 /**
- * Whether a teardown's rejection is the reset it ordered rather than a failure. `teardown()` ends in
+ * Whether a teardown's rejection is the reset it ordered rather than a failure. `teardownScope()` ends in
  * `ctx.abort('scope-deleted')`, which rejects the in-flight call; the caller receives an Error whose
  * message is the abort's reason and whose `durableObjectReset` is `true`. Measured under
  * `wrangler dev` (recorded in this module's task file's build notes); any other rejection is a
@@ -36,7 +36,7 @@ export const scopeLifecycleHooks: ScopeLifecycleHooks = {
     // Each target on its own: one that fails is logged, naming it, and the rest still run.
     await Promise.all(targets.map(async ({ instanceName, tier }) => {
       try {
-        await rawRpcStub(BINDING[tier], instanceName).teardown(cause, operationId);
+        await rawRpcStub(BINDING[tier], instanceName).teardownScope(cause, operationId);
         log.debug('torn down', { instanceName, tier, cause, operationId });
       } catch (err) {
         if (isOrderedReset(err)) {

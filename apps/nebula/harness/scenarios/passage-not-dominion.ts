@@ -44,7 +44,7 @@ import {
   provisionStarAdmin, provisionAndLogin, refreshAccessToken, acceptInviteAndLogin, refreshFromPage, refreshCookie,
   requestStarClaim,
 } from '../../test/lib/email-login';
-import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula/client';
+import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula/client';
 import { ROOT_NODE_ID } from '@lumenize/resources/client';
 
 export const needsContainer = false;
@@ -170,10 +170,10 @@ export async function run(stack: DevStack): Promise<void> {
     // `permission` as a RESOLVED result — a passage refusal would reject — while the per-op entry
     // the door replaced is refused as absent. Each half matches its own message or shape.
     const rid = crypto.randomUUID();
-    const post = { [rid]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'up' } } };
+    const post = { [rid]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'up' } } };
     const admitted = await member.client.lmz.callAsync('GALAXY', galaxy,
       member.client.ctn<GalaxyMethods>().resources.transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, post));
-    assert.deepEqual(admitted, { ok: false, errors: { [rid]: { type: 'permission', requiredTier: 'write', nodeId: CHAT_NODE_ID } } },
+    assert.deepEqual(admitted, { ok: false, errors: { [rid]: { type: 'permission', requiredTier: 'write', nodeId: MESSAGES_NODE_ID } } },
       'the door must ADMIT a Star member and let the plane tell it `permission` as a resolved result');
     const absent = await refusal(member.client.lmz.callAsync('GALAXY', galaxy,
       (member.client.ctn() as any).transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, post)));

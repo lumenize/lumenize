@@ -24,7 +24,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { OrgTree, Resources, Subscriptions, Snapshots, ROOT_NODE_ID } from '@lumenize/resources';
-import { CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import { MESSAGES_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import type { CallContext } from '@lumenize/mesh';
 import { Browser } from '@lumenize/testing';
@@ -166,13 +166,13 @@ describe('the DAG permission plane is confined to its host', () => {
   // `.dev` membership WITH `scopeAdmin` — so the fixture's admin bit comes from the
   // production mint path, not a hand-built claim.
   describe('the real non-leaf host — the Galaxy chat plane', () => {
-    it('a {u}.{g}.dev-scoped ADMIN with no DAG grant is DENIED on the chat node; a grant opens exactly that door', async () => {
+    it('a {u}.{g}.dev-scoped ADMIN with no DAG grant is DENIED on the `messages` node; a grant opens exactly that door', async () => {
       const scope = `cab-${crypto.randomUUID().slice(0, 8)}.app`;
       const { client: admin, accessToken } = await universeAdminClient(
         StudioClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION,
         { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
       );
-      // Seed real content at the chat node (two model rounds: the seed turn + the
+      // Seed real content at the `messages` node (two model rounds: the seed turn + the
       // granted post's turn below), so the denial withholds something that exists.
       admin.callGalaxySeedChatScript(scope, [
         { choices: [{ message: { content: 'seeded', reasoning_content: '', tool_calls: [] } }] },
@@ -204,10 +204,10 @@ describe('the DAG permission plane is confined to its host', () => {
       // admits the `.dev` caller upward as a tenant; disclosure is T4's, in chat-trigger).
       await expect(devAdmin.postUserMessage('as the dev admin')).rejects.toThrow(/permission/i);
 
-      // POSITIVE CONTROL: a covering admin grants write at the chat node → the SAME
+      // POSITIVE CONTROL: a covering admin grants write at the `messages` node → the SAME
       // caller's SAME op lands — the refusal above was the DAG's and nothing else's.
       await admin.lmz.callAsync('GALAXY', scope,
-        admin.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, payload.sub, 'write'));
+        admin.ctn<Galaxy>().resources.orgTree.setPermission(MESSAGES_NODE_ID, payload.sub, 'write'));
       const granted = await devAdmin.postUserMessage('now granted');
       expect(typeof granted).toBe('string');
 
@@ -236,7 +236,7 @@ describe('the DAG permission plane is confined to its host', () => {
         { resourceHostBinding: 'GALAXY' },
       );
       await admin.lmz.callAsync('GALAXY', scope,
-        admin.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, payload.sub, 'read'));
+        admin.ctn<Galaxy>().resources.orgTree.setPermission(MESSAGES_NODE_ID, payload.sub, 'read'));
 
       // Both principals subscribe the same seeded Message. The `.dev` admin is admitted
       // by the grant; the covering admin by dominion — so the stored verdicts must
@@ -290,7 +290,7 @@ describe('the DAG permission plane is confined to its host', () => {
       const query = (client: NebulaClientTest | StudioClientTest) => client.lmz.callAsync('GALAXY', scope,
         client.ctn<Galaxy>().resources.query(CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_QUERY));
 
-      // The host's admin: `aud` is the host, and no grant is held at the chat node.
+      // The host's admin: `aud` is the host, and no grant is held at the `messages` node.
       const own = await query(admin);
       expect(own.snapshots.map((s) => s.resourceId)).toEqual(adminSub.resourceIds);
       expect(own.deniedNodes).toBeUndefined();
@@ -302,7 +302,7 @@ describe('the DAG permission plane is confined to its host', () => {
         CHAT_MESSAGE_ONTOLOGY_VERSION, { resourceHostBinding: 'GALAXY' },
       );
       expect([payload.access.scopeAdmin, payload.access.authScope]).toEqual([true, `${scope}.dev`]);
-      expect(await query(devAdmin)).toEqual({ snapshots: [], deniedNodes: [CHAT_NODE_ID] });
+      expect(await query(devAdmin)).toEqual({ snapshots: [], deniedNodes: [MESSAGES_NODE_ID] });
 
       // The host's own admin on the `.dev` page: the token's `aud` is `.dev`, so by the host rule
       // it holds no dominion over the Galaxy, and is answered as the descendant admin is.
@@ -315,7 +315,7 @@ describe('the DAG permission plane is confined to its host', () => {
       await vi.waitFor(() => expect(adminOnDev.connectionState).toBe('connected'));
       expect([adminOnDev.claims?.sub, adminOnDev.claims?.aud, adminOnDev.claims?.access.scopeAdmin])
         .toEqual([admin.claims?.sub, `${scope}.dev`, true]);
-      expect(await query(adminOnDev)).toEqual({ snapshots: [], deniedNodes: [CHAT_NODE_ID] });
+      expect(await query(adminOnDev)).toEqual({ snapshots: [], deniedNodes: [MESSAGES_NODE_ID] });
 
       admin[Symbol.dispose](); devAdmin[Symbol.dispose](); adminOnDev[Symbol.dispose]();
     });

@@ -15,7 +15,7 @@
  *          holds round 2 with `{ __delayMs }`, as `source-chat-floor.test.ts` F5 does, so the
  *          commit lands well after the chunk.
  *   - M3b: after the durable commit, the ephemeral stream is reconciled AWAY (no dup).
- *   - M1 : a subscriber DENIED on the chat node receives ZERO chunks.
+ *   - M1 : a subscriber DENIED on the `messages` node receives ZERO chunks.
  *
  * Mutation-checks (verifier / by hand): commit the agent Message before the turn's first chunk
  * → M3a's `not.toContain` fails; delete the reconcile in `handleResourceUpdate` → M3b's
@@ -83,11 +83,11 @@ describe('child3 — transient progress stream + durable Message', () => {
     client[Symbol.dispose]();
   });
 
-  it('a subscriber DENIED on the chat node receives ZERO chunks (M1 transient recheck)', async () => {
+  it('a subscriber DENIED on the `messages` node receives ZERO chunks (M1 transient recheck)', async () => {
     const scope = uniqueChatScope();
     const { client: admin, accessToken } = await devClient(scope);
 
-    // A non-admin with NO grant on CHAT_NODE_ID (ROOT). It subscribes the query, so
+    // A non-admin with NO grant on MESSAGES_NODE_ID (ROOT). It subscribes the query, so
     // it WOULD receive chunks if the transient push skipped the permission recheck.
     const adminBrowser = new Browser();
     await createSubject(adminBrowser, scope, accessToken, 'denied@example.com');
@@ -98,7 +98,7 @@ describe('child3 — transient progress stream + durable Message', () => {
     using sd = denied.resources.subscribeQuery(chatQuery); await sd.ready;
     const deniedUpdates = denied.queryUpdateCount;
 
-    // The turn streams to CHAT_NODE_ID's readers: admin (access.scopeAdmin bypass) is one; denied is not.
+    // The turn streams to MESSAGES_NODE_ID's readers: admin (access.scopeAdmin bypass) is one; denied is not.
     admin.callGalaxyChatScripted(scope, 'build it', [BUILD_ROUND, COMPLETE_ROUND]);
     await vi.waitFor(() => expect(admin.streamChunkCount).toBeGreaterThanOrEqual(1));
     // A same-connection barrier: the turn's commit reaches `denied` as a query update, and the

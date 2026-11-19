@@ -347,7 +347,7 @@ describe('the Star\'s @mesh surface', () => {
 
   it('the Star\'s whole @mesh surface, by guard tier, equals the frozen allow-list', () => {
     // Every entry reachable on the Star's prototype chain, read as the entry rule looks for
-    // `@mesh()`. `ScopedMeshDO.teardown` carries `@rawRpc()` instead, so it is absent: restoring its
+    // `@mesh()`. `ScopedMeshDO.teardownScope` carries `@rawRpc()` instead, so it is absent: restoring its
     // `@mesh()` reds this. A new entry, a dropped guard, or
     // `@mesh()` on the undecorated `resourcesResults` changes a list here. Installs arrive only by
     // lazy-pull of the Galaxy's current row, landing at `resourcesResults.onOntologyPulled` behind that

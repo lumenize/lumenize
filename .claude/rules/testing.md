@@ -112,7 +112,7 @@ So `Errors N` alone proves nothing — **it MUST be triaged, never dismissed:** 
 - **What it costs:** logs print straight from workerd, without the `stdout | file > test` line above them, and files running at once interleave. A test asserting on a log reads the debug sink (§ *Asserting on `@lumenize/debug` log output*), which this does not touch.
 - **Turning `DEBUG` off is not the fix.** It silences only `@lumenize/debug`, so any other console write from a Durable Object can still park, and it takes away the logs a red test is read by.
 - **Finding the stuck file:** `--reporter=hanging-process` prints nothing, since it reports when the run ends, and the reporter prints the stuck file's results like any other file's. Run files alone instead: a file whose last log comes late hangs alone too.
-- **The `uncaught exception … broken.outputGateBroken; jsg.Error: scope-deleted` lines in the same output are not this.** workerd prints one when `ScopedMeshDO.teardown`'s `ctx.abort('scope-deleted')` resets an object, which every scope creation does, and they print in files that finish.
+- **The `uncaught exception … broken.outputGateBroken; jsg.Error: scope-deleted` lines in the same output are not this.** workerd prints one when `ScopedMeshDO.teardownScope`'s `ctx.abort('scope-deleted')` resets an object, which every scope creation does, and they print in files that finish.
 - **When a plugin release carries the fix,** re-derive the setting rather than deleting it on sight (`calibration.md` §4).
 
 ## Asserting on `@lumenize/debug` log output

@@ -203,3 +203,24 @@ graph TD
 The two approaches **compose freely** — a real app uses both. Grants for "show this list read-only to my accountant"; second-parent edges for "this shared household list belongs to all the roommates equally."
 
 See [Coding your UI § Worked example: rendering the built-in tree](./coding-your-ui.md#worked-example-rendering-the-built-in-tree) for the client-side patterns that render this structure (including the **multi-parent rendering** case — a node with two parents shows up under each one in the tree view).
+
+## Drawing the tree: a node for each audience
+
+A grant gives one tier to everything beneath its node, so the tree's shape decides which grants you need. Draw it from its **audiences**: who reads a set of things, and who writes each of them.
+
+Say a sales team reads every deal and every forecast, its reps write deals, and only its managers write forecasts. Reading is shared across both and writing is not, so the shared audience gets a node over both:
+
+```mermaid
+graph TD
+  root([root])
+  sales["sales<br/><i>team: read</i>"]
+  deals["deals<br/><i>reps: write</i>"]
+  forecasts["forecasts<br/><i>managers: write</i>"]
+  root --> sales
+  sales --> deals
+  sales --> forecasts
+```
+
+- **Grant each tier once, at the node whose audience it is.** Everyone on the team gets `read` at `sales`, which reaches `deals` and `forecasts`. A rep gets `write` at `deals`, and a manager `write` at `forecasts`.
+- **Each change is then one grant.** Taking a rep off deals is the `write` at `deals`, and they still read both. Taking them off the team is the `read` at `sales`.
+- **When two grants have to agree, the tree is missing a node.** Code that keeps them in step is a second permission system the server never enforces: a revoke that also revokes elsewhere, a permission worked out from another node's grant, a check of who wrote a resource before trusting it. Add the node over the things that share an audience instead, and grant there.

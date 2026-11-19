@@ -1,6 +1,6 @@
 /**
  * A turn's rounds: the `Round` type, the `turns` node only the agent and the app's admins write,
- * the `read` an invite at `chat` brings with it at `turns`, and the Workspace's git store as the
+ * the `read` at `chat`, over `turns`, that an invite at `messages` brings with it, and the Workspace's git store as the
  * place a read file's content is kept by its blob id.
  *
  * vitest-plugin for what no Client can make or see: a write as the agent, which only the Galaxy's
@@ -13,7 +13,7 @@ import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { ROOT_NODE_ID } from '@lumenize/resources';
 import type { TransactionResult, WireOperationDescriptor } from '@lumenize/resources';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, DEFAULT_CHAT_ID, TURNS_NODE_ID } from '@lumenize/nebula';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, MESSAGES_NODE_ID, DEFAULT_CHAT_ID, TURNS_NODE_ID } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';
@@ -110,11 +110,11 @@ describe('a turn\'s rounds are stored at the turns node', { timeout: 60000 }, ()
     a.admin[Symbol.dispose]();
   });
 
-  // MUTATION: have an invite at `chat` grant `write` at `turns`, and the member's create and their
+  // MUTATION: have an invite at `messages` grant `write` at `chat`, and the member's create and their
   // write over the agent's round both land.
-  it('refuses a member with write at chat a Round of their own and a write over the agent\'s, and lets them read it', async () => {
+  it('refuses a member with write at messages a Round of their own and a write over the agent\'s, and lets them read it', async () => {
     const a = await app();
-    const member = await inviteAt(a, CHAT_NODE_ID, email('collab'));
+    const member = await inviteAt(a, MESSAGES_NODE_ID, email('collab'));
     const id = crypto.randomUUID();
     const created = await a.probe((g) => g.writeAsAgentForTest({ [id]: { op: 'create', typeName: 'Round', nodeId: TURNS_NODE_ID, value: round(crypto.randomUUID()) } }));
     const validFrom = (created as Extract<TransactionResult, { ok: true }>).validFrom;
@@ -134,20 +134,20 @@ describe('a turn\'s rounds are stored at the turns node', { timeout: 60000 }, ()
   });
 });
 
-describe('an invite at chat also grants read at turns', { timeout: 60000 }, () => {
+describe('an invite at messages also grants read at chat, over turns', { timeout: 60000 }, () => {
   const entries: Array<{ namespace: string; message: string; data?: Record<string, unknown> }> = [];
   beforeEach(() => { entries.length = 0; setDebugSink((entry) => { entries.push(entry as never); }); });
   afterEach(() => clearDebugSink());
   const issuedTo = (address: string) => entries.filter((e) =>
     e.namespace === 'nebula-auth.Registry.invite.issued' && e.data?.email === address);
 
-  // MUTATION: drop the seed's `inviteAlso`, and the invitee holds nothing at `turns`.
+  // MUTATION: drop the seed's `inviteAlso`, and the invitee holds nothing at `chat`.
   it('through the plane\'s own invite, with one link sent', async () => {
     const a = await app();
     const address = email('collab');
-    const member = await inviteAt(a, CHAT_NODE_ID, address);
+    const member = await inviteAt(a, MESSAGES_NODE_ID, address);
     expect(await a.probe((g) => g.grantsForTest(member.sub))).toEqual([
-      { nodeId: CHAT_NODE_ID, permission: 'write' }, { nodeId: TURNS_NODE_ID, permission: 'read' },
+      { nodeId: MESSAGES_NODE_ID, permission: 'write' }, { nodeId: CHAT_NODE_ID, permission: 'read' },
     ].sort((x, y) => x.nodeId.localeCompare(y.nodeId)));
     expect(issuedTo(address).map((e) => e.data?.universeGalaxyStarId)).toEqual([a.scope]);
     member.client[Symbol.dispose]();
@@ -163,7 +163,7 @@ describe('an invite at chat also grants read at turns', { timeout: 60000 }, () =
     );
     await vi.waitFor(async () => expect(await a.probe((g) => g.grantsForTest(payload.sub))).toHaveLength(2));
     expect(await a.probe((g) => g.grantsForTest(payload.sub))).toEqual([
-      { nodeId: CHAT_NODE_ID, permission: 'write' }, { nodeId: TURNS_NODE_ID, permission: 'read' },
+      { nodeId: MESSAGES_NODE_ID, permission: 'write' }, { nodeId: CHAT_NODE_ID, permission: 'read' },
     ].sort((x, y) => x.nodeId.localeCompare(y.nodeId)));
     expect(issuedTo(address).map((e) => e.data?.universeGalaxyStarId)).toEqual([a.scope]);
     client[Symbol.dispose]();

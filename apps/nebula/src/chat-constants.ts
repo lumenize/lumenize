@@ -21,44 +21,54 @@ import { NEBULA_SUB } from '@lumenize/mesh/client';
 export const DEFAULT_CHAT_ID = '00000000-0000-4000-8000-000000000001';
 
 /**
- * The DAG node every chat `Message` lives under: a node of its own beneath the Galaxy's root, at a
- * fixed id as the root's is, so a grant on it covers the conversation and nothing a later node
- * beside it holds. Its three tiers are the chat's whole permission model: `read`, `write` to post,
- * and `admin` to invite and manage. The Galaxy's seed creates it ({@link GALAXY_TREE_SEED}).
+ * The DAG node the whole conversation hangs from: a node of its own beneath the Galaxy's root, at a
+ * fixed id as the root's is, so a grant on it covers the chat and nothing a later node beside it
+ * holds. Its children are {@link MESSAGES_NODE_ID}, where the thread lives, and
+ * {@link TURNS_NODE_ID}, where each turn's rounds live. A grant here reaches both, so it is where
+ * whoever sees the chat gets `read`, and where the agent holds its `write` ({@link GALAXY_TREE_SEED}).
  */
-export const CHAT_NODE_ID = '00000000-0000-4000-8000-000000000002';
+export const CHAT_NODE_ID = '00000000-0000-4000-8000-000000000004';
 
 /**
- * The DAG node a turn's rounds live under, a sibling of {@link CHAT_NODE_ID} beneath the root, at a
- * fixed id as that one is. The seed grants `write` here to the agent alone, and an invite at the
- * chat node brings only `read` here with it ({@link GALAXY_TREE_SEED}), so a round here is written
- * by the agent, by an app admin through dominion, or by someone an admin granted more. Nothing ties
- * the `Round` type to this node, so a member can write a `Round` at `chat`; a turn reads only the
- * rounds here, which is what keeps such a `Round` out of it.
+ * The DAG node every chat `Message` and `ServedBuild` lives under, a child of {@link CHAT_NODE_ID},
+ * at a fixed id. A grant here is a person's place in the conversation: `read`, `write` to post, and
+ * `admin` to invite and manage. `write` here is the chat floor ({@link requireChatFloor} in
+ * `galaxy.ts`), which is also what reading and writing source and starting a build take.
+ */
+export const MESSAGES_NODE_ID = '00000000-0000-4000-8000-000000000002';
+
+/**
+ * The DAG node a turn's rounds live under, beside {@link MESSAGES_NODE_ID} beneath
+ * {@link CHAT_NODE_ID}, at a fixed id. Nobody's grant at `messages` reaches it, so a round here is
+ * written by the agent, whose `write` at `chat` covers it, by an app admin through dominion, or by
+ * someone an admin granted `write` at `chat` or here. Nothing ties the `Round` type to this node,
+ * so a member can write a `Round` at `messages`; a turn reads only the rounds here, which is what
+ * keeps such a `Round` out of it.
  */
 export const TURNS_NODE_ID = '00000000-0000-4000-8000-000000000003';
 
 /**
- * What the Galaxy declares in its tree: the `chat` node where the thread lives, the `turns` node
- * where each turn's rounds live, and the agent's `write` on each. Nobody's request creates them.
- * The owner reaches the tree through dominion and a collaborator gets a grant by invite, while the
- * agent holds no membership, so a grant in this tree is its only way to read the thread, post and
- * store its rounds (ADR-025). Each grant is protected: with the one at `chat` revoked the agent
- * could not hear the request to restore it.
+ * What the Galaxy declares in its tree: the `chat` node, and beneath it `messages`, where the thread
+ * lives, and `turns`, where each turn's rounds live. Nobody's request creates them. The owner
+ * reaches the tree through dominion and a collaborator gets a grant by invite, while the agent holds
+ * no membership, so its `write` at `chat` is its only way to read the thread, post and store its
+ * rounds (ADR-025). That grant is protected: revoked, the agent could not hear the request to
+ * restore it.
  *
- * An invite at `chat` also grants `read` at `turns`, so whoever can post sees the calls a turn made,
- * and nobody but the agent and an admin writes one, whichever path invited them.
+ * An invite at `messages` also grants `read` at `chat`, so whoever is invited to the conversation
+ * reads all of it, the calls each turn made included. A revoke at `messages` takes away what the
+ * invite granted there, posting included, and leaves the reading, which a revoke at `chat` ends.
  */
 export const GALAXY_TREE_SEED: TreeSeed = {
   nodes: [
     { nodeId: CHAT_NODE_ID, parentNodeId: ROOT_NODE_ID, slug: 'chat', label: 'Chat' },
-    { nodeId: TURNS_NODE_ID, parentNodeId: ROOT_NODE_ID, slug: 'turns', label: 'Turns' },
+    { nodeId: MESSAGES_NODE_ID, parentNodeId: CHAT_NODE_ID, slug: 'messages', label: 'Messages' },
+    { nodeId: TURNS_NODE_ID, parentNodeId: CHAT_NODE_ID, slug: 'turns', label: 'Turns' },
   ],
   grants: [
     { nodeId: CHAT_NODE_ID, sub: NEBULA_SUB, tier: 'write', protected: true },
-    { nodeId: TURNS_NODE_ID, sub: NEBULA_SUB, tier: 'write', protected: true },
   ],
-  inviteAlso: [{ at: CHAT_NODE_ID, grant: { nodeId: TURNS_NODE_ID, tier: 'read' } }],
+  inviteAlso: [{ at: MESSAGES_NODE_ID, grant: { nodeId: CHAT_NODE_ID, tier: 'read' } }],
 };
 
 /**

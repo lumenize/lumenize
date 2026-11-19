@@ -19,7 +19,7 @@
  */
 import assert from 'node:assert/strict';
 import { NebulaClient } from '@lumenize/resources/client';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID } from '@lumenize/nebula/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID } from '@lumenize/nebula/client';
 import type { Snapshot } from '@lumenize/resources/client';
 import type { DevStack } from '../lib/harness';
 import {
@@ -41,11 +41,11 @@ export async function run(stack: DevStack): Promise<void> {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     const out = await driver.client.resources.transaction({
-      [chatId]: { op: 'create', typeName: 'Chat', nodeId: CHAT_NODE_ID, value: { title: 'harness chat' } },
+      [chatId]: { op: 'create', typeName: 'Chat', nodeId: MESSAGES_NODE_ID, value: { title: 'harness chat' } },
       [messageId]: {
         op: 'create',
         typeName: 'Message',
-        nodeId: CHAT_NODE_ID,
+        nodeId: MESSAGES_NODE_ID,
         value: { chat: chatId, content: marker },
       },
     });

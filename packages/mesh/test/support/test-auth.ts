@@ -32,7 +32,7 @@ export { AuthRegistry } from '../../src/auth/auth-registry';
 export { Profile } from '../../src/auth/profile';
 
 /**
- * Whether a teardown's rejection is the reset it ordered: `ScopedMeshDO.teardown` ends in
+ * Whether a teardown's rejection is the reset it ordered: `ScopedMeshDO.teardownScope` ends in
  * `ctx.abort('scope-deleted')`, which rejects the call that asked for it.
  */
 function isOrderedReset(err: unknown): boolean {
@@ -51,7 +51,7 @@ export function scopeLifecycleHooks(tiers: TierBindings): ScopeLifecycleHooks {
         try {
           // Every tier binding names a scoped node; the Worker's own binding union does not say so.
           const node = rawRpcStub(tiers[tier] as Parameters<typeof rawRpcStub>[0], instanceName) as unknown as RawRpcSurface<ScopedMeshDO>;
-          await node.teardown(cause, operationId);
+          await node.teardownScope(cause, operationId);
         } catch (err) {
           if (isOrderedReset(err)) return;
           debug('test.scope.teardown').error('teardown failed', {

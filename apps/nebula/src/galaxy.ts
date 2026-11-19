@@ -17,8 +17,8 @@
  *
  * `extends ScopedMeshDO` for the structural tenant isolation its passage step enforces (passage into
  * `{u}.{g}`). Three guard tiers sit on top of it. The source entries — `readSource`,
- * `writeSource`, `buildNow` — carry `@mesh(requireChatWrite)`,
- * the chat floor: DAG `write` at the chat node, the same check a Message create passes
+ * `writeSource`, `buildNow` — carry `@mesh(requireChatFloor)`,
+ * the chat floor: DAG `write` at the `messages` node, the same check a Message create passes
  * at the door, so a collaborator's direct call and the turn their message triggers agree.
  * Galaxy configuration (`setGalaxyConfig`) keeps `@mesh(requireDominionHere)`.
  * The resources door is bare `@mesh()` — chat participants are non-admin but
@@ -54,7 +54,7 @@ import { Resources } from '@lumenize/resources';
 import type { NodeInviteOutcome, OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from '@lumenize/resources';
 import type { QueryDescriptor, TransactionResult, WireOperationDescriptor as OperationDescriptor } from '@lumenize/resources';
 import { chatOntologySeedRow } from './chat-ontology';
-import { DEFAULT_CHAT_ID, CHAT_NODE_ID, TURNS_NODE_ID, GALAXY_TREE_SEED } from './chat-constants';
+import { DEFAULT_CHAT_ID, MESSAGES_NODE_ID, TURNS_NODE_ID, GALAXY_TREE_SEED } from './chat-constants';
 import { STUDIO_MODEL } from './studio-model';
 import { parseCast, type CastEntry } from './cast';
 import { NO_PREVIEW_ERROR } from './studio-client';
@@ -377,9 +377,9 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
 // ─── The chat floor + the path rule (the source entries' own guards) ────────
 
 /**
- * Guard: the CHAT FLOOR — DAG `write` at the chat node, the check a Message create runs
+ * Guard: the CHAT FLOOR — DAG `write` at the `messages` node, the check a Message create runs
  * at the door. Every source entry (`readSource`, `writeSource`, `buildNow`) carries
- * `@mesh(requireChatWrite)`, so a collaborator who can
+ * `@mesh(requireChatFloor)`, so a collaborator who can
  * post — and whose post therefore triggers a turn that writes and builds under their own
  * claims — can make the same calls directly. A Galaxy admin passes through the confined
  * scope-admin bypass inside `requirePermission`, so nothing changes for the owner.
@@ -389,8 +389,8 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
  * obligations — the host-confined dominion bypass and the `PermissionDeniedError` message
  * a boundary refusal is told apart by (`security.md`).
  */
-export function requireChatWrite(instance: Galaxy): void {
-  instance.resources.orgTree.requirePermission(CHAT_NODE_ID, 'write');
+export function requireChatFloor(instance: Galaxy): void {
+  instance.resources.orgTree.requirePermission(MESSAGES_NODE_ID, 'write');
 }
 
 /**
@@ -692,7 +692,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * (containers.md § There is NO source-push step), and the built `dist/` is served
    * from this same VFS.
    *
-   * Guarded at the chat floor ({@link requireChatWrite}), and the path rule runs FIRST
+   * Guarded at the chat floor ({@link requireChatFloor}), and the path rule runs FIRST
    * ({@link assertModelPath}): only the user-owned tree is writable. Each commit logs the
    * claims it ran under, the ADR-016 record of the edit: a person's own for a direct call, and
    * for a turn's write the poster's with the agent as actor, since the loop runs each tool
@@ -700,7 +700,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * The commit itself names them too ({@link commitIdentities}), so a repo that leaves this
    * Durable Object still says whose authority each commit used.
    */
-  @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
+  @mesh(requireChatFloor) // refused without `write` at the `messages` node, which no descendant holds by default
   async writeSource(path: string, content: string): Promise<{ oid: string; path: string }> {
     const rel = assertModelPath(path, { write: true });
     if (rel.includes('/')) {
@@ -747,7 +747,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   /** Local read — the LLM hot path (read relevant files into context). Chat floor;
    *  the path rule runs first (a read of a dot path is allowed — see
    *  {@link assertModelPath}). */
-  @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
+  @mesh(requireChatFloor) // refused without `write` at the `messages` node, which no descendant holds by default
   async readSource(path: string): Promise<string> {
     const rel = assertModelPath(path, { write: false });
     return (await this.#workspace()).fs.readFile(wsPath(rel), 'utf8');
@@ -759,7 +759,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * this reads it each time and stores nothing. An app whose file names no cast, or has no such
    * file, answers an empty list. Chat floor, as everyone who sees the tabs is there.
    */
-  @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
+  @mesh(requireChatFloor) // refused without `write` at the `messages` node, which no descendant holds by default
   async readCast(): Promise<CastEntry[]> {
     let text: string;
     try {
@@ -1057,7 +1057,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * Record a landed build as `.dev`'s newest `ServedBuild`, which every Studio on the app hears
    * through its query on the chat. A fresh id each time, so a row a participant forged or deleted
    * never keeps the next landing from being the newest. The agent writes it, as itself and on its
-   * own `write` at the chat node, whoever asked for the build: `.dev` has already moved, so no
+   * own `write` at `chat`, whoever asked for the build: `.dev` has already moved, so no
    * change to a person's grant may refuse the record, and the agent's grant cannot be revoked
    * (ADR-025). Who asked is {@link buildNow}'s log line. A failure is logged and the landing
    * stands: `.dev` serves the build either way.
@@ -1065,7 +1065,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   async #recordServedBuild(buildVersion: string): Promise<void> {
     try {
       await this.lmz.asLocalPrincipal(NEBULA_SUB, () =>
-        this.#resources.ensureResource(crypto.randomUUID(), 'ServedBuild', CHAT_NODE_ID,
+        this.#resources.ensureResource(crypto.randomUUID(), 'ServedBuild', MESSAGES_NODE_ID,
           { chat: DEFAULT_CHAT_ID, star: 'dev', buildVersion }));
     } catch (e) {
       debug('nebula.Galaxy.landing').error('served build not recorded', { instanceName: this.lmz.instanceName, buildVersion, error: e });
@@ -1314,7 +1314,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * since `running` can be stale (`containers.md`). Every failure is tolerated and no build marker
    * is logged.
    */
-  protected override async beforeTeardown(): Promise<void> {
+  protected override async beforeScopeTeardown(): Promise<void> {
     // The certificate's steps lead (certificate.ts `teardownSteps`): `disarm` runs before any
     // `await`, so a wake or an alarm arriving mid-teardown orders nothing. `wipe` is the base
     // teardown's own, after this returns.
@@ -1507,12 +1507,12 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * recorded.
    *
    * An in-process call skips the decorator's guard, so the loop's `build` tool makes the same
-   * `requireChatWrite` check itself, under the claims recorded on the post its turn took up,
+   * `requireChatFloor` check itself, under the claims recorded on the post its turn took up,
    * each time it runs (`runCodegenTurn`). Each call logs the claims it ran under, the ADR-016 record
    * of who asked for a build, since the `ServedBuild` a landing writes is the agent's: a
    * person's own for a direct call, and the poster's with the agent as actor for a turn's.
    */
-  @mesh(requireChatWrite) // refused without `write` at the chat node, which no descendant holds by default
+  @mesh(requireChatFloor) // refused without `write` at the `messages` node, which no descendant holds by default
   buildNow(opts: { preview?: boolean } = {}): Promise<BuildReport> {
     const origin = this.#clientOrigin();
     const claims = this.#claimsIfAny();
@@ -1529,7 +1529,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
 
   /**
    * Invite a person into the app, for the loop's `invite` tool: as a collaborator, with `write`
-   * at the chat node, or with `scopeAdmin` as an admin of the app. It has NO `@mesh()`, on
+   * at the `messages` node, or with `scopeAdmin` as an admin of the app. It has NO `@mesh()`, on
    * purpose: a loop tool calls it in-process, under the claims recorded on the post its turn
    * took up, and a client already has `resources.invite`, so a decorated entry here would only be a
    * second door.
@@ -1542,7 +1542,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    *
    * Each kind goes where its collaborator does. A collaborator goes through the Resources
    * plane's node invite, which writes the pending row, calls the facade, and grants `write` at
-   * the chat node when it answers, with the `read` at the `turns` node the seed pairs with it. An admin goes straight to the facade, with the bit. Either
+   * the `messages` node when it answers, with the `read` at `chat` the seed pairs with it. An admin goes straight to the facade, with the bit. Either
    * way the membership, and whether the mail went out, land after the turn, so what the turn
    * could not know is posted to the chat by the handler: a failure on either path, and an admin
    * invite's result ({@link onAdminInviteResult}, {@link #onNodeInviteOutcome}).
@@ -1561,7 +1561,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       );
       return { invited: email, as: 'admin', note: 'The invite is being sent. Its result will be posted to the chat.' };
     }
-    const ack = await this.#resources.invite(CHAT_NODE_ID, [{ email, tier: 'write' }]);
+    const ack = await this.#resources.invite(MESSAGES_NODE_ID, [{ email, tier: 'write' }]);
     if (ack.errors.length > 0) throw new Error(`could not invite ${email}: ${ack.errors.map((e) => e.error).join('; ')}`);
     return { invited: email, as: 'collaborator', note: 'The invite is being sent. A failure will be posted to the chat.' };
   }
@@ -1582,7 +1582,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
         : outcome === 'already-member' ? `${email} is already an admin of this app, so I sent a fresh link and changed nothing.`
         : outcome === 'promoted' ? `${email} was already a member of this app and is now an admin of it.`
         : `${email} is invited as an admin of this app. The email is on its way.`;
-      await this.commitAgentMessage(DEFAULT_CHAT_ID, crypto.randomUUID(), text, CHAT_NODE_ID, undefined);
+      await this.commitAgentMessage(DEFAULT_CHAT_ID, crypto.randomUUID(), text, MESSAGES_NODE_ID, undefined);
     } catch (e) {
       debug('nebula.Galaxy.invite').error('admin invite outcome not posted', { instanceName: this.lmz.instanceName, error: e });
     }
@@ -1597,7 +1597,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   async #onNodeInviteOutcome(outcome: NodeInviteOutcome): Promise<void> {
     if (outcome.failed.length === 0) return;
     const text = outcome.failed.map((f) => `I could not invite ${f.email}: ${f.error}`).join('\n');
-    await this.commitAgentMessage(DEFAULT_CHAT_ID, crypto.randomUUID(), text, CHAT_NODE_ID, undefined);
+    await this.commitAgentMessage(DEFAULT_CHAT_ID, crypto.randomUUID(), text, MESSAGES_NODE_ID, undefined);
   }
 
   // ─── The agent runs code in a tab ───────────────────────────────────
@@ -1787,7 +1787,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   }
 
   /**
-   * The chat's messages in order, read as the agent. Its own `write` at the chat node is what
+   * The chat's messages in order, read as the agent. Its own `write` at `chat` is what
    * lets it read the thread (ADR-025), so every read here passes the same check as anyone's,
    * and a message elsewhere in the tree, which that grant does not cover, is skipped. Empty on
    * a Galaxy with no name yet, where no principal can act.
@@ -1823,7 +1823,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
 
   /**
    * The post-commit observer — THE codegen trigger. A committed **human** `Message` on
-   * the chat node starts a turn; nothing else does, and there is deliberately no
+   * the `messages` node starts a turn; nothing else does, and there is deliberately no
    * mesh-callable `chat` entry at all (an invocable husk would let a mere
    * passage-holder run the loop with no door). The DAG `write` check on the Message
    * commit is therefore the ONLY door: **chat participation is a uniform floor;
@@ -1844,7 +1844,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    */
   #onChatCommitted(mutations: Map<string, Snapshot>): void {
     for (const [resourceId, snap] of mutations) {
-      if (snap.meta.typeName !== 'Message' || snap.meta.nodeId !== CHAT_NODE_ID) continue;
+      if (snap.meta.typeName !== 'Message' || snap.meta.nodeId !== MESSAGES_NODE_ID) continue;
       if (!this.waitingPostIds().includes(resourceId)) continue;
       if (this.#turnInFlight) {
         debug('nebula.Galaxy.trigger').info('waiting: a turn is in flight', { resourceId });
@@ -2334,19 +2334,19 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   //
   // The passage step (ScopedMeshDO base) enforces passage into `{u}.{g}`; the per-op DAG read/write
   // check lives inside the plane, exactly as on Star. (The source entries above put that same
-  // chat-node `write` check ON the decorator — `requireChatWrite` — because they do no per-op
+  // chat-node `write` check ON the decorator — `requireChatFloor` — because they do no per-op
   // check of their own.)
 
   /**
    * Stream one transient progress chunk of the agent's reply to the chat's subscribers. The chat
    * query is built here, since the plane never names `Message` or the chat; the plane sends the
    * chunk ({@link Resources.streamProgress}) to the subscribers who may read
-   * `CHAT_NODE_ID`, the node the reply will be committed under, attributed to the human message
+   * `MESSAGES_NODE_ID`, the node the reply will be committed under, attributed to the human message
    * whose turn it is.
    */
   #chatProgress(agentMessageId: string, progress: string, userMessageId: string): void {
     const chatQuery: QueryDescriptor = { typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } };
-    this.#resources.streamProgress(chatQuery, agentMessageId, progress, CHAT_NODE_ID, userMessageId);
+    this.#resources.streamProgress(chatQuery, agentMessageId, progress, MESSAGES_NODE_ID, userMessageId);
   }
 
   /**
@@ -2366,7 +2366,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    *
    * Attribution: the agent posts as itself. The write runs as the Galaxy's local principal
    * `agent:lumenize`, so the snapshot records it as the subject with no `act`, and the DAG check
-   * passes on the agent's own `write` at the chat node, whatever has happened to the poster's
+   * passes on the agent's own `write` at `chat`, whatever has happened to the poster's
    * grant since (ADR-025). Its `profileId` is its own name, so an agent message never needs a
    * `sub`→`profileId` Registry lookup. No `role`/`author` is written: display derives only from
    * the stamped `meta.recordedClaims`.
@@ -2414,7 +2414,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     }
     const said = replyTo !== undefined && reply === undefined && !content.includes(POST_MOVED_LINE)
       ? `${content}\n\n${POST_MOVED_LINE}` : content;
-    await this.commitAgentMessage(DEFAULT_CHAT_ID, messageId, said, CHAT_NODE_ID, reply, {
+    await this.commitAgentMessage(DEFAULT_CHAT_ID, messageId, said, MESSAGES_NODE_ID, reply, {
       ...extra, answers: kept.filter((id) => id !== reply),
     });
     const still = this.#unmoved(kept, read);
@@ -2453,7 +2453,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   /**
    * The one `@mesh()` door onto the resource plane — its request surface, whose members derive
    * the caller's own address and check each op themselves. Chat participants are non-admin, so
-   * there is no guard on the door: each op's DAG check at the chat node is the gate. A write
+   * there is no guard on the door: each op's DAG check at the `messages` node is the gate. A write
    * records the claims its call carries and nothing a caller sends, so no client can write as
    * the agent: only host code runs as the Galaxy's local principal.
    */
@@ -2771,7 +2771,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     // The chat floor, read as each source tool runs: the same check a direct call to the entry
     // meets on its decorator, which an in-process call skips. A poster whose `write` on the chat
     // node is gone is refused here, and the model reads why.
-    const atChatFloor = <T>(run: () => T): T => under(() => { requireChatWrite(this); return run(); });
+    const atChatFloor = <T>(run: () => T): T => under(() => { requireChatFloor(this); return run(); });
     // The write deps fire the warm before they write — the latch makes the second and later
     // calls no-ops, so firing from both is what "the first write" means.
     const fire = onFirstWrite ?? ((): void => {});
@@ -2843,7 +2843,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     return {
       read: async () => {
         const { snapshots } = this.lmz.asLocalPrincipal(NEBULA_SUB, () => this.#resources.doQuery(roundsOf(message)));
-        // Only the rounds at the `turns` node are the turn's. A member with `write` at `chat` can
+        // Only the rounds at the `turns` node are the turn's. A member with `write` at `messages` can
         // write a `Round` there naming a running turn, and a turn that read it would run its calls
         // under the claims of the post the turn took up.
         return snapshots.filter(({ meta }) => meta.nodeId === TURNS_NODE_ID).map(({ resourceId, value: stored, meta }) => {

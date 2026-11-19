@@ -3,7 +3,7 @@ import { mesh } from '@lumenize/mesh/client';
 import type { RunAnswer } from '@lumenize/resources/frontend';
 import type { CastEntry } from './cast';
 import type { NebulaClientConfig } from '@lumenize/resources/client';
-import { DEFAULT_CHAT_ID, CHAT_NODE_ID } from './chat-constants';
+import { DEFAULT_CHAT_ID, MESSAGES_NODE_ID } from './chat-constants';
 import type { TransactionResult } from '@lumenize/resources/client';
 import type { Galaxy } from './galaxy';
 
@@ -31,7 +31,7 @@ export interface StudioClientConfig extends NebulaClientConfig {
  * hears no push of its own.
  *
  * It lives in `apps/nebula` rather than beside `NebulaClient` because posting is Nebula's chat:
- * it writes a `Message` at `DEFAULT_CHAT_ID` under `CHAT_NODE_ID`, which `@lumenize/resources`
+ * it writes a `Message` at `DEFAULT_CHAT_ID` under `MESSAGES_NODE_ID`, which `@lumenize/resources`
  * may not import (`mesh.md` § *Package dependency direction*). Studio gets one from the same
  * factory a generated app calls, by passing the class: `createNebulaClient({ Client: StudioClient, … })`.
  */
@@ -155,7 +155,7 @@ export class StudioClient extends NebulaClient {
       binding, scope,
       this.ctn<Galaxy>().resources.transaction(this.requireOntologyVersion('postUserMessage'), {
         [messageId]: {
-          op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID,
+          op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID,
           value: { chat: DEFAULT_CHAT_ID, content },
         },
       }),

@@ -3,7 +3,7 @@
  * through `@rawRpc()` (ADR-023).
  *
  * In-lane, since no running system makes one of several teardowns fail: the failing target is a
- * `StarTest` named `*.explode`, whose `beforeTeardown` throws before it wipes anything. The
+ * `StarTest` named `*.explode`, whose `beforeScopeTeardown` throws before it wipes anything. The
  * end-to-end deletion, through the facade, is the `/live` `scope-teardown` scenario's.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -59,10 +59,10 @@ describe('scope lifecycle hooks — teardown', () => {
   // 4410 sent before that let a Client read a chat it had been told was deleted (deployed only,
   // since no local Galaxy orders a certificate). A Star named `*.slow` waits a second the same way.
   // In-lane because the local stack has no teardown that waits. Mutation: close the sockets before
-  // `beforeTeardown`, as the teardown first did → the Client hears 4410 while the probe is present.
+  // `beforeScopeTeardown`, as the teardown first did → the Client hears 4410 while the probe is present.
   // It cannot see the close moved after `deleteAll()`, which loses the 4410 to the abort deployed
   // only; deployed `scope-teardown` and `delete-from-its-own-page` catch that.
-  it('tells a Client its host is deleted only after the host\'s beforeTeardown', async () => {
+  it('tells a Client its host is deleted only after the host\'s beforeScopeTeardown', async () => {
     const name = `hk${crypto.randomUUID().slice(0, 8)}.app.slow`;
     await seed(name);
     const sub = crypto.randomUUID();

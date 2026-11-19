@@ -244,7 +244,7 @@ export abstract class ScopedMeshDO<Env = any> extends MeshDO<Env> implements Cli
    *
    * Logs `nebula.scope.teardown` first, with `this.lmz.instanceName` read with no fallback, so an
    * entry that stamped nothing shows as a missing name, and with the `operationId` of the facade
-   * call that ordered it, so a reader counts what one call caused. Then {@link beforeTeardown},
+   * call that ordered it, so a reader counts what one call caused. Then {@link beforeScopeTeardown},
    * `deleteAll()`, a macrotask yield so the wipe persists before the abort (`durable-objects.md`
    * § *Persist before `ctx.abort()`*), and `ctx.abort('scope-deleted')`, without which whatever a
    * subclass built over its storage would stay pointed at dropped tables and a re-created scope
@@ -252,7 +252,7 @@ export abstract class ScopedMeshDO<Env = any> extends MeshDO<Env> implements Cli
    * rejection as the reset it is.
    *
    * A deletion closes every socket this node hosts with `WS_CLOSE_GONE` (4410) after
-   * {@link beforeTeardown} and before `deleteAll()`. After, because a `beforeTeardown` can wait —
+   * {@link beforeScopeTeardown} and before `deleteAll()`. After, because a `beforeScopeTeardown` can wait —
    * Nebula's Galaxy waits up to twenty seconds on a certificate order — and a 4410 sent ahead of it let a Client read the
    * chat it had been told was deleted; a socket accepted during that wait is closed with the rest.
    * Before, because the close frames go out during the wipe and the yield after it, and a close
@@ -262,22 +262,22 @@ export abstract class ScopedMeshDO<Env = any> extends MeshDO<Env> implements Cli
    * as any reset does, and the Client reconnects to the fresh object.
    */
   @rawRpc()
-  async teardown(cause: 'deletion' | 'creation', operationId: string): Promise<void> {
+  async teardownScope(cause: 'deletion' | 'creation', operationId: string): Promise<void> {
     const instanceName = this.lmz.instanceName;
     let tier: string | undefined;
     try { tier = instanceName ? parseId(instanceName).tier : undefined; } catch { tier = undefined; }
     debug('nebula.scope.teardown').info('tearing down', {
       tier, cause, operationId, binding: this.lmz.bindingName, instanceName,
     });
-    await this.beforeTeardown();
+    await this.beforeScopeTeardown();
     if (cause === 'deletion') this.#clientGateway.closeAll(WS_CLOSE_GONE, 'Scope deleted');
     await this.ctx.storage.deleteAll();
     await new Promise((resolve) => setTimeout(resolve, 0));
     this.ctx.abort('scope-deleted');
   }
 
-  /** What a node releases outside its storage before {@link teardown} wipes it. Default: nothing. */
-  protected async beforeTeardown(): Promise<void> {}
+  /** What a node releases outside its storage before {@link teardownScope} wipes it. Default: nothing. */
+  protected async beforeScopeTeardown(): Promise<void> {}
 
   // ─── Hosting the Clients on this scope's pages ──────────────────────────────────────────────
 

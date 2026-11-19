@@ -1,9 +1,9 @@
 /**
- * A Galaxy's tree is born with its `chat` node and the agent's grant on it, and that grant cannot
- * be revoked or lowered.
+ * A Galaxy's tree is born with its `chat` node, `messages` and `turns` beneath it, and the agent's
+ * grant on `chat`, and that grant cannot be revoked or lowered.
  *
  * The agent, `agent:lumenize`, holds no membership anywhere, so its `write` on the `chat` node is
- * the only thing that lets it read the thread and post (ADR-025). Nobody's request creates the node
+ * the only thing that lets it read the thread, post and store its rounds (ADR-025). Nobody's request creates the node
  * or the grant: the Galaxy declares both and its tree creates them with itself. With the grant
  * revoked the agent could not hear a request to restore it, so the tree refuses that one change
  * to everyone alike, the app's owner included (ADR-015's skeleton).
@@ -12,24 +12,27 @@
  * signup, the tenant Star from its own founder's claim, and the collaborator's grant from the real
  * node invite, so nothing here is built for an assertion to be wrong about.
  *
- *  1. **The Galaxy's tree holds `chat` under the root, with the agent's `write`, and a Star's holds
- *     only its root**, the `.dev` Star's and a tenant Star's alike. Mutations: drop the Galaxy's
- *     seed, and `chat` is missing; give a Star the seed, and `.dev` shows a chat node.
+ *  1. **The Galaxy's tree holds `chat` under the root, with the agent's `write`, and `messages` and
+ *     `turns` under `chat`, and a Star's holds only its root**, the `.dev` Star's and a tenant
+ *     Star's alike. Mutations: drop the Galaxy's seed, and `chat` is missing; hang `messages` under
+ *     the root, and its edge is missing; give a Star the seed, and `.dev` shows a chat node.
  *  2. **The owner's revoke of the agent's grant is refused**, by name and message, and the grant
  *     stays. Mutation: drop the check in `revokePermission`, and it lands.
  *  3. **Lowering it to `read` is refused** the same way. Mutation: drop the check in
  *     `setPermission`, and the grant reads `read`.
  *  4. **What the refusal does not cover still works.** Setting the agent's grant to `write` again
- *     passes, and a collaborator's grant on the same node, written by a real invite, is revoked.
- *     Mutations: refuse every `setPermission` naming the agent, and the first reds; treat every
- *     grant on the node as protected, and the second reds.
+ *     passes. A real invite at `messages` grants the collaborator `write` there and `read` at
+ *     `chat`; a revoke at `messages` takes the first and leaves the second, which a revoke at `chat`
+ *     then takes. Mutations: refuse every `setPermission` naming the agent, and the first reds;
+ *     drop the seed's `inviteAlso`, and the `read` at `chat` is missing; treat every grant on `chat`
+ *     as protected, and its revoke reds.
  */
 import assert from 'node:assert/strict';
 import { uniqueTestEmail } from '@lumenize/email-test/client';
 import { NEBULA_SUB } from '@lumenize/mesh/client';
 import { ROOT_NODE_ID, makeEdgeKey } from '@lumenize/resources/client';
 import type { NodeInviteAck, OrgTreeState } from '@lumenize/resources';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID } from '@lumenize/nebula/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, MESSAGES_NODE_ID, TURNS_NODE_ID } from '@lumenize/nebula/client';
 import type { Galaxy, Star } from '@lumenize/nebula';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
@@ -83,11 +86,15 @@ export async function run(stack: DevStack): Promise<void> {
       owner.client.ctn<Galaxy>().resources.orgTree.getState());
     const agentTier = async () => (await galaxyTree()).permissions.get(CHAT_NODE_ID)?.get(NEBULA_SUB);
 
-    // ── LIMB 1: the Galaxy's tree has the chat node and the agent's grant; a Star's has neither ──
+    // ── LIMB 1: the Galaxy's tree has `chat`, its children and the agent's grant; a Star's has none ──
     {
       const tree = await galaxyTree();
       assert.equal(tree.nodes.get(CHAT_NODE_ID)?.slug, 'chat', 'the Galaxy\'s tree must hold its chat node');
       assert.ok(tree.edges.has(makeEdgeKey(ROOT_NODE_ID, CHAT_NODE_ID)), 'the chat node must hang under the root');
+      for (const [child, slug] of [[MESSAGES_NODE_ID, 'messages'], [TURNS_NODE_ID, 'turns']] as const) {
+        assert.equal(tree.nodes.get(child)?.slug, slug, `the Galaxy's tree must hold its ${slug} node`);
+        assert.ok(tree.edges.has(makeEdgeKey(CHAT_NODE_ID, child)), `the ${slug} node must hang under chat`);
+      }
       assert.equal(tree.permissions.get(CHAT_NODE_ID)?.get(NEBULA_SUB), 'write', 'the agent must hold write on chat');
       assert.equal(tree.permissions.get(ROOT_NODE_ID)?.get(NEBULA_SUB), undefined, 'the agent holds nothing on the root');
 
@@ -104,7 +111,7 @@ export async function run(stack: DevStack): Promise<void> {
         const agentGrants = [...starTree.permissions.values()].filter((grants) => grants.has(NEBULA_SUB));
         assert.equal(agentGrants.length, 0, `the agent must hold no grant in ${star}`);
       }
-      console.error('  ✓ limb 1 — the Galaxy\'s tree has chat and the agent\'s write; .dev and a tenant Star have only a root');
+      console.error('  ✓ limb 1 — the Galaxy\'s tree has chat over messages and turns, and the agent\'s write; .dev and a tenant Star have only a root');
     }
 
     const protectedMessage =
@@ -137,22 +144,32 @@ export async function run(stack: DevStack): Promise<void> {
       // person and grants them at the node. Nobody needs to accept for the grant to exist.
       const collaborator = uniqueTestEmail();
       const others = (tree: OrgTreeState): string[] =>
-        [...(tree.permissions.get(CHAT_NODE_ID)?.keys() ?? [])].filter((sub) => sub !== NEBULA_SUB);
+        [...(tree.permissions.get(MESSAGES_NODE_ID)?.keys() ?? [])].filter((sub) => sub !== NEBULA_SUB);
       // The shared app's chat may hold other scenarios' collaborators, so the new one is told apart.
       const before = others(await galaxyTree());
       const ack = await owner.client.lmz.callAsync('GALAXY', galaxy,
-        owner.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, [{ email: collaborator, tier: 'write' }])) as NodeInviteAck;
+        owner.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, [{ email: collaborator, tier: 'write' }])) as NodeInviteAck;
       assert.deepEqual(ack, { accepted: 1, errors: [] }, `invite ack: ${JSON.stringify(ack)}`);
       const added = (tree: OrgTreeState): string[] => others(tree).filter((sub) => !before.includes(sub));
-      const granted = await until(galaxyTree, (tree) => added(tree).length === 1, 'the collaborator\'s grant on chat');
+      // The invite's grant at `messages` and the `read` at `chat` the seed pairs with it are waited for together.
+      const granted = await until(galaxyTree, (tree) => added(tree).length === 1
+        && tree.permissions.get(CHAT_NODE_ID)?.has(added(tree)[0]!) === true, 'the collaborator\'s grants at messages and chat');
       const [collaboratorSub] = added(granted);
-      assert.equal(granted.permissions.get(CHAT_NODE_ID)?.get(collaboratorSub), 'write');
+      assert.equal(granted.permissions.get(MESSAGES_NODE_ID)?.get(collaboratorSub), 'write');
 
+      assert.equal(granted.permissions.get(CHAT_NODE_ID)?.get(collaboratorSub), 'read', 'an invite at messages must bring read at chat');
+
+      // A revoke at `messages` takes posting away and leaves the reading, which a revoke at `chat` ends.
+      await owner.client.orgTree.revokePermission(MESSAGES_NODE_ID, collaboratorSub);
+      const afterMessages = await galaxyTree();
+      assert.equal(afterMessages.permissions.get(MESSAGES_NODE_ID)?.get(collaboratorSub), undefined,
+        'a collaborator\'s grant on messages must be revocable');
+      assert.equal(afterMessages.permissions.get(CHAT_NODE_ID)?.get(collaboratorSub), 'read', 'a revoke at messages must leave the read at chat');
       await owner.client.orgTree.revokePermission(CHAT_NODE_ID, collaboratorSub);
       assert.equal((await galaxyTree()).permissions.get(CHAT_NODE_ID)?.get(collaboratorSub), undefined,
-        'a collaborator\'s grant on chat must be revocable');
-      assert.equal(await agentTier(), 'write', 'the agent\'s grant is untouched by the collaborator\'s revoke');
-      console.error('  ✓ limb 4 — re-setting the agent\'s write passed, and a collaborator\'s grant on chat was revoked');
+        'a collaborator\'s read at chat must be revocable');
+      assert.equal(await agentTier(), 'write', 'the agent\'s grant is untouched by the collaborator\'s revokes');
+      console.error('  ✓ limb 4 — re-setting the agent\'s write passed, and the collaborator\'s grants at messages and then chat were revoked');
     }
   } finally {
     for (const driver of drivers) driver.dispose();

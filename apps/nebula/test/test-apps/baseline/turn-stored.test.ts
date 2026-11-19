@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import type { Snapshot, TransactionResult, QueryReadResult } from '@lumenize/resources';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, DEFAULT_CHAT_ID, TURNS_NODE_ID, deriveKind, roundsOf } from '@lumenize/nebula';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, DEFAULT_CHAT_ID, TURNS_NODE_ID, deriveKind, roundsOf } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient, turnCallsOf } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';
@@ -90,9 +90,9 @@ describe('a turn is stored as a row and its rounds', { timeout: 90_000 }, () => 
   // row at the commit → its key is still there.
   it('writes the row before the first model call, stores each round as it lands, and keeps only the summary on the message', async () => {
     const a = await app();
-    // A collaborator, invited at the chat node, which brings `read` at the turns node.
+    // A collaborator, invited at the `messages` node, which brings `read` at `chat`, over the turns node.
     const memberEmail = email('collab');
-    expect(await a.admin.lmz.callAsync('GALAXY', a.scope, a.admin.ctn<Galaxy>().resources.invite(V, CHAT_NODE_ID, [{ email: memberEmail, tier: 'write' }])))
+    expect(await a.admin.lmz.callAsync('GALAXY', a.scope, a.admin.ctn<Galaxy>().resources.invite(V, MESSAGES_NODE_ID, [{ email: memberEmail, tier: 'write' }])))
       .toEqual({ accepted: 1, errors: [] });
     const { client: member } = await createInvitedClient(NebulaClientTest, new Browser(), a.scope, a.scope, memberEmail, V, { resourceHostBinding: 'GALAXY' });
 
@@ -192,7 +192,7 @@ describe('a turn is stored as a row and its rounds', { timeout: 90_000 }, () => 
   it('reads only the rounds at the turns node, so a Round a member writes at chat is never dispatched', async () => {
     const a = await app();
     const memberEmail = email('collab');
-    expect(await a.admin.lmz.callAsync('GALAXY', a.scope, a.admin.ctn<Galaxy>().resources.invite(V, CHAT_NODE_ID, [{ email: memberEmail, tier: 'write' }])))
+    expect(await a.admin.lmz.callAsync('GALAXY', a.scope, a.admin.ctn<Galaxy>().resources.invite(V, MESSAGES_NODE_ID, [{ email: memberEmail, tier: 'write' }])))
       .toEqual({ accepted: 1, errors: [] });
     const { client: member } = await createInvitedClient(NebulaClientTest, new Browser(), a.scope, a.scope, memberEmail, V, { resourceHostBinding: 'GALAXY' });
     await a.probe((g) => g.seedChatScriptForTest([
@@ -205,10 +205,10 @@ describe('a turn is stored as a row and its rounds', { timeout: 90_000 }, () => 
     const { message } = await a.probe((g) => g.turnRowForTest()) as { message: string };
     await a.probe((g) => g.takeSeenMessagesForTest());
 
-    // While round 1's build is out, the member writes round 2 of the admin's turn at `chat`,
+    // While round 1's build is out, the member writes round 2 of the admin's turn at `messages`,
     // where they hold `write`, with one call that would make an accomplice an admin.
     const forged = await member.resources.transaction({
-      [crypto.randomUUID()]: { op: 'create', typeName: 'Round', nodeId: CHAT_NODE_ID, value: {
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Round', nodeId: MESSAGES_NODE_ID, value: {
         chat: DEFAULT_CHAT_ID, message, index: 2, text: 'a round the member wrote',
         calls: [{ raw: toolCall('invite', { email: email('accomplice'), scopeAdmin: true }, 'i1') }],
       } },

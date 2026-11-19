@@ -3,7 +3,7 @@
  * waiting post to take up.
  *
  * Two people share one chat: the app's owner, here Jennifer, and a collaborator holding `write`
- * at the chat node and no admin bit, here Austen. Every test drives real clients, real Messages
+ * at the `messages` node and no admin bit, here Austen. Every test drives real clients, real Messages
  * and the real commit hook, with only the model scripted (`GalaxyTest.seedChatScriptForTest`).
  * That is why these run here rather than against a running stack: the real model cannot be
  * made to pick a post, hang, or leave a post unanswered on demand, so a gate on any of those
@@ -22,7 +22,7 @@ import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { NEBULA_SUB, REGISTRY_INSTANCE_NAME } from '@lumenize/mesh/auth';
 import type { AuthFacade } from '@lumenize/mesh/auth/facade';
-import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
+import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
 import { universeAdminClient, createSubject, createInvitedClient, turnCallsOf } from '../../test-helpers';
@@ -51,7 +51,7 @@ const calls = (toolCalls: Array<[name: string, args: object]>, content = '') => 
 /** One model round that calls one tool. */
 const call = (name: string, args: object, content = '') => calls([[name, args]], content);
 
-/** Jennifer, who owns the app, and Austen, a collaborator with `write` at the chat node. */
+/** Jennifer, who owns the app, and Austen, a collaborator with `write` at the `messages` node. */
 async function cast(scope: string) {
   // An address of their own per test, for both. With one address shared by every test in this
   // file, an Accept or a refresh answered 401 once that address held about two dozen
@@ -67,7 +67,7 @@ async function cast(scope: string) {
   );
   expect(austen.payload.access?.scopeAdmin).toBeFalsy();
   await jennifer.client.lmz.callAsync('GALAXY', scope,
-    jennifer.client.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, austen.payload.sub, 'write'));
+    jennifer.client.ctn<Galaxy>().resources.orgTree.setPermission(MESSAGES_NODE_ID, austen.payload.sub, 'write'));
   const j = jennifer.client;
   const a = austen.client;
   return {
@@ -99,7 +99,7 @@ const NOT_AN_ADMIN = 'Inviting into this app needs one of its admins, and the pe
 /** Post a Message at an id the test chose, so a script written beforehand can name it. */
 async function post(client: StudioClientTest, id: string, content: string, extra: Record<string, unknown> = {}): Promise<void> {
   const out = await client.resources.transaction({
-    [id]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content, ...extra } },
+    [id]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content, ...extra } },
   });
   expect(out.kind).toBe('committed');
 }
@@ -218,7 +218,7 @@ describe('a waiting post is worked under its own poster\'s recorded claims, and 
 
     // The positive control: the agent's own message, naming Austen's post, answers it.
     await c.j.lmz.callAsync('GALAXY', scope,
-      c.j.ctn<GalaxyTest>().commitAgentForTest(DEFAULT_CHAT_ID, agentMessage, 'Thanks, Austen.', CHAT_NODE_ID, a1));
+      c.j.ctn<GalaxyTest>().commitAgentForTest(DEFAULT_CHAT_ID, agentMessage, 'Thanks, Austen.', MESSAGES_NODE_ID, a1));
     expect(await c.waiting()).toEqual([j1]);
 
     // Austen edits the agent's message to name Jennifer's post too. The message's current
@@ -251,7 +251,7 @@ describe('a waiting post is worked under its own poster\'s recorded claims, and 
     await post(c.j, j1, 'First request.');
     await turnUnderWay(scope);
     await post(c.a, a1, 'Austen\'s request.');
-    // Jennifer rewrites Austen's waiting post: a `put` needs only `write` at the chat node.
+    // Jennifer rewrites Austen's waiting post: a `put` needs only `write` at the `messages` node.
     const waitingPost = await c.j.resources.read('Message', a1) as Snapshot;
     const rewritten = await c.j.resources.transaction({
       [a1]: { op: 'put', typeName: 'Message', ifValidFromMatches: waitingPost.meta.validFrom, value: { chat: DEFAULT_CHAT_ID, content: 'Jennifer\'s words now.' } },
@@ -888,13 +888,13 @@ describe('the agent invites, under the claims of the post its turn took up', () 
     c.dispose();
   });
 
-  // Mutation: drop the Galaxy's own check → the invite passes the chat node's `admin` gate, the
+  // Mutation: drop the Galaxy's own check → the invite passes the `messages` node's `admin` gate, the
   // facade refuses it after the turn has ended, and the handler posts that refusal: a second
   // agent message, after the turn's.
-  it('an inviter with admin at the chat node and no dominion is refused within the turn, by the Galaxy\'s own check', async () => {
+  it('an inviter with admin at the `messages` node and no dominion is refused within the turn, by the Galaxy\'s own check', async () => {
     const scope = uniqueScope();
     const c = await cast(scope);
-    await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, c.aSub, 'admin'));
+    await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<Galaxy>().resources.orgTree.setPermission(MESSAGES_NODE_ID, c.aSub, 'admin'));
     using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
     const friend = someone();
     await c.seed([call('invite', { email: friend }), say('I cannot invite them: that needs an admin of the app.')]);
@@ -915,7 +915,7 @@ describe('the agent invites, under the claims of the post its turn took up', () 
   it('a member of the app is refused at the facade, and a node invite the facade refuses is posted to the chat', async () => {
     const scope = uniqueScope();
     const c = await cast(scope);
-    await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, c.aSub, 'admin'));
+    await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<Galaxy>().resources.orgTree.setPermission(MESSAGES_NODE_ID, c.aSub, 'admin'));
     using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
     const [direct, viaNode] = [someone(), someone()];
     const refusal = `Inviting into the app "${scope}" needs dominion over it, which a member of it does not hold: ask one of its admins`;
@@ -928,7 +928,7 @@ describe('the agent invites, under the claims of the post its turn took up', () 
     // Through the node invite, whose own gate is DAG `admin` at the node, which Austen holds: it
     // acknowledges, the facade refuses afterwards, and the Galaxy posts that as the agent.
     const ack = await c.a.lmz.callAsync('GALAXY', scope,
-      c.a.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, [{ email: viaNode, tier: 'write' }]));
+      c.a.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, [{ email: viaNode, tier: 'write' }]));
     expect(ack).toEqual({ accepted: 1, errors: [] });
     await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(1), { timeout: 15_000 });
     const [[text, posted]] = [...(await agentMessages(c.j, sub.resourceIds))];

@@ -99,7 +99,7 @@ export interface TreeSeed {
   /**
    * Grants that go with an invite at a node: when a node invite at `at` is answered, each `grant`
    * is written for the invitee beside the invite's own, with no check of its own, since the host
-   * declared it. A Galaxy declares `read` at its `turns` node with every invite at `chat`. One
+   * declared it. A Galaxy declares `read` at its `chat` node with every invite at `messages`. One
    * never lowers or replaces a grant the invitee already holds there.
    */
   inviteAlso?: Array<{ at: string; grant: { nodeId: string; tier: PermissionTier } }>

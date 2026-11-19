@@ -65,7 +65,7 @@ One other forward carries page traffic into a Durable Object's `fetch`, and its 
 1. every member `.fetch(` is a named forward, or names a binding the generated `Env` declares as something other than a Durable Object namespace;
 2. every `routeDORequest` call passes `bindings`;
 3. every mesh node's `onRequest` compares the path only against its `HTTP_PREFIXES`;
-4. no Durable Object stub is made except in a named forward or, inside Mesh's auth layer, for its own Registry — so an inline `getByName(…).teardown()` that skips `rawRpcStub` fails it.
+4. no Durable Object stub is made except in a named forward or, inside Mesh's auth layer, for its own Registry — so an inline `getByName(…).teardownScope()` that skips `rawRpcStub` fails it.
 
 It prints what it checked on every run, so a pass is never an empty line. A new forward or a new non-Durable-Object `.fetch(` MUST be added to its tables by name, with the reason.
 

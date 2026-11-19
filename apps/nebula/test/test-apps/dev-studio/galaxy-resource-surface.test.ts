@@ -6,7 +6,7 @@
  *  1. **Frozen surface, in THREE tiers plus what the door hands back.** Every entry reachable
  *     on the Galaxy's whole prototype chain: the bare `@mesh()` door `resources` and the
  *     ontology and config reads; the source entries, which are every `@mesh()`-decorated entry
- *     `LOOP_TOOL_ENTRIES` names, and `readCast`, at the CHAT FLOOR (`requireChatWrite`, the door
+ *     `LOOP_TOOL_ENTRIES` names, and `readCast`, at the CHAT FLOOR (`requireChatFloor`, the door
  *     a Message create passes); and
  *     configuration at dominion; the inherited `teardown` is `@rawRpc()`, on no tier. Past the door the plane's
  *     `requests` and `results` member lists are frozen, and so is `OrgTree`'s, which `requests`
@@ -22,7 +22,7 @@ import { describe, it, expect } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { isMeshCallable } from '@lumenize/mesh';
 import { meshEntries } from '../mesh-surface';
-import { Galaxy, requireChatWrite, LOOP_TOOL_ENTRIES } from '../../../src/galaxy';
+import { Galaxy, requireChatFloor, LOOP_TOOL_ENTRIES } from '../../../src/galaxy';
 import { NebulaClient } from '@lumenize/resources/client';
 import { requireDominionHere } from '@lumenize/mesh';
 import { CHAT_MESSAGE_ONTOLOGY_VERSION } from '../../../src/chat-constants';
@@ -49,7 +49,7 @@ type Tier = 'bare' | 'chat' | 'dominion';
 /** The Galaxy's mesh entries of one guard tier, over its whole prototype chain. */
 function meshMethods(tier: Tier): string[] {
   return meshEntries(Galaxy)
-    .filter(({ guard }) => (guard === requireDominionHere ? 'dominion' : guard === requireChatWrite ? 'chat' : 'bare') === tier)
+    .filter(({ guard }) => (guard === requireDominionHere ? 'dominion' : guard === requireChatFloor ? 'chat' : 'bare') === tier)
     .map(({ name }) => name);
 }
 
@@ -107,7 +107,7 @@ describe('Galaxy @mesh surface freeze — three guard tiers, and what the door h
 
   it('the DOMINION list is exactly Galaxy configuration', () => {
     // A source entry accidentally shipped with requireDominionHere ENTERS this set → red;
-    // a config method dropped to the chat floor LEAVES it → red. `ScopedMeshDO.teardown` carries
+    // a config method dropped to the chat floor LEAVES it → red. `ScopedMeshDO.teardownScope` carries
     // `@rawRpc()`, never `@mesh()`, so the walk up the whole chain does not find it.
     expect(meshMethods('dominion')).toEqual(['setGalaxyConfig']);
   });

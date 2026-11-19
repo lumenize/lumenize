@@ -67,7 +67,7 @@ import type { BuildFaults } from '../fake-build';
 import type { ResourcesResults } from '@lumenize/resources';
 import type { NebulaClientConfig, OrgTreeState, PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload, ResourceDenied } from '@lumenize/resources';
 import type { StudioClientConfig, TookUp } from '@lumenize/nebula';
-import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '../../../src/chat-constants';
+import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '../../../src/chat-constants';
 import type { ChatMessage, ModelParams, BuildReport, LoopToolDeps } from '../../../src/codegen-loop';
 import { runCodegenLoop, assembleCodegenPrompt } from '../../../src/codegen-loop';
 import { TURN_ROW_KEY } from '../../../src/galaxy';
@@ -163,10 +163,10 @@ export class StarTest extends Star {
   /** Test-only: a Star named `*.explode` fails its teardown before it wipes anything — the
    *  failure the scope lifecycle hooks must log by name while the other targets still wipe. One
    *  named `*.slow` waits a second before it wipes, as a Galaxy waits on its certificate order. */
-  protected override async beforeTeardown(): Promise<void> {
+  protected override async beforeScopeTeardown(): Promise<void> {
     if (this.lmz.instanceName?.endsWith('.explode')) throw new Error('injected teardown failure (test)');
     if (this.lmz.instanceName?.endsWith('.slow')) await new Promise((r) => setTimeout(r, 1000));
-    await super.beforeTeardown();
+    await super.beforeScopeTeardown();
   }
 
   /**
@@ -777,7 +777,7 @@ export class GalaxyTest extends Galaxy {
     this.#probePosting = true;
     try {
       const written = await this.resources.transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, {
-        [id]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content } },
+        [id]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content } },
       }) as TransactionResult;
       if (!written.ok) throw new Error(`probe post failed: ${JSON.stringify(written.errors)}`);
       return { id, validFrom: written.validFrom };

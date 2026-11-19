@@ -26,7 +26,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/resources';
-import { CHAT_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import { MESSAGES_NODE_ID, DEFAULT_CHAT_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { QueryDescriptor, TransactionResult } from '@lumenize/resources';
 import { adminClientAt, universeAdminClient, createInvitedClient, createSubject, uniqueStar, addressOfClient } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';
@@ -152,7 +152,7 @@ describe('no subscription update carries the identity of the caller whose call c
     await createSubject(adminBrowser, scope, gToken, 'probe@example.com');
     const { client: gProbe, payload: gProbeP } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'probe@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
-    await gAdmin.orgTree.setPermission(CHAT_NODE_ID, gProbeP.sub, 'read');
+    await gAdmin.orgTree.setPermission(MESSAGES_NODE_ID, gProbeP.sub, 'read');
     using chat = gProbe.resources.subscribeQuery({ typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } });
     await chat.ready;
     // The landing's `ServedBuild` reaches every subscriber, the probe included, as a query update.

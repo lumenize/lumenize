@@ -3,7 +3,7 @@
 **Date**: 2026-10-15
 **Status**: Proposed
 **Deciders**: Larry
-**Evidence**: `requireChatWrite` (`apps/nebula/src/galaxy.ts`), which gates the Galaxy's source and builds with `orgTree.requirePermission(CHAT_NODE_ID, 'write')`; `OrgTree.requirePermission` (`packages/resources/src/org-tree.ts`), the one fine-grained check; `TransactionOpts.pinnedAtDoor`, which let the platform's own writes skip that check until the agent became a local principal and it was removed. Decided in `tasks/archive/nebula-agent-posts-as-itself.md` § *Decisions*, whose first draft proposed reading the chat with no check at all.
+**Evidence**: `requireChatFloor` (`apps/nebula/src/galaxy.ts`), which gates the Galaxy's source and builds with `orgTree.requirePermission(MESSAGES_NODE_ID, 'write')`; `OrgTree.requirePermission` (`packages/resources/src/org-tree.ts`), the one fine-grained check; `TransactionOpts.pinnedAtDoor`, which let the platform's own writes skip that check until the agent became a local principal and it was removed. Decided in `tasks/archive/nebula-agent-posts-as-itself.md` § *Decisions*, whose first draft proposed reading the chat with no check at all.
 
 ## Context
 
@@ -11,7 +11,7 @@
 
 **Two uses of the tree were never written down, and each drew a proposal to work around it.**
 
-- **The tree gates operations as well as resources.** Since 2026-09-05, `requireChatWrite` has gated the Galaxy's source and builds by `write` on the chat node, though no resource is involved. The vision document described the tree as gating resources, so the gate read as a borrowing, and the fix proposed was a second permission store kept equal to the tree.
+- **The tree gates operations as well as resources.** Since 2026-09-05, `requireChatFloor` has gated the Galaxy's source and builds by `write` on the chat's `messages` node, though no resource is involved. The vision document described the tree as gating resources, so the gate read as a borrowing, and the fix proposed was a second permission store kept equal to the tree.
 - **The platform acts on its own behalf.** Studio's agent posts to the chat when no person's call is there to post in, and reads the thread to answer it. The first proposals were a server read with no check and a Registry membership for the agent, and `pinnedAtDoor` already let the platform's own writes skip the check.
 
 The rest of this ADR commits the orgTree as a node's one fine-grained access control, and the local principal as the identity that holds grants there and nowhere else.
@@ -21,7 +21,7 @@ The rest of this ADR commits the orgTree as a node's one fine-grained access con
 ### Terminology
 
 - **Membership** — a grant in the Registry: one address in one scope, which every session rests on ([`auth.md`](../vision/auth.md) § *Identity and membership*).
-- **Local principal** — an identity that holds grants in one node's orgTree and no membership. `agent:lumenize` in the Galaxy `acme.crm` is the first: it holds `write` on the Galaxy's `chat` and `turns` nodes, and the Registry has no row for it.
+- **Local principal** — an identity that holds grants in one node's orgTree and no membership. `agent:lumenize` in the Galaxy `acme.crm` is the first: it holds `write` on the Galaxy's `chat` node, over its thread and its turns, and the Registry has no row for it.
 
 **`local principal` names the pattern, not the agent.** The agent is its first case.
 

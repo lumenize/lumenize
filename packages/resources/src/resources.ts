@@ -1145,7 +1145,7 @@ export class Resources {
    * It runs under the `callContext` it is called in, which stamps the subject, and takes the
    * ordinary path, with no special-casing: `Snapshots.transaction` →
    * `OrgTree.requirePermission`. So the Galaxy calls it as its local principal, whose grant on
-   * the chat node admits the write. A write the transaction refuses throws, for want of the
+   * the `messages` node admits the write. A write the transaction refuses throws, for want of the
    * permission or for a value its type rejects: nothing waits on this call's answer, so a
    * refusal returned as a value would be dropped unseen.
    */

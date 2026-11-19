@@ -14,7 +14,7 @@ import { mesh } from '@lumenize/mesh';
 import { Galaxy } from '../../../src/galaxy';
 import { TURN_ROW_KEY } from '../../../src/galaxy';
 import type { TookUp } from '../../../src/galaxy';
-import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '../../../src/chat-constants';
+import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '../../../src/chat-constants';
 import type { Snapshot, TransactionResult } from '@lumenize/resources';
 import { Star } from '../../../src/star';
 import { requireDominionHere } from '@lumenize/mesh';
@@ -95,7 +95,7 @@ export class GalaxyLoopProbe extends Galaxy {
     this.#probePosting = true;
     try {
       const written = await this.resources.transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, {
-        [id]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content } },
+        [id]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content } },
       }) as TransactionResult;
       if (!written.ok) throw new Error(`probe post failed: ${JSON.stringify(written.errors)}`);
       return { id, validFrom: written.validFrom };

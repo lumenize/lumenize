@@ -31,7 +31,7 @@ import { isMeshCallable } from '@lumenize/mesh';
 import {
   Star,
   Galaxy,
-  CHAT_NODE_ID,
+  MESSAGES_NODE_ID,
   CHAT_MESSAGE_ONTOLOGY_VERSION,
   DEFAULT_CHAT_ID,
 } from '@lumenize/nebula';
@@ -93,7 +93,7 @@ async function galaxyHost(): Promise<Host> {
   ).then((r) => r.client);
   return {
     binding: 'GALAXY', scope, version: CHAT_MESSAGE_ONTOLOGY_VERSION, client, resourceType: 'Message',
-    createOp: () => ({ op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'made' } }),
+    createOp: () => ({ op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'made' } }),
     putOp: (_rid, version) => ({ op: 'put', ifValidFromMatches: version, value: { chat: DEFAULT_CHAT_ID, content: `edit-${uuid().slice(0, 4)}` } }),
     query: CHAT_QUERY,
   };
@@ -388,20 +388,20 @@ describe('the Galaxy tells a Star-tier caller with no grant `permission`, and a 
     expect(payload.access.authScope).toBe(`${scope}.dev`); // the fixture is the Star-tier shape
     let rid = uuid();
     const txn = () => tenant.lmz.callAsync('GALAXY', scope, tenant.ctn<Galaxy>().resources.transaction(
-      CHAT_MESSAGE_ONTOLOGY_VERSION, { [rid]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'up' } } },
+      CHAT_MESSAGE_ONTOLOGY_VERSION, { [rid]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'up' } } },
     )) as Promise<TransactionResult>;
 
     // RESOLVED, not rejected: a passage refusal would reject. The structured error names the tier
     // and the node — a boundary refusal carries neither.
     const denied = await txn();
-    expect(denied).toEqual({ ok: false, errors: { [rid]: { type: 'permission', requiredTier: 'write', nodeId: CHAT_NODE_ID } } });
+    expect(denied).toEqual({ ok: false, errors: { [rid]: { type: 'permission', requiredTier: 'write', nodeId: MESSAGES_NODE_ID } } });
     // The message-matched limb uses `read`, which rejects with the DAG's own message.
     const readRefusal = await refusal(tenant.lmz.callAsync('GALAXY', scope,
       tenant.ctn<Galaxy>().resources.read(CHAT_MESSAGE_ONTOLOGY_VERSION, posted)));
     expect(readRefusal).toMatch(/read permission required on node/);
 
     await owner.lmz.callAsync('GALAXY', scope,
-      owner.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, payload.sub, 'write'));
+      owner.ctn<Galaxy>().resources.orgTree.setPermission(MESSAGES_NODE_ID, payload.sub, 'write'));
     rid = uuid();
     expect((await txn()).ok).toBe(true);
     owner[Symbol.dispose](); tenant[Symbol.dispose]();

@@ -22,7 +22,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { setDebugSink, clearDebugSink, type DebugSink } from '@lumenize/debug';
-import { Galaxy, Universe, requireChatWrite, CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, DEFAULT_CHAT_ID } from '@lumenize/nebula';
+import { Galaxy, Universe, requireChatFloor, CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import { requireDominionHere } from '@lumenize/mesh';
 import { ROOT_NODE_ID } from '@lumenize/resources';
 import { isAtOrAbove } from '@lumenize/mesh/auth';
@@ -361,13 +361,13 @@ describe('onBeforeCall fail-closed branches (below the public API)', () => {
 });
 
 // A tier DO's mesh entries over its WHOLE prototype chain, by guard. `requireDominionHere` and
-// `requireChatWrite` are authorization walls of their own — dominion over the host, and DAG `write`
-// at the chat node (the door a Message passes; `security.md`) — so the widening concern is the rest.
-// Walking the chain is what sees an inherited entry such as `ScopedMeshDO.teardown`.
+// `requireChatFloor` are authorization walls of their own — dominion over the host, and DAG `write`
+// at the `messages` node (the door a Message passes; `security.md`) — so the widening concern is the rest.
+// Walking the chain is what sees an inherited entry such as `ScopedMeshDO.teardownScope`.
 const nonAdminMeshMethods = (ctor: { prototype: object }) => meshEntries(ctor)
-  .filter(({ guard }) => guard !== requireDominionHere && guard !== requireChatWrite).map(({ name }) => name);
+  .filter(({ guard }) => guard !== requireDominionHere && guard !== requireChatFloor).map(({ name }) => name);
 const chatFloorMeshMethods = (ctor: { prototype: object }) => meshEntries(ctor)
-  .filter(({ guard }) => guard === requireChatWrite).map(({ name }) => name);
+  .filter(({ guard }) => guard === requireChatFloor).map(({ name }) => name);
 const dominionMeshMethods = (ctor: { prototype: object }) => meshEntries(ctor)
   .filter(({ guard }) => guard === requireDominionHere).map(({ name }) => name);
 
@@ -421,9 +421,9 @@ describe('Galaxy/Universe widening invariant (B5)', () => {
     expect(nonAdminMeshMethods(Galaxy)).toEqual(['getCurrentOntology', 'getGalaxyConfig', 'resources']);
   });
 
-  it('B5: the Galaxy CHAT-FLOOR surface (requireChatWrite) equals the frozen source-entry list', () => {
+  it('B5: the Galaxy CHAT-FLOOR surface (requireChatFloor) equals the frozen source-entry list', () => {
     // The source entries a chat participant reaches — the chat floor (`.claude/rules/security.md`) moved
-    // them from dominion to the chat floor (DAG `write` at the chat node). A `.dev`-scoped
+    // them from dominion to the chat floor (DAG `write` at the `messages` node). A `.dev`-scoped
     // member has no grant on the Galaxy's tree by construction, so the `.*` widening does not
     // reach them either. Mutation: restore requireDominionHere on one → it leaves this set.
     // `readCast` reads one source file, `docs/personas.md`, for Studio's tab strip.
@@ -526,7 +526,7 @@ describe('the upward arm is bounded by the callee, not by the barrier (the host 
       }
       // The chat floor: held to a DAG grant above the page, never waved through by the membership.
       for (const name of chatFloorMeshMethods(Galaxy)) {
-        expect(await call('GALAXY', galaxy, g()[name]())).toBe(`write permission required on node ${CHAT_NODE_ID}`);
+        expect(await call('GALAXY', galaxy, g()[name]())).toBe(`write permission required on node ${MESSAGES_NODE_ID}`);
       }
       // Open: each carries a written reason, and answers.
       const open = [...nonAdminMeshMethods(Galaxy).filter((n) => n !== 'resources'), ...nonAdminMeshMethods(Universe)];
@@ -538,7 +538,7 @@ describe('the upward arm is bounded by the callee, not by the barrier (the host 
       // grant; the node invite needs `admin` at the node before the facade ever sees it, and the
       // facade bounds a holder who has one; the tree's writes need their grants.
       const tx = await c.lmz.callAsync('GALAXY', galaxy, g().resources.transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, {
-        [crypto.randomUUID()]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'x' } },
+        [crypto.randomUUID()]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'x' } },
       }));
       expect(JSON.stringify(tx)).toContain('"permission"');
       expect(await call('GALAXY', galaxy, g().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, ROOT_NODE_ID, [{ email: 'x@example.com', tier: 'read' }])))

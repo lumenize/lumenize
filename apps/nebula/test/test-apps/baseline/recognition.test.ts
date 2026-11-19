@@ -13,7 +13,7 @@ import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { ROOT_NODE_ID } from '@lumenize/resources';
 import type { TransactionResult, OntologyVersionConfig, Snapshot } from '@lumenize/resources';
-import { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import { DEFAULT_CHAT_ID, MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import { universeAdminClient } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest, heldGalaxyParses } from './index';
 import type { StarTest, GalaxyTest } from './index';
@@ -118,7 +118,7 @@ describe('the agent-message commit, run twice with one id', () => {
     { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope },
   );
   const commit = (c: StudioClientTest, scope: string, id: string, content: string, replyTo: string) =>
-    c.lmz.callAsync('GALAXY', scope, c.ctn<GalaxyTest>().commitAgentForTest(DEFAULT_CHAT_ID, id, content, CHAT_NODE_ID, replyTo),
+    c.lmz.callAsync('GALAXY', scope, c.ctn<GalaxyTest>().commitAgentForTest(DEFAULT_CHAT_ID, id, content, MESSAGES_NODE_ID, replyTo),
       { timeoutMs: 30_000 });
 
   it('in sequence with different content: the second does nothing and throws nothing', async () => {

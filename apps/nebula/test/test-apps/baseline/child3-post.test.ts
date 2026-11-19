@@ -14,7 +14,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { DEFAULT_CHAT_ID, CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, deriveKind, deriveParticipants } from '@lumenize/nebula';
+import { DEFAULT_CHAT_ID, MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, deriveKind, deriveParticipants } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
 import { env } from 'cloudflare:test';
 import { deploymentOrigin, platformOrigin } from '@lumenize/mesh/client';
@@ -78,7 +78,7 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     expect(deriveParticipants(snap.meta.recordedClaims)).toEqual([
       { sub: senderPayload.sub, kind: 'human', profileId: senderPayload.profileId },
     ]);
-    expect(snap.meta.nodeId).toBe(CHAT_NODE_ID);
+    expect(snap.meta.nodeId).toBe(MESSAGES_NODE_ID);
 
     // D-human-no-stream: posting a user Message streams NOTHING (a single atomic create,
     // not the assistant progress path). Capable-of-failing: wiring a stream into the post
@@ -113,11 +113,11 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     // From the `.dev` page this admin holds no dominion over the galaxy above it (the host rule),
     // so its post needs the chat write a poster there is granted, given from the galaxy's page.
     const { client: galaxyReader } = await devClient(scope, email);
-    await galaxyReader.orgTree.setPermission(CHAT_NODE_ID, mixedPayload.sub, 'write');
+    await galaxyReader.orgTree.setPermission(MESSAGES_NODE_ID, mixedPayload.sub, 'write');
     const posted = await mixed.postUserMessage('routed to the galaxy');
     const snap = await galaxyReader.resources.read('Message', posted) as Snapshot;
     expect((snap.value as { content?: string }).content).toBe('routed to the galaxy');
-    expect(snap.meta.nodeId).toBe(CHAT_NODE_ID);
+    expect(snap.meta.nodeId).toBe(MESSAGES_NODE_ID);
 
     pairless[Symbol.dispose](); mixed[Symbol.dispose](); galaxyReader[Symbol.dispose]();
   });
@@ -131,7 +131,7 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     const forgedId = crypto.randomUUID();
     const out = await mallory.resources.transaction({
       [forgedId]: {
-        op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID,
+        op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID,
         value: { chat: DEFAULT_CHAT_ID, content: 'hi', author: 'the-ceo', role: 'assistant' },
       },
     });
@@ -195,7 +195,7 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     // the agent posts as itself, so neither the user nor the coach appears on its record.
     // Mutation: commit it under the call's own context → its subject is the user.
     const a1 = crypto.randomUUID();
-    impersonated.callGalaxyCommitAgent(scope, DEFAULT_CHAT_ID, a1, 'Done.', CHAT_NODE_ID, u1);
+    impersonated.callGalaxyCommitAgent(scope, DEFAULT_CHAT_ID, a1, 'Done.', MESSAGES_NODE_ID, u1);
     await vi.waitFor(() => expect(impersonated.callCompleted).toBe(true));
     expect(impersonated.lastError).toBeUndefined();
     const agent = await impersonated.resources.read('Message', a1) as Snapshot;

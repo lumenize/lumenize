@@ -14,7 +14,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/resources';
-import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
+import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import type { TransactionResult, QuerySubscriberRow, QueryDescriptor, Snapshot } from '@lumenize/resources';
 import { createNebulaClient } from '@lumenize/resources/frontend';
 import {
@@ -127,10 +127,10 @@ describe('a permission change and a query subscriber', () => {
     using chat = member.client.resources.subscribeQuery(CHAT_QUERY);
     await chat.ready;
     expect(chat.resourceIds).toEqual([]);
-    expect(chat.deniedNodes).toEqual([CHAT_NODE_ID]);
+    expect(chat.deniedNodes).toEqual([MESSAGES_NODE_ID]);
 
     // Mutation: drop the client's ask-again → the query never changes → red.
-    await owner.orgTree.setPermission(CHAT_NODE_ID, payload.sub, 'read');
+    await owner.orgTree.setPermission(MESSAGES_NODE_ID, payload.sub, 'read');
     await vi.waitFor(() => expect(chat.resourceIds).toContain(posted));
     expect(chat.deniedNodes).toEqual([]);
     owner[Symbol.dispose]();

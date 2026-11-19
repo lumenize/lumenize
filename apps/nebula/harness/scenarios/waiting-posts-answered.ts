@@ -3,7 +3,7 @@
  * poster's claims.
  *
  * Jennifer owns the app. Austen is a collaborator, enrolled by the real node invite with `write`
- * at the chat node and no admin bit. Jennifer posts, and Austen posts while Jennifer's turn is
+ * at the `messages` node and no admin bit. Jennifer posts, and Austen posts while Jennifer's turn is
  * still running. Each post is stored with the claims its write carried, so when the agent gets to
  * Austen's post it works under Austen's claims, never under those of whoever happened to post
  * first. The agent itself posts every message as `agent:lumenize`.

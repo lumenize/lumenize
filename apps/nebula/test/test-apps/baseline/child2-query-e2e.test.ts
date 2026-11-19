@@ -13,7 +13,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/resources';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID } from '@lumenize/nebula';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
 import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
@@ -55,8 +55,8 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     // B creates t1, t2 (one txn → same validFrom → resourceId tiebreaker).
     const t1 = crypto.randomUUID(), t2 = crypto.randomUUID();
     const versions = await b.resources.transaction({
-      [t1]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: S, content: 't1' } },
-      [t2]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: S, content: 't2' } },
+      [t1]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: S, content: 't1' } },
+      [t2]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: S, content: 't2' } },
     });
     await vi.waitFor(() => expect([...sub.resourceIds].sort()).toEqual([t1, t2].sort()));
     expect(sub.resourceIds).toEqual([t1, t2].sort()); // co-created → resourceId order
@@ -64,8 +64,8 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     // B creates t3 (later) belonging to S, and a noise Message of Other.
     const t3 = crypto.randomUUID(), tn = crypto.randomUUID();
     await b.resources.transaction({
-      [t3]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: S, content: 't3' } },
-      [tn]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: Other, content: 'noise' } },
+      [t3]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: S, content: 't3' } },
+      [tn]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: Other, content: 'noise' } },
     });
     await vi.waitFor(() => expect(sub.resourceIds).toContain(t3));
     expect(sub.resourceIds).toEqual(await ordered(a, [t1, t2, t3]));
@@ -96,8 +96,8 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     await sub.ready;
     const t1 = crypto.randomUUID(), t2 = crypto.randomUUID();
     const versions = await b.resources.transaction({
-      [t1]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: S, content: 't1-v0' } },
-      [t2]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: S, content: 't2-v0' } },
+      [t1]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: S, content: 't1-v0' } },
+      [t2]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: S, content: 't2-v0' } },
     });
     await vi.waitFor(() => expect(sub.resourceIds.length).toBe(2));
 

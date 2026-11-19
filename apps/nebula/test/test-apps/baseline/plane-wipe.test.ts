@@ -197,7 +197,7 @@ describe('the reset behind a Galaxy\'s `resources` door', () => {
     const { galaxy } = newDev();
     const owner = await admin(galaxy, galaxy, CHAT_MESSAGE_ONTOLOGY_VERSION, GALAXY_PAIR(galaxy));
     const before = await planeRows('GALAXY', galaxy);
-    expect(before.Nodes).toBe(3); // the root, the chat node and the turns node
+    expect(before.Nodes).toBe(4); // the root, `chat`, and `messages` and `turns` under it
     await expect(owner.lmz.callAsync('GALAXY', galaxy, owner.ctn<Galaxy>().resources.resetDevData()))
       .rejects.toThrow(/only permitted on the \.dev sandbox Star/);
     expect(await planeRows('GALAXY', galaxy)).toEqual(before);

@@ -18,7 +18,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_MESSAGE_TYPES, DEFAULT_CHAT_ID } from '@lumenize/nebula';
+import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_MESSAGE_TYPES, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
 import { NEBULA_SUB } from '@lumenize/mesh/auth';
@@ -36,7 +36,7 @@ async function owner(scope: string, version = CHAT_MESSAGE_ONTOLOGY_VERSION) {
     { ...PAIR, chatHostBinding: 'GALAXY', chatScope: scope });
 }
 
-/** A collaborator holding `write` at the chat node and no admin bit, as an invited person does. */
+/** A collaborator holding `write` at the `messages` node and no admin bit, as an invited person does. */
 async function collaborator(scope: string, ownerToken: string, ownerClient: NebulaClientTest) {
   await createSubject(new Browser(), scope, ownerToken, 'member@example.com');
   const { client, payload } = await createInvitedClient(
@@ -45,7 +45,7 @@ async function collaborator(scope: string, ownerToken: string, ownerClient: Nebu
   );
   expect(payload.access?.scopeAdmin).toBeFalsy();
   await ownerClient.lmz.callAsync('GALAXY', scope,
-    ownerClient.ctn<Galaxy>().resources.orgTree.setPermission(CHAT_NODE_ID, payload.sub, 'write'));
+    ownerClient.ctn<Galaxy>().resources.orgTree.setPermission(MESSAGES_NODE_ID, payload.sub, 'write'));
   return { client, sub: payload.sub };
 }
 
@@ -92,7 +92,7 @@ describe('a landing records its build as .dev\'s newest ServedBuild', () => {
     await old.lmz.callAsync('GALAXY', scope, old.ctn<GalaxyTest>().setChatSourceForTest({ version: 'chat-message-v1', types: OLD_TYPES }));
     // An op at the old label installs the old row.
     const posted = await old.resources.transaction({
-      [crypto.randomUUID()]: { op: 'create', typeName: 'Message', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'on v1' } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'on v1' } },
     });
     expect(posted.kind).toBe('committed');
     expect(await old.lmz.callAsync('GALAXY', scope, old.ctn<GalaxyTest>().installedChatVersionForTest())).toBe('chat-message-v1');
@@ -122,7 +122,7 @@ describe('a landing records its build as .dev\'s newest ServedBuild', () => {
     const building = g(p.client, scope).build();
     // Inside the hold: the owner revokes the collaborator's grant outright.
     await new Promise((r) => setTimeout(r, 300));
-    await o.lmz.callAsync('GALAXY', scope, o.ctn<Galaxy>().resources.orgTree.revokePermission(CHAT_NODE_ID, p.sub));
+    await o.lmz.callAsync('GALAXY', scope, o.ctn<Galaxy>().resources.orgTree.revokePermission(MESSAGES_NODE_ID, p.sub));
     const report = await building;
     expect(report.preview.refreshed).toBe(true);
     const snap = await newestNaming(o, sub, report.bundle.indexSha256!);
@@ -202,7 +202,7 @@ describe('a landing records its build as .dev\'s newest ServedBuild', () => {
     // A participant forges a newer row, then deletes the newest.
     const forged = crypto.randomUUID();
     expect((await p.client.resources.transaction({
-      [forged]: { op: 'create', typeName: 'ServedBuild', nodeId: CHAT_NODE_ID, value: { chat: DEFAULT_CHAT_ID, star: 'dev', buildVersion: 'forged' } },
+      [forged]: { op: 'create', typeName: 'ServedBuild', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, star: 'dev', buildVersion: 'forged' } },
     })).kind).toBe('committed');
     await newestNaming(o, sub, 'forged');
     const snap = await p.client.resources.read('ServedBuild', forged) as Snapshot;

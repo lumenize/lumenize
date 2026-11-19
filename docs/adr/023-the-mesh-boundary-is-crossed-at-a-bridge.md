@@ -103,6 +103,6 @@ Code in Mesh's auth layer, `@lumenize/mesh/auth`, reaching the Registry that lay
 
 ### Negative / mitigations
 
-- **A `@rawRpc()` method trusts its caller completely**, because no claims arrive for it to check. Mitigation: keep each one small and idempotent, as `teardown()` and `orderCertificate()` are, and never give one a parameter naming whom to act for.
+- **A `@rawRpc()` method trusts its caller completely**, because no claims arrive for it to check. Mitigation: keep each one small and idempotent, as `teardownScope()` and `orderCertificate()` are, and never give one a parameter naming whom to act for.
 - **A rule the facade checks lives in two places**, the facade and the Registry, so a change to it has to land in both. The cost buys rules 2 and 3 above, and a test of the Registry's own refusal keeps the second copy honest.
 - **The binding and instance name are passed, not derived, so the entry verifies them.** `env[binding].idFromName(instanceName)` equals `ctx.id` only for the pair that addresses the object, measured in `packages/mesh/test/raw-rpc.test.ts`, so one comparison refuses any other pair before the identity is stamped.

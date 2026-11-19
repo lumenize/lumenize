@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
-import { CHAT_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { NodeInviteAck } from '@lumenize/resources';
 import type { Snapshot } from '@lumenize/resources/client';
@@ -57,7 +57,7 @@ export async function run(stack: DevStack): Promise<void> {
   };
   const create = async (title: string): Promise<{ id: string; v0: string }> => {
     const id = crypto.randomUUID();
-    const out = await client.resources.transaction({ [id]: { op: 'create', typeName: 'Chat', nodeId: CHAT_NODE_ID, value: { title } } });
+    const out = await client.resources.transaction({ [id]: { op: 'create', typeName: 'Chat', nodeId: MESSAGES_NODE_ID, value: { title } } });
     return { id, v0: committedAt(out, id, `create ${title}`) };
   };
   const putTitle = (who: Driver['client'], id: string, version: string | undefined, title: string) =>
@@ -75,7 +75,7 @@ export async function run(stack: DevStack): Promise<void> {
 
   try {
     const a = crypto.randomUUID();
-    await commit({ [a]: { op: 'create', typeName: 'Chat', nodeId: CHAT_NODE_ID, value: { title: 'moment a0' } } }, 'create a');
+    await commit({ [a]: { op: 'create', typeName: 'Chat', nodeId: MESSAGES_NODE_ID, value: { title: 'moment a0' } } }, 'create a');
 
     // Limb 1. Coalescing used to overwrite a same-person write within the hour in place, keeping
     // its validFrom. Mutation: restore the in-place UPDATE in `#writeSnapshot`.
@@ -97,7 +97,7 @@ export async function run(stack: DevStack): Promise<void> {
       const current = await read(a);
       await commit({
         [a]: { op: 'put', typeName: 'Chat', ifValidFromMatches: current.meta.validFrom, value: { title: 'moment a3' } },
-        [b]: { op: 'create', typeName: 'Chat', nodeId: CHAT_NODE_ID, value: { title: 'moment b0' } },
+        [b]: { op: 'create', typeName: 'Chat', nodeId: MESSAGES_NODE_ID, value: { title: 'moment b0' } },
       }, 'put a + create b');
       const [aNow, bNow] = [await read(a), await read(b)];
       assert.equal(aNow.meta.validFrom, bNow.meta.validFrom,
@@ -108,22 +108,22 @@ export async function run(stack: DevStack): Promise<void> {
     // Mutation: restore Step 10's same-node skip.
     await limb('a move to the node it is on is a write', async () => {
       const before = await read(a);
-      assert.equal(before.meta.nodeId, CHAT_NODE_ID, 'fixture guard: a sits on the chat node');
-      await commit({ [a]: { op: 'move', typeName: 'Chat', nodeId: CHAT_NODE_ID, ifValidFromMatches: before.meta.validFrom } }, 'same-node move');
+      assert.equal(before.meta.nodeId, MESSAGES_NODE_ID, 'fixture guard: a sits on the `messages` node');
+      await commit({ [a]: { op: 'move', typeName: 'Chat', nodeId: MESSAGES_NODE_ID, ifValidFromMatches: before.meta.validFrom } }, 'same-node move');
       const after = await read(a);
       assert.ok(after.meta.validFrom > before.meta.validFrom,
         `the move must open a later snapshot: ${before.meta.validFrom} then ${after.meta.validFrom}`);
     });
 
     // ── A repeat is recognized ──
-    // The collaborator holds write at the chat node through a real invite, no admin bit, as
+    // The collaborator holds write at the `messages` node through a real invite, no admin bit, as
     // `four-party-chat`'s does. The page is a second tab of the driver's own person, built by the
     // factory a generated app's page uses, so its store can be read.
     const collaboratorEmail = uniqueTestEmail();
     const waiter = waitForEmail({ testToken, instance: app.galaxy, to: collaboratorEmail, timeout: 60_000 });
     try {
       const ack = await client.lmz.callAsync('GALAXY', app.galaxy, client.ctn<Galaxy>().resources.invite(
-        CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, [{ email: collaboratorEmail, tier: 'write' }])) as NodeInviteAck;
+        CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, [{ email: collaboratorEmail, tier: 'write' }])) as NodeInviteAck;
       assert.deepEqual(ack, { accepted: 1, errors: [] }, `invite ack: ${JSON.stringify(ack)}`);
       const mail = await waiter.emailPromise;
       const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(mail.html ?? '')?.[1];
@@ -162,7 +162,7 @@ export async function run(stack: DevStack): Promise<void> {
     // Limb 5. Mutation: delete recognition → the second create fails "already exists".
     await limb('a repeated create is recognized', async () => {
       const id = crypto.randomUUID();
-      const op = { [id]: { op: 'create' as const, typeName: 'Chat', nodeId: CHAT_NODE_ID, value: { title: 'f0' } } };
+      const op = { [id]: { op: 'create' as const, typeName: 'Chat', nodeId: MESSAGES_NODE_ID, value: { title: 'f0' } } };
       const first = committedAt(await client.resources.transaction(op), id, 'create f');
       assert.equal(committedAt(await client.resources.transaction(structuredClone(op)), id, 'the resent create'), first,
         'the resent create must be told the moment the first committed at');
@@ -237,7 +237,7 @@ export async function run(stack: DevStack): Promise<void> {
     await limb('a resend after a revoked grant', async () => {
       const k = await create('k0');
       const landed = committedAt(await putTitle(collab, k.id, k.v0, 'k1'), k.id, "the collaborator's put");
-      await client.orgTree.revokePermission(CHAT_NODE_ID, collaborator!.sub);
+      await client.orgTree.revokePermission(MESSAGES_NODE_ID, collaborator!.sub);
       assert.equal(committedAt(await putTitle(collab, k.id, k.v0, 'k1'), k.id, "the collaborator's resend"), landed,
         'a resend of a write that landed is told its moment, grant or no grant');
     });
@@ -246,7 +246,7 @@ export async function run(stack: DevStack): Promise<void> {
     // drop the shared-moment condition → the mixed pair is recognized.
     await limb('moves, deletes, and a mixed pair', async () => {
       const n = await create('n0');
-      const move = { [n.id]: { op: 'move' as const, typeName: 'Chat', nodeId: CHAT_NODE_ID, ifValidFromMatches: n.v0 } };
+      const move = { [n.id]: { op: 'move' as const, typeName: 'Chat', nodeId: MESSAGES_NODE_ID, ifValidFromMatches: n.v0 } };
       const moved = committedAt(await client.resources.transaction(move), n.id, 'move n');
       assert.equal(committedAt(await client.resources.transaction(structuredClone(move)), n.id, 'the resent move'), moved);
       const del = { [n.id]: { op: 'delete' as const, typeName: 'Chat', ifValidFromMatches: moved } };
