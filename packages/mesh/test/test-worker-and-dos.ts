@@ -1917,7 +1917,7 @@ export class ClientHostDO extends ScopedMeshDO<Env> {
     this.__clientGateway.closeAll(code, 'test host closing');
   }
 
-  /** The marker a test counts to see when a Client first reached this isolate. */
+  /** The marker a test counts to see when a Client first reached this object since it was constructed. */
   protected override onFirstClient(): void {
     debug('test.ClientHostDO.firstClient').debug('first client', { instanceName: this.lmz.instanceName });
   }

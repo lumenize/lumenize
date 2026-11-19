@@ -361,7 +361,7 @@ describe('a run that cannot go on', { timeout: 120_000 }, () => {
   });
 
   // MUTATION: drop the trigger's look at the row → the post starts a turn of its own.
-  it('starts no second turn for a post beside a row with no run in this isolate', async () => {
+  it('starts no second turn for a post beside a row whose run is not live here', async () => {
     const a = await app();
     const earlier = await a.admin.postUserMessage('A request whose turn is gone.');
     const snap = await a.admin.resources.read('Message', earlier) as Snapshot;

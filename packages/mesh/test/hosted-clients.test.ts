@@ -359,9 +359,9 @@ describe('a reconnect on a host with several Clients', () => {
 /**
  * `onFirstClient`, which Nebula's Galaxy uses to continue a turn an eviction cut off. A reset of the
  * host (`ctx.abort()`, which this lane survives with storage kept, as a deployed eviction does) is
- * what makes a new isolate on cue, and only this lane can reset on cue.
+ * what constructs the object again on cue, and only this lane can reset on cue.
  */
-describe('a host node\'s first Client in each isolate', { timeout: 30000 }, () => {
+describe('a host node\'s first Client each time it is constructed', { timeout: 30000 }, () => {
   const firstClients = (host: string) => marked('first client', (d) => d.instanceName === host).length;
   const reset = (host: string) => (runInDurableObject as any)(env.CLIENT_HOST_DO.getByName(host), (_i: unknown, ctx: DurableObjectState) => {
     ctx.abort('a reset, in a test');

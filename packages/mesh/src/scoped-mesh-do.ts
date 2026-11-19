@@ -314,15 +314,17 @@ export abstract class ScopedMeshDO<Env = any> extends MeshDO<Env> implements Cli
     return ack;
   }
 
-  /** Whether a Client has reached this isolate yet. */
+  /** Whether a Client has reached this object since it was last constructed. */
   #clientArrived = false;
 
   /**
-   * Called once per isolate, the first time a Client reaches it: by its socket's upgrade, or by a
-   * call admitted here whose chain a Client started. A node's own call, an alarm, a `@rawRpc()`
-   * entry and a teardown reach a node with no Client in them, so an isolate woken only by those
-   * runs nothing here. A node uses it to pick up work an eviction cut off, now that someone is
-   * there to see it. A throw is logged and goes no further. Default: nothing.
+   * Called once each time the object is constructed, the first time a Client reaches it after
+   * that: by its socket's upgrade, or by a call admitted here whose chain a Client started. An
+   * eviction, a hibernation and a code update each construct it again, in the same isolate or a
+   * new one. A node's own call, an alarm, a `@rawRpc()` entry, a teardown and any `fetch` but a
+   * Client's upgrade reach a node with no Client in them, so an object woken only by those runs
+   * nothing here. A node uses it to pick up work an eviction cut off, now that someone is there to
+   * see it. A throw is logged and goes no further. Default: nothing.
    */
   protected onFirstClient(): void {}
 

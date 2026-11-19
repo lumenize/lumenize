@@ -523,19 +523,20 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   // The same latch one level up, around the whole build-and-land, so each build compares the file
   // with the row only after the build before it has landed.
   #landChain: Promise<unknown> = Promise.resolve();
-  // A run of a turn is live in this isolate, one at a time. In memory BY DESIGN: an eviction
+  // A run of a turn is live in this object, one at a time. In memory BY DESIGN: an eviction
   // clears it, and the turn's row, which outlives it, is what says a turn is in flight
   // (`runTriggeredTurn`, `#wake`).
   #turnInFlight = false;
-  // This isolate has looked for a turn's row, so a row found later belongs to a run of this
-  // isolate and not to one an eviction cut off. Every run entry sets it with `#turnInFlight`,
+  // Something has looked for a turn's row since the object was constructed, so a row found later
+  // belongs to a run started since then and not to one an eviction cut off. Every run entry sets it with `#turnInFlight`,
   // before its first `await`.
   #lookedForRow = false;
   // A tab's answer landed while a run of a turn was live here, so that run continues the turn once
   // it ends (`#continueAfterAnswer`). In memory with `#turnInFlight`, which it qualifies. No test
   // arranges it. An answer mostly crosses a socket; one for a tab with no socket comes back at once
-  // in this isolate, and what keeps it after the run today is the await in its own round write.
-  // Without the flag, an answer that did land first would stall its turn until the next isolate.
+  // from this object's own Gateway, and what keeps it after the run today is the await in its own
+  // round write. Without the flag, an answer that did land first would stall its turn until the
+  // object is next constructed.
   #answered = false;
   /** The generation deadline of each run of a turn — a hung `env.AI` await past this ends the
    *  turn in a line of ours, releases the latch and ends the heartbeat, so a fresh message can
@@ -1758,7 +1759,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
 
   /**
    * Continue a turn whose tab call was answered: a run through the same entry a post and a wake
-   * take, with a deadline of its own, or, while a run is live in this isolate, once that run ends.
+   * take, with a deadline of its own, or, while a run is live here, once that run ends.
    */
   #continueAfterAnswer(): void {
     if (this.#turnInFlight) {
@@ -1840,8 +1841,9 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    *
    * A post that arrives while a turn runs waits in storage, with the claims its write recorded,
    * and the decision after that turn can take it up under them. A turn is in flight while its row
-   * exists, so a post beside a row waits too; a row with no live run in a new isolate is a turn an
-   * eviction cut off, which the post wakes ({@link #wake}). An edit to a post an agent
+   * exists, so a post beside a row waits too; a row with no live run, found the first time anything
+   * looks after the object is constructed, is a turn an eviction cut off, which the post wakes
+   * ({@link #wake}). An edit to a post an agent
    * message has already answered starts nothing, and neither does an edit to a post a running
    * turn took up: that turn's next tool call finds the post moved on and stops.
    */
@@ -1882,7 +1884,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * ⚠️ Run with `wrangler dev` — the turn calls `env.AI.run` (or the REST lane).
    */
   protected async runTriggeredTurn(post: TookUp, content: string): Promise<void> {
-    // SINGLE-FLIGHT: one run at a time in this isolate, and the trigger starts none beside a row.
+    // SINGLE-FLIGHT: one run at a time in this object, and the trigger starts none beside a row.
     // Both flags are set before the first `await`. The latch stays set from a turn's end through
     // the decision that follows, with no `await` between, so a post that lands in that gap waits
     // for the decision instead of starting a second turn beside it.
@@ -1921,15 +1923,15 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     }
   }
 
-  /** The first Client to reach this isolate: continue a turn an eviction cut off ({@link #wake}). */
+  /** The first Client since the object was constructed: continue a turn an eviction cut off ({@link #wake}). */
   protected override onFirstClient(): void {
     this.#wake();
   }
 
   /**
-   * Continue a turn an eviction cut off. The first time anything in this isolate looks for a row, a
-   * row with no live run is one, since its run was in the isolate the eviction ended; a row found
-   * after that belongs to a run of this one. The woken run settles what the eviction left, in the
+   * Continue a turn an eviction cut off. The first time anything looks for a row after the object
+   * is constructed, a row with no live run is one, since its run ended with the object the eviction
+   * took; a row found after that belongs to a run started since. The woken run settles what the eviction left, in the
    * loop ({@link CodegenLoopDeps.woken}) and at the closing step, and goes on as any run does, a
    * decision after it included. Detached under `waitUntil`, after both flags are set and before
    * anything awaits, so a second Client or a post arriving at once starts no second run.
@@ -1982,7 +1984,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * (durable-objects.md § Wall-clock billing). A timer heartbeat is not the hold either: it held
    * nothing at the old date, and `waitUntil` states the hold directly. An eviction mid-run — a
    * restart or a deploy — loses only the run: the turn's row and rounds are in storage, and the
-   * first Client to reach the new isolate wakes the turn where it stopped ({@link #wake}).
+   * first Client to reach the object, constructed again, wakes the turn where it stopped ({@link #wake}).
    *
    * The GENERATION DEADLINE stays, one per run: past it our own code ends the turn in a line of
    * ours and deletes its row, and the latch releases, so a hung await cannot wedge the loop for

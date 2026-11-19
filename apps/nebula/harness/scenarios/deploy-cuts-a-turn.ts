@@ -5,7 +5,7 @@
  * open, a socket on the Galaxy, and asks for a change long enough to span a deploy. Once the turn's
  * first `Round` is stored, the test Worker is deployed again with an immediate code update, which
  * restarts the Galaxy at once and drops its sockets. A Studio's reconnect, Jennifer's or Austen's,
- * is the first Client to reach the new isolate, and its upgrade is what wakes the turn. The scenario then only watches:
+ * is the first Client to reach the restarted Galaxy, and its upgrade is what wakes the turn. The scenario then only watches:
  * its subscriptions were opened before the deploy, and it makes no call to the Galaxy until the
  * turn's `Message` arrives or a bound passes.
  *
@@ -14,7 +14,7 @@
  *  1. **The turn ends in its `Message`**, replying to the post, with no call from the scenario.
  *     If the bound passes, one call is made, and if the `Message` follows it, that is reported
  *     and the scenario fails: a deploy then cuts a turn that nobody's reconnect wakes.
- *  2. **A new isolate came between the first round and the `Message`.** The Worker's logs hold a
+ *  2. **The Galaxy started again between the first round and the `Message`.** The Worker's logs hold a
  *     Galaxy start for this app logged after the first round's write and before the `Message`'s
  *     commit. Without one the deploy came too late to cut the turn, and the run is inconclusive,
  *     which fails as such.
@@ -77,7 +77,7 @@ export async function run(stack: DevStack): Promise<void> {
   const scope = `${testSlug('cut')}.app`;
   const cast = await chatCast(stack, scope, readDevVar('TEST_TOKEN'));
   const studio = cast.jennifer.client;
-  // Both Studios hold a socket on the Galaxy, and either may be the first Client into the new isolate.
+  // Both Studios hold a socket on the Galaxy, and either may be the first Client into the restarted Galaxy.
   const tabs = { jennifer: studio, austen: cast.austen.client };
   const states: Record<string, string[]> = { jennifer: [studio.connectionState], austen: [cast.austen.client.connectionState] };
   const watch = setInterval(() => {
@@ -126,8 +126,8 @@ export async function run(stack: DevStack): Promise<void> {
     const interrupted = snapshots.flatMap((s) => (s.value as StoredRound).calls.filter((c) => c.error === INTERRUPTED_CALL_ERROR)
       .map(() => (s.value as StoredRound).index));
 
-    // ── LIMB 2: a new isolate came between the first round and the Message ──
-    // The new isolate's start, its wake and the woken turn's commit are all logged in the
+    // ── LIMB 2: the Galaxy started again between the first round and the Message ──
+    // The restarted Galaxy's start, its wake and the woken turn's commit are all logged in the
     // reconnecting Studio's upgrade, whose lines arrive deployed only when its socket closes
     // (`live-scenarios.md` § *Reading the Worker's logs*), so every socket closes first. A line
     // can also come later through Workers Logs, so the limb waits for every line it reads.

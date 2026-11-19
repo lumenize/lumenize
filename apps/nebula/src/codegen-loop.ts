@@ -538,7 +538,8 @@ export interface CodegenLoopDeps {
   /** Where the content of each file the model reads is kept, by blob id ({@link BlobStore}). */
   blobs: BlobStore;
   /**
-   * Set on a run a wake starts in a new isolate, where whatever the turn had in flight is gone, so
+   * Set on a run a wake starts once the object is constructed again, where whatever the turn had in
+   * flight is gone, so
    * the step its rounds say is next is the one the eviction cut off. A call with no outcome is
    * answered as interrupted and never run again, and the calls after it run. A model call is
    * recorded on the turn's row and made again, or ends the turn `interrupted` when the row already
