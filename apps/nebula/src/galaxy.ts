@@ -527,13 +527,6 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   // clears it, and the turn's row, which outlives it, is what says a turn is in flight
   // (`runTriggeredTurn`, `#wake`).
   #turnInFlight = false;
-  // A tab's answer landed while a run of a turn was live here, so that run continues the turn once
-  // it ends (`#continueAfterAnswer`). In memory with `#turnInFlight`, which it qualifies. No test
-  // arranges it. An answer mostly crosses a socket; one for a tab with no socket comes back at once
-  // from this object's own Gateway, and what keeps it after the run today is the await in its own
-  // round write. Without the flag, an answer that did land first would stall its turn until the
-  // object is next constructed.
-  #answered = false;
   /** The generation deadline of each run of a turn — a hung `env.AI` await past this ends the
    *  turn in a line of ours, releases the latch and ends the heartbeat, so a fresh message can
    *  start a NEW generation.
@@ -1764,13 +1757,12 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
 
   /**
    * Continue a turn whose tab call was answered: a run through the same entry a post and a wake
-   * take, with a deadline of its own, or, while a run is live here, once that run ends.
+   * take, with a deadline of its own. The call's answer is what starts this run, so the run that
+   * sent the call has ended by now; if it had not, the answer stays on the round and the turn goes
+   * on when the object is next constructed ({@link #wake}).
    */
   #continueAfterAnswer(): void {
-    if (this.#turnInFlight) {
-      this.#answered = true;
-      return;
-    }
+    if (this.#turnInFlight) return;
     const row = this.turnRow();
     if (!row) return;
     this.#turnInFlight = true;
@@ -1916,11 +1908,6 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       });
     } finally {
       this.#turnInFlight = false;
-      // A tab's answer that landed while this run was live continues the turn now.
-      if (this.#answered) {
-        this.#answered = false;
-        this.#continueAfterAnswer();
-      }
     }
   }
 
