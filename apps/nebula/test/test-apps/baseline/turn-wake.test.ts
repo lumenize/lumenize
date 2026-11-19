@@ -1,6 +1,6 @@
 /**
- * A turn an eviction cut off continues when a Client next reaches the Galaxy, or says in a line of
- * ours that it cannot, and every turn that has a row ends in an agent `Message`.
+ * A turn an eviction cut off continues when anything next constructs the Galaxy, or says in a line
+ * of ours that it cannot, and every turn that has a row ends in an agent `Message`.
  *
  * vitest-plugin with the model scripted, for what the real model and a real eviction cannot be made
  * to do on cue: a reply held at a chosen round, a build held while the Galaxy is reset, a deadline a
@@ -18,7 +18,6 @@ import type { Galaxy } from '@lumenize/nebula';
 import { roundsOf } from '../../../src/participants';
 import { INTERRUPTED_CALL_ERROR, INTERRUPTED_ROUND_NOTE, type StoredRound } from '../../../src/codegen-loop';
 import { TURN_ROW_KEY } from '../../../src/galaxy';
-import { scopeLifecycleHooks } from '../../../src/scope-lifecycle-hooks';
 import { universeAdminClient, createInvitedClient } from '../../test-helpers';
 import { StudioClientTest } from './index';
 import type { GalaxyTest } from './index';
@@ -119,7 +118,7 @@ describe('a turn cut off at a model call', { timeout: 120_000 }, () => {
   // MUTATIONS: record the cut round on the row after the repeated call starts → the reset below
   // finds `interrupted` empty; send the file as it reads now, not by its blob → the round-1 tool
   // message holds the rewrite; rebuild without the note → the request does not end in it.
-  it('makes that call again once a Client reconnects, sending each file as the model first read it', async () => {
+  it('makes that call again once the Galaxy is constructed again, sending each file as the model first read it', async () => {
     const a = await app();
     const original = await a.source('src/App.vue');
     const posted = await heldAtRound4(a, [reply([toolCall('mark_complete', {}, 'c1')], 'Rewrote the app.')]);
@@ -380,9 +379,8 @@ describe('a run that cannot go on', { timeout: 120_000 }, () => {
 });
 
 describe('two Clients reaching a reset Galaxy at once', { timeout: 120_000 }, () => {
-  // A reconnect and a post at once wake the turn once. Setting the wake's flags after an `await`
-  // passes here, since a Client that reconnects before it posts sets them long before its post
-  // lands; the post-beside-a-row test catches that.
+  // A reconnect and a post at once: the construction the reconnect makes wakes the turn once, and
+  // the post waits beside its row for the decision after it.
   it('wake it once, record the cut round once, and the turn commits the model\'s own message', async () => {
     const a = await app();
     const member = await a.collaborator();
@@ -501,32 +499,23 @@ describe('a decision the deadline cuts off', { timeout: 120_000 }, () => {
 });
 
 describe('a Galaxy with a cut-off turn that no Client reaches', { timeout: 120_000 }, () => {
-  // MUTATION: start the wake from `onStart` → the alarm's construction wakes the turn.
-  it('wakes nothing for an alarm, and is wiped by a deletion without waking', async () => {
+  // MUTATION: drop the wake from `onStart` → nothing continues the turn, and its row stays.
+  it('continues it when anything constructs the object, and the turn commits its message', async () => {
     const a = await app();
-    await a.probe((g) => g.seedChatScriptForTest([reply([toolCall('mark_complete', {}, 'c1')], 'never sent')]));
+    await a.probe((g) => g.seedChatScriptForTest([reply([toolCall('mark_complete', {}, 'c1')], 'Done, with nobody here.')]));
     await a.probe((g) => g.holdModelCallForTest(1));
     await a.admin.postUserMessage('A request nobody comes back for.');
     await held(a.scope, 'model call held', 1);
-    const before = await a.row();
+    const { message } = (await a.row())!;
     a.dispose();
     await reset(a.scope);
 
-    const stub = env.GALAXY.getByName(a.scope);
-    await (runInDurableObject as any)(stub, (instance: GalaxyTest) => { instance.armAlarmForTest(); });
-    await vi.waitFor(() => expect(lines(a.scope, 'nebula.GalaxyTest.alarm', 'alarm ran')).toHaveLength(1), { timeout: 15_000 });
-    expect(woke(a.scope)).toEqual([]);
-    expect(await (runInDurableObject as any)(stub, (_i: unknown, ctx: DurableObjectState) => ctx.storage.kv.get(TURN_ROW_KEY))).toEqual(before);
-
-    await scopeLifecycleHooks.teardown([{ instanceName: a.scope, tier: 'galaxy' }], 'deletion', `op-${crypto.randomUUID().slice(0, 8)}`);
-    // The barrier for the wake's absence. The hook module tries again after a reset's rejection,
-    // so a Galaxy reset just before can log it twice.
-    expect(lines(a.scope, 'nebula.scope.teardown', 'tearing down').length).toBeGreaterThan(0);
-    expect(woke(a.scope)).toEqual([]);
-    // A read that lands in the teardown's abort is refused with the reset itself, and so is every
-    // read through a stub made before it; a fresh stub reaches the fresh object.
-    await vi.waitFor(async () => expect(await (runInDurableObject as any)(env.GALAXY.getByName(a.scope), (_i: unknown, ctx: DurableObjectState) =>
-      ctx.storage.kv.get(TURN_ROW_KEY))).toBeUndefined(), { timeout: 10_000 });
-    expect(woke(a.scope)).toEqual([]);
+    // A read from inside the object is no Client's call, and its construction wakes the turn. A
+    // stub made before the reset answers with the reset itself, so each read takes a fresh one.
+    const rowNow = (): Promise<unknown> => (runInDurableObject as any)(env.GALAXY.getByName(a.scope),
+      (_i: unknown, ctx: DurableObjectState) => ctx.storage.kv.get(TURN_ROW_KEY));
+    await vi.waitFor(async () => expect(await rowNow()).toBeUndefined(), { timeout: 20_000 });
+    expect(woke(a.scope)).toHaveLength(1);
+    expect(entries.some((e) => e.namespace === 'nebula.Galaxy.stream' && e.message === 'commit' && e.data?.messageId === message)).toBe(true);
   });
 });

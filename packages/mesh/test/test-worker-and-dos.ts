@@ -1917,20 +1917,6 @@ export class ClientHostDO extends ScopedMeshDO<Env> {
     this.__clientGateway.closeAll(code, 'test host closing');
   }
 
-  /** The marker a test counts to see when a Client first reached this object since it was constructed. */
-  protected override onFirstClient(): void {
-    debug('test.ClientHostDO.firstClient').debug('first client', { instanceName: this.lmz.instanceName });
-  }
-
-  /** Arm a mesh alarm at once, whose handler logs `alarm ran` with `tag`. */
-  @rawRpc()
-  armAlarm(tag: string): void {
-    this.svc.alarms.schedule(0, this.ctn<ClientHostDO>().alarmRan(tag));
-  }
-
-  alarmRan(tag: string): void {
-    debug('test.ClientHostDO.alarm').debug('alarm ran', { instanceName: this.lmz.instanceName, tag });
-  }
 }
 
 /**

@@ -266,6 +266,16 @@ is more agency."*
 agent, and the threat is someone's text steering it. Ask what the action reaches that cannot be undone. If
 nothing, the trace is the control.
 
+## 16. You will keep a second grant in step where a parent node would carry it
+
+**What you'll do:** when the same people need different tiers on two nodes of an orgTree, give each node its own grant and then build machinery to keep them agreeing: a revoke that also revokes, a permission worked out from another node's grant, a check of who wrote a resource. Each reads as a small, careful fix.
+
+**What to do instead:** draw the tree from its audiences. A grant gives one tier to everything beneath it, so put a node over every set of nodes that share an audience at some tier, grant that tier there once, and grant the narrower audience at the child where it narrows. [ADR-025](../../docs/adr/025-fine-grained-access-is-the-orgtree.md) makes the orgTree a node's one fine-grained control, so a check beside it is the second store it rules out.
+
+**Where it bit (2026-11-17 to 2026-11-19, `nebula-turn-stored-round-by-round`):** a turn's rounds first sat at `chat` behind a check of who wrote each one, then at a `turns` node beside `chat`, whose `read` an invite paired with the grant at `chat`. A revoke at `chat` left that `read` behind, and the fix recommended was to work it out from `chat`'s grant at each check. Larry: *"the hierarchy in the orgTree is not being used to its fullest."* A parent above `chat` and `turns` carries the read, and a revoke at `chat` now means only that the person can no longer post.
+
+**How to catch yourself:** you are writing code that keeps two grants agreeing, reads who wrote a resource to decide whether to trust it, or computes one node's permission from another's. Ask which audience the nodes share, and put a node over them.
+
 ## 10. Opening with a sweep — moved
 
 Now `prose-voice.md` § *The moves that make the difference*. It is prose guidance rather than a training bias, and belongs where it loads at drafting time. The handle stays because archived files cite it and they are frozen.

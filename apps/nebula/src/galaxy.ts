@@ -527,10 +527,6 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   // clears it, and the turn's row, which outlives it, is what says a turn is in flight
   // (`runTriggeredTurn`, `#wake`).
   #turnInFlight = false;
-  // Something has looked for a turn's row since the object was constructed, so a row found later
-  // belongs to a run started since then and not to one an eviction cut off. Every run entry sets it with `#turnInFlight`,
-  // before its first `await`.
-  #lookedForRow = false;
   // A tab's answer landed while a run of a turn was live here, so that run continues the turn once
   // it ends (`#continueAfterAnswer`). In memory with `#turnInFlight`, which it qualifies. No test
   // arranges it. An answer mostly crosses a socket; one for a tab with no socket comes back at once
@@ -581,6 +577,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       (mutations) => this.#onChatCommitted(mutations),
       { seed: GALAXY_TREE_SEED, onInviteOutcome: (outcome) => this.#onNodeInviteOutcome(outcome) },
     );
+    this.#wake();
   }
 
   /**
@@ -1769,7 +1766,6 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     const row = this.turnRow();
     if (!row) return;
     this.#turnInFlight = true;
-    this.#lookedForRow = true;
     this.ctx.waitUntil(this.#runTurns(async (started) => {
       started(row.message);
       return this.#continueTurn(row, false);
@@ -1841,9 +1837,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    *
    * A post that arrives while a turn runs waits in storage, with the claims its write recorded,
    * and the decision after that turn can take it up under them. A turn is in flight while its row
-   * exists, so a post beside a row waits too; a row with no live run, found the first time anything
-   * looks after the object is constructed, is a turn an eviction cut off, which the post wakes
-   * ({@link #wake}). An edit to a post an agent
+   * exists, so a post beside a row waits too: the row's run is live, waits on a tab's answer, or
+   * was woken when the object was constructed ({@link #wake}). An edit to a post an agent
    * message has already answered starts nothing, and neither does an edit to a post a running
    * turn took up: that turn's next tool call finds the post moved on and stops.
    */
@@ -1857,7 +1852,6 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       }
       if (this.turnRow()) {
         debug('nebula.Galaxy.trigger').info('waiting: a turn\'s row is open', { resourceId });
-        this.#wake();
         continue;
       }
       const content = (snap.value as { content?: string }).content ?? '';
@@ -1885,12 +1879,11 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    */
   protected async runTriggeredTurn(post: TookUp, content: string): Promise<void> {
     // SINGLE-FLIGHT: one run at a time in this object, and the trigger starts none beside a row.
-    // Both flags are set before the first `await`. The latch stays set from a turn's end through
+    // The latch is set before the first `await`. The latch stays set from a turn's end through
     // the decision that follows, with no `await` between, so a post that lands in that gap waits
     // for the decision instead of starting a second turn beside it.
     if (this.#turnInFlight) return;
     this.#turnInFlight = true;
-    this.#lookedForRow = true;
     await this.#runTurns(async (started, live) => {
       await this.#chatTurn(post, content, started, live);
       return true;
@@ -1923,22 +1916,18 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     }
   }
 
-  /** The first Client since the object was constructed: continue a turn an eviction cut off ({@link #wake}). */
-  protected override onFirstClient(): void {
-    this.#wake();
-  }
-
   /**
-   * Continue a turn an eviction cut off. The first time anything looks for a row after the object
-   * is constructed, a row with no live run is one, since its run ended with the object the eviction
-   * took; a row found after that belongs to a run started since. The woken run settles what the eviction left, in the
-   * loop ({@link CodegenLoopDeps.woken}) and at the closing step, and goes on as any run does, a
-   * decision after it included. Detached under `waitUntil`, after both flags are set and before
-   * anything awaits, so a second Client or a post arriving at once starts no second run.
+   * Continue a turn an eviction cut off, from `onStart`. A row found there is always one: nothing
+   * has run in the object yet, and its run ended with the object an eviction, a hibernation or a
+   * code update took. Whatever constructs the object wakes it, a Client or not: a page load, an
+   * alarm, a node's call, a teardown. A teardown's wipe and abort end a run it woke, and each round
+   * write and the commit check the row first, so a run past the wipe writes nothing. The woken run
+   * settles what the eviction left, in the loop ({@link CodegenLoopDeps.woken}) and at the closing
+   * step, and goes on as any run does, a decision after it included. Detached under `waitUntil`,
+   * never awaited, so `onStart`'s `blockConcurrencyWhile` holds no event for the turn's length; the
+   * latch is set before anything awaits, so a post arriving at once starts no second run.
    */
   #wake(): void {
-    if (this.#lookedForRow || this.#turnInFlight) return;
-    this.#lookedForRow = true;
     const row = this.turnRow();
     if (!row) return;
     this.#turnInFlight = true;
@@ -1983,8 +1972,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * lane), and a detached binding call was evicted as early as a timer, about 70 s
    * (durable-objects.md § Wall-clock billing). A timer heartbeat is not the hold either: it held
    * nothing at the old date, and `waitUntil` states the hold directly. An eviction mid-run — a
-   * restart or a deploy — loses only the run: the turn's row and rounds are in storage, and the
-   * first Client to reach the object, constructed again, wakes the turn where it stopped ({@link #wake}).
+   * restart or a deploy — loses only the run: the turn's row and rounds are in storage, and
+   * whatever next constructs the object wakes the turn where it stopped ({@link #wake}).
    *
    * The GENERATION DEADLINE stays, one per run: past it our own code ends the turn in a line of
    * ours and deletes its row, and the latch releases, so a hung await cannot wedge the loop for

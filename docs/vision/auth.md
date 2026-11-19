@@ -478,7 +478,7 @@ The id `agent:lumenize` is self-describing and syntactically not a human, so a r
 
 Two inversions are tempting and both are wrong. A membership would give the agent a login, with passage and dominion that then have to be confined, where a grant in the Galaxy's orgTree confines it to the one audience it serves, in plain sight of every member. And the subject and actor are composed server-side: a client able to name either would defeat the record entirely.
 
-> **Today's code differs.** A turn that a restart or a deploy cuts off goes on when someone's Studio next reaches the Galaxy, or says it could not, but a post no turn had taken up waits until someone posts again: nothing yet checks, when the Galaxy wakes, for a post left waiting. And the agent changes who can do what in two ways today: an invite into the app, under the claims of the post it took up, and code it asks a person's tab to run in the `.dev` Star, which acts as that tab's member (§ *A Galaxy's `.dev` Star*).
+> **Today's code differs.** A turn that a restart or a deploy cuts off goes on when anything next reaches the Galaxy, or says it could not, but a post no turn had taken up waits until someone posts again: nothing yet checks, when the Galaxy wakes, for a post left waiting. And the agent changes who can do what in two ways today: an invite into the app, under the claims of the post it took up, and code it asks a person's tab to run in the `.dev` Star, which acts as that tab's member (§ *A Galaxy's `.dev` Star*).
 
 ### Attribution
 

@@ -5,7 +5,7 @@
  * open, a socket on the Galaxy, and asks for a change long enough to span a deploy. Once the turn's
  * first `Round` is stored, the test Worker is deployed again with an immediate code update, which
  * restarts the Galaxy at once and drops its sockets. A Studio's reconnect, Jennifer's or Austen's,
- * is the first Client to reach the restarted Galaxy, and its upgrade is what wakes the turn. The scenario then only watches:
+ * constructs the Galaxy again, and its `onStart` wakes the turn. The scenario then only watches:
  * its subscriptions were opened before the deploy, and it makes no call to the Galaxy until the
  * turn's `Message` arrives or a bound passes.
  *
@@ -13,7 +13,7 @@
  *
  *  1. **The turn ends in its `Message`**, replying to the post, with no call from the scenario.
  *     If the bound passes, one call is made, and if the `Message` follows it, that is reported
- *     and the scenario fails: a deploy then cuts a turn that nobody's reconnect wakes.
+ *     and the scenario fails: a deploy then cuts a turn that no construction wakes.
  *  2. **The Galaxy started again between the first round and the `Message`.** The Worker's logs hold a
  *     Galaxy start for this app logged after the first round's write and before the `Message`'s
  *     commit. Without one the deploy came too late to cut the turn, and the run is inconclusive,
@@ -114,7 +114,7 @@ export async function run(stack: DevStack): Promise<void> {
       continuedByUs = await eventually(() => thread.resourceIds.includes(message), MESSAGE_BOUND_MS);
     }
     console.log(`  · the Studios' sockets went ${JSON.stringify(states)}`);
-    assert.ok(!continuedByUs, 'the turn continued only after a call from the scenario: a deploy cut it and no reconnect woke it');
+    assert.ok(!continuedByUs, 'the turn continued only after a call from the scenario: a deploy cut it and no construction woke it');
     assert.ok(thread.resourceIds.includes(message), `the turn's Message ${message} never arrived`);
     const committed = await studio.resources.read('Message', message) as Snapshot;
     assert.equal(committed.meta.recordedClaims.sub, NEBULA_SUB);

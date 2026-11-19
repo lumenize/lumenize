@@ -293,49 +293,10 @@ export abstract class ScopedMeshDO<Env = any> extends MeshDO<Env> implements Cli
       const response = await this.#clientGateway.acceptUpgrade(request);
       // An accepted upgrade came in on this node's own host, so its origin is where this node's
       // pages are served. A refused one says nothing about where the node lives.
-      if (response.status === 101) {
-        this.lmz.__setOrigin?.(new URL(request.url).origin);
-        this.#clientReached();
-      }
+      if (response.status === 101) this.lmz.__setOrigin?.(new URL(request.url).origin);
       return response;
     }
     return new Response('Not Found', { status: 404 });
-  }
-
-  /**
-   * A call, after its admission: one whose chain a Client started is a Client reaching this node.
-   * @internal
-   */
-  override async __executeOperation(envelope: CallEnvelope): Promise<any> {
-    const ack = await super.__executeOperation(envelope);
-    if (envelope?.callContext?.callChain?.[0]?.type === 'LumenizeClient' && !(ack && typeof ack === 'object' && '$error' in ack)) {
-      this.#clientReached();
-    }
-    return ack;
-  }
-
-  /** Whether a Client has reached this object since it was last constructed. */
-  #clientArrived = false;
-
-  /**
-   * Called once each time the object is constructed, the first time a Client reaches it after
-   * that: by its socket's upgrade, or by a call admitted here whose chain a Client started. An
-   * eviction, a hibernation and a code update each construct it again, in the same isolate or a
-   * new one. A node's own call, an alarm, a `@rawRpc()` entry, a teardown and any `fetch` but a
-   * Client's upgrade reach a node with no Client in them, so an object woken only by those runs
-   * nothing here. A node uses it to pick up work an eviction cut off, now that someone is there to
-   * see it. A throw is logged and goes no further. Default: nothing.
-   */
-  protected onFirstClient(): void {}
-
-  #clientReached(): void {
-    if (this.#clientArrived) return;
-    this.#clientArrived = true;
-    try {
-      this.onFirstClient();
-    } catch (error) {
-      debug('lmz.mesh.ScopedMeshDO.firstClient').error('onFirstClient threw', { instanceName: this.lmz.instanceName, error });
-    }
   }
 
   /** A message from a hosted Client's socket. */

@@ -234,7 +234,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'scope-hosts-its-clients': scopeHostsItsClients, // /gateway/{id} on a scope's host lands on that scope's node; refusals wake none; a deletion closes 4410 (no Docker)
   'delete-from-its-own-page': deleteFromItsOwnPage, // deleting an app or an account from its own page lands somewhere that exists; the scope's pages stop (no Docker)
   'redeploy-strands-no-client': redeployStrandsNoClient, // after a redeploy a change still reaches every tab its host held, whatever the sockets did; deployed only, with HARNESS_REDEPLOY=1 (no Docker)
-  'deploy-cuts-a-turn': deployCutsATurn, // a deploy with an immediate code update cuts a turn, and Studio's reconnect wakes it to its Message; deployed only, with HARNESS_REDEPLOY=1
+  'deploy-cuts-a-turn': deployCutsATurn, // a deploy with an immediate code update cuts a turn, and the Galaxy's next construction wakes it to its Message; deployed only, with HARNESS_REDEPLOY=1
   'scope-teardown': scopeTeardown, // the facade's creates and deletes wipe Durable Objects server-side; records name the page (no Docker)
   'galaxy-cap': galaxyCap, // one owner cannot pass MAX_GALAXIES_PER_OWNER at create or acceptance; the root counts none (no Docker)
   'claim-lifecycle': claimLifecycle, // nothing enters a pending claim; a first acceptance wipes its scopes; every acceptance, claim and consume records (no Docker)

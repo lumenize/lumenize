@@ -694,15 +694,6 @@ export class GalaxyTest extends Galaxy {
     this.ctx.storage.kv.put(TURN_ROW_KEY, row);
   }
 
-  /** Arm a mesh alarm at once, whose handler logs `alarm ran`. No `@mesh()`: a test reaches it in
-   *  the object through `runInDurableObject`, so no Client's call reaches the Galaxy with it. */
-  armAlarmForTest(): void {
-    this.svc.alarms.schedule(0, this.ctn<GalaxyTest>().alarmRanForTest());
-  }
-
-  alarmRanForTest(): void {
-    debug('nebula.GalaxyTest.alarm').info('alarm ran', { instanceName: this.lmz.instanceName });
-  }
 
   /**
    * Run the loop over this Galaxy's own round store and blob store, with the scripted model and
@@ -750,11 +741,12 @@ export class GalaxyTest extends Galaxy {
     }
   }
 
-  /** The deadline a test set, read again after a reset. */
+  /** The deadline a test set, read again after a reset, before `super.onStart()` wakes a turn
+   *  whose run would read it. */
   override async onStart(): Promise<void> {
-    await super.onStart();
     const deadline = this.ctx.storage.kv.get<number>(KV_DEADLINE);
     if (deadline !== undefined) this.generationDeadlineMs = deadline;
+    await super.onStart();
   }
 
   /** No script seeded → NO turn. Tests that post user Messages without a script assert on
