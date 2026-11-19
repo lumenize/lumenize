@@ -664,6 +664,8 @@ Gathered from the phases' notes, merged, and ordered by what depends on what, th
 - The tab's answer dropped from the moved-on record.
 - The message named by its id alone: the ontology refused the round, as it should.
 
+**ADR-006 gained the rule behind D19** (Larry, 2026-11-19): a reference names the id alone for the resource as it is now, `{ id, validFrom }` for the version something was done on, and a version current at some moment through the snapshots' `validFrom` and `validTo`. Its line in `workflow.md`'s ADR index carries the tripwire.
+
 ## Non-goals
 
 - **Waking a turn nobody is watching.** D9 leaves it to the next call, and § *Beyond this task* keeps the alarm as a note.
