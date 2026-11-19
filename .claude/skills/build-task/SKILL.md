@@ -92,8 +92,7 @@ Do these in order. The panel reads code and runs no suite, so everything that ha
 - **Make each instrument print before trusting an empty result.** A malformed command returns nothing and reads as a conformant tree (2026-08-16). A task file's evidence table gives a known hit for every row: run each row against the commit before the task (`git grep <pattern> <base>`) and confirm it prints the table's *Today* value. A sentence that names examples of an instrument's output is part of the instrument, so check each example against a fresh run.
 - **For a phase that touches the UI, drive the running app** (`/live`) and keep the evidence. A green suite and a code-reading verifier cannot see a capability present in code and never wired into the page.
 - **Fan out the panel**, below, and fix what it finds.
-- **Run the closing suites and the closing sweep after the last edit**, every fix the panel prompted included. A result is true only of the tree that produced it. Report the number that run printed, and check the totals moved by the number of tests you added (`testing.md`, the paragraph on a suite baseline). Bit 2026-08-28: a criterion carried a count from before the panel's fixes added nine tests. Do not edit source or kill workerd under a running suite; its output then belongs to no tree.
-- **End with a deployed pass of the build's own scenarios when its change can only show deployed** (`live.md` § *Two venues, one registry*): `apps/nebula/scripts/deploy-test.sh`, the scenarios the build wrote or touched, then the target's Workers Issues since the pass began.
+- **Hold the closing suites, the closing sweep and the deployed pass for step 4**, after the decisions the hand-off tees up. An answer that changes source makes every result before it stale. Bit 2026-11-19: four answers taken after the closing sweep each changed source, and each took a sweep of its own, about an hour apiece.
 
 **The panel is one adversarial verifier per phase, reading the current working tree.** It checks whether the code satisfies this task file's success criteria, which `/code-review` cannot, since it does not know the task. Pass the task file's path as `taskPath` and not its text: each verifier reads it from disk, and a pasted copy is paid for once per phase. Put the linked sub-tasks and docs a verifier needs in `alsoRead`, as paths with what to check at each. For an exploratory phase (step 1) set `exploratory: true` and name its findings note's path in `alsoRead`; the verifier then checks that the tests and the note landed.
 
@@ -143,8 +142,10 @@ return {
 ### 4. Hand off: report, retro, decisions
 1. **Report** which phases conformed and which failed verification, with their issues, and fix the blockers.
 2. **Post-process § *Build notes*:** merge duplicates, drop what a later phase settled, and order what remains by dependency, then risk.
-3. **Tee up every open decision** per `workflow.md` § *Teeing up decisions for Larry*, one per turn.
-4. **Close out** (step 5) once the decisions land. The retro comes last, inside it.
+3. **Tee up every open decision** per `workflow.md` § *Teeing up decisions for Larry*, one per turn, and apply each answer as it lands.
+4. **Run the closing suites and the closing sweep after the last edit**, every fix the panel prompted and every answer from item 3 included. A result is true only of the tree that produced it. Report the number that run printed, and check the totals moved by the number of tests you added (`testing.md`, the paragraph on a suite baseline). Bit 2026-08-28: a criterion carried a count from before the panel's fixes added nine tests. Do not edit source or kill workerd under a running suite; its output then belongs to no tree.
+5. **End with a deployed pass of the build's own scenarios when its change can only show deployed** (`live.md` § *Two venues, one registry*): `apps/nebula/scripts/deploy-test.sh`, the scenarios the build wrote or touched, then the target's Workers Issues since the pass began.
+6. **Close out** (step 5) once those pass. The retro comes last, inside it.
 
 ### 5. Close out
 From the close-out notes, then by checking:
