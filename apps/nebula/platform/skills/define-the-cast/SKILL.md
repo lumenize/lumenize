@@ -68,7 +68,8 @@ The preview has a tab for the person you are working for, `me`, and a tab for ea
 
    ```js
    // run_in_tab tab: "ollie"
-   const { snapshots, deniedNodes } = await client.resources.query({ typeName: 'Wish', filter: {}, allowScan: true });
+   const ROOT = '00000000-0000-4000-8000-000000000000'; // every workspace's root node
+   const { snapshots, deniedNodes } = await client.resources.query({ typeName: 'Wish', nodeId: ROOT, filter: {}, allowScan: true });
    return { wishes: snapshots.map((s) => s.value), deniedNodes };
    ```
 
