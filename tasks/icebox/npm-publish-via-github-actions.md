@@ -22,7 +22,9 @@ Automate publishing to npm and creating GitHub releases with changelogs.
 5. Publish release when satisfied.
 
 ### Secrets Needed
-**Only ONE secret**: `NPM_TOKEN` (automation token that rotates automatically).
+**Superseded 2026-11-19: none.** npm trusted publishing (GA July 2025) publishes through OIDC with no `NPM_TOKEN`; `tasks/backlog.md` § *Infrastructure* carries the current plan. The 2024 line below is kept as written.
+
+~~**Only ONE secret**: `NPM_TOKEN` (automation token that rotates automatically).~~
 - GitHub authentication handled via built-in `GITHUB_TOKEN` (auto-provided, no setup).
 - No static tokens to manage or rotate manually.
 

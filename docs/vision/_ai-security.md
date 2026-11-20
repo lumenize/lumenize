@@ -121,7 +121,9 @@ promising that and started measuring, budgeting, and recovering instead. Four of
 - **Postmortems are blameless because their output is a system change.** SRE insists on this for a practical
   reason, not a cultural one: the moment the output is fault assignment, the inputs stop arriving. Worth
   naming here because "attribution" reads like blame-hunting and is not — it is the feedback loop's input.
-  **What it changes:** what the record is *for*, which is also the discipline that keeps § *Where
+  Its deterrent is aimed only at malicious intent or reckless disregard for an action's implications. A
+  careless act gets the review, whose output makes the careless act harder (§ *Attribution deters the person,
+  never the model*). **What it changes:** what the record is *for*, which is also the discipline that keeps § *Where
   reversibility stops*'s advisory record on the right side of the line.
 - **Toil is a defect, so automate the response.** SRE treats recurring manual remediation as a bug in the
   system rather than the job. That is the interview's "more agency, pointed at the right thing" with a decade
@@ -274,6 +276,12 @@ high-volume majority to the improvement loop at zero friction; keep a mechanical
 tail. The gate is affordable *precisely because the tail is small*, and shrinking the gated set is what
 **restores** meaningful human oversight rather than removing it.
 
+**The classifier has to sort on permanence.** Talks at the 2026 Supply Chain Security Summit came at this from opposite sides, and a measurement of Anthropic's own classifier says why the axis matters more than the accuracy.
+
+- **Sorting on sensitivity is the common wrong turn.** A talk on MCP server safeguards weighed whether the data a tool touches is sensitive, and capped how many characters a tool may return. Neither asks what the action can do. Reading a sensitive record the asker could already read discloses nothing new. Deleting a trivial record that keeps no history is permanent.
+- **Asking about consequences is right, and permanence is the consequence to ask about first.** Yining Hong (CMU) argues that an approval should ask about an action's consequences, not the action, because people are bad at connecting the two. The aims are fewer approvals and easier ones. We agree, and go a step further: an action whose consequences can be undone needs no question at all.
+- **Even a good classifier misses, and reversibility is what makes a miss affordable.** Anthropic's auto mode classifier catches about 83% of real overeager actions before they run, so about 17% get through ([*How we built Claude Code auto mode*](https://www.anthropic.com/engineering/claude-code-auto-mode)). That still beats a person approving 93% of prompts. A missed reversible action costs an undo, and a missed irreversible one is the harm. So the classifier only has to be right about the small tail, and shrinking the tail matters more than sharpening the classifier.
+
 ⭐ **And the loop does not only re-sort actions — it changes what makes them dangerous.** When something sits
 in the gated bucket *only* because it cannot be undone, the better move is not to reclassify it but to
 **de-risk** it: give it a rollback, and it moves into the bucket needing no gate at all.
@@ -323,12 +331,42 @@ on a better injection filter is a dollar not spent on making the *consequences* 
 boring. Our version of making them boring is the substrate: the blast radius of an injection is capped at what
 the asking user could already see (`strategy.md`), and at what can be undone (§ *Reversibility*).
 
+### A control in the model's disposition is one the attacker opts out of
+
+**Whatever a model refuses to do, an attacker gets from a model that does not refuse.** Open weights, a jailbreak or a fine-tune each remove the refusal, and an attacker has every reason to use one. A defender usually runs a commercial model as shipped. So a refusal to write an exploit lands mostly on the defender writing a proof of concept for their own bug. A talk at the 2026 Supply Chain Security Summit made this point about agents doing security work: the refusals are on for defenders and off for attackers.
+
+**Guidance has the same weakness, for a different reason.** An `AGENTS.md`, a skill or a system prompt is non-binding. A model follows it most of the time, and nothing makes it follow every time. The same summit noted how fast such guidance is multiplying, and that safeguards written as guidance get skipped.
+
+- **Non-binding guidance is the right home for judgment.** It is where the feedback loop's lessons go, as in the *Learn* bullet of § *Tripwires over human in the loop*. Following it most of the time is exactly what improving the producer means.
+- **It is the wrong home for a boundary.** Studio's agent runs on an open-weight model, Kimi K2.7 (`apps/nebula/src/studio-model.ts`), and no claim in this document depends on what it refuses. Austen's question fails at the data-plane check, which never consults the model (§ *A worked scenario*).
+- **This repo works the same way at level 1.** A rule that has to hold gets a script that checks it, as `check-worker-graph.mjs` does for the Worker's startup limit. The rule's prose explains, and the script enforces.
+
 ### Attribution is what is actually missing
 
 When something goes wrong across nine agents, four tools, and three model providers, almost nobody can tell
 you which component caused it. That will never appear on a top-ten list, because it is not a vulnerability
 class. It is the reason all ten of the others are hard: **you cannot run a feedback loop on a system you
 cannot attribute.** Without it, agent security is vibes and hope.
+
+### Attribution deters the person, never the model
+
+**A record of who did something works before the action as well as after it.** Someone who knows a malicious or reckless action will be traced to them is less likely to take it. That is deterrence, and it is how a detective control prevents. Criminology has measured which half of a deterrent does the work: the certainty of being caught deters far more than the severity of the punishment ([Nagin, *Deterrence in the Twenty-First Century*, 2013](https://kilthub.cmu.edu/articles/Deterrence_in_the_Twenty-first_Century_A_Review_of_the_Evidence/6471200/1)). Attribution raises the certainty. Every Resource write names its author in `recordedClaims`, and every guidance edit names its author in `git log`, so for anything recorded the chance of being caught is close to one.
+
+**Deterrence is for malicious intent or reckless disregard for an action's implications, never for carelessness.** It is the line criminal law draws between recklessness, which consciously disregards a known risk, and negligence, which fails to see it (Model Penal Code § 2.02).
+
+- **Carelessness gets sensors and a blameless review.** Someone taking a valid action that proves disruptive did not see what it would do. The fix is to make the careless act impossible, and failing that, less likely. Often it is enough to show the action's implications at the moment it is taken, the way a car's sensors inform a driver who still makes the call. Deterring a valid action would be the wrong goal.
+- **Recklessness is going ahead with the implications in view.** [ADR-015](../adr/015-passage-and-dominion.md) lets an admin delete a scope others are using, with a UI warning as the only thing in the way, one that carries what they need to decide, such as who is attached and when they last logged in. That warning is the sensor. An admin who reads it and deletes anyway has taken the implications in, and that is where the record's deterrent applies.
+- **The sensor is what moves an act across the line.** Once the implications have been shown, "I didn't know" is no longer available. So showing them both prevents the careless act and puts the reckless one within reach of the record.
+
+**A model cannot be deterred, and here it never needs to be.** It has nothing to lose. But Studio's agent never acts on claims of its own. It acts under the claims of the person whose post its turn took up, with itself recorded as the actor ([`auth.md`](auth.md) § *When the agent acts*). So the deterrent reaches every agent action through the person who asked for it. The agent also says in its reply whose authority it used, which moves the certainty to the moment of asking: Austen knows before anything happens that the record will name her.
+
+What deterrence covers, and what it leaves to the substrate:
+
+- **It covers an insider steering the agent.** A collaborator who plants a line in `AGENTS.md` to steer the owner's next turn is named by `git log` on that line. That is why the agent needs no confirm step against it.
+- **It leaves out an outsider with nothing to lose.** An injection in a fetched page or an inbound email has no person behind it for the record to name. The read cap at the asking user and reversibility do the work there (§ *Prompt injection is a permanent weather condition*).
+- **It leaves out carelessness**, which gets the sensors above and the blameless review of § *What the SRE analogy actually buys*.
+
+**Hong's proposal shows people consequences so that their approval means something (§ *The classifier is the real artifact*).** A sensor shows the same consequences without asking for an approval, and the record makes going ahead anyway an act the person owns. That second half is what an approval-centred proposal leaves out. An approval works on the one action in front of it. A record works on every action its author takes afterward, because they know it is there.
 
 ### On practitioner data disagreeing with incident data
 
@@ -672,6 +710,7 @@ without amendment; these are the additions specific to this document's argument.
   user-developer. It is also the one place this document's own argument cuts against us: a hallucinated
   package is installed *once* and is permanent in the built image, so it lands on the irreversible side of
   § *The classifier is the real artifact* and is exactly the small tail a gate is supposed to be for.
+  - **Checking a package's provenance attestation at install is a further candidate.** It catches a version published with a stolen token, which carries no attestation from the package's own CI. It does not catch a package that was malicious from its first version, which is the invented-name case.
 - **What is the durable sink, and when?** ADR-016 deliberately leaves the destination open (log stream, or a
   table the action writes itself) and imposes no schema obligation. § *One primitive, two payoffs* argues this
   is foundational rather than observability polish — but it is currently owned by neither track.
