@@ -229,7 +229,8 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 
 - **The archive is named by what it holds:** `deps/<platform>-<lockfile hash>.tar.zst`, where the platform is the Node major and the architecture. Every Galaxy that has added no package shares the scaffold's archive, and Galaxies that added the same packages at the same versions share one too. An image change that keeps the platform invalidates nothing.
 - **The container reaches R2 through the Worker, never the internet.** `interceptOutboundHttp` sends requests for a made-up host to a WorkerEntrypoint holding the R2 binding, registered before every start. The build keeps `enableInternet: false`, and no credential enters the container.
-- **The download starts with the box.** The turn's first `write_file` already starts the container, and the fetch starts with it, so generation covers it. Measured turns ran 7.5–38 s from the first write to the build, and the whole tree fetched and unpacked in about 5 s. A `buildNow` with no turn in front of it waits those 5 s.
+- **Every build's container starts early, and none outlives its build.** The first `write_file` or `edit_file` of a run, and the first after each build ends, starts a fresh container and its download, so the model's writing covers the fetch. Measured turns ran 7.5–38 s from the first write to the build, and the whole tree fetched and unpacked in about 5 s.
+- **Today the early start fires once per run, and this item re-arms it after each build.** `#buildOnce` destroys the container when a build ends, so without the re-arm a rebuild after a failed build starts cold and waits the full 5 s, where the baked image waits 0.5 s. A container the model never builds on is destroyed when the run ends, as today's is. A `buildNow` with no write in front of it still waits the 5 s.
 - **A lockfile with no archive yet is installed once.** A container that can reach the registry runs `npm ci`, and the build goes on with that tree. Packing and uploading follow once `dist` has gone back, so nobody waits on them. That install is the only step that reaches the registry.
 
 **What it buys:**
@@ -242,6 +243,7 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 
 **What the design has to handle:**
 
+- **A rebuild in a real turn is the measurement the re-armed start owes.** Nobody has timed how long the model takes to write its fix after a failed build, against the download's 5 s.
 - **Offline, a DNS lookup hangs 56 s before it fails.** Any step in the build that resolves a hostname waits a minute, with nothing in its output to say why. npm's update notifier did, through `npx`; Nebula's job spawns `vite` directly. A package a user-developer adds that looks up a host would do the same.
 - **An install inside a deployed container runs after `/` is handed back to root.** Otherwise swc's postinstall cannot load its native binding and installs `@swc/wasm` as a fallback.
 - **The intercept is registered on `ctx.container` before `@cloudflare/computer`'s backend starts it.** The experiment drove `ctx.container` directly, so how the two meet is unverified.
@@ -251,7 +253,8 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 
 **Rejected:**
 
-- **Container snapshots, one shared and one per Galaxy**, this item's plan until Larry moved it to the archive on 2026-11-18. A Galaxy's own snapshot restored in 0.5 s and built in 6.5 s, against 10.9 s for the archive. But a snapshot carries its image, so after every deploy that changes the image it restores the old one until each Galaxy makes a new snapshot. It also needs a handle and an image digest per Galaxy, expires 30 days after its last restore, and has no announced price past the beta.
+- **Container snapshots, one shared and one per Galaxy**, this item's plan until Larry moved it to the archive on 2026-11-18. A Galaxy's own snapshot restored in 0.5 s and built in 6.5 s, against 10.9 s for the archive, and a rebuild would wait 0.5 s where the archive waits 5 s without the re-armed start. But a snapshot works only on the exact image it was made on, while an archive works on any image with the same Node major and platform. So after every deploy that changes the image, a snapshot restores the old image until each Galaxy makes a new one, and the image's inputs changed on 10 of the 60 days before 2026-11-20. It also needs a handle and an image digest per Galaxy, and expires 30 days after its last restore.
+- **Keeping a container alive between a run's builds**, which would skip the download on a rebuild. A container that never outlives its build cannot reach the stale-flag and stuck states (`.claude/rules/containers.md` § *The `running` × `status` trap — the one bug class to know*), and a turn stored round by round continues after an eviction, which would orphan a container kept across rounds (Larry, 2026-11-20).
 - **An R2 FUSE mount of `node_modules`.** A build on an s3fs mount was killed at 15 minutes, against about 5 s on local disk, because a build makes thousands of filesystem lookups and each one became a round trip to R2.
 - **Only the extras from R2, over a baked scaffold.** It unpacks in about 2 s and uploads a third as much. But npm places an extra's own dependencies by the tree it was installed into, so its archive is valid only over that exact scaffold, and the curated set stays in the Dockerfile. It is the optimization to add if the whole-tree download ever shows in a measured turn or in `buildNow`.
 
