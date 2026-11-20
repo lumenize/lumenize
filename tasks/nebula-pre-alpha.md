@@ -21,13 +21,14 @@
 
 | # | Item | Specified in | Gate |
 |---|---|---|---|
+| — | **A query names its node, and sorts, pages and limits** — a query reads under the node it names, is checked once there, and answers newest first a page at a time, so a chat past 1,000 messages still reaches the agent | [nebula-query-names-its-node.md](nebula-query-names-its-node.md), waiting on Larry's read of its Pass 1 | deploy |
 | — | **Shared pages** — a new founder names the account and its first app on the account's page after accepting, Galaxy create asks for each later app's name, Studio shows each account's and app's name and picture, and each page decides whether an app forwards to ours or runs its own | § *Shared pages*. The names are [nebula-accounts-and-apps-have-names.md](nebula-accounts-and-apps-have-names.md), waiting on Larry's read of its Pass 1 | deploy |
 | — | **Denied access shows in the app** — a generated app shows what a subscriber cannot read and who can grant it | § *Denied access in generated apps* | deploy |
 | — | **A `computed()` over the store can miss its subscription**, and the view goes stale with no error | § *A `computed()` misses its subscription* | deploy |
 | — | **Generated apps are pure Vapor** | § *Generated apps are pure Vapor* | deploy |
 | ③ | **Use the turn record** — Claude Code reads turns back from production, and the first invite waits on it reading one | § *③ Use the turn record* | deploy |
 
-**Why this order.** The riskiest goes first, and risk here is unresolved design, not hard implementation (Larry, 2026-09-02). The `computed()` fix comes before Vapor, so Vapor builds on a store whose every read subscribes. ③ comes last because its check reads a turn back from the deploy itself.
+**Why this order.** The riskiest goes first, and risk here is unresolved design, not hard implementation (Larry, 2026-09-02). The query change goes first: its open questions are the most unresolved design left, and denied access renders what it decides a caller without `read` is answered. The `computed()` fix comes before Vapor, so Vapor builds on a store whose every read subscribes. ③ comes last because its check reads a turn back from the deploy itself.
 
 **The first invite waits on both tables, and on ③ reading a turn back from production.** Larry then provisions and invites ~4–5 users, each with a first-app idea chosen for them (Sydney: secret santa with a wishlist).
 

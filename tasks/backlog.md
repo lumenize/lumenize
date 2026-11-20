@@ -671,8 +671,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] **A model's malformed tool-call arguments end the turn (seen 2026-10-04).** In `first-app-built` on the deployed target, round 4's tool call carried arguments that were not valid JSON, the loop replayed them in the next request's history, and Workers AI refused it with `8007: Assistant tool call function.arguments must be valid JSON`, so the turn stopped with no build. The loop could parse arguments when the call arrives and, on failure, answer the model with a tool error ("your arguments were not valid JSON") instead of replaying the raw string. Model output varies, so a `/live` limb would need a recorded bad call to stay red.
 
-- [ ] **A query cannot sort, page or limit, so it returns its oldest `QUERY_RESULT_CAP` results (2026-11-18).** Every query, a subscription and a one-time `resources.query` alike, orders by each result's latest write and stops at 1,000, with `more` set past that; the oldest are the ones kept. A filter narrow enough keeps a page under the cap, as Studio's tool-call marks do by reading one message's rounds. A list that genuinely grows past it needs a sort and a page boundary the descriptor can name. [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 21*, a query that names the node it reads under, starts with this row's work, because merging per-node results into one order is the same work.
-
 ### Ontology depth (post-demo)
 
 Strengthen the case that Nebula's data layer is an *ontology* (not just a typed schema + DAG). Triggered by the 2026-05-03 Kumar article and successors — see [tasks/reference/ontology-research.md](reference/ontology-research.md). Items below in priority order; each is independently shippable.

@@ -1,6 +1,6 @@
 # A query names the node it reads under, and sorts, pages and limits what it answers
 
-**Status:** Pass 1, drafted 2026-11-19 for Larry's hand review; phases are not written. `/task-management` routed it docs-first: `QueryDescriptor` is what every generated app writes its queries against. The docs the model reads are drafted in place and uncommitted, with the recommended answers to Q1, Q3 and Q4 (DI11). The embed is not regenerated, so `apps/nebula`'s `npm test` fails its drift check until they are committed or reverted. It takes [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 21* and the [backlog.md](backlog.md) row *A query cannot sort, page or limit*, so the descriptor breaks once. It lands before the first invite (§ *Relationships*).
+**Status:** Pass 1, drafted 2026-11-19 for Larry's hand review; phases are not written. `/task-management` routed it docs-first: `QueryDescriptor` is what every generated app writes its queries against. The docs the model reads are drafted in place and uncommitted, with the recommended answers to Q1, Q3 and Q4 (DI11). The embed is not regenerated, so `apps/nebula`'s `npm test` fails its drift check until they are committed or reverted. It took over [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md)'s Item 21 and the [backlog.md](backlog.md) row *A query cannot sort, page or limit* on 2026-11-20, and both left those files, so the descriptor breaks once. It lands before the first invite (§ *Relationships*).
 
 ## Conventions
 
@@ -165,12 +165,3 @@ Claims the design rests on:
   - **(b) A constant in the app's source for each node its code names, created at that id.** `createNode` takes the caller's id and is idempotent, so creating it again is harmless, and our chat does exactly this with `CHAT_NODE_ID`. The page queries as soon as it loads. The `define-the-cast` skill then creates those nodes at the ids the source declares.
   - **A node made for one record is that record's `meta.nodeId`** under either answer, as `coding-your-ui.md` § *Lists with `v-for`* already does for a list's todos.
   - **Recommendation: (b).** It keys every query on an id rather than a name, and the drafted docs use it.
-
-## Edits other files owe
-
-Other sessions may hold uncommitted edits in these files, so this file lists the edits rather than making them:
-
-- **[nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md):** Item 21 keeps its goal and a pointer here, per that file's convention, and its row leaves § *The items, by when they start*, since it now lands before the first invite. Its note that a statement's bound-value limit is unchecked is answered by C3.
-- **[backlog.md](backlog.md):** the row *A query cannot sort, page or limit, so it returns its oldest `QUERY_RESULT_CAP` results (2026-11-18)* points here, and is deleted when this is built.
-- **[nebula-pre-alpha.md](nebula-pre-alpha.md):** a `deploy` row in *Before the first invite*, ahead of § *Denied access in generated apps*.
-- **[archive/nebula-turn-stored-round-by-round.md](archive/nebula-turn-stored-round-by-round.md):** its open item on the readers' filters points at fast-follow's Item 21, which this file builds, and records Larry asking on 2026-11-19 whether to pull it forward. The file is archived, so the pointer stays at Item 21.
