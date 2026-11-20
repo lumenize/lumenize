@@ -10,7 +10,7 @@ import { needsFreshLogin } from "./auth/home-logic";
 import { createNebulaClient } from "@lumenize/resources/frontend";
 import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants, deriveKind, toolCallMarks, roundsOf, postAnswered, messageByline, startTurn, signalTurn, signalOtherTurn, settleTurn, evaluateTurn, deriveTurnDisplay, previewLocked, streamSteps, formatElapsed, decidePreviewFrame, LANDING_ECHO_MS, BUTTON_ECHO_MS, LOAD_SILENCE_MS, TabRunner, ME_TAB } from "@lumenize/nebula/client";
 import type { StoredMessage, ToolCallMark } from "@lumenize/nebula/client";
-import type { FactoryResult } from "@lumenize/resources/frontend";
+import type { FactoryResult, StoreEntry } from "@lumenize/resources/frontend";
 import type { TurnLiveness, PreviewFrameState, PreviewFrameEvent, PreviewFrameAction, CastEntry, TabMessage } from "@lumenize/nebula/client";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 
@@ -177,13 +177,13 @@ const thread = computed<ThreadMsg[]>(() => {
   const mySub = (nebula.value?.client as { claims?: { sub?: string } } | undefined)?.claims?.sub;
   const out: ThreadMsg[] = [];
   for (const id of messageIds.value) {
-    const snap = (store.resources as Record<string, Record<string, { value?: Record<string, unknown>; meta?: { recordedClaims?: never } }>>).Message?.[id];
-    if (!snap?.value || !snap?.meta) continue; // content sub still loading
-    const at = (snap.meta as { recordedClaims: Parameters<typeof deriveParticipants>[0] }).recordedClaims;
+    const snap = (store.resources as Record<string, Record<string, StoreEntry<Record<string, unknown> | undefined>>>).Message?.[id];
+    const at = snap?.meta?.recordedClaims;
+    if (!snap?.value || !at) continue; // content sub still loading
     const parties = deriveParticipants(at);
     // The recorded claims of each post this message says it answers, for the byline. Only an
     // agent message's `answers` is read (`messageByline`); a post not loaded yet is left out.
-    const messagesById = store.resources as Record<string, Record<string, { meta?: { recordedClaims?: Parameters<typeof deriveParticipants>[0] } }>>;
+    const messagesById = store.resources as Record<string, Record<string, StoreEntry<unknown> | undefined>>;
     const answered = parties[0]!.kind === "agent" && parties.length === 1
       ? ((snap.value.answers as string[] | undefined) ?? []).map((postId) => messagesById.Message?.[postId]?.meta?.recordedClaims).filter((c) => c !== undefined)
       : [];
@@ -1114,7 +1114,7 @@ const confirmingAccount = ref(false);
           <div class="divider my-0"></div>
           <!-- One logout: it ends every session this browser holds, on the platform host's logout
                page, which also offers ending them on every device. -->
-          <button class="btn btn-sm btn-ghost justify-start" data-testid="menu-logout" @click="logout"><LogOut class="size-4" /> Log out</button>
+          <button class="btn btn-sm btn-ghost justify-start" data-testid="menu-logout" @click="logout()"><LogOut class="size-4" /> Log out</button>
         </div>
       </div>
 

@@ -4,6 +4,7 @@
 import type { ConnectionState } from '@lumenize/mesh/client';
 import type { NebulaStoreAdapter, ResourceSubscription, ProfileChannelSnapshot, ProfileSubscription, SubscriberListSubscription, SubscriberRosterDelivery } from '../nebula-client';
 import type { QueryDescriptor } from '../query-hash';
+import type { WireRecordedClaims } from '../snapshots';
 
 /**
  * Middleware fires on every write through the Proxy `set` trap (and wrapped
@@ -115,7 +116,9 @@ export type Stored<T> = { [K in keyof T]: StoredField<T[K]> };
 /** One resource in the store. `value` is absent until its snapshot arrives, and while it is denied. */
 export interface StoreEntry<V> {
   value: V;
-  meta: { validFrom: string; nodeId: string; typeName: string; deleted?: boolean; [key: string]: unknown };
+  /** `recordedClaims` is who wrote the snapshot, as the server stamped it; an entry the page has
+   *  just created holds none until the server's snapshot arrives. */
+  meta: { validFrom: string; nodeId: string; typeName: string; deleted?: boolean; recordedClaims?: WireRecordedClaims; [key: string]: unknown };
   deniedNodes: string[];
 }
 
