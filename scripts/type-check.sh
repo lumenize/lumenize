@@ -30,15 +30,10 @@ echo ""
 
 errors=0
 
-# Packages this plain-tsc loop cannot check, by basename. nebula-studio-ui is a Vue
-# SFC app: plain tsc can't resolve `.vue`, and vue-tsc can't either without the
-# Cloudflare Workers type env (its @lumenize/* imports transitively pull DO source
-# referencing DurableObjectState/ctx/env/Env). Its own `vite build` validates it; it
-# is not gated here. Revisit if @lumenize/nebula gains browser-type-safe entries.
 # fetch is out of the run: it is built on Mesh's pre-2026-10-08 bases (LumenizeDO, LumenizeWorker)
 # and nobody runs it in production; its suites are kept, never deleted, for a streaming revival
 # (packages/fetch/README.md).
-SKIP_PACKAGES=("nebula-studio-ui" "fetch")
+SKIP_PACKAGES=("fetch")
 
 # Find all packages with tsconfig.json. apps/nebula/harness and apps/nebula/container/compiler
 # are nested standalone configs (plain-Node type envs — the live self-verification harness and
@@ -55,17 +50,24 @@ for tsconfig in packages/*/tsconfig.json apps/*/tsconfig.json apps/nebula/harnes
     [ "$pkg_name" = "$s" ] && skip=true && break
   done
   if [ "$skip" = true ]; then
-    echo "skipped (not plain-tsc checkable)"
+    echo "skipped"
     continue
   fi
 
-  if npx tsc --noEmit -p "$tsconfig" 2>/dev/null; then
+  # A package that declares vue-tsc has `.vue` files, which plain tsc cannot read, so it is checked
+  # with vue-tsc. Vite strips types without checking them, so nothing else catches an error there.
+  # nebula-studio-ui is the one today: its tsconfig includes apps/nebula's worker-configuration.d.ts,
+  # regenerated above, because its imports reach Durable Object source that needs the Workers types.
+  checker=tsc
+  grep -q '"vue-tsc"' "$pkg_dir/package.json" 2>/dev/null && checker=vue-tsc
+
+  if npx "$checker" --noEmit -p "$tsconfig" 2>/dev/null; then
     echo "✓"
   else
     echo "✗"
     echo ""
     echo "  Errors in $pkg_name:"
-    npx tsc --noEmit -p "$tsconfig" 2>&1 | sed 's/^/    /'
+    npx "$checker" --noEmit -p "$tsconfig" 2>&1 | sed 's/^/    /'
     echo ""
     errors=$((errors + 1))
   fi

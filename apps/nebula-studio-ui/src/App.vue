@@ -298,7 +298,7 @@ const nebula = shallowRef<FactoryResult<StudioClient> | null>(null);
 const marksByMessage = shallowReactive(new Map<string, ToolCallMark[]>());
 const marksAsked = new Set<string>();
 const agentMessageIds = computed(() => {
-  const messages = (nebula.value?.store.resources as Record<string, Record<string, { meta?: { recordedClaims?: Parameters<typeof deriveKind>[0] } }>> | undefined)?.Message;
+  const messages = (nebula.value?.store.resources as Record<string, Record<string, StoreEntry<unknown> | undefined>> | undefined)?.Message;
   return messageIds.value.filter((id) => {
     const at = messages?.[id]?.meta?.recordedClaims;
     return at !== undefined && deriveKind(at) === "agent";
@@ -629,7 +629,7 @@ const handledNotices = new Set<string>();
 const agentNotices = computed<string[]>(() => {
   const store = nebula.value?.store;
   if (!store) return [];
-  const messages = (store.resources as Record<string, Record<string, { value?: { answers?: string[] }; meta?: { recordedClaims?: Parameters<typeof deriveParticipants>[0] } }>>).Message;
+  const messages = (store.resources as Record<string, Record<string, StoreEntry<{ answers?: string[] } | undefined> | undefined>>).Message;
   return messageIds.value.filter((id) => {
     const snap = messages?.[id];
     if (!snap?.value || !snap.meta?.recordedClaims) return false;
