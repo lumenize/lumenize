@@ -4,7 +4,7 @@
 
 **Nothing here is done.** When an item is built it leaves this file: its archived task file, or pre-alpha's § *Shipped*, records it.
 
-**Item numbers are handles other files cite.** They are assigned once and never reused, so a gap is an item that left. Item 7 became pre-alpha's personas work, built on 2026-11-14 ([archive/nebula-personas-are-real-members.md](archive/nebula-personas-are-real-members.md)), Item 8 was built as [archive/nebula-build-reaches-every-studio.md](archive/nebula-build-reaches-every-studio.md), and Item 9, a connected client that never re-checked its token, was fixed on 2026-09-03 (`4066b17`).
+**Item numbers are handles other files cite.** They are assigned once and never reused, so a gap is an item that left. Item 7 became pre-alpha's personas work, built on 2026-11-14 ([archive/nebula-personas-are-real-members.md](archive/nebula-personas-are-real-members.md)), Item 8 was built as [archive/nebula-build-reaches-every-studio.md](archive/nebula-build-reaches-every-studio.md), Item 9, a connected client that never re-checked its token, was fixed on 2026-09-03 (`4066b17`), and Item 17, reading a user's turns, became pre-alpha's ③ on 2026-11-18.
 
 **Items 1 and 2 came from the first user-developer spec**, on 2026-07-02: Jennifer's [Luminize Almanac vision, requirements and data model](https://docs.google.com/document/d/1P_YF2qVwQSAFYvg43qCvj3Nc170zBkpBboG8kcjdBGc/edit) and her [UX brief](https://docs.google.com/document/d/10UZ5KaZJXG2MdaHTwA2UPGrFKM_daGDdJaSbg6wGeFo/edit). The question asked of them was what the spec teaches Nebula, not whether the spec is right.
 
@@ -16,9 +16,10 @@
 |---|---|
 | Now: the trigger has fired | 11 An R2 archive replaces the deps baked into the image |
 | Before wrangler's support ends | 12 `cf` replaces `wrangler` |
-| At the first invite | 17 Turn-log inspection · 19 The feedback loop · 20 Data-bound generation |
+| At the first invite | 19 The feedback loop · 20 Data-bound generation · 22 The model reports what misled it · 23 The preview's error channel |
 | When a user wants to show their app to someone | 4 The prod ontology install path · 5 The published tier |
 | With a query's sort, paging and limits, so a query's shape breaks once | 21 A query names the node it reads under |
+| When Jennifer's app needs a reader who never logs in | 24 Visitors read what anyone may |
 | When users ask, or a problem shows | 1 Media storage · 2 An app-branded assistant · 3 Outside-world connectivity · 6 Steering a turn mid-generation · 10 Studio drives the preview · 13 A person with no name · 14 Merge patches on the wire · 15 The wake check · 16 Replies, not edits · 18 The superuser join scenario · 25 The build checks templates |
 
 ## Item 1: User-app media storage (photos/blobs)
@@ -197,7 +198,7 @@ const { respond } = await env.AI.run('typesafe/jev', {
 **Trigger: not until both cheaper answers have shipped and a gap remains.** Most of the motive is answered more cheaply:
 
 - **Does the permission model behave?** Personas answer it through the data plane, with no work on the page.
-- **Why is the screen blank?** The preview's error channel answers it ([nebula-pre-alpha.md](nebula-pre-alpha.md) § *③ Capture live*): a loop tool reads the app's log tail, which probably answers "blank" better than a click driver.
+- **Why is the screen blank?** The preview's error channel answers it (§ *Item 23: The preview's error channel*): the model reads the app's log tail, which probably answers "blank" better than a click driver.
 
 If the model still cannot close a loop it should, real turns will by then say what it needs to address on the page.
 
@@ -357,18 +358,6 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 
 **Not this item:** refusing the edit below Studio. `tasks/backlog.md` § *Nebula* has that row, *Only a message's author, or nobody, can change it*.
 
-## Item 17: Turn-log inspection v0
-
-**Goal:** a manual way to read one user's turns. Resolve the user's Universe at the Registry, mint a token as a superuser impersonating them, read their `Message` Resources, and write a local JSON corpus that Claude reads to answer Larry's questions about how their builds went. It is built once, inside the `/live` harness ([archive/claude-live-verification.md](archive/claude-live-verification.md)), so it is local tooling and never rides a deploy.
-
-**Trigger:** the first invited user's first builds.
-
-**Nothing waits on it to be recorded.** Each agent `Message` already carries its `codegen` value object, and confirming that capture is live on production comes before the first invite ([nebula-pre-alpha.md](nebula-pre-alpha.md) § *③ Capture live*). A turn taken before this item lands is still there to read.
-
-**It comes before the daily digest**, which automates whatever this shows is worth reading.
-
-**Moved here from [nebula-pre-alpha.md](nebula-pre-alpha.md) on 2026-11-12 (Larry):** the turns need recording before the first invite, and reading them needs users.
-
 ## Item 18: The superuser join scenario
 
 **Goal:** one `/live` scenario that chains a superuser's login, Home, a pre-alpha user's host, and impersonating that user there. That chain is a coaching session: Larry signs in as himself, opens a user's app, and sees it as they do.
@@ -390,8 +379,8 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 **In rough build order:**
 
 - **Inbound `claude@lumenize.io` lands in a durable store**, R2 or a Durable Object, readable through the Cloudflare MCP. It is the first real use of [nebula-outside-world.md](nebula-outside-world.md)'s inbound email.
-- **An in-Studio feedback button, v0**: "this broke" or "I wish", written into the same store. Capture's undo and abandon events share its sink ([nebula-pre-alpha.md](nebula-pre-alpha.md) § *③ Capture live*).
-- **A daily digest by 7:30am, v1.** A cron gathers yesterday's turns and behavioural signals, a judge model scores them, and the result lands in the store. A scheduled morning Claude Code session then writes the digest for Larry, with a spend line and suggested prompt changes that are reviewed and never applied automatically. Build it only after Item 17 shows what is worth automating.
+- **An in-Studio feedback button, v0**: "this broke" or "I wish", written into the same store. The store also records when a user undoes or abandons a turn, once Studio has an undo. A turn the user corrected or abandoned feeds the platform's own guidance too ([on-hold/nebula-studio-self-improvement.md](on-hold/nebula-studio-self-improvement.md) § *Part B*). The app's own conventions need no such signal, because the transcript in the prompt lets the model see a correction as it arrives.
+- **A daily digest by 7:30am, v1.** A cron gathers yesterday's turns and behavioural signals, a judge model scores them, and the result lands in the store. A scheduled morning Claude Code session then writes the digest for Larry, with a spend line and suggested prompt changes that are reviewed and never applied automatically. Build it only after reading turns by hand (pre-alpha's ③) shows what is worth automating.
 
 **Open: how the digest is phased.** Manual inspection first and the automated digest later, which is the lean, or the 7:30am pipeline up front.
 
@@ -399,7 +388,7 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 
 **Goal:** every query carries a required node, and the plane checks `read` on that node once, before it reads anything. Permissions flow downward in an orgTree, so a caller with `read` there has it on every descendant, and no result's node needs a look of its own. Larry built this in an earlier orgTree system and optimized it hard there (2026-11-18).
 
-**Today:** `QueryDescriptor` is `{ typeName, filter, allowScan? }` and names no node. `#evaluateQuery` in `packages/resources/src/resources.ts` runs the filter over every resource of the type on the host, and `OrgTree.evaluatePermissions` then climbs the tree for each result's node. [nebula-turn-stored-round-by-round.md](nebula-turn-stored-round-by-round.md) § *Phase 1* makes that one climb per distinct node, and stops there.
+**Today:** `QueryDescriptor` is `{ typeName, filter, allowScan? }` and names no node. `#evaluateQuery` in `packages/resources/src/resources.ts` runs the filter over every resource of the type on the host, and `OrgTree.evaluatePermissions` then climbs the tree for each result's node. [archive/nebula-turn-stored-round-by-round.md](archive/nebula-turn-stored-round-by-round.md) § *Phase 1* makes that one climb per distinct node, and stops there.
 
 **It is a breaking change, which is why it is an item and not a backlog row.** A required field changes `QueryDescriptor`, the query hash, every query a generated app has written, and the docs the model reads (`website/docs/nebula/resources.md`, embedded as `.platform/docs/`).
 
@@ -416,6 +405,45 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 - **What becomes of `deniedNodes`.** ADR-008 has a subscriber told which nodes hold results it cannot read. A query scoped to a node the caller can read has none to report, and one scoped to a node it cannot read is refused whole. Whether a caller with `read` on only part of a subtree asks at each part, or is told what it missed, is the open question.
 
 **Trigger:** the work on a query's sort, paging and limits ([backlog.md](backlog.md) § *Nebula*), so that a query's shape breaks once.
+
+## Item 22: The model reports what misled it
+
+**Goal:** a codegen tool, `report_finding`, that the model calls when a doc misled it or an API misbehaved. The finding rides the turn's agent `Message`, so it joins the turn record pre-alpha's ③ reads. It stays inside the tenant, the digest removes duplicates, and a person reads it before anything reaches a public tracker.
+
+**Trigger:** the daily digest (Item 19), which files what a person approves. Moved here from pre-alpha's ③ on 2026-11-18: the same doc gaps recur, so a few weeks unrecorded lose little.
+
+- **It never files a GitHub issue from inside a tenant's Galaxy.** That would cross the tenant boundary carrying text someone may have injected, and its likeliest failure is pasting a user-developer's ontology into a public issue.
+- **Its parts have different homes.** The record field rides the `Message`. The filing a person approves belongs to the digest. The instruction telling the model when to report is guidance, and goes where `studio-guidance.md` places it.
+- **A broken link in the platform guidance is not its job.** That tree's generator resolves every link at build time and fails on a bad one.
+
+## Item 23: The preview's error channel
+
+**Goal:** a user-developer says "the preview screen is blank", and the model's first move is to read the app's log tail. Its first consumer was the personas work ([archive/nebula-personas-are-real-members.md](archive/nebula-personas-are-real-members.md)), where a denied persona tab and a broken one look the same without logs. That work built `run_in_tab`, the tool the model reads a tab with, so this item keeps a buffer and adds no tool of its own.
+
+**Trigger:** the first invite. Moved here from pre-alpha's ③ on 2026-11-18.
+
+- **`@lumenize/debug` gains a second callback: filtered by `DEBUG`, and added to console output.** `setDebugSink` exists, but it is for tests: it bypasses the `DEBUG` filter and replaces console output. Production wants the opposite of both. A second slot beats a flag, since neither behaviour is then re-derived at the call site and no sink has to repeat the filter.
+- **The client factory installs it**, as it already starts `answerRunRequests` (`packages/resources/src/frontend/create-nebula-client.ts`). The factory is vendored into the build-box image, so every build takes the current one, and an app created before this lands gets the hook at its next build. The scaffold's `nebula.ts` is written once per app, so a hook installed there would never reach an earlier app.
+- **An entry carries the persona slug, decided before the buffer is written.** Several previews can be open at once, so an untagged tail is several streams interleaved. Tagging is cheap at the write and cannot be recovered afterwards.
+- A later tool that lets the model widen its own `DEBUG` filter adds to this and is not owed now.
+
+## Item 24: Visitors read what anyone may
+
+**Goal:** someone who never logs in reads what an app grants to `anyone`. Jennifer wants people to see her app's calendar from a link, with no login (raised 2026-10-02). An app's own login page needs the same thing to show the app's name and picture before anyone signs in. Moved here from [backlog.md](backlog.md) on 2026-11-18.
+
+**Trigger:** Jennifer's app needs a reader who never logs in.
+
+**What it builds on.** [nebula-accounts-and-apps-have-names.md](nebula-accounts-and-apps-have-names.md) adds `anyone` as a grantee, which covers every caller with passage into the host. A visitor is a caller with passage and no membership, so this item widens who `anyone` covers and adds no second kind of grant. That file's D5 says why `anyone` is neither a permission tier nor a visitor's `sub`.
+
+**What it has to answer:**
+
+- **The token.** Minted with no login, so the mint stays off the singleton (ADR-018) and resists being farmed. Its `aud` is the scope its host spells, as ADR-022's is, and it never carries `scopeAdmin`. Passage then runs upward from the host, as for any plain member, and dominion is none. Its `sub` names its kind, the way the agent's `agent:lumenize` does, and is random per visitor so visitors stay apart in rate limits and traces.
+- **Read-only by construction.** A visitor holds no grant of its own and no dominion, and `anyone` holds only `read` (the names file's D7). If every write a mesh call can make passes a grant or dominion, a visitor writes nothing and the door needs no check of its own. Confirming that claim comes first.
+- **The tree.** A tree subscription checks only passage today (`subscribeTree` adds no check of its own), and ADR-008 opens the tree to members. A visitor has passage, so the tree's read needs a check that the caller is a member.
+- **Profiles.** ADR-012's trust rests on its clause that the mesh admits no anonymous caller. Decide whether a visitor holding a `profileId` reads its public fields, and rewrite the ADR either way. Every logged-in caller already can, so the Profile needs no `anyone` grant, only this decision.
+- **Who `anyone` covers, said where it is granted.** The names file lets an admin grant `anyone` `read` at any node (its D7), and its guidance says who that covers (its DI12). Once visitors exist, `anyone` includes people who never logged in, and that guidance has to say so.
+- **Abuse.** No mesh call is rate limited today (`archive/nebula-scope-moves-to-subdomain.md` § *Decisions*), on the premise that every caller holds a token naming them. A visitor breaks that premise. A visitor only reads, and a read costs a thousandth of a write, so the risk is load on one Star's object more than a bill: one object serves on the order of a thousand requests a second (ADR-018).
+- **Where they connect.** A visitor's socket sits on the Star its page's host names, beside every member's, and adds to that Star's load (2026-10-06, `nebula-clients-connect-to-their-scope`).
 
 ## Item 25: The build checks templates
 
