@@ -63,8 +63,7 @@ export type EmailMessage =
  * considered folding this widening into the shared package and REJECTED it. This widened chain is also
  * exactly what persists: `apps/nebula`'s `Snapshots.recordedClaims` column stores the full
  * `RecordedClaims` (ADR-016), whose `act` is this type — the old narrow-`changedBy` interim and its
- * `projectActClaim` projection were deleted when `nebula-pre-alpha.md`'s schema-surgery item 6 landed
- * (2026-08-20).
+ * `projectActClaim` projection were deleted on 2026-08-20.
  *
  * Recursive per RFC 8693, outermost = current. This endpoint's mint never nests (the root-identity gate
  * refuses an act-bearing caller and the builder writes a flat actor), but depth ≤ 1 is a property of
