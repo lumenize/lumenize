@@ -10,7 +10,8 @@
  * `delta.reasoning_content` streams token by token first, then `delta.tool_calls[]` fragments
  * keyed by `index` (name/id on the first, `arguments` pieces after), `finish_reason` on the last
  * content chunk, a usage-only chunk with `choices: []`, a Workers-AI `{response: ""}` trailer, then
- * `[DONE]`. The `env.AI` binding streams the same bytes.
+ * `[DONE]`. The `env.AI` binding streams the same bytes. GLM-5.3, Studio's model since
+ * 2026-11-20, streams deltas with the same keys plus a `reasoning` beside `reasoning_content`.
  *
  * Deltas are BATCHED by size (never by timer — the reducer is pure), so a 50-token-per-second
  * thought reaches the transient channel a few times a second instead of fifty.

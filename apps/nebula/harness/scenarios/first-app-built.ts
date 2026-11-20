@@ -76,8 +76,9 @@ import { NOTHING_BUILT_TEXT } from '../../src/serve';
 export const needsContainer = true;
 /** The Worker's warm, teardown, build, write and stream markers, for limb 8 and the EXPLORATORY
  *  limb (g) below — read back off the dev stack's stdio; only these namespaces, so the boot is not
- *  flooded. `nebula.Galaxy.model` writes only when Workers AI refuses a call, and then the whole
- *  body: two sweeps' build turns ended on a 400 whose cause the reply cuts short (2026-10-12). */
+ *  flooded. `nebula.Galaxy.model` writes how each model call ended, and the whole body of one
+ *  Workers AI refuses: two sweeps' build turns ended on a 400 whose cause the reply cuts short
+ *  (2026-10-12). */
 export const bootVars = { DEBUG: 'nebula.Galaxy.warm,nebula.Galaxy.teardown,nebula.Galaxy.build,nebula.Galaxy.writeSource,nebula.Galaxy.stream,nebula.Resources.stream,nebula.Galaxy.model' };
 
 /** The Galaxy's own markers, parsed leniently off the dev stack's stdio — the log objects are

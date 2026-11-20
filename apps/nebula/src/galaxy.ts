@@ -55,7 +55,7 @@ import type { NodeInviteOutcome, OntologySource, ResourcesHost, ResourcesRequest
 import type { QueryDescriptor, TransactionResult, WireOperationDescriptor as OperationDescriptor } from '@lumenize/resources';
 import { chatOntologySeedRow } from './chat-ontology';
 import { DEFAULT_CHAT_ID, MESSAGES_NODE_ID, TURNS_NODE_ID, GALAXY_TREE_SEED, type MessageSnapshot } from './chat-constants';
-import { STUDIO_MODEL } from './studio-model';
+import { STUDIO_MODEL, STUDIO_MODEL_OPTIONS } from './studio-model';
 import { parseCast, type CastEntry } from './cast';
 import { NO_PREVIEW_ERROR } from './studio-client';
 import type { StudioClient } from './studio-client';
@@ -2210,6 +2210,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       instanceName: this.lmz.instanceName, stop: result.stop,
       rounds: result.rounds, applied: result.appliedPaths.length,
     });
+    // A failed model call's cause otherwise reaches only the reply the turn commits.
+    if (result.stop === 'error') debug('nebula.Galaxy.chat').warn('the turn ended on an error', { instanceName: this.lmz.instanceName, detail: result.detail ?? null });
     const row = this.turnRow();
     if (result.stop === 'waiting') return;
     if (result.stop === 'not-this-turn' || row?.message !== agentMessageId) {
@@ -2534,12 +2536,24 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       instanceName: this.lmz.instanceName, step: offered.step ?? 'turn', postId: offered.postId ?? null,
       tools: tools.map((tool) => tool.function.name),
     });
-    return this.runModel(STUDIO_MODEL, {
+    const reply = await this.runModel(STUDIO_MODEL, {
+      ...STUDIO_MODEL_OPTIONS,
       messages,
       tools,
       temperature: params.temperature,
       max_tokens: params.max_tokens,
     }, onDelta);
+    // How each call ended, which no other record keeps: a round with no tool call and no text is a
+    // stop, and only its finish reason and token counts say whether the budget ran out.
+    const r = reply as { choices?: Array<{ finish_reason?: string; message?: { content?: string | null; reasoning_content?: string; tool_calls?: unknown[] } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } } | null;
+    const choice = r?.choices?.[0];
+    debug('nebula.Galaxy.model').info('reply', {
+      instanceName: this.lmz.instanceName, step: offered.step ?? 'turn', finish: choice?.finish_reason ?? null,
+      toolCalls: choice?.message?.tool_calls?.length ?? 0, contentChars: choice?.message?.content?.length ?? 0,
+      reasoningChars: choice?.message?.reasoning_content?.length ?? 0,
+      promptTokens: r?.usage?.prompt_tokens ?? null, completionTokens: r?.usage?.completion_tokens ?? null,
+    });
+    return reply;
   }
 
   /**

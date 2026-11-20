@@ -593,10 +593,12 @@ export const DEFAULT_LOOP_CONFIG: CodegenLoopConfig = {
   // 64, raised the next day: a later run of the same request finished cleanly in 45 rounds,
   // too near 48 for a cap that is only the runaway stop.
   maxToolDepth: 64,
-  // 8192, raised from 4096 on 2026-11-16: a 15 KB `App.vue` is about 4,000 tokens, so a whole-file
-  // write was cut off mid-string and arrived as malformed arguments, twice in one traced turn.
-  generateParams: { temperature: 0.7, max_tokens: 8192 },
-  fixParams: { temperature: 0.2, max_tokens: 8192 },
+  // 32768, raised from 8192 on 2026-11-20: reasoning counts against the budget, and GLM-5.3 spent
+  // all 8192 thinking before the round that writes `App.vue`, which then ended `length` with no tool
+  // call. 8192 had been raised from 4096 on 2026-11-16, when a 15 KB `App.vue` (about 4,000 tokens)
+  // was cut off mid-string. It is a cap, so a round pays only for what it uses.
+  generateParams: { temperature: 0.7, max_tokens: 32768 },
+  fixParams: { temperature: 0.2, max_tokens: 32768 },
 };
 
 // ─── Prompt assembly ─────────────────────────────────────────────────────
