@@ -1,6 +1,6 @@
 # Nebula — Pre-alpha (master plan)
 
-**Status (2026-11-12):** production, `nebula.lumenize.com`, was last deployed on 2026-07-06. Everything built since waits for a wipe and redeploy (§ *⑥ The wipe*), so production is no evidence of current behaviour. The first invite waits on § *What remains*. The wipe need not.
+**Status (2026-11-18):** production, `nebula.lumenize.com`, was last deployed on 2026-07-06. Everything built since waits for a wipe and redeploy (§ *⑥ The wipe*), so production is no evidence of current behaviour. The first invite waits on § *What remains*. The wipe need not.
 
 **Goal:** ~4–5 pre-alpha users — Larry's friends, family and business partners ("users," not "partners") — building their own data-bound, multi-user apps on a deployed Nebula, exercised through personas, with enough instrumentation for near-daily conversations as they build.
 
@@ -15,26 +15,23 @@
 - **`data`** changes a stored shape. It lands before the wipe, or production is wiped again after it.
 - **`deploy`** only needs to reach production, by any deploy, before the first invite.
 
-**Before the wipe, or wipe again after it:**
-
-| # | Item | Specified in | Gate |
-|---|---|---|---|
-| — | **Shared pages** — Universe Signup and Galaxy create capture each scope's full name, and each page decides whether an app forwards to ours or runs its own | § *Shared pages*. The names are stored by [nebula-upgrade-universe-with-a-data-plane.md](nebula-upgrade-universe-with-a-data-plane.md), which has its design intent and no phases yet | data |
+**Before the wipe, or wipe again after it:** nothing remains.
 
 **Before the first invite, in this order:**
 
 | # | Item | Specified in | Gate |
 |---|---|---|---|
-| ③ | **Capture live** — every turn is recorded from the first one, since a turn nobody captured is gone for good | § *③ Capture live* | deploy |
+| — | **Shared pages** — a new founder names the account and its first app on the account's page after accepting, Galaxy create asks for each later app's name, Studio shows each account's and app's name and picture, and each page decides whether an app forwards to ours or runs its own | § *Shared pages*. The names are [nebula-accounts-and-apps-have-names.md](nebula-accounts-and-apps-have-names.md), waiting on Larry's read of its Pass 1 | deploy |
 | — | **Denied access shows in the app** — a generated app shows what a subscriber cannot read and who can grant it | § *Denied access in generated apps* | deploy |
 | — | **A `computed()` over the store can miss its subscription**, and the view goes stale with no error | § *A `computed()` misses its subscription* | deploy |
 | — | **Generated apps are pure Vapor** | § *Generated apps are pure Vapor* | deploy |
+| ③ | **Use the turn record** — Claude Code reads turns back from production, and the first invite waits on it reading one | § *③ Use the turn record* | deploy |
 
-**Why this order.** The riskiest goes first, and risk here is unresolved design, not hard implementation (Larry, 2026-09-02). ③ is small but cannot be repaired later. The `computed()` fix comes before Vapor, so Vapor builds on a store whose every read subscribes.
+**Why this order.** The riskiest goes first, and risk here is unresolved design, not hard implementation (Larry, 2026-09-02). The `computed()` fix comes before Vapor, so Vapor builds on a store whose every read subscribes. ③ comes last because its check reads a turn back from the deploy itself.
 
-**The first invite waits on both tables, and on ③'s check that capture works on production.** Larry then provisions and invites ~4–5 users, each with a first-app idea chosen for them (Sydney: secret santa with a wishlist).
+**The first invite waits on both tables, and on ③ reading a turn back from production.** Larry then provisions and invites ~4–5 users, each with a first-app idea chosen for them (Sydney: secret santa with a wishlist).
 
-**What needs users waits for them, in [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md):** turn-log inspection (Item 17), the superuser join scenario (Item 18), the feedback loop (Item 19) and data-bound generation (Item 20).
+**What needs users waits for them, in [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md):** the superuser join scenario (Item 18), the feedback loop (Item 19), data-bound generation (Item 20), the model's own findings (Item 22) and the preview's error channel (Item 23).
 
 **Cheap before invites, and never a gate.** Each has a backlog row with its reasoning. They are listed here because the chance closes once someone other than Larry reads the output:
 
@@ -51,41 +48,19 @@
 
 ---
 
-## ③ Capture live
+## ③ Use the turn record
 
-**Confirm on the deploy that generation capture is live, then extend it with UI events: undo, abandon and feedback.** The events share a sink with the feedback button. Its code rides the one deploy like any `deploy` row, and the confirmation comes after the deploy and before the first invite, which waits on it. The risk is not difficulty. It is that this item gets squeezed at the end, when everything else in the run can be repaired by a later deploy and this cannot.
+**Claude Code reads turns back from production, and the first invite waits on it reading one.** This section was titled *Capture live* until 2026-11-18. Every turn was stored by then, so what remained was reading the record.
 
-**What exists.** Each agent `Message` Resource carries a `codegen` value object, and `codegen.sourceCommit` is captured before the loop writes, so a prompt can be replayed from the exact code it started on. That is what the nightly replay loop needs: it reads testers' turns across scopes and runs them against the bench in [on-hold/nebula-offline-prompt-harness.md](on-hold/nebula-offline-prompt-harness.md).
+**What is recorded.** Each agent `Message` carries a `codegen` value object: `sourceCommit`, captured before the loop writes, so a prompt can be replayed from the code it started on; `stop`, how the turn ended; and the paths it wrote. With [archive/nebula-turn-stored-round-by-round.md](archive/nebula-turn-stored-round-by-round.md), each round of a turn is a `Round` Resource holding its tool calls, and a turn cut off at its deadline ends in a `Message` whose `codegen.stop` is `deadline`. `codegen.stop` is the record of how a turn ended, so `Message.status` needs no terminal value of its own.
 
-**What is missing:**
+**Before the first invite: read a turn back from production.** After the deploy, one turn runs on production, and Claude Code reads back its `Message` and its `Round`s. `apps/nebula/harness/prod.ts` signs in to production and lists the Universes, then stops; the read extends it, and `apps/nebula/harness/lib/turn-calls.ts` already reads a turn's calls from its rounds on a local stack. It runs under Larry's superuser login, which holds dominion on every host (§ *Building blocks that exist*), so the same read reaches any tester's Galaxy with no impersonation. It writes a local JSON corpus that Claude reads to answer Larry's questions about how a user's builds went. It is local tooling inside the harness and never rides a deploy.
 
-- **A turn that dies at the generation deadline is never captured.** A handled failure does commit a reply, but the deadline's `Promise.race` abandons the turn body, so nothing lands and "how often does a turn hang?" has no stored answer. `commitAgentMessage` hardcodes `status: 'complete'` at its one write site, which is where a terminal record would go.
-- **A read of every app's turns for a day.** Nothing reads a Galaxy's turns from outside it. `apps/nebula/harness/prod.ts` signs in to production and lists the Universes, and stops there. The turn traced on 2026-11-16 ([fast-follow](nebula-pre-alpha-fast-follow.md) § *A hand-driven turn, traced from its record*) was read from the local Galaxy's SQLite file, which a deployed Galaxy does not offer. The nightly loop needs each turn's `Message` with its `codegen`, for every app, since a given time. Whose claims that read runs under is the question its task file opens with, since it crosses every tenant.
-- **A notice to Larry when a turn ends badly.** The Galaxy knows as the turn ends: it stopped on `max-depth`, `loop-detected`, `build-unavailable` or `error`, or its last build had findings. One error-level line there, naming the Galaxy and the stop, raises a Workers Issue, so no sink of ours is built. Whether an Issue can then reach him as an email or a push is still to check. With four or five testers, hearing of a stuck turn within the hour is most of what stepping in live would buy.
-- **The UI events** above.
-- **`report_finding`**, below.
-- **The preview's error channel**, below.
+**A notice to Larry when a turn ends badly.** The Galaxy knows as the turn ends. A turn past its deadline and a turn that throws already log at error level, so each raises a Workers Issue. A turn that stops on `max-depth`, `loop-detected` or `build-unavailable`, or whose last build had findings, ends through the loop's own commit and logs nothing at error. One error-level line there, naming the Galaxy and the stop, covers those, so no sink of ours is built. Whether an Issue can then reach Larry as an email or a push is still to check. With four or five testers, hearing of a stuck turn within the hour is most of what stepping in live would buy.
 
-⚠️ Design consideration: after a turn ends badly, the Galaxy could run the next one on a stronger model, through the AI Gateway. It is the same agent on another model, and no second participant. That is routing and not capture, so it is not owed here; the notice above is what tells us how often it would have helped.
+**Later uses of the same record are in fast-follow:** the daily digest (Item 19), the model's own findings (Item 22), and the nightly replay loop, which runs testers' turns against the bench in [on-hold/nebula-offline-prompt-harness.md](on-hold/nebula-offline-prompt-harness.md).
 
-### `report_finding`: the model as a reporter
-
-A codegen tool the model calls when a doc misled it or an API misbehaved. The finding rides the turn's agent `Message` as structured capture. It stays inside the tenant, the digest removes duplicates, and a person reads it before anything reaches a public tracker.
-
-- **It never files a GitHub issue from inside a tenant's Galaxy.** That would cross the tenant boundary carrying text someone may have injected, and its likeliest failure is pasting a user-developer's ontology into a public issue.
-- **Its parts have different homes.** The record field is capture, and belongs here. The filing a person approves belongs to the daily digest. The instruction telling the model when to report is guidance, and goes where `studio-guidance.md` places it.
-- **A broken link in the platform guidance is not its job.** That tree's generator resolves every link at build time and fails on a bad one.
-
-The acceptance events have a second consumer. A turn the user corrected or abandoned feeds the platform's own guidance ([on-hold/nebula-studio-self-improvement.md](on-hold/nebula-studio-self-improvement.md) § *Part B*). The app's own conventions need no such signal, because the transcript in the prompt lets the model see a correction as it arrives.
-
-### The preview's error channel
-
-A user-developer says "the preview screen is blank", and the model's first move should be to read the log tail. This may become a task file of its own once ③ starts. Its trigger and first consumer is ②, the personas work ([archived](archive/nebula-personas-are-real-members.md)), where a denied persona tab and a broken one look the same without logs. ② built the tool the model reads a tab with, `run_in_tab`, so this section keeps its buffer and adds no tool of its own.
-
-- **`@lumenize/debug` gains a second callback: filtered by `DEBUG`, and added to console output.** `setDebugSink` exists, but it is for tests: it bypasses the `DEBUG` filter and replaces console output. Production wants the opposite of both. A second slot beats a flag, since neither behaviour is then re-derived at the call site and no sink has to repeat the filter.
-- **The scaffold's `nebula.ts` installs it**, entries land in this section's sink, and a loop tool reads the tail: one entry in `LOOP_TOOL_ENTRIES`. A later tool that lets the model widen its own `DEBUG` filter adds to this and is not owed now.
-- **An entry carries the persona slug, decided before the buffer is written.** ② opens several previews at once, so an untagged tail is several streams interleaved. Tagging is cheap at the write and cannot be recovered afterwards.
-- **The scaffold half cannot be added to an existing app.** `nebula.ts` is seeded once, so an app created before the sink lands keeps a copy without it, and nothing tells the model to go back. That is why this rides the one deploy and is not fast-follow.
+⚠️ Design consideration: after a turn ends badly, the Galaxy could run the next one on a stronger model, through the AI Gateway. It is the same agent on another model, and no second participant. That is routing, not a use of the record, so it is not owed here; the notice above is what tells us how often it would have helped.
 
 ## Denied access in generated apps
 
@@ -123,20 +98,14 @@ These change:
 
 **The pages several builds touch — Universe Signup, Galaxy create and login — are one item** (Larry, 2026-09-16). It does the following:
 
-- **It captures scope full names** on Universe Signup and Galaxy create, as § *Scope full names* describes.
+- **It names accounts and apps**, as § *Scope full names* describes.
 - **It decides, page by page, how a user-developer's app reaches each one.** The default is that the app forwards to our page with `return_to`. The alternative is a page of the app's own, which posts what it collected to the platform host, gets a one-time token back, and navigates on with it to the platform host, which finishes the way login does. Which pages get the custom kind first is this item's call, and the custom kind may land after pre-alpha.
 
 [nebula-scope-moves-to-subdomain.md](archive/nebula-scope-moves-to-subdomain.md) caps the slugs these pages collect at 30 characters, and names the one `POST` ADR-022 would need to admit for a custom page.
 
 ### Scope full names
 
-**A Universe, Galaxy or Star has no human name anywhere today, so its slug does two jobs.** `Scopes` is one column, `universeGalaxyStarId TEXT PRIMARY KEY`. [nebula-upgrade-universe-with-a-data-plane.md](nebula-upgrade-universe-with-a-data-plane.md) stores each name as a scope-metadata resource on the scope's own host, never on `Scopes`, written where the scope is created: the universe claims, which also write the first app, `claimStar`, and `createGalaxy` for every later app.
-
-- **Universe Signup and Galaxy create both gain the field** (Larry, 2026-09-11). Star signup is not in pre-alpha, where only the `.dev` Star is created, so `claimStar` writes a name with no page to type it into yet.
-- **It is `data`-gated because the name is knowable only at the moment it is typed.** Nothing derives "Northwind Traders International" from `northwind-traders-intl`, so a claim that never asked leaves nothing to backfill. After the wipe the people asked are real users, whose names would be lost for good.
-- **It decides how the slug cap reads.** Every slug is capped at 30 characters, because a persona and a Star share one 63-character DNS label ([the domain-allocation record](archive/decision-domain-allocation.md) § *C — nested scope labels*). With a name beside it, signup reads *"Workspace name: Northwind Traders International → URL: `northwind-traders-intl`"*, with the slug editable. Without one, the cap reads as "that name is too long".
-- **This is capture only.** Whether a breadcrumb, the org tree, the scope picker or the Studio header shows the name or the slug is a separate question that gates nothing. A name nobody displays misleads no one, and a name nobody captured cannot be recovered.
-- **The name is display-only.** It is never in a URL, never unique, never compared and never looked up, and after the claim nothing derives it from the slug or the slug from it. Otherwise a scope has two identifiers, which capping the slug instead of hashing it was chosen to avoid. A persona's name already follows this rule: the slug is the identity, and the model may edit the name freely.
+**[nebula-accounts-and-apps-have-names.md](nebula-accounts-and-apps-have-names.md) holds the design.** An account's or app's name, picture and description are one Resource, on a node the seed slugs `meta` by convention, which everyone with passage reads through a grant to `anyone` there. Its gate is `deploy`: the seed reaches trees that already exist, and a page that finds no name asks the next admin who opens it, so a scope created before it is named the same way as a new one.
 
 ## ⑥ The wipe
 
@@ -174,7 +143,7 @@ After pre-alpha ships (Larry, 2026-09-02). Reviewing is not ratifying, and no AD
 - **Alpha:** the publish path for real use, plus data migration. Writing migration code is easy. Testing it is the hard part, and probably needs Star branching (`tasks/icebox/nebula-branches.md`).
 - **Beta:** automated testing, to near production-ready. Then production.
 
-**Capture is where involvement and feedback meet.** Involvement runs from capture live (③) through the wipe (⑥) to the first invite. Feedback starts from the same capture, in fast-follow Items 17 and 19. No one is invited until capture is confirmed live.
+**The turn record is where involvement and feedback meet.** Every turn is stored from the first one. Involvement runs through the wipe (⑥) to the first invite, which waits on ③ reading a turn back from production. Feedback reads the same record, in ③ and in fast-follow Item 19.
 
 **Pre-alpha users are Universe admins.** Larry invites each one and picks their slug and name beforehand. This shrinks the security story, because acting as anyone beneath you is not an escalation. The cleanup it leaves, dropping `AuthorizedActors` for admins-only, is [on-hold/delegation-hardening.md](on-hold/delegation-hardening.md).
 
@@ -198,7 +167,7 @@ The code is the authority for each of these, so do not re-derive them.
 ## Open decisions
 
 1. **Starter scaffold on invite.** Does the Universe invite also provision a starter Galaxy, so the first build takes no setup, or does the user create one as a Universe admin? Lean: provision it, since a non-coder should not hit a naming decision at first login.
-2. **A second wipe between pre-alpha and alpha.** An option kept open, not a plan (Larry, 2026-08-24). Before it, stash each user's Workspace repo, which holds the code and the ontology's git history, and the codegen corpus: the Galaxy's `Message`s with their `codegen` value objects, the harvest ③ exists for. Then wipe and restore. Their `.dev` data is lost, and we say so up front. Identities are minted again on re-invite, and stamped attribution degrades to display-only. It eases the squeeze on structural work without licensing deferral, because every wipe spends user goodwill.
+2. **A second wipe between pre-alpha and alpha.** An option kept open, not a plan (Larry, 2026-08-24). Before it, stash each user's Workspace repo, which holds the code and the ontology's git history, and the codegen corpus: the Galaxy's `Message`s with their `codegen` value objects and their `Round`s, the record ③ reads. Then wipe and restore. Their `.dev` data is lost, and we say so up front. Identities are minted again on re-invite, and stamped attribution degrades to display-only. It eases the squeeze on structural work without licensing deferral, because every wipe spends user goodwill.
 
 ## Links
 
@@ -215,6 +184,8 @@ One line each. The archived file is the record, and the code is the authority.
 Newest first. Where a build's own date was not recorded, the date is the day its task file was archived.
 
 - 2026-11-19 — A turn is stored round by round: a turn is a row and a `Round` per model round, at a `turns` node under `chat`; the Galaxy's `onStart` continues a turn an eviction cut off; and a tab call leaves by its result handler → [archive/nebula-turn-stored-round-by-round.md](archive/nebula-turn-stored-round-by-round.md)
+- 2026-11-17 — From driving Studio by hand: the preview is drawn as a browser window, with tabs, Reload and an address bar, and locks while a turn runs; a running turn shows a clock and its steps; Home links to create an account and to log out; an app's page says nothing is built yet before its first build; the step limit is 64; and the platform guidance says what lives outside Resources and that an app imports no other package. No task file: commits `f203698`, `5641938`, `dfbcfeb`, `4ab5493`, `3c17dbb` and `a9be297`
+- 2026-11-16 — From hand-driven runs of a shared-lists request: the store is typed from the app's ontology, with a reference read as its id; an op missing a field its kind requires is refused by name; a created resource's meta names its node; and the guidance says a thing shared on its own gets its own node. No task file: commits `b5e7468`, `8352c22`, `05356f9`, `54c33dc` and `189cba9`; [fast-follow](nebula-pre-alpha-fast-follow.md) § *A hand-driven turn, traced from its record* has the runs
 - 2026-11-14 — ②, personas: a test user the model defines is a real member of the dev Star, in a preview tab of its own, and the agent works through a person's tab with `run_in_tab`. It replaced a first build reverted on 2026-11-13 → [archive/nebula-personas-are-real-members.md](archive/nebula-personas-are-real-members.md)
 - 2026-11-14 — Query subscriptions take a filter, so a persona can find what a teammate made → [archive/nebula-query-subscriptions-take-a-filter.md](archive/nebula-query-subscriptions-take-a-filter.md)
 - 2026-11-11 — The agent posts as itself and acts for several people in one chat. A turn its Galaxy's reset cuts off is answered at the next post, and the agent asks whether to proceed; answering on wake is fast-follow Item 15 → [archive/nebula-agent-posts-as-itself.md](archive/nebula-agent-posts-as-itself.md)
