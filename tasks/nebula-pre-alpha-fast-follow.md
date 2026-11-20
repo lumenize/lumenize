@@ -244,7 +244,9 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 **What the design has to handle:**
 
 - **A rebuild in a real turn is the measurement the re-armed start owes.** Nobody has timed how long the model takes to write its fix after a failed build, against the download's 5 s.
-- **Offline, a DNS lookup hangs 56 s before it fails.** Any step in the build that resolves a hostname waits a minute, with nothing in its output to say why. npm's update notifier did, through `npx`; Nebula's job spawns `vite` directly. A package a user-developer adds that looks up a host would do the same.
+- **Offline, a DNS lookup hangs 56 s before it fails, and this item makes it fail fast.** Any step in the build that resolves a hostname waits a minute, with nothing in its output to say why. npm's update notifier did, through `npx`. Nebula's job spawns `vite` directly, so nothing in today's build looks a host up, but a package a user-developer adds could, which is why the fix lands with this item. Two candidates:
+  - **A catch-all intercept that refuses everything but the archive's host.** It may make every name resolve, so a stray lookup fails at once and the handler can log which host the build tried to reach. Unmeasured; try it first.
+  - **Rewriting `/etc/resolv.conf`** at the job's start, to one of the container's own nameservers plus `options timeout:1 attempts:1`. A lookup then fails in 2 s and an intercepted host still resolves (measured 2026-11-20). Pointing it at `127.0.0.1` fails a lookup in 2 ms but stops intercepted hosts resolving, which would break the archive's download.
 - **An install inside a deployed container runs after `/` is handed back to root.** Otherwise swc's postinstall cannot load its native binding and installs `@swc/wasm` as a fallback.
 - **The intercept is registered on `ctx.container` before `@cloudflare/computer`'s backend starts it.** The experiment drove `ctx.container` directly, so how the two meet is unverified.
 - **Each new lockfile's upload is container egress**, about 65 MB, inside the 1 TB a month the plan includes. Downloads cost no egress, and intercepted calls are not Worker requests.
