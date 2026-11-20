@@ -338,7 +338,7 @@ the asking user could already see (`strategy.md`), and at what can be undone (§
 **Guidance has the same weakness, for a different reason.** An `AGENTS.md`, a skill or a system prompt is non-binding. A model follows it most of the time, and nothing makes it follow every time. The same summit noted how fast such guidance is multiplying, and that safeguards written as guidance get skipped.
 
 - **Non-binding guidance is the right home for judgment.** It is where the feedback loop's lessons go, as in the *Learn* bullet of § *Tripwires over human in the loop*. Following it most of the time is exactly what improving the producer means.
-- **It is the wrong home for a boundary.** Studio's agent runs on an open-weight model, Kimi K2.7 (`apps/nebula/src/studio-model.ts`), and no claim in this document depends on what it refuses. Austen's question fails at the data-plane check, which never consults the model (§ *A worked scenario*).
+- **It is the wrong home for a boundary.** Studio's agent runs on an open-weight model, GLM-5.3 (`apps/nebula/src/studio-model.ts`), and no claim in this document depends on what it refuses. Austen's question fails at the data-plane check, which never consults the model (§ *A worked scenario*).
 - **This repo works the same way at level 1.** A rule that has to hold gets a script that checks it, as `check-worker-graph.mjs` does for the Worker's startup limit. The rule's prose explains, and the script enforces.
 
 ### Attribution is what is actually missing

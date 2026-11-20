@@ -20,7 +20,6 @@
 | # | Item | Specified in | Gate |
 |---|---|---|---|
 | — | **Shared pages** — Universe Signup and Galaxy create capture each scope's full name, and each page decides whether an app forwards to ours or runs its own | § *Shared pages*. The names are stored by [nebula-upgrade-universe-with-a-data-plane.md](nebula-upgrade-universe-with-a-data-plane.md), which has its design intent and no phases yet | data |
-| — | **A turn is stored round by round** — each round of an agent turn is a `Round` Resource, so a turn continues from storage and its calls are on record as it runs | [nebula-turn-stored-round-by-round.md](nebula-turn-stored-round-by-round.md), which has its design intent and no phases yet | data |
 
 **Before the first invite, in this order:**
 
@@ -215,6 +214,7 @@ One line each. The archived file is the record, and the code is the authority.
 
 Newest first. Where a build's own date was not recorded, the date is the day its task file was archived.
 
+- 2026-11-19 — A turn is stored round by round: a turn is a row and a `Round` per model round, at a `turns` node under `chat`; the Galaxy's `onStart` continues a turn an eviction cut off; and a tab call leaves by its result handler → [archive/nebula-turn-stored-round-by-round.md](archive/nebula-turn-stored-round-by-round.md)
 - 2026-11-14 — ②, personas: a test user the model defines is a real member of the dev Star, in a preview tab of its own, and the agent works through a person's tab with `run_in_tab`. It replaced a first build reverted on 2026-11-13 → [archive/nebula-personas-are-real-members.md](archive/nebula-personas-are-real-members.md)
 - 2026-11-14 — Query subscriptions take a filter, so a persona can find what a teammate made → [archive/nebula-query-subscriptions-take-a-filter.md](archive/nebula-query-subscriptions-take-a-filter.md)
 - 2026-11-11 — The agent posts as itself and acts for several people in one chat. A turn its Galaxy's reset cuts off is answered at the next post, and the agent asks whether to proceed; answering on wake is fast-follow Item 15 → [archive/nebula-agent-posts-as-itself.md](archive/nebula-agent-posts-as-itself.md)

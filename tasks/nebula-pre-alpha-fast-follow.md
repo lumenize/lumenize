@@ -19,7 +19,7 @@
 | At the first invite | 17 Turn-log inspection · 19 The feedback loop · 20 Data-bound generation |
 | When a user wants to show their app to someone | 4 The prod ontology install path · 5 The published tier |
 | With a query's sort, paging and limits, so a query's shape breaks once | 21 A query names the node it reads under |
-| When users ask, or a problem shows | 1 Media storage · 2 An app-branded assistant · 3 Outside-world connectivity · 6 Steering a turn mid-generation · 10 Studio drives the preview · 13 A person with no name · 14 Merge patches on the wire · 15 The wake check · 16 Replies, not edits · 18 The superuser join scenario |
+| When users ask, or a problem shows | 1 Media storage · 2 An app-branded assistant · 3 Outside-world connectivity · 6 Steering a turn mid-generation · 10 Studio drives the preview · 13 A person with no name · 14 Merge patches on the wire · 15 The wake check · 16 Replies, not edits · 18 The superuser join scenario · 25 The build checks templates |
 
 ## Item 1: User-app media storage (photos/blobs)
 
@@ -325,7 +325,7 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 
 **Answered: SQLite's `json_patch` against our `applyMergePatch`** where the server applies a patch it receives (asked by Larry 2026-10-14, measured deployed 2026-11-15). `json_patch` applies a narrow patch about twice as cheaply, but the lead is gone once the write needs the merged value back in JavaScript to validate or broadcast it, and a wide patch is far slower in SQLite. `diff` stays in JavaScript. [on-hold/wire-merge-patch-sync.md](on-hold/wire-merge-patch-sync.md) § *Applying and building a patch* has the conclusions, and `experiments/merge-patch-sql/RESULTS.md` the tables.
 
-## Item 15: The wake check — a turn a reset cuts off is answered on wake
+## Item 15: The wake check — a post no turn took up is answered on wake
 
 **Goal:** when a Galaxy wakes and finds a person's post that no agent message answers, it schedules a turn that reads the thread and takes the post up, without waiting for someone to post again. The turn can do the work, because a post is stored with the claims its write carried and a turn runs under them ([nebula-agent-acts-on-a-posts-record.md](archive/nebula-agent-acts-on-a-posts-record.md)). [nebula-agent-posts-as-itself.md](archive/nebula-agent-posts-as-itself.md) specifies it as its item 6; the question that bounds it, that file's Q3, is the list below, and it moved here on 2026-11-11 (that file's D19).
 
@@ -333,12 +333,13 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 
 **Until then:** an evicted turn's post shows as waiting in Studio, and the decision after the next post's turn can take it up and work it.
 
-**What it has to decide first: how the loop recovers when a turn fails.** Deferred until the multi-player happy path is settled (Larry, 2026-10-16). `galaxy.ts` points here from its interim at the generation deadline, `#takenUp`, which keeps a second turn off a post whose first turn the deadline cut off and which is still running.
+**What the turn-stored build settled, for a turn that has a row** ([archive/nebula-turn-stored-round-by-round.md](archive/nebula-turn-stored-round-by-round.md)). The Galaxy's `onStart` continues a turn an eviction cut off, whatever runs its constructor: a Studio reconnecting, a page load, an alarm, a teardown. A turn that cannot go on ends in a line of ours. Our own code writes the post that ends a turn whose run passed the deadline or threw, and ends a turn whose model call was cut off twice at one round. The deadline frees the latch by ending the turn and deleting its row.
 
-- **Who writes the post that ends the turn** when the model call hangs. The model cannot, so our own code must, with a fixed message or one more short model call. A turn that uses all 32 tool-call rounds (`maxToolDepth`) already posts the model's text or a fixed fallback (`#codegenTurn`).
-- **Which event frees the latch.** Today the 14-minute deadline frees it while the turn keeps running, and the abandoned turn may still write and land. Until this is decided, a turn the deadline cut off starts no decision, and no decision takes its post up again while it still runs.
-- **What bounds a wake check that dies before it posts.** Each wake would try again.
-- **What reconciles on wake.** An eviction skips the turn's `finally`, so a build box can outlive its build. On wake, destroy any running container no build owns, and name the Workspace's state, its uncommitted changes against the last commit, so the next turn, or the person, starts from something named.
+**What is left:**
+
+- **A post no turn had taken up** when the Galaxy went away, a decision an eviction cut off between turns among them. It waits until someone posts again.
+- **A cut-off turn on a Galaxy nothing reaches** waits until something runs its constructor; an alarm could continue it sooner.
+- **What reconciles on wake.** An eviction skips the run's `finally`, so a build box can outlive its build. On wake, destroy any running container no build owns, and name the Workspace's uncommitted changes against the last commit, so the next turn, or the person, starts from something named.
 
 **A restart does nothing for a half-finished Workspace** (Larry, 2026-09-06). What makes one survivable is that the commits in the Galaxy's git and the messages in the chat are both durable, so the person can say "fix it" and the model sees what landed and what did not.
 
@@ -415,6 +416,21 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 - **What becomes of `deniedNodes`.** ADR-008 has a subscriber told which nodes hold results it cannot read. A query scoped to a node the caller can read has none to report, and one scoped to a node it cannot read is refused whole. Whether a caller with `read` on only part of a subtree asks at each part, or is told what it missed, is the open question.
 
 **Trigger:** the work on a query's sort, paging and limits ([backlog.md](backlog.md) § *Nebula*), so that a query's shape breaks once.
+
+## Item 25: The build checks templates
+
+**Goal:** the build's type check catches a mistake in a generated app's template, and in the props one component passes another, the way `vue-tsc` does. Today `checkVueSfc` (`apps/nebula/container/compiler/sfc-check.ts`) runs tsc over each `.vue` file's `<script setup>` and nothing else, and types every imported `.vue` as `any`.
+
+On 2026-11-20 a copy of the scaffold got these mistakes: `{{ name.toUpperCas() }}`, a click handler handed the event where it takes options, a string bound to a `number` prop, and a required prop left out. `checkVueSfc` reported none of them, though it did report a type error put in the script block. `vue-tsc` 3.3.14 reported every one. Studio's own `.vue` files are checked with `vue-tsc` in `npm run type-check` since `71f9912`.
+
+**Trigger:** a preview breaks on a template mistake the build's check let through.
+
+**What it has to answer:**
+
+- **Only the app's own files report.** On the unchanged scaffold, `vue-tsc` reports 190 errors, every one in Mesh's or Resources' server source, because the build box has no Workers types. Today's check keeps to the model's file with `reportFor`, and the new one needs the same.
+- **A false finding holds back a correct app.** A build with type findings stays off `.dev` unless the model passes `{ "preview": true }`, so what the docs and the platform skills teach the model to write goes through the new check before it lands.
+- **It replaces Pass 2 rather than running beside it.** What Pass 1's template compile is still for, once `vue-tsc` reads templates, is part of the work.
+- **It changes the image.** The tooling goes in `apps/nebula/container/compiler/package.json`, which the image installs, so the change ends with a deployed pass (`live.md`).
 
 ## Item 20: Data-bound generation
 
@@ -541,3 +557,5 @@ One line per observation, appended and never edited: `date · limb · pass|fail 
 - 2026-11-11 · (a) (b1) (b2) (d) (e) (f) (g) · pass · the same run
 - 2026-11-15 · `cast-from-a-tab` limb 3 · fail then pass · a collaborator asks "Wipe the test data. Change no code." On the first `define-the-cast` wording, which listed building the cast again as the wipe's second step, the turn wiped and rebuilt in 3 of 4 runs; the fourth read the skill, wiped and stopped. The section now opens by saying a wipe is not finished until the cast is built again, and that a request naming only the wipe asks for both: 6 of 6 runs rebuilt.
 - 2026-11-15 · `cast-from-a-tab` limb 3 · note · in 1 of those 6 the turn's reply was "Done — no changes." after wiping and rebuilding, though the skill asks it to say what it did. The limb gates on the wipe and records the rebuild, since nothing but the skill asks for it.
+- 2026-11-18 · (a) (b1) · fail · the deployed pass of the turn-stored build, on the define-the-cast skill that reads another persona's records with `client.resources.query`: no `App.vue` was written and nothing was asked (`no-tool-calls`, 6 rounds), the shape of 2026-09-05, 2026-10-15 and 2026-11-11. The same tree's local closing sweep passed both, so one run, not attributed
+- 2026-11-20 · (a) (b1) (b2) (c) (d) (e) (f) (g) · pass · first run on GLM-5.3 (`reasoning_effort: 'high'`, `max_tokens` 32768), after Workers AI deprecated Kimi K2.7 Code: every limb passed in a 79-of-79 local sweep. At GLM's default reasoning, `max`, `first-app-built`'s build round spent all 8192 tokens thinking and ended `length` with no tool call
