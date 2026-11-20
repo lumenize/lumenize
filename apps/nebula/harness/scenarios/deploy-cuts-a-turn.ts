@@ -89,9 +89,25 @@ export async function run(stack: DevStack): Promise<void> {
     // goes with its client, which the limbs below dispose.
     const thread = studio.resources.subscribeQuery({ typeName: 'Message', filter: { chat: DEFAULT_CHAT_ID } });
     await thread.ready;
-    const firstChunk = new Promise<string>((resolve) => { studio.setOnStreamChunk((id) => { resolve(id); }); });
+    let chunked = false;
+    const firstChunk = new Promise<string>((resolve) => { studio.setOnStreamChunk((id) => { chunked = true; resolve(id); }); });
     const posted = await studio.postUserMessage(REQUEST);
-    const message = await Promise.race([firstChunk, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('no progress chunk arrived for the turn')), FIRST_ROUND_MS))]);
+    // A turn that ends before it streams anything still commits a reply, which says why. Each look
+    // reads from the Galaxy, so the looking stops at the first chunk, before any deploy.
+    const endedEarly = (async (): Promise<never> => {
+      const deadline = Date.now() + FIRST_ROUND_MS;
+      while (Date.now() < deadline && !chunked) {
+        for (const id of thread.resourceIds) {
+          const snap = await studio.resources.read('Message', id) as Snapshot | null;
+          const value = snap?.value as { replyTo?: string; content?: string; codegen?: { stop?: string } } | undefined;
+          if (value?.replyTo === posted) throw new Error(`the turn ended before it streamed anything (stop ${value.codegen?.stop}): ${value.content}`);
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      if (chunked) return new Promise<never>(() => { /* the chunk won the race */ });
+      throw new Error('no progress chunk arrived for the turn');
+    })();
+    const message = await Promise.race([firstChunk, endedEarly]);
     const rounds = studio.resources.subscribeQuery(roundsOf(message));
     await rounds.ready;
     assert.ok(await eventually(() => rounds.resourceIds.length > 0, FIRST_ROUND_MS), 'the turn stored no round');
