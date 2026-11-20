@@ -137,7 +137,7 @@ The agent `Message` carries one optional value object, absent on human messages.
                                      //   ← was TurnRecord.validate + .error
     // No `toolCalls`: since 2026-11-18 every dispatched call, with what it came to and the
     // claims it ran under, is on the turn's `Round` Resources, read as `Round where message == id`
-    // (nebula-turn-stored-round-by-round.md). A replay reads the rounds beside the Message.
+    // (tasks/archive/nebula-turn-stored-round-by-round.md). A replay reads the rounds beside the Message.
   },
 }
 ```

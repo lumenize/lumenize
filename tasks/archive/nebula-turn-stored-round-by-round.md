@@ -1,6 +1,12 @@
 # A turn is stored round by round, and continues from storage
 
-**Status:** ready for `/build-task`. Stage 1 was resolved with Larry on 2026-11-17, and Stage 2 ran twice, on 2026-11-17 and 2026-11-18, with both passes applied. D14 and the edits that followed the second pass have had no panel since, so `/build-task`'s verifiers are their first review. The build ratifies no ADR: Larry holds every ratification until pre-alpha launches. Its backlog row, *A turn an eviction cuts off resumes where it stopped* in [backlog.md](backlog.md) § *Other Nebula backlog*, goes in § *Phase 7*.
+**Status:** built 2026-11-15 to 2026-11-20 and archived: seven phases, a verifier panel, a hand-off that settled D16 to D20, a closing sweep of 79 of 79, and a deployed pass ending with `deploy-cuts-a-turn` on 6f106ee. This file is frozen; the code, ADR-006, ADR-025 and `docs/vision/auth.md` are the authority now.
+
+> ⚠️ **Four things the body below says are no longer true, corrected here rather than in place** (2026-11-20):
+> 1. **The wake runs from the Galaxy's `onStart`**, whenever the constructor runs (D17). The `ScopedMeshDO.onFirstClient()` hook § *Phase 5* specifies, and every passage that says only a Client wakes a turn, describe a hook that was deleted.
+> 2. **`turns` hangs under `chat`, beside `messages`** (D18). Passages that put `turns` beside `chat`, the agent's `write` on both, and an invite at `chat` bringing `read` at `turns`, describe the tree before D18; an invite at `messages` now brings `read` at `chat`.
+> 3. **A call names its message as `messageSnapshot: { id, validFrom }`** (D19). Where DI2 and the phases say a call records the `post` it acted for, read that field.
+> 4. **Studio's model is GLM-5.3**, since Workers AI deprecated Kimi K2.7 Code on 2026-11-20 (§ *After the hand-off*).
 
 ## Conventions
 
@@ -49,11 +55,11 @@ The rest of this file says what a round holds, what the turn's own row holds, ho
 
 ## Relationships
 
-- **[archive/nebula-personas-are-real-members.md](archive/nebula-personas-are-real-members.md)**, kept and archived on 2026-11-16, built the in-memory tab wait as a temporary one, its D23. This task removes it.
-- **[nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check*** lists what a recovering turn has to decide first. This task decides those for a turn that has a row. Item 15 keeps the posts that no turn took up, a decision between turns that an eviction cut off, and telling the person what a cut-off turn left uncommitted.
+- **[archive/nebula-personas-are-real-members.md](nebula-personas-are-real-members.md)**, kept and archived on 2026-11-16, built the in-memory tab wait as a temporary one, its D23. This task removes it.
+- **[nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check*** lists what a recovering turn has to decide first. This task decides those for a turn that has a row. Item 15 keeps the posts that no turn took up, a decision between turns that an eviction cut off, and telling the person what a cut-off turn left uncommitted.
 - **The same file's § *Item 17: Turn-log inspection v0*** reads a person's `Message` Resources to see how their builds went. After this it reads their rounds too.
-- **[nebula-pre-alpha.md](nebula-pre-alpha.md) § *③ Capture live*** names the harvest as each `Message` with its `codegen`, and says a turn that dies at the deadline is never captured. After this task a cut-off turn's calls are on record round by round, and the harvest is the `Message`s and their `Round`s.
-- **It supersedes** the [backlog.md](backlog.md) row *A turn an eviction cuts off resumes where it stopped*, and the TEMP bullet on `Galaxy.runInTab` in `.claude/rules/mesh.md`. § *Phase 6* replaces the bullet and § *Phase 7* removes the row.
+- **[nebula-pre-alpha.md](../nebula-pre-alpha.md) § *③ Capture live*** names the harvest as each `Message` with its `codegen`, and says a turn that dies at the deadline is never captured. After this task a cut-off turn's calls are on record round by round, and the harvest is the `Message`s and their `Round`s.
+- **It supersedes** the [backlog.md](../backlog.md) row *A turn an eviction cuts off resumes where it stopped*, and the TEMP bullet on `Galaxy.runInTab` in `.claude/rules/mesh.md`. § *Phase 6* replaces the bullet and § *Phase 7* removes the row.
 - **It changes the Galaxy's tree:** a `turns` node beside `chat`, and every invite at `chat` also grants `read` there (D14).
 - **It answers these of Item 15's questions:** who writes the post that ends a turn (DI9, DI13), which event frees the latch (DI13, DI14), and what bounds a wake that dies before it posts (D6). § *Phase 7* rewrites that item to what is left.
 - **It owes edits elsewhere**, all in § *Phase 7*: the wording of § *③ Capture live* and of Item 17, the note on today's code in `docs/vision/auth.md` § *When the agent acts*, and what `docs/vision/_ai-security.md` and `.claude/rules/security.md` say a turn's message records.
@@ -167,7 +173,7 @@ The core is Larry's, and § *Decisions* holds it. Each item below that rests on 
 - **ADR-001:** `Round` is declared in `CHAT_MESSAGE_TYPES`, and the change bumps `CHAT_MESSAGE_ONTOLOGY_VERSION`.
 - **`durable-objects.md` § *Wall-clock billing* and § *No mutable instance state*:** no design depends on a Durable Object staying awake, and storage is the source of truth.
 - **`live.md`:** the scenarios come first. A `/live` scenario runs a turn and reads its rounds as they are written. Which tool the model calls is its own choice, so an eviction at a chosen round is gated in the lane that scripts the model's output, where a reset keeps storage (C6). A local `wrangler dev` wipes storage on a reset, so the eviction's own `/live` scene is deployed: a second deploy with an immediate code update while a turn runs (C9).
-- **The gate is `data`, before the first invite** (Larry, 2026-11-17). `toolCalls` moves off `Message.codegen` and the chat ontology's version bumps, so this lands before the wipe or production is wiped again after it ([nebula-pre-alpha.md](nebula-pre-alpha.md) § *What remains*). Every captured turn then has one shape.
+- **The gate is `data`, before the first invite** (Larry, 2026-11-17). `toolCalls` moves off `Message.codegen` and the chat ontology's version bumps, so this lands before the wipe or production is wiped again after it ([nebula-pre-alpha.md](../nebula-pre-alpha.md) § *What remains*). Every captured turn then has one shape.
 
 ## Beyond this task
 
@@ -190,7 +196,7 @@ None are open. Q1 was answered as D5 and Q2 as D6.
 | D4 | A tab call still unanswered when the Galaxy wakes is answered as lost and never sent again (Larry, 2026-11-14). | Sending it again: the code may have run, and running it twice can write twice. |
 | D5 | A `read_file` is recorded on its round as `{ path, bytes, oid }`. The Galaxy writes the content to the Workspace's git store by `hashObject` as the model reads it, and a rebuild reads it back by `catFile` (Larry, 2026-11-17, was Q1). A committed source file is already there, so nothing new is stored for it. | A raw row beside the turn's row: a second copy of what the Workspace holds, and a finished turn no longer says which version was read. On the round: every Studio on the app would receive each file. Reading again at rebuild: the model would be shown the file as it is now. |
 | D6 | A turn interrupted twice at the same round gives up, with DI9's fixed line. An interruption is a wake that finds a model call was cut off. A cut call's error on its round is its record, and a tab's answer arriving is not one. The row keeps the index of each interrupted round (Larry, 2026-11-17, was Q2). | A fixed cap on interruptions: it ends a healthy turn that spans a third deploy, and lets a broken one pay for three model calls. Counting every run: a tab's answer starts one, so a turn would end at its second `run_in_tab`. A backoff with no bound: the post still shows as waiting. |
-| D7 | Reversed by D11 on the same day. A round is as open to a member's overwrite as a `Message` is, and a turn continues from whatever its rounds hold (Larry, 2026-11-17). An overwrite is a new snapshot naming who wrote it, with the agent's own beneath it in history. The refusal belongs in the orgTree, with the [backlog.md](backlog.md) row *Only a message's author, or nobody, can change it*. | A check on every continue that stops a turn whose round the agent did not record (was DI10): it gives every member a way to stop anyone's turn. A node of the rounds' own where only the agent holds `write`: a second grant on every invite, ahead of the design that row waits for. Rebuilding from the agent's own snapshots only: a check on every rebuild for a risk a `Message` carries unguarded. |
+| D7 | Reversed by D11 on the same day. A round is as open to a member's overwrite as a `Message` is, and a turn continues from whatever its rounds hold (Larry, 2026-11-17). An overwrite is a new snapshot naming who wrote it, with the agent's own beneath it in history. The refusal belongs in the orgTree, with the [backlog.md](../backlog.md) row *Only a message's author, or nobody, can change it*. | A check on every continue that stops a turn whose round the agent did not record (was DI10): it gives every member a way to stop anyone's turn. A node of the rounds' own where only the agent holds `write`: a second grant on every invite, ahead of the design that row waits for. Rebuilding from the agent's own snapshots only: a check on every rebuild for a risk a `Message` carries unguarded. |
 | D8 | A round is stored when the model's reply arrives, before its tools run (Larry, 2026-11-17). Its second half, running the Galaxy's own unfinished calls again on a wake, is replaced by D12. As first decided: on a wake, a call of the Galaxy's own with no result is run again. Each of today's tools is harmless to repeat: an `edit_file` may report its anchor already replaced, which the model reads as any tool error. | Storing a round only when it ends: an eviction during a build pays again for the reply that carried every file. Answering the Galaxy's own unfinished calls as lost, like a tab's: the model would write the same files again. |
 | D9 | A cut-off turn continues at the next call that reaches its Galaxy, and no alarm wakes it (Larry, 2026-11-17). | The run's deadline as an alarm: a row written and cancelled on every run, and work resumed with nobody watching, to finish a turn a few minutes before its poster returns. The build box needs no waker, since Cloudflare stops it shortly after the Galaxy goes inactive (B6). |
 | D10 | The row holds no counters: the round count, the files written, the last build and the detectors' memory are worked out from the rounds (DI5). Larry's 2026-11-14 wording put the loop's counters on the row, and he read this change on 2026-11-17. | Counters on the row: a write per round for values the rounds already hold, and a second copy that can disagree with them. |
@@ -220,7 +226,7 @@ Each phase leaves every suite green. A criterion that names a test means a test 
 - The read writes nothing: no subscriber row and no live query. It refuses what a subscription refuses.
 - Add `resources.query(query)` to `packages/resources/src/client-resources.ts`, through `#versioned` and `callAsync`, as `#readResource` is. Its snapshots do not enter the client's store. Reword `#handleStale`'s JSDoc to name every answer and push channel instead of counting them.
 - Document it in `website/docs/nebula/resources.md`, and in `api-reference.md`'s table and a section of its own: subscribe to what stays on screen and can change, and read once what will not change or will not stay. Run `apps/nebula/scripts/gen-platform.mjs` and commit the embed.
-- Add a row to [backlog.md](backlog.md) § *Nebula*: a query cannot sort, page or limit, so it returns its oldest `QUERY_RESULT_CAP` results. A query that names the node it reads under is [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 21*, which starts with that row's work.
+- Add a row to [backlog.md](../backlog.md) § *Nebula*: a query cannot sort, page or limit, so it returns its oldest `QUERY_RESULT_CAP` results. A query that names the node it reads under is [nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 21*, which starts with that row's work.
 
 **Success criteria (capable of failing).** The first five are in `packages/resources/test`, on the package's own fixtures, with a plain member granted on one node as `act-under-claims-of.test.ts` logs one in. The admin cases are in `apps/nebula/test/test-apps/baseline/confine-org-plane.test.ts`, beside the subscription's.
 
@@ -419,7 +425,7 @@ Gathered from the phases' notes, merged, and ordered by what depends on what, th
 
 **Close-out notes:**
 
-- Added the [backlog.md](backlog.md) row *A query cannot sort, page or limit*, which `nebula-pre-alpha-fast-follow.md` § *Item 21* already pointed at.
+- Added the [backlog.md](../backlog.md) row *A query cannot sort, page or limit*, which `nebula-pre-alpha-fast-follow.md` § *Item 21* already pointed at.
 - `hasDominionOverHost` (`packages/resources/src/host-dominion.ts`) is the one verdict a subscription stores, the one-time read computes and `OrgTree.requirePermission` checks. The comments that counted two confinement points, in `resources.ts`, `org-tree.ts`'s `evaluatePermissions` and `confine-org-plane.test.ts`'s header, now name three.
 
 **Mutations run** (each caught by the test named, and by no other unless said):
@@ -516,7 +522,7 @@ Gathered from the phases' notes, merged, and ordered by what depends on what, th
 
 **Close-out notes:**
 
-- The [backlog.md](backlog.md) row on undoing a bad turn's writes named the turn's `toolCalls` entries, and now names its `Round`s.
+- The [backlog.md](../backlog.md) row on undoing a bad turn's writes named the turn's `toolCalls` entries, and now names its `Round`s.
 - `tasks/on-hold/nebula-studio-self-improvement.md` § *The folded shape* still shows `toolCalls` on `codegen`; § *Phase 7* edits it with the other files that describe a turn's record.
 
 **Mutations run** (each caught by the test named):
@@ -549,7 +555,7 @@ Gathered from the phases' notes, merged, and ordered by what depends on what, th
 **Close-out notes:**
 
 - `#takenUp` and its TEMP comment are gone, and so is the trigger's *"edited while its turn runs"* line, which nothing read. `grep -n 'takenUp' apps/nebula/src/galaxy.ts` prints nothing.
-- [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check* still points at `#takenUp`, and this phase answers the questions § *Relationships* names. § *Phase 7* rewrites it, as § *Relationships* says.
+- [nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check* still points at `#takenUp`, and this phase answers the questions § *Relationships* names. § *Phase 7* rewrites it, as § *Relationships* says.
 - `waiting-posts.test.ts`'s reset and deadline cases and the dev-studio deadline probe now assert the new behaviour: the wake continues a cut-off turn, and a deadline commits our line answering the post.
 
 **Mutations run** (each caught by the test named, unless it says otherwise):
@@ -588,7 +594,7 @@ Gathered from the phases' notes, merged, and ordered by what depends on what, th
 **Close-out notes:**
 
 - `.claude/rules/mesh.md`'s TEMP bullet on `Galaxy.runInTab` is replaced by the rule that a node MUST NOT wait in memory on a mesh call it sends. `.claude/rules/security.md`'s *The Galaxy* bullet covers `onTabAnswer`.
-- The [backlog.md](backlog.md) row this task supersedes still describes the in-memory wait. § *Phase 7* deletes it.
+- The [backlog.md](../backlog.md) row this task supersedes still describes the in-memory wait. § *Phase 7* deletes it.
 
 **Mutations run** (each caught by the test named, unless it says otherwise):
 
@@ -608,7 +614,7 @@ Gathered from the phases' notes, merged, and ordered by what depends on what, th
 
 **For the human:**
 
-- Three edits this phase owes sit in files another session has uncommitted edits in, so I made none of them: deleting the [backlog.md](backlog.md) row this task supersedes, moving this task's row in [nebula-pre-alpha.md](nebula-pre-alpha.md) to § *Shipped*, and rewriting [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check* to what is left. The proposed text is in the hand-off note. That session already brought pre-alpha's section on reading turns back, and Item 17, up to rounds.
+- Three edits this phase owes sit in files another session has uncommitted edits in, so I made none of them: deleting the [backlog.md](../backlog.md) row this task supersedes, moving this task's row in [nebula-pre-alpha.md](../nebula-pre-alpha.md) to § *Shipped*, and rewriting [nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check* to what is left. The proposed text is in the hand-off note. That session already brought pre-alpha's section on reading turns back, and Item 17, up to rounds.
 - What wakes a cut-off turn, a revoke at `chat`, the record a moved post's tab answer leaves, and the docs moved to § *Open decisions, in the order to take them*.
 - The define-the-cast skill now reads another persona's records with `client.resources.query`, the one-time read § *Phase 1* added, where it subscribed and disposed. The model reads that skill on every turn.
 
@@ -669,14 +675,19 @@ Gathered from the phases' notes, merged, and ordered by what depends on what, th
 
 **Closing sweep after the hand-off**, on ab685b3, which holds D17 to D20: 79 of 79 passed, over two runs, the second a `--rerun` after a stop for travel. `gateway-stamps-the-chain` failed in the first, its email-test socket closing before the mail arrived, and passed in the second with nothing changed: a **flake**. An earlier sweep of D18's tree died at 18 of 79 on a lost wifi connection, `wrangler dev` unable to resolve `api.cloudflare.com`. The wording since, "whenever the constructor runs" in comments and two test names, changes no behaviour and was checked by the type-check and the wake tests.
 
+**The deployed pass after the hand-off.** On 6aa65b1, whose deploy matched `HEAD`, nine scenarios passed before midnight UTC: `galaxy-seeds-its-chat`, with its new revoke limb, `scope-teardown`, `delete-from-its-own-page`, `rounds-as-they-land`, `post-edited-mid-turn`, `agent-invites`, `cast-from-a-tab`, `waiting-posts-answered` and `first-app-built`. After midnight `deploy-cuts-a-turn` failed three times, each turn's first model call ending `error` within 150 ms. The scenario now reports the reply such a turn commits, and it named the cause: Workers AI deprecated `kimi-k2.7-code` on 2026-11-20.
+
+- **Studio moved to GLM-5.3** (Larry's pick, 6f106ee). At GLM's default reasoning the build round spent all 8192 tokens thinking, so the model now runs at `reasoning_effort: 'high'` with a 32768 budget, and a local sweep passed 79 of 79.
+- **On 6f106ee `deploy-cuts-a-turn` passed**, the wake from `onStart` included: two starts and two wakes between the first round and the `Message`, which arrived with no call from the scenario. Workers Issues showed only the standing `scope-deleted`.
+
 **ADR-006 gained the rule behind D19** (Larry, 2026-11-19): a reference names the id alone for the resource as it is now, `{ id, validFrom }` for the version something was done on, and a version current at some moment through the snapshots' `validFrom` and `validTo`. Its line in `workflow.md`'s ADR index carries the tripwire.
 
 ## Non-goals
 
 - **Waking a turn nobody is watching.** D9 leaves it to the next call, and § *Beyond this task* keeps the alarm as a note.
 - **A build that leaves the Galaxy.** It is awaited where it is made, and § *Beyond this task* says what would change.
-- **Refusing a member's overwrite of a `Message` or a `ServedBuild`.** D14 puts rounds where members cannot write, and the rest stays with the [backlog.md](backlog.md) row *Only a message's author, or nobody, can change it*.
-- **Posts that no turn took up, and a decision an eviction cut off.** They stay with [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check*.
+- **Refusing a member's overwrite of a `Message` or a `ServedBuild`.** D14 puts rounds where members cannot write, and the rest stays with the [backlog.md](../backlog.md) row *Only a message's author, or nobody, can change it*.
+- **Posts that no turn took up, and a decision an eviction cut off.** They stay with [nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 15: The wake check*.
 - **Showing a call in Studio while it is out.** Studio's marks move to rounds in § *Phase 4* and show what they show today.
-- **Sorting, paging or limiting a query, and a query that names its node.** § *Phase 1* adds a backlog row for the first, and the second is [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 21*.
+- **Sorting, paging or limiting a query, and a query that names its node.** § *Phase 1* adds a backlog row for the first, and the second is [nebula-pre-alpha-fast-follow.md](../nebula-pre-alpha-fast-follow.md) § *Item 21*.
 - **A terminal `status` on the `Message`** other than what `codegen.stop` says. § *③ Capture live* owns that field.
