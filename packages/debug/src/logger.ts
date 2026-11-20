@@ -16,9 +16,53 @@ export interface DebugLoggerConfig {
 }
 
 /**
- * Safe JSON replacer that handles circular references and BigInt
+ * The Error a log entry is about: `data` itself, or the first Error among its own values.
+ * Its stack is lifted to the entry's top-level `stack`.
  */
-function safeReplacer() {
+function errorIn(data: unknown): Error | undefined {
+  if (data instanceof Error) return data;
+  if (typeof data !== 'object' || data === null) return undefined;
+  for (const value of Object.values(data)) {
+    if (value instanceof Error) return value;
+  }
+  return undefined;
+}
+
+/**
+ * The flags workerd sets on an Error from a call to a Durable Object or over Workers RPC: whether
+ * the remote side threw it, whether retrying could succeed, whether the object was overloaded, and
+ * whether the object was reset. Read by name, because whether workerd makes them enumerable is
+ * unmeasured. Cloudflare retries a Durable Object call that fails before it arrives, so these are
+ * what tell a transient failure its retries did not cure from one it never retried.
+ */
+const WORKERD_ERROR_FLAGS = ['remote', 'retryable', 'overloaded', 'durableObjectReset'] as const;
+
+/**
+ * An Error as plain fields. `JSON.stringify` would write `{}`, because an Error's `name`,
+ * `message`, `stack`, `cause` and AggregateError's `errors` are not enumerable.
+ */
+function serializeError(error: Error, omitStack: boolean): Record<string, unknown> {
+  const out: Record<string, unknown> = { name: error.name, message: error.message };
+  if (!omitStack && error.stack !== undefined) out.stack = error.stack;
+  const { cause, errors } = error as { cause?: unknown; errors?: unknown };
+  if (cause !== undefined) out.cause = cause;
+  if (Array.isArray(errors)) out.errors = errors;
+  for (const [key, value] of Object.entries(error)) {
+    if (!(key in out)) out[key] = value;
+  }
+  for (const key of WORKERD_ERROR_FLAGS) {
+    const value = (error as unknown as Record<string, unknown>)[key];
+    if (value !== undefined && !(key in out)) out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * Safe JSON replacer: handles circular references and BigInt, and writes an Error as its fields.
+ * `lifted` is the Error whose stack the entry already carries at the top level, so it is not
+ * written twice.
+ */
+function safeReplacer(lifted?: Error) {
   const seen = new WeakSet();
   return (_key: string, value: any) => {
     // Handle BigInt
@@ -32,6 +76,7 @@ function safeReplacer() {
         return '[Circular]';
       }
       seen.add(value);
+      if (value instanceof Error) return serializeError(value, value === lifted);
     }
 
     return value;
@@ -40,10 +85,32 @@ function safeReplacer() {
 
 /**
  * Default output function: console.debug with JSON stringified output
- * Handles circular references and BigInt safely
+ * Handles circular references, BigInt and Errors safely
  */
 function defaultOutput(log: DebugLogOutput): void {
-  console.debug(JSON.stringify(log, safeReplacer(), 2));
+  const lifted = log.stack === undefined ? undefined : errorIn(log.data);
+  console.debug(JSON.stringify(log, safeReplacer(lifted), 2));
+}
+
+/**
+ * One log entry. At error level, the stack of any Error in `data` is lifted to the top level; at
+ * any other level it stays nested, because Workers Issues makes any line with a top-level stack an
+ * issue, whatever its level.
+ */
+function entry(namespace: string, level: DebugLevel, message: string, data?: any): DebugLogOutput {
+  const log: DebugLogOutput = {
+    type: 'debug',
+    level,
+    namespace,
+    message,
+    timestamp: new Date().toISOString(),
+  };
+  if (data !== undefined) {
+    log.data = data;
+    const stack = level === 'error' ? errorIn(data)?.stack : undefined;
+    if (stack !== undefined) log.stack = stack;
+  }
+  return log;
 }
 
 /**
@@ -99,18 +166,7 @@ export class DebugLoggerImpl implements DebugLogger {
     const sink = getDebugSink();
     if (!sink && !this.#enabledCache.get(level)) return;
 
-    const log: DebugLogOutput = {
-      type: 'debug',
-      level,
-      namespace: this.namespace,
-      message,
-      timestamp: new Date().toISOString(),
-    };
-
-    if (data !== undefined) {
-      log.data = data;
-    }
-
+    const log = entry(this.namespace, level, message, data);
     if (sink) {
       sink(log);
     } else {
@@ -126,18 +182,7 @@ export class DebugLoggerImpl implements DebugLogger {
    */
   #logMessage(level: DebugLevel, message: string, data?: any): void {
     const sink = getDebugSink();
-    const log: DebugLogOutput = {
-      type: 'debug',
-      level,
-      namespace: this.namespace,
-      message,
-      timestamp: new Date().toISOString(),
-    };
-
-    if (data !== undefined) {
-      log.data = data;
-    }
-
+    const log = entry(this.namespace, level, message, data);
     if (sink) {
       sink(log);
     } else {

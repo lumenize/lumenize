@@ -6,7 +6,25 @@ import { describe, test, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
 
-describe('Fetch - Quick Start Example', () => {
+/**
+ * ⏸️ **PARKED — the proxy round trip stops working by DECISION, not by defect.**
+ *
+ * `svc.fetch.__handleProxyFetchResult(reqId, result)` is the one chain that opened on `svc` and
+ * crossed a hop, and `svc` is no longer a wire entry: the exemption that let it through was the
+ * hole a remote caller walked to read `env`, run arbitrary SQL, or reach an undecorated method on
+ * the host. `@lumenize/fetch` is all but deprecated and nobody runs it in production, so it does
+ * not get new framework surface built to keep it working.
+ *
+ * ⚠️ **Skipped rather than deleted, because revival is live rather than theoretical.** The package
+ * comes back if it ever supports streaming — the one case where proxying a fetch through a Worker
+ * genuinely saves money — and a deleted suite would have to be rewritten from nothing to prove the
+ * revived path. The break is flagged for the next release in `tasks/backlog.md` § *Lumenize Mesh*.
+ *
+ * ⓘ The package's ALARM/timeout path is untouched and still covered: it reaches the same method
+ * through a locally-authored chain, which the entry rule's carve-out permits. And
+ * `svc-is-not-an-entry.test.ts` stays ACTIVE — those limbs assert the RULE, not the package.
+ */
+describe.skip('Fetch - Quick Start Example', () => {
   test('handles successful response', async () => {
     const stub = env.FETCH_EXAMPLE_DO.getByName('quick-start-success');
     await stub.clearResults();
@@ -67,7 +85,7 @@ describe('Fetch - Quick Start Example', () => {
   });
 });
 
-describe('Fetch - Retry Pattern Example', () => {
+describe.skip('Fetch - Retry Pattern Example', () => {
   test('succeeds on first attempt when server responds', async () => {
     const stub = env.RETRY_EXAMPLE_DO.getByName('retry-success');
     await stub.clearResults();

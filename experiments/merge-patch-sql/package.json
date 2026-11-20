@@ -1,0 +1,19 @@
+{
+  "name": "experiment-merge-patch-sql",
+  "private": true,
+  "type": "module",
+  "//": "Is JSON Merge Patch cheaper to generate and apply in JavaScript, or pushed down into a Durable Object's SQLite? See RESULTS.md.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev --port 8798",
+    "probe": "node scripts/probe.mjs",
+    "analyze": "node scripts/analyze.mjs",
+    "types": "wrangler types"
+  },
+  "dependencies": {
+    "@lumenize/structured-clone": "*"
+  },
+  "devDependencies": {
+    "wrangler": "4.147.0"
+  }
+}

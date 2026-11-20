@@ -26,7 +26,7 @@ describe('Q3 — Recursive TreeNode (3 levels)', () => {
 
     const node = (label: string, children: string[]) => ({
       value: { label, children },
-      meta: { eTag: `eTag-${label}` },
+      meta: { validFrom: `validFrom-${label}` },
     });
 
     const { store, client } = setupVueStore({

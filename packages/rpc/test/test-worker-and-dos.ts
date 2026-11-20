@@ -467,8 +467,66 @@ class _BroadcastDO extends DurableObject<Env> {
 const BroadcastDO = lumenizeRpcDO(_BroadcastDO);
 export { BroadcastDO };
 
-// Re-export MapSetTestDOWithRpc from the test file
-export { MapSetTestDOWithRpc } from './map-set-identity.test';
+/**
+ * MapSetTestDO for `map-set-identity.test.ts` — methods that accept and return Maps/Sets with
+ * object keys/values
+ */
+class _MapSetTestDO extends DurableObject<Env> {
+  // Return a map with an object key
+  getMapWithKey() {
+    const key = { userId: 123, role: 'admin' };
+    const map = new Map([[key, 'user data']]);
+    return { map, key };  // Return both together
+  }
+
+  // Accept a map and key, try to access the value
+  accessMapValue(map: Map<any, any>, key: any) {
+    return {
+      canAccess: map.get(key) !== undefined,
+      value: map.get(key),
+      hasKey: map.has(key),
+    };
+  }
+
+  // Return a set with an object value
+  getSetWithValue() {
+    const value = { id: 456, name: 'Alice' };
+    const set = new Set([value]);
+    return { set, value };  // Return both together
+  }
+
+  // Accept a set and value, check membership
+  checkSetMembership(set: Set<any>, value: any) {
+    return {
+      hasMember: set.has(value),
+      size: set.size,
+    };
+  }
+
+  // Complex scenario: multiple maps sharing keys
+  getSharedKeyMaps() {
+    const sharedKey = { category: 'admin' };
+    return {
+      map1: new Map([[sharedKey, 'value1']]),
+      map2: new Map([[sharedKey, 'value2']]),
+      theKey: sharedKey,
+    };
+  }
+
+  // Accept the shared key structure and verify identity
+  verifySharedKeys(data: { map1: Map<any, any>, map2: Map<any, any>, theKey: any }) {
+    return {
+      map1HasKey: data.map1.get(data.theKey) !== undefined,
+      map2HasKey: data.map2.get(data.theKey) !== undefined,
+      map1Value: data.map1.get(data.theKey),
+      map2Value: data.map2.get(data.theKey),
+      keysAreIdentical: Array.from(data.map1.keys())[0] === Array.from(data.map2.keys())[0],
+    };
+  }
+}
+
+const MapSetTestDOWithRpc = lumenizeRpcDO(_MapSetTestDO);
+export { MapSetTestDOWithRpc };
 
 /**
  * Worker fetch handler that uses routeDORequest to handle RPC requests

@@ -1,7 +1,7 @@
 /**
  * Phase 6 benchmark — **size only**. In-Worker latency numbers require
  * Suite 2 (deployed, see `experiments/ts-runtime-parser-validator-spike/`)
- * because `performance.now()` inside `vitest-pool-workers` and on deployed
+ * because `performance.now()` inside `vitest-plugin` and on deployed
  * DOs returns the same value for both calls inside one synchronous turn.
  *
  * What this file measures:

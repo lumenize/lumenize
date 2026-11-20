@@ -17,7 +17,7 @@
  *
  * Scope: the sink slot is **per-isolate / module-instance**. A sink installed
  * in a Node test process does NOT capture logs emitted inside a workerd
- * isolate (e.g., a DO running under vitest-pool-workers). For cross-isolate
+ * isolate (e.g., a DO running under vitest-plugin). For cross-isolate
  * capture, install the sink on each side independently.
  */
 import type { DebugLogOutput } from './types';

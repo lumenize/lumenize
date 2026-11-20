@@ -1,0 +1,20 @@
+{
+  // The same probe under the DEFAULT scheduling policy — which is what apps/nebula runs —
+  // to ask one question: does a deployed build with @swc/core >= 1.16.12 fail there too?
+  // Reuses the `baked` image by digest, so nothing is rebuilt.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "experiment-container-snapshot-deps-default",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-29",
+  "containers": [
+    {
+      "class_name": "Probe",
+      "image": "registry.cloudflare.com/6c2517e636c90da5abf4e8d2a8eab42f/experiment-container-snapshot-deps-probe-baked@sha256:c2cb784bb5fc254cb9d42ef0cc8bb4d453dd3038b55e40a30e13d07dd641e93c",
+      "instance_type": "standard-2",
+      "max_instances": 3
+    }
+  ],
+  "durable_objects": { "bindings": [{ "name": "PROBE", "class_name": "Probe" }] },
+  "exports": { "Probe": { "type": "durable-object", "storage": "sqlite" } },
+  "observability": { "enabled": true }
+}

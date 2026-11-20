@@ -72,15 +72,26 @@ for package in "${PACKAGES[@]}"; do
     // Update main entry points
     pkg.main = 'dist/index.js';
     pkg.types = 'dist/index.d.ts';
-    
-    // Update exports
-    if (pkg.exports) {
-      if (pkg.exports['.']) {
-        pkg.exports['.'].import = './dist/index.js';
-        pkg.exports['.'].types = './dist/index.d.ts';
+
+    // Update exports — EVERY entry, not only '.': subpath exports
+    // (ts-runtime-parser-validator's ./runtime + ./compile, mesh's ./client, …)
+    // must repoint too, or the published package ships exports targeting src/
+    // paths the files list no longer packs. Walk nested condition maps; a
+    // 'types' condition maps to the .d.ts, everything else to the .js build.
+    const repoint = (obj) => {
+      for (const [cond, target] of Object.entries(obj)) {
+        if (typeof target === 'string') {
+          if (target.startsWith('./src/')) {
+            const base = target.slice('./src/'.length).replace(/\.ts$/, '');
+            obj[cond] = cond === 'types' ? './dist/' + base + '.d.ts' : './dist/' + base + '.js';
+          }
+        } else if (target && typeof target === 'object') {
+          repoint(target);
+        }
       }
-    }
-    
+    };
+    if (pkg.exports && typeof pkg.exports === 'object') repoint(pkg.exports);
+
     // Update files array to include dist instead of src
     if (pkg.files) {
       pkg.files = pkg.files.map(file => 

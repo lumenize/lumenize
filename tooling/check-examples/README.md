@@ -11,7 +11,7 @@ Documentation examples drift from actual code over time:
 
 ## Solution
 
-Annotate code blocks to verify they exist in passing tests. Annotations go on the fence line (invisible to readers):
+Annotate a code block with the file the example is drawn from, and the plugin verifies the block still matches that file. Annotations go on the fence line (invisible to readers):
 
 ```mdx
 ```typescript @check-example('packages/utils/test/route-do-request.test.ts')
@@ -27,6 +27,23 @@ The plugin will:
 3. Normalize both (strip comments/whitespace)
 4. Verify the doc code exists as a substring in the test file
 5. Fail the build with helpful errors if not found
+
+## What this proves — and what it does not
+
+The check is a **text match against a referenced file**. Nothing is executed. So a green
+`@check-example` proves the doc **mirrors code that exists**; it proves nothing about whether that
+code **runs**, is covered by a test, or is correct.
+
+That gap is widest when the target is a `test/for-docs/**` **implementation fixture** — a mini-app DO,
+Worker, or client that exists only to be exercised by its sibling narrative test. A doc can teach a
+method there that no test ever calls, and the check stays green: it reads as verified while nothing
+verifies it. (Measured 2026-07-31: `mesh/test/for-docs/security/team-doc-do.ts` sat at 60% function
+coverage with four doc-taught functions at zero hits, all four behind green `@check-example` blocks.)
+
+Pointing at a **test file** is stronger — the example then sits in code the suite actually runs —
+though still not proof on its own (a matched line can live in a skipped or unreached branch). Type
+declarations and production `src/` are legitimate targets and not the concern here; see
+`.claude/rules/documentation.md` § Skip-Check Annotations for which target to choose.
 
 ## Implementation
 

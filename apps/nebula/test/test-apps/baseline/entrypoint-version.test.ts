@@ -2,7 +2,7 @@
  * `/_version` build-compare endpoint — dev-safe + compare-only (Phase 1: nebula-release-process.md).
  *
  * Drives the REAL Nebula entrypoint via `Browser().fetch` (baseline `index.ts` re-exports
- * `entrypoint as default`). Under vitest-pool-workers no `--define` is injected, so the build
+ * `entrypoint as default`). Under vitest-plugin no `--define` is injected, so the build
  * stamp falls back to the dev sentinel (`buildSha() === 'dev'`, `buildDirty() === true`). This
  * pins the two invariants the deploy/staleness machinery depends on:
  *   1. Dev-safe — reading the absent `__GIT_SHA__`/`__DIRTY__` globals through the `typeof` guard

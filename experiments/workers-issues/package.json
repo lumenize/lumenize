@@ -1,0 +1,17 @@
+{
+  "name": "experiment-workers-issues",
+  "private": true,
+  "type": "module",
+  "//": "Deploy-only probe: which ways of reporting an error does Workers Issues detect, and how does it group them? Nebula logs through @lumenize/debug, which writes every level as one pretty-printed JSON string through console.debug. Each route here is one way an error can leave a Worker or a Durable Object, and every message starts with its route's letter so an issue in the dashboard names its source. See RESULTS.md.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "drive": "bash scripts/drive.sh",
+    "types": "wrangler types"
+  },
+  "dependencies": {
+    "@lumenize/debug": "*"
+  },
+  "devDependencies": {
+    "wrangler": "4.147.0"
+  }
+}

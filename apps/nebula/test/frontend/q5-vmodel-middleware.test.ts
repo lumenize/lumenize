@@ -5,7 +5,7 @@
  *   v-model.set → factory outer Proxy set trap → middleware chain →
  *   synced-state middleware matches resources.<rt>.<rid>.value.* →
  *   optimistic write paints + client.resources.write enqueues →
- *   (committed) → engine applyCommit advances meta.eTag.
+ *   (committed) → engine applyCommit advances meta.validFrom.
  *
  * Ported to the mock (committed responder); the resource is seeded so v-model
  * has a baseline. The full real-Star round-trip is a §5.3.8 e2e probe (P10).
@@ -14,13 +14,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { setupVueStore, loadVue } from './vue-harness';
 
 describe('Q5 — v-model → middleware → transaction', () => {
-  it('typing into v-model input commits an optimistic write + advances meta.eTag', async () => {
+  it('typing into v-model input commits an optimistic write + advances meta.validFrom', async () => {
     const rid = crypto.randomUUID();
     const { store } = setupVueStore({
       initialState: {
         resources: {
           TestResource: {
-            [rid]: { value: { title: 'original', status: 'todo' }, meta: { eTag: 'initial-eTag' } },
+            [rid]: { value: { title: 'original', status: 'todo' }, meta: { validFrom: 'initial-validFrom' } },
           },
         },
       },
@@ -63,12 +63,12 @@ describe('Q5 — v-model → middleware → transaction', () => {
       expect(store.resources.TestResource[rid].value.title).toBe('edited via v-model');
     }, { timeout: 1000 });
 
-    // The committed transaction's fresh eTag is written back to meta.eTag.
+    // The committed transaction's fresh validFrom is written back to meta.validFrom.
     await vi.waitFor(() => {
-      const newETag = store.resources.TestResource[rid].meta.eTag;
-      expect(newETag).not.toBe('initial-eTag');
-      expect(typeof newETag).toBe('string');
-      expect(newETag.length).toBeGreaterThan(0);
+      const moment = store.resources.TestResource[rid].meta.validFrom;
+      expect(moment).not.toBe('initial-validFrom');
+      expect(typeof moment).toBe('string');
+      expect(moment.length).toBeGreaterThan(0);
     }, { timeout: 5000 });
 
     app.unmount();

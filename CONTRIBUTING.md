@@ -56,7 +56,8 @@ npm test
 # Run only package tests
 npm run test:code
 
-# Validate doc examples
+# Check doc examples against their tests, then run the legacy doc-test
+# suites (advisory)
 npm run test:doc
 
 # Run tests for a specific package
@@ -127,7 +128,7 @@ cd packages/rpc && npm run type-check
 # Testing
 npm test              # Run all tests
 npm run test:code     # Package tests only
-npm run test:doc      # Doc example validation only
+npm run test:doc      # Doc example checker + legacy doc-test suites
 
 # Maintenance
 npm run clean         # Remove build artifacts

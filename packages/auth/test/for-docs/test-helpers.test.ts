@@ -5,7 +5,8 @@
  * finds it as a substring after normalization.
  */
 import { describe, it, expect } from 'vitest';
-import { testLoginWithMagicLink, parseJwtUnsafe } from '@lumenize/auth';
+import { testLoginWithMagicLink } from '@lumenize/auth';
+import { parseJwtUnsafe } from '@lumenize/crypto';
 import { Browser } from '@lumenize/testing';
 
 describe('testLoginWithMagicLink Examples', () => {

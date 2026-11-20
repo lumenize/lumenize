@@ -1,63 +1,72 @@
 /**
- * Gateway abuse case tests
+ * Abuse cases at a Client's host node
  *
  * Tests mesh→client active-scope verification, direct HTTP rejection,
- * and token expiry/no auth scenarios.
+ * and token expiry/no auth scenarios on the upgrade a page's Client makes to its scope's node.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { adminClientAt, addressOfClient, pageOf } from '../../test-helpers';
 import { StarTest, NebulaClientTest } from './index';
 
-describe('gateway abuse cases', () => {
+describe('abuse cases at a host node', () => {
 
   // ============================================
-  // Direct HTTP to NebulaDO
+  // Direct HTTP to a ScopedMeshDO
   // ============================================
 
   describe('direct HTTP rejection', () => {
-    // The direct-DO route is opened ONLY for the dev preview serve (Phase 4 retired
-    // the in-DO Star.onRequest serve): GET/HEAD to DEV_CONTAINER reaches
-    // `DevContainer.fetch()`; every other method is 405, every other binding
-    // (incl. STAR/UNIVERSE) is 404.
-    it('returns 404 for direct HTTP GET to a non-serving binding (Star — in-DO serve retired)', async () => {
+    // There is NO direct-DO route at all since the collapse retired the DevContainer
+    // preview proxy (the in-DO Star.onRequest serve was retired earlier): every
+    // un-prefixed /{BINDING}/{instance} path — HTTP or WS — falls to the 404 fallback.
+    // The built app's /app/* serve lands with the Phase-3 route table.
+    it('returns 404 for direct HTTP GET to a DO binding (Star — no direct-DO route)', async () => {
       const resp = await SELF.fetch('http://localhost/STAR/acme.app.tenant-a', {
         method: 'GET',
       });
-      expect(resp.status).toBe(404);   // STAR is no longer a serving target → gate 404s
+      expect(resp.status).toBe(404);
     });
 
-    it('returns 405 for a non-GET to the serving binding (DEV_CONTAINER)', async () => {
+    it('returns 404 for the RETIRED preview-proxy prefix (any method)', async () => {
       const resp = await SELF.fetch('http://localhost/DEV_CONTAINER/acme.app.dev', {
         method: 'POST',
       });
-      expect(resp.status).toBe(405);   // gate bounds the opened route to GET/HEAD
+      expect(resp.status).toBe(404);   // the route died with the DevContainer node
     });
 
-    it('returns 404 for direct HTTP to a non-serving binding (Universe)', async () => {
+    it('returns 404 for direct HTTP to a DO binding (Universe)', async () => {
       const resp = await SELF.fetch('http://localhost/UNIVERSE/acme', {
         method: 'GET',
       });
-      expect(resp.status).toBe(404);   // not a serving target → gate 404s
+      expect(resp.status).toBe(404);
     });
 
-    it('returns 501 for HTTP to gateway route', async () => {
-      const resp = await SELF.fetch('http://localhost/gateway/NEBULA_CLIENT_GATEWAY/sub.tab1', {
+    it('returns 426 for plain HTTP on a scope\'s upgrade path, which only a Client\'s upgrade takes', async () => {
+      const resp = await SELF.fetch(`${pageOf('acme.app.tenant-a')}/gateway/sub.tab1`, {
         method: 'GET',
       });
-      expect(resp.status).toBe(501);
+      expect(resp.status).toBe(426);
     });
 
-    it('returns 501 for direct WebSocket to DO binding (no gateway prefix)', async () => {
-      const resp = await SELF.fetch('http://localhost/NEBULA_CLIENT_GATEWAY/sub.tab1', {
+    it('returns 404 for an upgrade at /gateway/ on a host that is no scope\'s', async () => {
+      const resp = await SELF.fetch('http://localhost/gateway/sub.tab1', {
         headers: {
           'Upgrade': 'websocket',
-          'Sec-WebSocket-Protocol': 'lmz',
+          'Sec-WebSocket-Protocol': 'lmz.2',
         },
       });
-      expect(resp.status).toBe(501);
+      expect(resp.status).toBe(404);
+    });
+
+    it('returns 404 for direct WebSocket to DO binding (no gateway prefix — a Client\'s socket reaches its host node only under /gateway/)', async () => {
+      const resp = await SELF.fetch('http://localhost/STAR/acme.app.tenant-a', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz.2',
+        },
+      });
+      expect(resp.status).toBe(404);
     });
   });
 
@@ -67,20 +76,20 @@ describe('gateway abuse cases', () => {
 
   describe('token expiry and missing auth', () => {
     it('rejects WebSocket upgrade with no JWT', async () => {
-      const resp = await SELF.fetch('http://localhost/gateway/NEBULA_CLIENT_GATEWAY/sub.tab1', {
+      const resp = await SELF.fetch(`${pageOf('acme.app.tenant-a')}/gateway/sub.tab1`, {
         headers: {
           'Upgrade': 'websocket',
-          'Sec-WebSocket-Protocol': 'lmz',
+          'Sec-WebSocket-Protocol': 'lmz.2',
         },
       });
       expect(resp.status).toBe(401);
     });
 
     it('rejects WebSocket upgrade with invalid JWT', async () => {
-      const resp = await SELF.fetch('http://localhost/gateway/NEBULA_CLIENT_GATEWAY/sub.tab1', {
+      const resp = await SELF.fetch(`${pageOf('acme.app.tenant-a')}/gateway/sub.tab1`, {
         headers: {
           'Upgrade': 'websocket',
-          'Sec-WebSocket-Protocol': 'lmz, lmz.access-token.invalid-jwt-token',
+          'Sec-WebSocket-Protocol': 'lmz.2, lmz.access-token.invalid-jwt-token',
         },
       });
       expect(resp.status).toBe(403);
@@ -94,15 +103,15 @@ describe('gateway abuse cases', () => {
   describe('mesh → client active-scope verification', () => {
     it('happy path: StarTest calls client echo on same active scope', async () => {
       const browser = new Browser();
-      const star = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+      const star = `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 
       // Create admin client
-      const { client: adminClient } = await createAuthenticatedClient(
+      const { client: adminClient } = await adminClientAt(
         NebulaClientTest, browser, star, star, 'admin@example.com',
       );
 
-      // Get the client's gateway instance name (sub.tabId)
-      const gwInstanceName = adminClient.lmz.instanceName;
+      // The client's address on its host node, the Star of its page
+      const clientAddress = addressOfClient(adminClient);
 
       // Initialize the Star so it knows its binding
       adminClient.callStarSetConfig(star, 'test', 'value');
@@ -111,11 +120,13 @@ describe('gateway abuse cases', () => {
       });
 
       // Client calls StarTest.callClient which calls back to client's echo method
-      // StarTest.callClient is @mesh(requireAdmin) — admin JWT passes the guard
+      // StarTest.callClient is @mesh(requireDominionHere) — admin JWT passes the guard
       adminClient.lmz.call(
         'STAR',
         star,
-        adminClient.ctn<StarTest>().callClient(gwInstanceName, 'echo', 'hello'),
+        adminClient.ctn<StarTest>().callClient(clientAddress, 'echo', 'hello'),
+        adminClient.ctn<NebulaClientTest>().recordCallFailure(),
+        { onErrorOnly: true },
       );
 
       // Verify echo was called on the client
@@ -128,13 +139,13 @@ describe('gateway abuse cases', () => {
 
     it('client-side guard: adminEcho passes for admin-originated call', async () => {
       const browser = new Browser();
-      const star = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+      const star = `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 
-      const { client: adminClient } = await createAuthenticatedClient(
+      const { client: adminClient } = await adminClientAt(
         NebulaClientTest, browser, star, star, 'admin@example.com',
       );
 
-      const gwInstanceName = adminClient.lmz.instanceName;
+      const clientAddress = addressOfClient(adminClient);
 
       // Initialize the Star so it knows its binding
       adminClient.callStarSetConfig(star, 'test', 'value');
@@ -146,7 +157,9 @@ describe('gateway abuse cases', () => {
       adminClient.lmz.call(
         'STAR',
         star,
-        adminClient.ctn<StarTest>().callClient(gwInstanceName, 'adminEcho', 'hello'),
+        adminClient.ctn<StarTest>().callClient(clientAddress, 'adminEcho', 'hello'),
+        adminClient.ctn<NebulaClientTest>().recordCallFailure(),
+        { onErrorOnly: true },
       );
 
       // Verify adminEcho was called on the client

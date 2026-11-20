@@ -1,0 +1,162 @@
+/**
+ * A pushed call hands a client the writer's `originAuth`, never its `originRequest`.
+ *
+ * `originRequest` is what a client's host snapshots from its WebSocket upgrade: its IP,
+ * `User-Agent`, `Accept-Language`, and Cloudflare's `cf` city, region, latitude, longitude,
+ * timezone and colo. Server-side code reads it anywhere along the chain — an emailed link is built
+ * from its `origin`. But a push that keeps the writer's chain, which `lmz.broadcast` sends with
+ * `{ newChain: false }`, used to carry it into every subscriber's socket, so each subscriber received the WRITER's
+ * location and browser on every write. `originAuth` still reaches the client on purpose, so an
+ * app's own guards on the client can read the caller's claims.
+ *
+ * A subscriber could read the field in two places, so there are two limbs:
+ * - **`this.lmz.callContext` in the subscriber's `@mesh()` handler** — what app code sees, decided
+ *   by the client's `#handleIncomingCall`.
+ * - **the raw `incoming_call` frame on the subscriber's socket** — what devtools shows, decided by
+ *   the host's `ClientGateway.#forwardToClient`. This is the limb that reds if it starts forwarding
+ *   the field again: the client no longer copies it, so the handler limb stays green through that
+ *   regression.
+ *
+ * A client's `this.lmz.callContext` is also typed without the field, so app code that reads it
+ * fails to compile. The `expectTypeOf` lines below pin that for `npm run type-check`.
+ *
+ * **Why no running system (`live.md`).** Both deciding functions are mesh code that reads nothing
+ * from its environment, and this drives them end to end: real `EditorClient`s over real WebSocket
+ * upgrades, the Worker's `hostedUpgrade`, the host node's `ClientGateway` and a real `DocumentDO`,
+ * with each user logged in through Mesh's Registry. The `originRequest` in play is the one the host stamped from the writer's own
+ * upgrade; nothing here builds it. A deployed Worker changes what the snapshot contains (a real
+ * `cf`, an edge-set IP), never whether it is forwarded. And this lane runs in CI, so a mesh change
+ * that forwards the field again is caught where it is made, which `/live` is not.
+ */
+import { it, expect, expectTypeOf, vi } from 'vitest';
+import { Browser } from '@lumenize/testing';
+import {
+  GatewayMessageType, type CallContext, type LmzApiClient,
+} from '../../../src/index.js';
+import { EditorClient } from './editor-client.js';
+import type { DocumentDO } from './document-do.js';
+import { loginAt, uniqueScope, type Login } from '../../support/login.js';
+
+// Type-level, so `npm run type-check` enforces these and vitest does not. MUTATION-CHECK (run,
+// flipped): type `LmzApiClient.callContext` as `CallContext` again and the first line fails.
+expectTypeOf<LmzApiClient['callContext']>().not.toHaveProperty('originRequest');
+expectTypeOf<LmzApiClient['callContext']>().toHaveProperty('originAuth');
+
+/**
+ * A connected `EditorClient` for `login`. Pass `frames` to record every text frame its socket
+ * receives — the recorder subclasses the WebSocket, so it sits below the client's own parsing.
+ */
+async function connectEditor(login: Login, frames?: string[]): Promise<EditorClient> {
+  const browser = new Browser();
+  class RecordingWebSocket extends browser.WebSocket {
+    constructor(url: string | URL, protocols?: string[] | string) {
+      super(url, protocols);
+      this.addEventListener('message', (event) => {
+        if (typeof event.data === 'string') frames?.push(event.data);
+      });
+    }
+  }
+  const client = new EditorClient({
+    instanceName: `${login.sub}.tab1`,
+    baseUrl: login.baseUrl,
+    refresh: login.refresh,
+    fetch: browser.fetch,
+    WebSocket: RecordingWebSocket,
+  });
+  await vi.waitFor(() => expect(client.connectionState).toBe('connected'), { timeout: 10000 });
+  return client;
+}
+
+it("a subscriber receives the writer's originAuth, never its originRequest", async () => {
+  const workspace = uniqueScope('acme');
+  const writerLogin = await loginAt(workspace);
+  const subscriberLogin = await loginAt(workspace);
+  const writerSub = writerLogin.sub;
+  const subscriberFrames: string[] = [];
+  using writer = await connectEditor(writerLogin);
+  using subscriber = await connectEditor(subscriberLogin, subscriberFrames);
+  const documentId = crypto.randomUUID();
+  await writer.createDocument(documentId);
+  await writer.shareDocument(documentId, subscriberLogin.sub);
+
+  const contents: string[] = [];
+  const contexts: CallContext[] = [];
+  subscriber.openDocument(documentId, {
+    onContentUpdate: (c) => contents.push(c),
+    onContentUpdateContext: (ctx) => contexts.push(ctx),
+  });
+  await vi.waitFor(() => expect(contents[0]).toBe(''), { timeout: 10000 }); // subscribed
+
+  // The push that keeps the WRITER's chain (no `newChain`) — the shape `lmz.broadcast` sends with
+  // `{ newChain: false }`.
+  writer.lmz.call('DOCUMENT_DO', documentId,
+    writer.ctn<DocumentDO>().updatePreservingOrigin('hello from writer'),
+    writer.ctn().handleCallFailed('update'), { onErrorOnly: true });
+  await vi.waitFor(() => expect(contents).toContain('hello from writer'), { timeout: 10000 });
+
+  // ── Handler limb: `this.lmz.callContext`, as the subscriber's @mesh() handler read it ──
+  expect(contexts).toHaveLength(1);
+  const [ctx] = contexts;
+  // Positive control: this is the writer's chain. `originRequest` is copied beside `originAuth`
+  // by the same spread at every hop, so it rode this push as far as the Gateway.
+  expect(ctx.callChain[0]).toMatchObject({ type: 'LumenizeClient', instanceName: `${workspace}/${writerSub}.tab1` });
+  // MUTATION-CHECK (run, flipped): drop `originAuth` from `#forwardToClient` and this reds.
+  expect(ctx.originAuth?.sub).toBe(writerSub);
+  // Red before the fix: the subscriber's handler saw the writer's `{ origin: 'https://localhost' }`.
+  expect(ctx.originRequest).toBeUndefined();
+
+  // ── Wire limb: the raw frame the host put on the subscriber's socket ──
+  const pushes = subscriberFrames
+    .map((raw) => ({ raw, message: JSON.parse(raw) }))
+    .filter(({ message }) => message.type === GatewayMessageType.INCOMING_CALL);
+  expect(pushes).toHaveLength(1);
+  const [push] = pushes;
+  expect(push.message.callContext.originAuth.sub).toBe(writerSub);
+  // MUTATION-CHECK (run, flipped): forward `originRequest` from `#forwardToClient` again and this
+  // reds while the handler limb above stays green. The client-side copy has no runtime check:
+  // `IncomingCallMessage` has no such field, so restoring it fails the type-check instead.
+  expect(push.message.callContext).not.toHaveProperty('originRequest');
+  // On the bytes, so a copy anywhere else in the frame reds too. MUTATION-CHECK (run, flipped):
+  // smuggle it inside `state` and only this line reds.
+  expect(push.raw).not.toContain('"originRequest"');
+}, 20000);
+
+// A broadcast starts a fresh chain by default, so the push speaks for the node and carries none of
+// the writer's claims — at the handler and on the wire — while the directed push above carries them.
+// MUTATION-CHECK: restore the inherit default in `broadcastShared`, and the writer's claims are back
+// in the frame.
+it("a broadcast push carries no originAuth, at the handler and on the frame", async () => {
+  const workspace = uniqueScope('acme');
+  const writerLogin = await loginAt(workspace);
+  const subscriberLogin = await loginAt(workspace);
+  const writerSub = writerLogin.sub;
+  const subscriberFrames: string[] = [];
+  using writer = await connectEditor(writerLogin);
+  using subscriber = await connectEditor(subscriberLogin, subscriberFrames);
+  const documentId = crypto.randomUUID();
+  await writer.createDocument(documentId);
+  await writer.shareDocument(documentId, subscriberLogin.sub);
+
+  const contents: string[] = [];
+  const contexts: CallContext[] = [];
+  subscriber.openDocument(documentId, {
+    onContentUpdate: (c) => contents.push(c),
+    onContentUpdateContext: (ctx) => contexts.push(ctx),
+  });
+  await vi.waitFor(() => expect(contents[0]).toBe(''), { timeout: 10000 }); // subscribed
+
+  writer.lmz.call('DOCUMENT_DO', documentId, writer.ctn<DocumentDO>().publish('broadcast from writer'),
+    writer.ctn().handleCallFailed('publish'), { onErrorOnly: true });
+  await vi.waitFor(() => expect(contents).toContain('broadcast from writer'), { timeout: 10000 });
+
+  expect(contexts).toHaveLength(1);
+  expect(contexts[0].callChain).toEqual([expect.objectContaining({ bindingName: 'DOCUMENT_DO', instanceName: documentId })]);
+  expect(contexts[0].originAuth).toBeUndefined();
+
+  const pushes = subscriberFrames
+    .map((raw) => JSON.parse(raw))
+    .filter((message) => message.type === GatewayMessageType.INCOMING_CALL);
+  expect(pushes).toHaveLength(1);
+  expect(pushes[0].callContext).not.toHaveProperty('originAuth');
+  expect(JSON.stringify(pushes[0])).not.toContain(writerSub);
+}, 20000);

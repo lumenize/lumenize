@@ -1,0 +1,640 @@
+{
+  "base": "https://experiment-do-socket-drop-probe.transformation.workers.dev",
+  "mode": "hunt",
+  "out": [
+    {
+      "want": "slow",
+      "instance": "hunt-slow-b89b6d35",
+      "jsMs": 29.1,
+      "tries": 1,
+      "result": {
+        "name": "ws1-js",
+        "instance": "hunt-slow-b89b6d35",
+        "colo": "IAD",
+        "n": 2000000,
+        "durationS": 50,
+        "perSecTimeline": [
+          18.5,
+          18,
+          19,
+          19,
+          19.5,
+          17,
+          20,
+          20,
+          19.5,
+          18.5,
+          19,
+          18.5,
+          20.5,
+          18.5,
+          19.5,
+          18,
+          17.5,
+          19,
+          18,
+          19.5,
+          19,
+          18.5,
+          18.5,
+          20.5,
+          19,
+          0.5
+        ],
+        "total": 946,
+        "errors": 1,
+        "errorKinds": {
+          "closed 1006 ": 1
+        },
+        "clientCloses": [
+          {
+            "socket": 0,
+            "atS": 49.2,
+            "code": 1006,
+            "reason": ""
+          }
+        ],
+        "closeCodes": {
+          "1006 ": 1
+        },
+        "bootIdsSeen": 2,
+        "boots": 2,
+        "serverEvents": [
+          {
+            "at": "2026-10-04T20:58:51.037Z",
+            "boot": "49b8466b-cf9c-4f96-8195-d44718d09fbb",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c0\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T20:58:50.687Z",
+            "boot": "49b8466b-cf9c-4f96-8195-d44718d09fbb",
+            "kind": "boot",
+            "detail": "boot #2"
+          },
+          {
+            "at": "2026-10-04T20:58:00.905Z",
+            "boot": "b09aaa89-92c0-4bb7-8b62-796c4f0dd946",
+            "kind": "close",
+            "detail": "{\"clientId\":\"hunt\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T20:58:00.584Z",
+            "boot": "b09aaa89-92c0-4bb7-8b62-796c4f0dd946",
+            "kind": "boot",
+            "detail": "boot #1"
+          }
+        ]
+      }
+    },
+    {
+      "want": "slow",
+      "instance": "hunt-slow-4b2399bf",
+      "jsMs": 31.7,
+      "tries": 3,
+      "result": {
+        "name": "rpc1-js",
+        "instance": "hunt-slow-4b2399bf",
+        "colo": "IAD",
+        "n": 2000000,
+        "durationS": 50,
+        "perSecTimeline": [
+          29,
+          29.5,
+          20.5,
+          30.5,
+          30,
+          27.5,
+          26.5,
+          26.5,
+          30.5,
+          29,
+          29.5,
+          31,
+          30,
+          24.5,
+          28,
+          29.5,
+          29.5,
+          28.5,
+          28.5,
+          29,
+          29.5,
+          29,
+          29.5,
+          29,
+          30.5,
+          0.5
+        ],
+        "total": 1431,
+        "errors": 0,
+        "errorKinds": {},
+        "clientCloses": [],
+        "closeCodes": {},
+        "bootIdsSeen": 1,
+        "boots": 1,
+        "serverEvents": [
+          {
+            "at": "2026-10-04T20:58:59.008Z",
+            "boot": "231b4ae4-5870-409e-b715-3bb87e54b13a",
+            "kind": "close",
+            "detail": "{\"clientId\":\"hunt\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T20:58:58.647Z",
+            "boot": "231b4ae4-5870-409e-b715-3bb87e54b13a",
+            "kind": "boot",
+            "detail": "boot #1"
+          }
+        ]
+      }
+    },
+    {
+      "want": "slow",
+      "instance": "hunt-slow-e90aa407",
+      "jsMs": 29,
+      "tries": 2,
+      "result": {
+        "name": "ws16-js",
+        "instance": "hunt-slow-e90aa407",
+        "colo": "EWR",
+        "n": 2000000,
+        "durationS": 50,
+        "perSecTimeline": [
+          25.5,
+          33,
+          25.5,
+          33.5,
+          33,
+          25,
+          56,
+          226,
+          217.5,
+          218.5,
+          212,
+          245,
+          224.5,
+          207,
+          210.5,
+          213,
+          178,
+          200.5,
+          204.5,
+          204,
+          204,
+          213.5,
+          210.5,
+          213,
+          221,
+          8
+        ],
+        "total": 8125,
+        "errors": 17,
+        "errorKinds": {
+          "closed 1006 ": 16,
+          "ws connect error": 1
+        },
+        "clientCloses": [
+          {
+            "socket": 2,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 3,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 0,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 5,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 12,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 8,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 9,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 13,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 6,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 14,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 15,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 4,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 10,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 7,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 11,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 1,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "socket": 2,
+            "atS": 13.1,
+            "code": 1006,
+            "reason": ""
+          }
+        ],
+        "closeCodes": {
+          "1006 ": 17
+        },
+        "bootIdsSeen": 2,
+        "boots": 2,
+        "serverEvents": [
+          {
+            "at": "2026-10-04T21:00:45.798Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c5\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:45.798Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c2\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:45.798Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c1\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:45.798Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c12\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:45.798Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c11\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:45.798Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c3\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:45.798Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c14\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:45.798Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c0\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:45.798Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c13\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:45.798Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c6\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:45.798Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c10\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:45.798Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c7\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:45.798Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c15\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:45.798Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c4\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:45.798Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c8\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:45.795Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c9\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:10.246Z",
+            "boot": "b624dbfe-370b-4764-9a59-feacbeaa3a72",
+            "kind": "boot",
+            "detail": "boot #2"
+          },
+          {
+            "at": "2026-10-04T20:59:56.483Z",
+            "boot": "5bb71e5d-bd6b-47e1-906f-66438f70a6af",
+            "kind": "close",
+            "detail": "{\"clientId\":\"hunt\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T20:59:56.106Z",
+            "boot": "5bb71e5d-bd6b-47e1-906f-66438f70a6af",
+            "kind": "boot",
+            "detail": "boot #1"
+          }
+        ]
+      }
+    },
+    {
+      "want": "slow",
+      "instance": "hunt-slow-d840d771",
+      "jsMs": 45.9,
+      "tries": 2,
+      "result": {
+        "name": "ws1-js-paced",
+        "instance": "hunt-slow-d840d771",
+        "colo": "IAD",
+        "n": 2000000,
+        "durationS": 50,
+        "perSecTimeline": [
+          3,
+          3,
+          3.5,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3.5,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3.5,
+          3,
+          3,
+          3,
+          3,
+          3.5,
+          3,
+          3,
+          3,
+          3,
+          0
+        ],
+        "total": 154,
+        "errors": 0,
+        "errorKinds": {},
+        "clientCloses": [],
+        "closeCodes": {},
+        "bootIdsSeen": 1,
+        "boots": 1,
+        "serverEvents": [
+          {
+            "at": "2026-10-04T21:01:44.242Z",
+            "boot": "964ac1c8-aa78-499c-95de-e9765e755b7e",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c0\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:54.021Z",
+            "boot": "964ac1c8-aa78-499c-95de-e9765e755b7e",
+            "kind": "close",
+            "detail": "{\"clientId\":\"hunt\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:00:53.728Z",
+            "boot": "964ac1c8-aa78-499c-95de-e9765e755b7e",
+            "kind": "boot",
+            "detail": "boot #1"
+          }
+        ]
+      }
+    },
+    {
+      "want": "slow",
+      "instance": "hunt-slow-fff9d42e",
+      "jsMs": 31.8,
+      "tries": 1,
+      "result": {
+        "name": "ws1-js",
+        "instance": "hunt-slow-fff9d42e",
+        "colo": "IAD",
+        "n": 2000000,
+        "durationS": 50,
+        "perSecTimeline": [
+          17,
+          18,
+          19,
+          18.5,
+          18.5,
+          18.5,
+          19,
+          19,
+          19.5,
+          19,
+          19.5,
+          19,
+          19,
+          19,
+          18.5,
+          18.5,
+          18.5,
+          18,
+          18,
+          17.5,
+          18,
+          18.5,
+          19,
+          18.5,
+          28.5,
+          0.5
+        ],
+        "total": 949,
+        "errors": 1,
+        "errorKinds": {
+          "closed 1006 ": 1
+        },
+        "clientCloses": [
+          {
+            "socket": 0,
+            "atS": 48.4,
+            "code": 1006,
+            "reason": ""
+          }
+        ],
+        "closeCodes": {
+          "1006 ": 1
+        },
+        "bootIdsSeen": 2,
+        "boots": 2,
+        "serverEvents": [
+          {
+            "at": "2026-10-04T21:02:41.385Z",
+            "boot": "b84380f5-eab7-44c3-87a2-3559b03ed788",
+            "kind": "close",
+            "detail": "{\"clientId\":\"c0\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:02:40.270Z",
+            "boot": "b84380f5-eab7-44c3-87a2-3559b03ed788",
+            "kind": "boot",
+            "detail": "boot #2"
+          },
+          {
+            "at": "2026-10-04T21:01:51.227Z",
+            "boot": "c82976ce-e918-426e-8687-186ff5671ca9",
+            "kind": "close",
+            "detail": "{\"clientId\":\"hunt\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:01:50.827Z",
+            "boot": "c82976ce-e918-426e-8687-186ff5671ca9",
+            "kind": "boot",
+            "detail": "boot #1"
+          }
+        ]
+      }
+    },
+    {
+      "want": "slow",
+      "instance": "hunt-slow-b5c126b4",
+      "jsMs": 29.4,
+      "tries": 1,
+      "result": {
+        "name": "rpc1-js",
+        "instance": "hunt-slow-b5c126b4",
+        "colo": "IAD",
+        "n": 2000000,
+        "durationS": 50,
+        "perSecTimeline": [
+          27.5,
+          25.5,
+          25.5,
+          27,
+          28.5,
+          22.5,
+          27,
+          24,
+          28,
+          28,
+          26.5,
+          28,
+          29,
+          27.5,
+          27,
+          28.5,
+          29,
+          30.5,
+          29,
+          29.5,
+          29.5,
+          29.5,
+          29.5,
+          30,
+          28.5,
+          0.5
+        ],
+        "total": 1391,
+        "errors": 0,
+        "errorKinds": {},
+        "clientCloses": [],
+        "closeCodes": {},
+        "bootIdsSeen": 1,
+        "boots": 1,
+        "serverEvents": [
+          {
+            "at": "2026-10-04T21:02:48.220Z",
+            "boot": "c41496cc-1853-48eb-a04a-c2b752764de0",
+            "kind": "close",
+            "detail": "{\"clientId\":\"hunt\",\"code\":1000,\"reason\":\"done\",\"wasClean\":true}"
+          },
+          {
+            "at": "2026-10-04T21:02:47.842Z",
+            "boot": "c41496cc-1853-48eb-a04a-c2b752764de0",
+            "kind": "boot",
+            "detail": "boot #1"
+          }
+        ]
+      }
+    }
+  ]
+}

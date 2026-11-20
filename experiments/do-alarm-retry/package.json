@@ -1,0 +1,15 @@
+{
+  "name": "experiment-do-alarm-retry",
+  "private": true,
+  "type": "module",
+  "//": "Deploy-only probe: how does Cloudflare's production alarm scheduler retry an alarm() that fails by throwing, by ctx.abort(), by a CPU or memory kill, or by a code-update reset mid-handler? What do alarmInfo.retryCount and isRetry say on each retry, what does a re-arm before the failure do, and is anything signalled when the retries run out? See RESULTS.md.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "drive": "node scripts/drive.mjs",
+    "logs": "node scripts/logs.mjs",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "wrangler": "4.147.0"
+  }
+}

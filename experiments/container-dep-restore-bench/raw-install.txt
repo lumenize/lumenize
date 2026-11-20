@@ -1,0 +1,56 @@
+=== Part 1: install cost  (img=node:22-slim, --cpus=0.5, arch=arm64, 2026-07-20T15:03:51Z) ===
+
+--- [A] cold install of the full curated set (baseline; 2 runs for variance) ---
+scenario                           wall     size     pkgs
+curated-full run1                  13.4	111MB	64pkgs
+curated-full run2                  12.5	111MB	64pkgs
+
+--- [B] cold install of each curated dep ALONE (what dominates?) ---
+scenario                           wall     size     pkgs
+alone: vue                         2.4	19MB	33pkgs
+alone: vite                        6.3	30MB	18pkgs
+alone: @vitejs/plugin-vue          7.4	48MB	45pkgs
+alone: tailwindcss                 0.8	1MB	1pkgs
+alone: @tailwindcss/vite           7.4	47MB	40pkgs
+alone: daisyui                     0.7	4MB	1pkgs
+alone: lucide-vue-next             5.1	56MB	34pkgs
+alone: typescript                  2.0	30MB	3pkgs
+
+--- [C] native-binary census of the full curated tree ---
+total node_modules: 111 MB, 64 pkgs
+--- .node / ELF binaries in tree ---
+node_modules/lightningcss-linux-arm64-gnu/lightningcss.linux-arm64-gnu.node
+node_modules/@tailwindcss/oxide-linux-arm64-gnu/tailwindcss-oxide.linux-arm64-gnu.node
+node_modules/@rollup/rollup-linux-arm64-gnu/rollup.linux-arm64-gnu.node
+--- 10 largest packages (MB) ---
+33	node_modules/lucide-vue-next
+23	node_modules/typescript
+10	node_modules/@esbuild
+9	node_modules/lightningcss-linux-arm64-gnu
+7	node_modules/@vue
+6	node_modules/@babel
+4	node_modules/daisyui
+3	node_modules/vue
+3	node_modules/vite
+3	node_modules/rollup
+--- npm cache left behind by the install (this ships in our baked image layer) ---
+179 MB
+
+=== [D] THE HEADLINE: incremental install on top of the BAKED tree ===
+Baked image = our real Dockerfile shape (curated node_modules + npm cache present).
+baked image built ok
+
+user dep added to baked tree       wall     delta    pkgs+
+echarts (big bytes, few pkgs)      3.2s	+80MB	+13
+ag-grid-community (very big)       1.9s	+37MB	+12
+@tiptap/vue-3 +starter-kit (many)  3.3s	+25MB	+52
+@tanstack/vue-table (small)        1.6s	+17MB	+5
+chart.js (medium)                  1.0s	+19MB	+7
+date-fns (many files, pure JS)     4.0s	+40MB	+4
+NO-OP re-install (tree churn cost) 0.7s	+13MB	+3
+
+--- [E] CPU sensitivity: same two measurements at --cpus=2 ---
+curated-full @2cpu                 14.7	111MB	64pkgs
+incr echarts @2cpu                 1.1s
+
+raw output: /Users/larry/Projects/mcp/lumenize/experiments/container-dep-restore-bench/raw-install.txt

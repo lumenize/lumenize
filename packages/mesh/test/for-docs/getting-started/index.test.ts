@@ -6,22 +6,27 @@
  * website/docs/mesh/getting-started.mdx
  *
  * Scenarios covered:
- * 1. Alice connects and opens a document (receives empty content)
+ * 1. Alice connects, creates a document and opens it (receives empty content)
  * 2. Alice updates the document
- * 3. Bob connects, opens the same document, and receives the current content
+ * 3. Alice shares it with Bob, who connects, opens it, and receives the current content
  * 4. Bob updates the document, both clients receive the broadcast
  * 5. Spell check findings go only to the originator (Bob, not Alice)
+ *
+ * Alice and Bob log in on their workspace's page through Mesh's Registry, which hands the magic
+ * link back in test mode (ADR-009 rung 2).
  */
 
 import { it, expect, vi } from 'vitest';
 import { createTestingClient, Browser } from '@lumenize/testing';
-import { createTestRefreshFunction } from '../../../src/index.js';
 import { EditorClient } from './editor-client.js';
 import type { SpellFinding } from './spell-check-worker.js';
 import type { DocumentDO } from './document-do.js';
+import { loginAt, uniqueScope } from '../../support/login.js';
 
 it('collaborative document editing with multiple clients', async () => {
-  const documentId = 'collab-doc-1';
+  // A document is named by an id, never by a scope: a UUID
+  const documentId = crypto.randomUUID();
+  const workspace = uniqueScope('acme');
 
   // ============================================
   // Test infrastructure - tracks events for assertions
@@ -38,9 +43,9 @@ it('collaborative document editing with multiple clients', async () => {
   // ============================================
   // Test setup - authenticate user
   // ============================================
+  const aliceLogin = await loginAt(workspace);
   const browser = new Browser();
-  const aliceCtx = browser.context('https://localhost');
-  const aliceRefresh = createTestRefreshFunction();
+  const aliceCtx = browser.context(aliceLogin.baseUrl);
 
   // ============================================
   // Example code - this is what we show in docs
@@ -48,8 +53,8 @@ it('collaborative document editing with multiple clients', async () => {
 
   // Use `using` for automatic cleanup via Symbol.dispose
   using client = new EditorClient({
-    baseUrl: 'https://localhost',
-    refresh: aliceRefresh,
+    baseUrl: aliceLogin.baseUrl,
+    refresh: aliceLogin.refresh,
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
     sessionStorage: aliceCtx.sessionStorage,
@@ -60,6 +65,7 @@ it('collaborative document editing with multiple clients', async () => {
     expect(client.connectionState).toBe('connected');
   });
 
+  await client.createDocument(documentId);
   const doc = client.openDocument(documentId, {
     onContentUpdate: updateEditor,
     onSpellFindings: showSpellingSuggestions,
@@ -81,13 +87,14 @@ it('collaborative document editing with multiple clients', async () => {
   // ============================================
   // Additional test: second client (Bob) joins
   // ============================================
+  const bobLogin = await loginAt(workspace);
+  await client.shareDocument(documentId, bobLogin.sub);
   const bobBrowser = new Browser();
-  const bobCtx = bobBrowser.context('https://localhost');
-  const bobRefresh = createTestRefreshFunction();
+  const bobCtx = bobBrowser.context(bobLogin.baseUrl);
 
   using bob = new EditorClient({
-    baseUrl: 'https://localhost',
-    refresh: bobRefresh,
+    baseUrl: bobLogin.baseUrl,
+    refresh: bobLogin.refresh,
     fetch: bobBrowser.fetch,
     WebSocket: bobBrowser.WebSocket,
     sessionStorage: bobCtx.sessionStorage,
@@ -116,9 +123,8 @@ it('collaborative document editing with multiple clients', async () => {
   // Verify Bob is subscribed via direct storage inspection
   {
     using docClient = createTestingClient<typeof DocumentDO>('DOCUMENT_DO', documentId);
-    const subscribers = await docClient.ctx.storage.kv.get<Set<string>>('subscribers');
-    expect(subscribers).toBeInstanceOf(Set);
-    expect(subscribers!.has(bob.lmz.instanceName)).toBe(true);
+    const subscribers = await docClient.ctx.storage.kv.get<Array<{ instanceName: string; sub: string }>>('subscribers');
+    expect(subscribers!.find((s) => s.instanceName === `${workspace}/${bob.lmz.instanceName}`)?.sub).toBe(bobLogin.sub);
   }
 
   // Bob continues the document, both receive the broadcast

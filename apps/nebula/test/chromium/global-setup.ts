@@ -1,110 +1,158 @@
 /**
- * Vitest globalSetup for the real-chromium `chromium` project — auto-spawns
- * `wrangler dev` against the browser test-app worker and exposes its URL +
- * the `email-test` Worker's TEST_TOKEN to browser tests via `project.provide()`.
+ * Vitest globalSetup for the real-chromium `chromium` project — boots the stack, and signs the
+ * test page's browser in as the admin of the Star its host names.
  *
- * Same-origin via Vite proxy (see `dynamicEnvProxyPlugin` in vitest.config.js).
- * The test page is served on vite-browser's port; the worker runs on a
- * different localhost port. NebulaAuth's `Secure; SameSite=Strict` refresh-token
- * cookie would never reach the worker on a cross-origin POST, so the proxy
- * forwards `/worker/*` (HTTP + WS) to wrangler-dev. This setup spawns wrangler
- * dev, then writes its URL to `process.env.WRANGLER_PROXY_TARGET` so the proxy
- * resolves it dynamically. Tests use `/worker` as their relative baseUrl prefix.
+ * Under the host model a page acts only at its own host's scope, and its session lives on the
+ * platform host (ADR-022). So the lane runs as production does:
  *
- * Reuses the EXISTING `test/browser/worker/` config (full Nebula stack + the
- * real-email `TestNebulaEmailSender`) but persists to a SEPARATE state dir so
- * it never contends with the Node-side `browser` project's wrangler-dev. The
- * upstream is plain http — the proxy terminates nothing-to-terminate and the
- * browser only ever sees `http://localhost` (a secure context, so `Secure`
- * cookies are accepted). No `--local-protocol https` needed (that's only for
- * the Node-side `browser` project, which talks to wrangler-dev directly).
+ *   1. `wrangler dev` on the browser test-app worker (`StarTest`, the real-email
+ *      `TestNebulaEmailSender`), on plain http — Chromium treats `*.localhost` as a secure context,
+ *      so the `Secure` `__Host-` cookies land — with its own persist dir so it never contends with
+ *      the Node-side `browser` project's.
+ *   2. Studio's vite in front of it (`bootStudioVite`), which serves the link page and proxies the
+ *      Worker's paths, exactly as the `/live` harness does.
+ *   3. The tree above the page's Star: its owner claims `acme` with `crm` as the first app, in Node.
+ *   4. The Star's own admin claims {@link PAGE_STAR} through vite's port, so the emailed link opens
+ *      the page vite serves. The link is followed by a real navigation in Chromium and accepted on
+ *      the consent card, which sets the `__Host-refresh-token.acme.crm.tenant-a` cookie on the
+ *      platform host.
+ *   5. That browser's cookies are written to {@link STORAGE_STATE}, which the project's provider
+ *      starts every test's context from — so each test's page is that same signed-in browser.
  *
- * No NEBULA_AUTH_TEST_MODE: auth runs the real magic-link email flow
- * (Cloudflare Email Sending → Email Routing → deployed email-test Worker →
- * WebSocket back to the test), matching the Node-side harness. A test-mode flag
- * in any wrangler invocation is a leak risk — and note `audit-test-mode.sh` does
- * NOT scan `.ts` (only wrangler configs / package.json / *.sh / CI yml / .dev.vars),
- * so keeping this spawn test-mode-free is a discipline here, not an enforced gate.
- * NEBULA_AUTH_BOOTSTRAP_EMAIL=test@lumenize.io auto-approves that subject as admin
- * so the auth gate doesn't 403.
+ * Tests read where to reach the Worker through `inject('pageBaseUrl')` (this page's Star host on
+ * vite's port, for the socket) and `inject('platformOrigin')` (the platform host there, for the
+ * refresh). The address is fresh per run, so no other lane's mail can answer its waiter.
+ *
+ * No AUTH_TEST_MODE: ADR-009 rung 1 throughout, the same real magic-link flow as the
+ * Node-side harness. `audit-test-mode.sh` does not scan `.ts`, so keeping this spawn test-mode-free
+ * is a discipline here, not an enforced gate.
  */
 
-import { readFileSync, rmSync } from 'node:fs';
-import { resolve as resolvePath } from 'node:path';
+import { readFileSync, rmSync, mkdirSync } from 'node:fs';
+import { dirname, resolve as resolvePath } from 'node:path';
 import type { TestProject } from 'vitest/node';
 import { spawnWranglerDev } from '@lumenize/testing/wrangler';
+import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
+import { hostOrigin } from '@lumenize/mesh/client';
+import { bootStudioVite, launchChromium } from '../../harness/lib/browser';
+import { provisionAndLogin, requestStarClaim } from '../lib/email-login';
+import { PAGE_STAR } from './page-star';
+// @ts-expect-error — plain JS with JSDoc types (no build in dev, workflow.md); shared with `npm run dev`.
+import { LOCAL_ORIGIN } from '../../scripts/local-config.mjs';
 
 const WRANGLER_CONFIG = './test/browser/worker/wrangler.jsonc';
 
-// Isolated wrangler-dev state dir for the chromium harness, kept separate from
-// the Node-side `browser` project's state (no shared SQLite lock). Lives under
-// a `.wrangler/` dir so it's covered by the existing `.gitignore` `.wrangler`
-// rule — never committed.
+// Under a `.wrangler/` dir, so the existing `.gitignore` rule covers it — never committed.
 const PERSIST_DIR = './test/chromium/.wrangler';
 
-let cleanupWrangler: (() => Promise<void>) | null = null;
+/** The signed-in browser's cookies, which `vitest.config.js` hands the provider as `storageState`. */
+export const STORAGE_STATE = `${PERSIST_DIR}/storage-state.json`;
 
-/**
- * Read the email-test deployment's TEST_TOKEN from the root .dev.vars so the
- * browser tests can subscribe to the email-test WS for the magic-link flow.
- */
+let teardown: (() => Promise<void>) | null = null;
+
+/** The email-test deployment's TEST_TOKEN, from the root `.dev.vars` the package symlinks. */
 function readTestToken(): string {
   const path = resolvePath(process.cwd(), '.dev.vars');
-  const contents = readFileSync(path, 'utf8');
-  const match = contents.match(/^TEST_TOKEN=(.*)$/m);
-  if (!match) {
-    throw new Error(`TEST_TOKEN not found in ${path}. Required for the chromium harness's real-email flow.`);
-  }
+  const match = readFileSync(path, 'utf8').match(/^TEST_TOKEN=(.*)$/m);
+  if (!match) throw new Error(`TEST_TOKEN not found in ${path}. Required for the chromium harness's real-email flow.`);
   return match[1].trim();
 }
 
 export default async function setup(project: TestProject) {
   const testToken = readTestToken();
 
-  // CRITICAL: wrangler-dev state SURVIVES across runs (unlike vitest-pool-workers'
-  // fresh-per-run miniflare). Wipe it at the start of every run so each run is
-  // clean — no Stars / NebulaAuthRegistry rows / founders accumulated from prior
-  // runs. Tests use unique universes (`acme-<uuid>.app.tenant-a`) so stale state
-  // isn't a correctness hazard, but this keeps the dir bounded + the run
-  // reproducible, and matches pool-workers semantics.
+  // wrangler-dev state survives across runs; start each run clean.
   rmSync(resolvePath(process.cwd(), PERSIST_DIR), { recursive: true, force: true });
 
   const { baseUrl: wranglerUrl, cleanup } = await spawnWranglerDev({
     configPath: WRANGLER_CONFIG,
     extraArgs: [
-      // Isolate state from the Node-side `browser` project's wrangler-dev so
-      // the two never share/lock the same SQLite state dir under `npm test`.
       '--persist-to', `${PERSIST_DIR}/state`,
-      '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize.io',
+      // The config names the Node-side lane's https origin; this lane's Worker serves plain http.
+      '--var', `LUMENIZE_ORIGIN:${LOCAL_ORIGIN}`,
       '--var', 'PRIMARY_JWT_KEY:BLUE',
-      '--var', 'NEBULA_AUTH_REDIRECT:/app',
-      // Surface auth/email-send failures in wrangler-dev stdout (otherwise
-      // swallowed by LumenizeAuth's #sendEmail try/catch).
       '--var', 'DEBUG:auth,nebula-auth,nebula',
       '--log-level', 'info',
     ],
   });
-  cleanupWrangler = cleanup;
+  const vite = await bootStudioVite(wranglerUrl);
+  teardown = async () => {
+    await vite.close();
+    await cleanup();
+  };
 
-  // The vite proxy plugin re-reads this env var per request, so setting it
-  // after wrangler-dev is up is enough — no plugin reconfiguration needed.
-  process.env.WRANGLER_PROXY_TARGET = wranglerUrl;
+  try {
+    await signInAtPageStar(wranglerUrl, vite, testToken);
+  } catch (err) {
+    await teardown();
+    throw err;
+  }
 
-  // Tests use the proxy path as a relative URL prefix. `${baseUrl}/auth/...`
-  // resolves to `${test-page-origin}/worker/auth/...` → vite proxies to
-  // wrangler-dev → same-origin from chromium's POV → cookies flow.
-  project.provide('wranglerBaseUrl', '/worker');
+  project.provide('pageBaseUrl', vite.scopeUrl(PAGE_STAR));
+  project.provide('platformOrigin', vite.viteBaseUrl);
   project.provide('emailTestToken', testToken);
 
   return async () => {
-    await cleanupWrangler?.();
-    cleanupWrangler = null;
+    await teardown?.();
+    teardown = null;
   };
+}
+
+/** Steps 3–5: the owner's climb, then the Star admin's claim followed and accepted in Chromium. */
+async function signInAtPageStar(
+  wranglerUrl: string, vite: Awaited<ReturnType<typeof bootStudioVite>>, testToken: string,
+): Promise<void> {
+  const [universe, galaxy] = PAGE_STAR.split('.');
+  const email = uniqueTestEmail();
+
+  // 3. The owner's climb, consumed in Node: this browser never holds the owner's cookie, so the
+  //    page's refresh picks the Star admin's membership rather than a broader one above it.
+  await provisionAndLogin({
+    baseUrl: hostOrigin({ kind: 'platform' }, LOCAL_ORIGIN, wranglerUrl),
+    scope: `${universe}.${galaxy}`,
+    email: `owner-${email}`,
+    testToken,
+    fetchImpl: fetch,
+  });
+
+  // 4. The Star's own admin, through vite's port, followed and accepted in Chromium.
+  const waiter = waitForEmail({ testToken, to: email, timeout: 60_000 });
+  let link: string;
+  try {
+    await requestStarClaim({ baseUrl: vite.viteBaseUrl, universeGalaxyStarId: PAGE_STAR, email });
+    link = extractMagicLink(await waiter.emailPromise);
+  } finally {
+    waiter.cleanup();
+  }
+  const browser = await launchChromium();
+  try {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(link, { waitUntil: 'domcontentloaded' });
+    // Visible first, as the `/live` scenarios wait: a cold vite's first load can still be settling.
+    await page.getByTestId('consent-checkbox').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByTestId('consent-checkbox').check();
+    await page.getByTestId('consent-nickname').fill('Chromium');
+    const consumed = page.waitForResponse((r) => new URL(r.url()).pathname === '/auth/magic-link' && r.request().method() === 'POST');
+    await page.getByTestId('consent-accept').click();
+    const answer = await consumed;
+    if (!answer.ok()) throw new Error(`the link page's Accept answered ${answer.status()}: ${await answer.text()}`);
+    const cookie = `__Host-refresh-token.${PAGE_STAR}`;
+    if (!(await context.cookies(vite.viteBaseUrl)).some((c) => c.name === cookie)) {
+      throw new Error(`the link page's Accept set no ${cookie} cookie on the platform host`);
+    }
+    // 5. Hand this browser's cookies to every test's context.
+    mkdirSync(dirname(resolvePath(process.cwd(), STORAGE_STATE)), { recursive: true });
+    await context.storageState({ path: STORAGE_STATE });
+  } finally {
+    await browser.close();
+  }
 }
 
 declare module 'vitest' {
   export interface ProvidedContext {
-    wranglerBaseUrl: string;
+    pageBaseUrl: string;
+    platformOrigin: string;
     emailTestToken: string;
   }
 }

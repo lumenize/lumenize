@@ -16,24 +16,21 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import { createNebulaClient } from '@lumenize/nebula/frontend';
-import { browserLogin, ORIGIN } from '../../test-helpers';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import { createNebulaClient } from '@lumenize/resources/frontend';
+import { foundAndLogin, ORIGIN, pageOf } from '../../test-helpers';
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 function makeFactoryClient(star: string, browser: Browser) {
-  const ctx = browser.context(ORIGIN);
+  const ctx = browser.context(pageOf(star));
   return createNebulaClient({
-    baseUrl: ORIGIN,
-    authScope: star,
-    activeScope: star,
-    appVersion: 'v1',
-    fetch: browser.fetch,
-    WebSocket: browser.WebSocket,
+    baseUrl: pageOf(star), platformOrigin: ORIGIN,
+    ontologyVersion: 'v1',
+    fetch: ctx.fetch,
+    WebSocket: ctx.WebSocket,
     sessionStorage: ctx.sessionStorage,
     BroadcastChannel: ctx.BroadcastChannel,
     onShouldRefreshUI: () => {},
@@ -48,7 +45,7 @@ function nodeLabels(state: unknown): string[] {
 
 async function loggedInFactory(star: string) {
   const browser = new Browser();
-  await browserLogin(browser, star, 'admin@example.com', star);
+  await foundAndLogin(browser, star, 'admin@example.com', star);
   const f = makeFactoryClient(star, browser);
   await f.ready;
   return f;
@@ -57,7 +54,7 @@ async function loggedInFactory(star: string) {
 describe('orgTree auto-subscribe-on-connect via the factory (real Star)', () => {
   it('factory auto-subscribes on connect; a client.orgTree mutation broadcasts to both clients (incl. originator)', async () => {
     const star = uniqueStar();
-    // Two factory clients (same scope-admin, distinct tabs → distinct TreeSubscribers).
+    // Two factory clients (same scope-admin, distinct tabs → distinct tree rows).
     const a = await loggedInFactory(star);
     const b = await loggedInFactory(star);
 
@@ -72,8 +69,8 @@ describe('orgTree auto-subscribe-on-connect via the factory (real Star)', () => 
 
     // A mutates the tree. No optimistic local write — A's own store updates only
     // via the broadcast echo (originator included).
-    const slug = `team-${generateUuid().slice(0, 8)}`;
-    await a.client.orgTree.createNode(ROOT_NODE_ID, slug, 'Engineering');
+    const slug = `team-${crypto.randomUUID().slice(0, 8)}`;
+    await a.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, slug, 'Engineering');
 
     // Both the originator (A) AND the observer (B) see the new node via broadcast.
     await vi.waitFor(() => {

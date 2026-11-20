@@ -16,8 +16,7 @@ export type {
   Operation,
   OperationChain,
   NestedOperationMarker,
-  OcanConfig,
-  Unprotected
+  OcanConfig
 } from './types.js';
 
 export {
@@ -27,13 +26,13 @@ export {
 // Proxy factory for building chains
 export {
   newContinuation,
-  continuationFromChain,
   getOperationChain
 } from './proxy-factory.js';
 
 // Execution
 export {
   executeOperationChain,
+  executeFilledChain,
   validateOperationChain,
   replaceNestedOperationMarkers
 } from './execute.js';

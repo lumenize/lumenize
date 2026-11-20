@@ -1,0 +1,12 @@
+{
+  "name": "experiment-container-deps-r2",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "//": "Throwaway spike: where should a Galaxy's node_modules come from — the image, a container snapshot, an R2 archive, or an R2 FUSE mount? Standalone, NOT a root workspace, and with no dependencies of its own: it runs apps/nebula's pinned wrangler by path, so creating it never touched the root tree while a /live run was going. Deployed Worker is `experiment-container-deps-r2`; it waits for Larry's experiment-* sweep.",
+  "scripts": {
+    "types": "../../apps/nebula/node_modules/.bin/wrangler types",
+    "deploy": "../../apps/nebula/node_modules/.bin/wrangler deploy",
+    "drive": "node scripts/drive.mjs"
+  }
+}

@@ -48,7 +48,7 @@ describe('Q4 — Auto-subscribe via Vue component scope', () => {
     expect(subCallsForRid()).toHaveLength(1);
 
     // Deliver the initial snapshot via fanout.
-    client.simulateFanout('TestResource', rid, { value: { title: 'hello', status: 'todo' }, meta: { eTag: 'e1' } });
+    client.simulateFanout('TestResource', rid, { value: { title: 'hello', status: 'todo' }, meta: { validFrom: 'e1' } });
     await vi.waitFor(() => {
       expect(document.getElementById('title')!.textContent).toBe('hello');
     }, { timeout: 5000 });
@@ -85,7 +85,7 @@ describe('Q4 — Auto-subscribe via Vue component scope', () => {
     const { createApp } = Vue;
 
     const rid = crypto.randomUUID();
-    client.simulateFanout('TestResource', rid, { value: { title: 'shared', status: 'todo' }, meta: { eTag: 'e1' } });
+    client.simulateFanout('TestResource', rid, { value: { title: 'shared', status: 'todo' }, meta: { validFrom: 'e1' } });
 
     document.body.innerHTML = `
       <div>

@@ -1,80 +1,13 @@
 /**
  * Test that @lumenize/rpc preserves object identity for Map/Set keys/values
- * within a single RPC call, matching native structuredClone and Workers RPC behavior
+ * within a single RPC call, matching native structuredClone and Workers RPC behavior. The DO it
+ * drives, `MapSetTestDOWithRpc`, lives with the others in `test-worker-and-dos.ts`.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SELF } from 'cloudflare:test';
-import { createRpcClient, createHttpTransport, createWebSocketTransport, lumenizeRpcDO } from '../src/index';
+import { createRpcClient, createHttpTransport, createWebSocketTransport } from '../src/index';
 import { getWebSocketShim } from '@lumenize/testing';
-import { DurableObject } from 'cloudflare:workers';
-
-/**
- * Test DO with methods that accept and return Maps/Sets with object keys/values
- */
-class MapSetTestDO extends DurableObject {
-  // Return a map with an object key
-  getMapWithKey() {
-    const key = { userId: 123, role: 'admin' };
-    const map = new Map([[key, 'user data']]);
-    return { map, key };  // Return both together
-  }
-
-  // Accept a map and key, try to access the value
-  accessMapValue(map: Map<any, any>, key: any) {
-    return {
-      canAccess: map.get(key) !== undefined,
-      value: map.get(key),
-      hasKey: map.has(key),
-    };
-  }
-
-  // Return a set with an object value
-  getSetWithValue() {
-    const value = { id: 456, name: 'Alice' };
-    const set = new Set([value]);
-    return { set, value };  // Return both together
-  }
-
-  // Accept a set and value, check membership
-  checkSetMembership(set: Set<any>, value: any) {
-    return {
-      hasMember: set.has(value),
-      size: set.size,
-    };
-  }
-
-  // Complex scenario: multiple maps sharing keys
-  getSharedKeyMaps() {
-    const sharedKey = { category: 'admin' };
-    return {
-      map1: new Map([[sharedKey, 'value1']]),
-      map2: new Map([[sharedKey, 'value2']]),
-      theKey: sharedKey,
-    };
-  }
-
-  // Accept the shared key structure and verify identity
-  verifySharedKeys(data: { map1: Map<any, any>, map2: Map<any, any>, theKey: any }) {
-    return {
-      map1HasKey: data.map1.get(data.theKey) !== undefined,
-      map2HasKey: data.map2.get(data.theKey) !== undefined,
-      map1Value: data.map1.get(data.theKey),
-      map2Value: data.map2.get(data.theKey),
-      keysAreIdentical: Array.from(data.map1.keys())[0] === Array.from(data.map2.keys())[0],
-    };
-  }
-
-}
-
-const MapSetTestDOWithRpc = lumenizeRpcDO(MapSetTestDO);
-export { MapSetTestDOWithRpc };
-
-export default {
-  async fetch() {
-    return new Response('Map/Set identity test worker');
-  },
-};
 
 // Run tests with both transports
 const TRANSPORTS = ['websocket', 'http'] as const;
@@ -84,17 +17,15 @@ for (const transportType of TRANSPORTS) {
     let client: any;
 
     beforeEach(async () => {
-      const id = (SELF as any).MAPSET_TEST_DO.idFromName('test-identity');
-      
       if (transportType === 'websocket') {
-        const transport = createWebSocketTransport('mapset-test-do', id.toString(), {
+        const transport = createWebSocketTransport('mapset-test-do', 'test-identity', {
           baseUrl: 'https://fake-host.com',
           prefix: '__rpc',
           WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
         });
         client = createRpcClient({ transport });
       } else {
-        const transport = createHttpTransport('mapset-test-do', id.toString(), {
+        const transport = createHttpTransport('mapset-test-do', 'test-identity', {
           baseUrl: 'https://fake-host.com',
           prefix: '__rpc',
           fetch: SELF.fetch.bind(SELF),

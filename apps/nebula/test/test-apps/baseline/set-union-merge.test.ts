@@ -15,37 +15,34 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { TransactionOutcome } from '@lumenize/nebula';
-import { createNebulaClient } from '@lumenize/nebula/frontend';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { TransactionOutcome } from '@lumenize/resources';
+import { createNebulaClient } from '@lumenize/resources/frontend';
 import { computed } from '@vue/reactivity';
-import { createAuthenticatedClient, browserLogin, ORIGIN } from '../../test-helpers';
+import { adminClientAt, foundAndLogin, ORIGIN, pageOf, ownerOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
 const LIST_TYPES = `interface TodoList { items: string[]; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
-function committedETag(outcome: TransactionOutcome, rid: string): string {
+function committedMoment(outcome: TransactionOutcome, rid: string): string {
   if (outcome.kind !== 'committed') throw new Error(`Expected committed, got ${outcome.kind}`);
   const r = outcome.resources[rid];
   if (r?.kind !== 'committed') throw new Error(`Expected committed resource, got ${r?.kind}`);
-  return r.eTag;
+  return r.validFrom;
 }
 
 function makeFactoryClient(star: string, browser: Browser) {
-  const ctx = browser.context(ORIGIN);
+  const ctx = browser.context(pageOf(star));
   return createNebulaClient({
-    baseUrl: ORIGIN,
-    authScope: star,
-    activeScope: star,
-    appVersion: ONTOLOGY_VERSION,
-    fetch: browser.fetch,
-    WebSocket: browser.WebSocket,
+    baseUrl: pageOf(star), platformOrigin: ORIGIN,
+    ontologyVersion: ONTOLOGY_VERSION,
+    fetch: ctx.fetch,
+    WebSocket: ctx.WebSocket,
     sessionStorage: ctx.sessionStorage,
     BroadcastChannel: ctx.BroadcastChannel,
     onShouldRefreshUI: () => {},
@@ -57,29 +54,29 @@ describe('set-union merge + client-computed aggregate (§5.3.8, real Star)', () 
     const star = uniqueStar();
 
     // Admin (the "other" actor) installs the ontology, seeds an empty list, then
-    // adds 't1' — advancing the server so a second add against the seed eTag conflicts.
-    const admin = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    // adds 't1' — advancing the server so a second add against the seed version conflicts.
+    const admin = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    admin.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: LIST_TYPES });
+    admin.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: LIST_TYPES });
     await vi.waitFor(() => { expect(admin.client.callCompleted).toBe(true); });
 
-    const listId = generateUuid();
+    const listId = crypto.randomUUID();
     const created = await admin.client.resources.transaction({
       [listId]: { op: 'create', typeName: 'TodoList', nodeId: ROOT_NODE_ID, value: { items: [] } },
     });
-    const seedETag = committedETag(created, listId);
+    const seedVersion = committedMoment(created, listId);
     await admin.client.resources.transaction({
-      [listId]: { op: 'put', typeName: 'TodoList', eTag: seedETag, value: { items: ['t1'] } },
+      [listId]: { op: 'put', typeName: 'TodoList', ifValidFromMatches: seedVersion, value: { items: ['t1'] } },
     });
 
-    // B (factory): a set-union resolver, then add 't2' against the stale seed eTag.
+    // B (factory): a set-union resolver, then add 't2' against the stale seed version.
     const browserB = new Browser();
-    await browserLogin(browserB, star, 'admin@example.com', star);
+    await foundAndLogin(browserB, star, ownerOf('admin@example.com'), star);
     const bf = makeFactoryClient(star, browserB);
     await bf.ready;
     // C (factory): a read-only observer subscribed to the same list.
     const browserC = new Browser();
-    await browserLogin(browserC, star, 'admin@example.com', star);
+    await foundAndLogin(browserC, star, ownerOf('admin@example.com'), star);
     const cf = makeFactoryClient(star, browserC);
     await cf.ready;
 
@@ -101,7 +98,7 @@ describe('set-union merge + client-computed aggregate (§5.3.8, real Star)', () 
     await cSub.snapshot;
 
     const outcome = await bf.client.resources.transaction({
-      [listId]: { op: 'put', typeName: 'TodoList', eTag: seedETag, value: { items: ['t2'] } },
+      [listId]: { op: 'put', typeName: 'TodoList', ifValidFromMatches: seedVersion, value: { items: ['t2'] } },
     });
     expect(outcome.kind).toBe('committed');
 

@@ -1,0 +1,35 @@
+{
+ "run": "2026-10-14T16-15-19-653Z",
+ "base": "https://experiment-do-read-cache.transformation.workers.dev",
+ "maxRows": 18000,
+ "objects": [
+  {
+   "instance": "idle-2026-10-14T16-15-19-653Z-0",
+   "colo": "MIA",
+   "databaseSize": 158359552,
+   "pageSize": 4096,
+   "seededAt": "2026-10-14T16:15:32.195Z"
+  },
+  {
+   "instance": "idle-2026-10-14T16-15-19-653Z-1",
+   "colo": "ATL",
+   "databaseSize": 158359552,
+   "pageSize": 4096,
+   "seededAt": "2026-10-14T16:15:42.207Z"
+  },
+  {
+   "instance": "idle-2026-10-14T16-15-19-653Z-2",
+   "colo": "EWR",
+   "databaseSize": 158359552,
+   "pageSize": 4096,
+   "seededAt": "2026-10-14T16:15:51.202Z"
+  },
+  {
+   "instance": "idle-2026-10-14T16-15-19-653Z-3",
+   "colo": "ATL",
+   "databaseSize": 158359552,
+   "pageSize": 4096,
+   "seededAt": "2026-10-14T16:16:00.568Z"
+  }
+ ]
+}

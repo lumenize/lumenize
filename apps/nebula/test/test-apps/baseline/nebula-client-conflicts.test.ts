@@ -16,10 +16,9 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Snapshot, TransactionOutcome, ResourceHandler } from '@lumenize/nebula';
-import { createAuthenticatedClient, createSubject } from '../../test-helpers';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { Snapshot, TransactionOutcome, ResourceHandler } from '@lumenize/resources';
+import { adminClientAt, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -28,15 +27,15 @@ const TEST_TYPES = `interface TestResource { title: string; }`;
 const TWO_TYPES = `interface TestResource { title: string; }\ninterface Note { body: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
-/** Pull the committed eTag for `rid` out of a committed outcome. */
-function committedETag(outcome: TransactionOutcome, rid: string): string {
+/** Pull the committed version for `rid` out of a committed outcome. */
+function committedMoment(outcome: TransactionOutcome, rid: string): string {
   if (outcome.kind !== 'committed') throw new Error(`Expected committed, got ${outcome.kind}`);
   const r = outcome.resources[rid];
   if (r?.kind !== 'committed') throw new Error(`Expected committed resource, got ${r?.kind}`);
-  return r.eTag;
+  return r.validFrom;
 }
 
 /** Server snapshot from a per-resource `use-server` / `human-in-the-loop` resolution. */
@@ -52,9 +51,9 @@ function resolutionSnapshot(outcome: TransactionOutcome, rid: string): Snapshot 
 }
 
 async function setupAdminClient(star: string) {
-  const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  a.client.callStarApplyOntology(star, {
+  a.client.callStarInstallOntology(star, {
     version: ONTOLOGY_VERSION,
     types: TEST_TYPES,
   });
@@ -65,7 +64,7 @@ async function setupAdminClient(star: string) {
 /** Two independent admin clients on the same Star, sharing the same scope. */
 async function twoAdminClients(star: string) {
   const a = await setupAdminClient(star);
-  const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   return { a, b };
 }
 
@@ -73,7 +72,10 @@ async function twoAdminClients(star: string) {
  *  with NO DAG grants — the caller grants what it needs via `setPermission`. */
 async function setupNonAdminUser(star: string, adminAccessToken: string, email = 'user@example.com') {
   await createSubject(new Browser(), star, adminAccessToken, email);
-  return createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, email);
+  // createInvitedClient, NOT createAuthenticatedClient: the invite already minted this identity at
+  // `star`, so it logs in there. The admin factory would claim the universe and mint them a
+  // SECOND, admin identity — silently turning this non-admin fixture into an admin one.
+  return createInvitedClient(NebulaClientTest, new Browser(), star, star, email);
 }
 
 /** Wait for a `callStarXxx` initiator to complete and return its `lastResult`. */
@@ -84,23 +86,23 @@ async function awaitCall(client: NebulaClientTest): Promise<unknown> {
 
 /**
  * A creates resource X at title 'V1', updates it to 'V2-by-A', and returns the
- * stale (V1) eTag B should submit against to force a conflict.
+ * stale (V1) version B should submit against to force a conflict.
  */
 async function setupConflict(star: string, a: { client: NebulaClientTest }, b: { client: NebulaClientTest }) {
-  const resourceId = generateUuid();
+  const resourceId = crypto.randomUUID();
 
   const created = await a.client.resources.transaction({
     [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } },
   });
-  const staleETag = committedETag(created, resourceId);
+  const staleVersion = committedMoment(created, resourceId);
 
   const updated = await a.client.resources.transaction({
-    [resourceId]: { op: 'put', typeName: 'TestResource', eTag: staleETag, value: { title: 'V2-by-A' } },
+    [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: staleVersion, value: { title: 'V2-by-A' } },
   });
   if (updated.kind !== 'committed') throw new Error('Expected committed');
 
   void b; // b just needs to exist for follow-on test code
-  return { resourceId, staleETag };
+  return { resourceId, staleVersion };
 }
 
 describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
@@ -108,7 +110,7 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
   it('per-type "use-server" handler: top-level committed, per-resource use-server writes server.value', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const { resourceId, staleETag } = await setupConflict(star, a, b);
+    const { resourceId, staleVersion } = await setupConflict(star, a, b);
 
     let conflictCalls = 0;
     b.client.resources.onTransactionResourceResolution('TestResource', (_rid, res) => {
@@ -118,7 +120,7 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     });
 
     const outcome = await b.client.resources.transaction({
-      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: staleETag, value: { title: 'V2-by-B' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: staleVersion, value: { title: 'V2-by-B' } },
     });
 
     expect(conflictCalls).toBe(1);
@@ -130,10 +132,10 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     b.client[Symbol.dispose]();
   });
 
-  it('per-type "use-this" handler retries with the server eTag + merged value (single retry succeeds)', async () => {
+  it('per-type "use-this" handler retries with the server version + merged value (single retry succeeds)', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const { resourceId, staleETag } = await setupConflict(star, a, b);
+    const { resourceId, staleVersion } = await setupConflict(star, a, b);
 
     let conflictCalls = 0;
     b.client.resources.onTransactionResourceResolution('TestResource', (_rid, res) => {
@@ -145,7 +147,7 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     });
 
     const outcome = await b.client.resources.transaction({
-      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: staleETag, value: { title: 'V2-by-B' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: staleVersion, value: { title: 'V2-by-B' } },
     });
 
     expect(conflictCalls).toBe(1);
@@ -161,26 +163,26 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
   it('retries-exhausted: handler always returns use-this, A keeps mutating, B caps at maxRetries', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const { resourceId, staleETag } = await setupConflict(star, a, b);
+    const { resourceId, staleVersion } = await setupConflict(star, a, b);
 
     // Force perpetual conflict: A races a fresh write in from inside B's
     // handler, so B's retry baseline is stale again every round.
     let conflictCalls = 0;
     const currentSnap = await a.client.resources.read('TestResource', resourceId);
-    let aETag = currentSnap!.meta.eTag;
+    let aVersion = currentSnap!.meta.validFrom;
 
     b.client.resources.onTransactionResourceResolution('TestResource', async (_rid, res) => {
       if (res.kind !== 'conflict-pending') return;
       conflictCalls++;
       const out = await a.client.resources.transaction({
-        [resourceId]: { op: 'put', typeName: 'TestResource', eTag: aETag, value: { title: `A-attempt-${conflictCalls}` } },
+        [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: aVersion, value: { title: `A-attempt-${conflictCalls}` } },
       });
-      if (out.kind === 'committed') aETag = committedETag(out, resourceId);
+      if (out.kind === 'committed') aVersion = committedMoment(out, resourceId);
       return { kind: 'use-this', value: { title: `B-attempt-${conflictCalls}` } };
     }, { maxRetries: 3 });
 
     const outcome = await b.client.resources.transaction({
-      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: staleETag, value: { title: 'V2-by-B' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: staleVersion, value: { title: 'V2-by-B' } },
     });
 
     // v3 maxRetries semantics: `maxRetries: 3` permits 3 RETRIES after the
@@ -202,7 +204,7 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
   it('human-in-the-loop: top-level rejected; optimistic state stays painted (no write-through)', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const { resourceId, staleETag } = await setupConflict(star, a, b);
+    const { resourceId, staleVersion } = await setupConflict(star, a, b);
 
     b.client.resources.onTransactionResourceResolution('TestResource', (_rid, res) => {
       if (res.kind !== 'conflict-pending') return;
@@ -210,7 +212,7 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     });
 
     const outcome = await b.client.resources.transaction({
-      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: staleETag, value: { title: 'V2-by-B' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: staleVersion, value: { title: 'V2-by-B' } },
     });
 
     expect(outcome.kind).toBe('rejected');
@@ -224,7 +226,7 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
   it('per-call override (keyed by resourceId) beats per-type registration', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const { resourceId, staleETag } = await setupConflict(star, a, b);
+    const { resourceId, staleVersion } = await setupConflict(star, a, b);
 
     let perTypeCalls = 0;
     b.client.resources.onTransactionResourceResolution('TestResource', (_rid, res) => {
@@ -241,7 +243,7 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     };
 
     const outcome = await b.client.resources.transaction(
-      { [resourceId]: { op: 'put', typeName: 'TestResource', eTag: staleETag, value: { title: 'V2-by-B' } } },
+      { [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: staleVersion, value: { title: 'V2-by-B' } } },
       { onTransactionResourceResolution: { [resourceId]: perCallHandler } },
     );
 
@@ -257,7 +259,7 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
   it('async handler: queue timeout suspended during await (handler can take longer than the txn timeout)', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const { resourceId, staleETag } = await setupConflict(star, a, b);
+    const { resourceId, staleVersion } = await setupConflict(star, a, b);
 
     let resolverCompleted = false;
     b.client.resources.onTransactionResourceResolution('TestResource', async (_rid, res) => {
@@ -269,7 +271,7 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
 
     const start = Date.now();
     const outcome = await b.client.resources.transaction({
-      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: staleETag, value: { title: 'V2-by-B' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: staleVersion, value: { title: 'V2-by-B' } },
     });
     const elapsed = Date.now() - start;
 
@@ -285,10 +287,10 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
   it('framework default (no registration, no override): use-server', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const { resourceId, staleETag } = await setupConflict(star, a, b);
+    const { resourceId, staleVersion } = await setupConflict(star, a, b);
 
     const outcome = await b.client.resources.transaction({
-      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: staleETag, value: { title: 'V2-by-B' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: staleVersion, value: { title: 'V2-by-B' } },
     });
 
     expect(outcome.kind).toBe('committed');
@@ -302,9 +304,9 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
   it('handler receives the originally-attempted local value + server snapshot at conflict-pending', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const { resourceId, staleETag } = await setupConflict(star, a, b);
+    const { resourceId, staleVersion } = await setupConflict(star, a, b);
 
-    let capturedLocal: { value: unknown; eTag: string } | undefined;
+    let capturedLocal: { value: unknown; validFrom: string } | undefined;
     let capturedServer: Snapshot | undefined;
     b.client.resources.onTransactionResourceResolution('TestResource', (_rid, res) => {
       if (res.kind !== 'conflict-pending') return;
@@ -314,12 +316,12 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     });
 
     await b.client.resources.transaction({
-      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: staleETag, value: { title: 'V2-by-B' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: staleVersion, value: { title: 'V2-by-B' } },
     });
 
     expect(capturedLocal).toBeDefined();
     expect((capturedLocal!.value as { title: string }).title).toBe('V2-by-B');
-    expect(capturedLocal!.eTag).toBe(staleETag);
+    expect(capturedLocal!.validFrom).toBe(staleVersion);
     expect(capturedServer).toBeDefined();
     expect((capturedServer!.value as { title: string }).title).toBe('V2-by-A');
 
@@ -335,9 +337,9 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     // chain, not just a single retry.
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const { resourceId, staleETag } = await setupConflict(star, a, b);
+    const { resourceId, staleVersion } = await setupConflict(star, a, b);
 
-    let aETag = (await a.client.resources.read('TestResource', resourceId))!.meta.eTag;
+    let aVersion = (await a.client.resources.read('TestResource', resourceId))!.meta.validFrom;
     let conflictCalls = 0;
     b.client.resources.onTransactionResourceResolution('TestResource', async (_rid, res) => {
       if (res.kind !== 'conflict-pending') return;
@@ -345,15 +347,15 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
       if (conflictCalls === 1) {
         // Re-anchor: advance the server again so B's first retry is stale too.
         const out = await a.client.resources.transaction({
-          [resourceId]: { op: 'put', typeName: 'TestResource', eTag: aETag, value: { title: 'V3-by-A' } },
+          [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: aVersion, value: { title: 'V3-by-A' } },
         });
-        aETag = committedETag(out, resourceId);
+        aVersion = committedMoment(out, resourceId);
       }
       return { kind: 'use-this', value: { title: `B-merged-${conflictCalls}` } };
     });
 
     const outcome = await b.client.resources.transaction({
-      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: staleETag, value: { title: 'V2-by-B' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: staleVersion, value: { title: 'V2-by-B' } },
     });
 
     // Two conflict-pending firings (initial + the re-conflict), then the 3rd
@@ -375,7 +377,7 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     // leave perType at 0 and resolve via the framework default instead.
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const { resourceId, staleETag } = await setupConflict(star, a, b);
+    const { resourceId, staleVersion } = await setupConflict(star, a, b);
 
     let perTypeCalls = 0;
     b.client.resources.onTransactionResourceResolution('TestResource', (_rid, res) => {
@@ -386,7 +388,7 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
 
     let perCallCalls = 0;
     const outcome = await b.client.resources.transaction(
-      { [resourceId]: { op: 'put', typeName: 'TestResource', eTag: staleETag, value: { title: 'V2-by-B' } } },
+      { [resourceId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: staleVersion, value: { title: 'V2-by-B' } } },
       {
         onTransactionResourceResolution: {
           [resourceId]: (_rid, res) => {
@@ -415,28 +417,28 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     // to the Note too (shadowing its per-type), which this probe forbids.
     const star = uniqueStar();
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-    a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TWO_TYPES });
+    const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    a.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: TWO_TYPES });
     await awaitCall(a.client);
-    const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
-    // Set up a stale-eTag conflict for one resource of EACH type.
-    const todoId = generateUuid();
-    const noteId = generateUuid();
+    // Set up a stale-version conflict for one resource of EACH type.
+    const todoId = crypto.randomUUID();
+    const noteId = crypto.randomUUID();
     const todoCreate = await a.client.resources.transaction({
       [todoId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'T1' } },
     });
     const noteCreate = await a.client.resources.transaction({
       [noteId]: { op: 'create', typeName: 'Note', nodeId: ROOT_NODE_ID, value: { body: 'N1' } },
     });
-    const todoStale = committedETag(todoCreate, todoId);
-    const noteStale = committedETag(noteCreate, noteId);
-    // Advance both so B's eTags are stale.
+    const todoStale = committedMoment(todoCreate, todoId);
+    const noteStale = committedMoment(noteCreate, noteId);
+    // Advance both so B's versions are stale.
     await a.client.resources.transaction({
-      [todoId]: { op: 'put', typeName: 'TestResource', eTag: todoStale, value: { title: 'T2-by-A' } },
+      [todoId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: todoStale, value: { title: 'T2-by-A' } },
     });
     await a.client.resources.transaction({
-      [noteId]: { op: 'put', typeName: 'Note', eTag: noteStale, value: { body: 'N2-by-A' } },
+      [noteId]: { op: 'put', typeName: 'Note', ifValidFromMatches: noteStale, value: { body: 'N2-by-A' } },
     });
 
     let notePerTypeCalls = 0;
@@ -449,8 +451,8 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     let todoPerCallCalls = 0;
     const outcome = await b.client.resources.transaction(
       {
-        [todoId]: { op: 'put', typeName: 'TestResource', eTag: todoStale, value: { title: 'T2-by-B' } },
-        [noteId]: { op: 'put', typeName: 'Note', eTag: noteStale, value: { body: 'N2-by-B' } },
+        [todoId]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: todoStale, value: { title: 'T2-by-B' } },
+        [noteId]: { op: 'put', typeName: 'Note', ifValidFromMatches: noteStale, value: { body: 'N2-by-B' } },
       },
       {
         onTransactionResourceResolution: {
@@ -484,7 +486,7 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     // (use-server-resolvable) and ridB is permission-denied. The server is atomic
     // all-or-nothing and permission PRECEDES conflict in its step order, so the
     // whole batch fails on permission and ridA's conflict snapshot is NEVER
-    // disclosed — a cross-user read of ridA via a wrong-eTag put is impossible.
+    // disclosed — a cross-user read of ridA via a wrong-version put is impossible.
     const star = uniqueStar();
     const admin = await setupAdminClient(star);
     const user = await setupNonAdminUser(star, admin.accessToken);
@@ -492,27 +494,27 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
 
     // N1: user gets write. N2: user gets nothing.
     admin.client.callStarCreateNode(star, ROOT_NODE_ID, 'shared', 'Shared');
-    const n1 = (await awaitCall(admin.client)) as number;
+    const n1 = (await awaitCall(admin.client)) as string;
     admin.client.callStarCreateNode(star, ROOT_NODE_ID, 'locked', 'Locked');
-    const n2 = (await awaitCall(admin.client)) as number;
+    const n2 = (await awaitCall(admin.client)) as string;
     admin.client.callStarSetPermission(star, n1, userSub, 'write');
     await awaitCall(admin.client);
 
-    // ridA on N1 (user CAN write) — advance it so the user's eTag is stale → conflict.
-    const ridA = generateUuid();
-    const ridB = generateUuid();
+    // ridA on N1 (user CAN write) — advance it so the user's version is stale → conflict.
+    const ridA = crypto.randomUUID();
+    const ridB = crypto.randomUUID();
     const aCreate = await admin.client.resources.transaction({
       [ridA]: { op: 'create', typeName: 'TestResource', nodeId: n1, value: { title: 'A-v1' } },
     });
-    const ridAStale = committedETag(aCreate, ridA);
+    const ridAStale = committedMoment(aCreate, ridA);
     await admin.client.resources.transaction({
-      [ridA]: { op: 'put', typeName: 'TestResource', eTag: ridAStale, value: { title: 'A-v2' } },
+      [ridA]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: ridAStale, value: { title: 'A-v2' } },
     });
     // ridB on N2 (user CANNOT write).
     const bCreate = await admin.client.resources.transaction({
       [ridB]: { op: 'create', typeName: 'TestResource', nodeId: n2, value: { title: 'B-v1' } },
     });
-    const ridBETag = committedETag(bCreate, ridB);
+    const ridBVersion = committedMoment(bCreate, ridB);
 
     // The user registers a use-server handler; if ridA's conflict were disclosed
     // it would fire. It must NOT — the batch dies on ridB's permission failure.
@@ -524,8 +526,8 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     });
 
     const outcome = await user.client.resources.transaction({
-      [ridA]: { op: 'put', typeName: 'TestResource', eTag: ridAStale, value: { title: 'A-by-user' } },
-      [ridB]: { op: 'put', typeName: 'TestResource', eTag: ridBETag, value: { title: 'B-by-user' } },
+      [ridA]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: ridAStale, value: { title: 'A-by-user' } },
+      [ridB]: { op: 'put', typeName: 'TestResource', ifValidFromMatches: ridBVersion, value: { title: 'B-by-user' } },
     });
 
     // Whole batch rejected on permission (non-retryable); ridB is permission-denied.

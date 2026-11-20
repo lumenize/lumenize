@@ -1,0 +1,8867 @@
+{
+ "run": "2026-11-15T16-09-08-302Z",
+ "base": "https://experiment-merge-patch-sql.transformation.workers.dev",
+ "startedAt": "2026-11-15T16:09:08.304Z",
+ "config": {
+  "NS": [
+   10,
+   3000
+  ],
+  "MUTATIONS": [
+   "move"
+  ],
+  "OPS": [
+   "apply",
+   "applyRead",
+   "diff",
+   "part"
+  ],
+  "OBJECTS": 2,
+  "ROUNDS": 3,
+  "TARGET_MS": 150,
+  "MAX_REP_MS": 4000
+ },
+ "objects": [
+  {
+   "instance": "2026-11-15T16-09-08-302Z-10-move-0",
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "colo": "EWR",
+   "seq": 1794758948304001,
+   "textBytes": 2148,
+   "jsonbBytes": 1963,
+   "patchBytes": 181,
+   "databaseSize": 40960,
+   "workerMs": 116,
+   "workerColo": "IAD",
+   "verify": {
+    "seq": 1794758948304002,
+    "apply/js": true,
+    "apply/jsb": true,
+    "apply/sql": true,
+    "apply/sqlb": true,
+    "applyRead/sql": true,
+    "applyRead/sqlb": true,
+    "diff/js": true,
+    "diff/jsb": true,
+    "diff/sqltree": true,
+    "diff/sqlwalk": true,
+    "diff/sqlbtree": true,
+    "diff/sqlbwalk": true,
+    "workerMs": 40,
+    "workerColo": "IAD"
+   }
+  },
+  {
+   "instance": "2026-11-15T16-09-08-302Z-10-move-1",
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "colo": "ORD",
+   "seq": 1794758948304417,
+   "textBytes": 2148,
+   "jsonbBytes": 1963,
+   "patchBytes": 181,
+   "databaseSize": 40960,
+   "workerMs": 343,
+   "workerColo": "EWR",
+   "verify": {
+    "seq": 1794758948304418,
+    "apply/js": true,
+    "apply/jsb": true,
+    "apply/sql": true,
+    "apply/sqlb": true,
+    "applyRead/sql": true,
+    "applyRead/sqlb": true,
+    "diff/js": true,
+    "diff/jsb": true,
+    "diff/sqltree": true,
+    "diff/sqlwalk": true,
+    "diff/sqlbtree": true,
+    "diff/sqlbwalk": true,
+    "workerMs": 59,
+    "workerColo": "IAD"
+   }
+  },
+  {
+   "instance": "2026-11-15T16-09-08-302Z-3000-move-0",
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "colo": "ATL",
+   "seq": 1794758948304839,
+   "textBytes": 648530,
+   "jsonbBytes": 599451,
+   "patchBytes": 181,
+   "databaseSize": 2531328,
+   "workerMs": 251,
+   "workerColo": "EWR",
+   "verify": {
+    "seq": 1794758948304840,
+    "apply/js": true,
+    "apply/jsb": true,
+    "apply/sql": true,
+    "apply/sqlb": true,
+    "applyRead/sql": true,
+    "applyRead/sqlb": true,
+    "diff/js": true,
+    "diff/jsb": true,
+    "diff/sqltree": true,
+    "diff/sqlwalk": true,
+    "diff/sqlbtree": true,
+    "diff/sqlbwalk": true,
+    "workerMs": 339,
+    "workerColo": "IAD"
+   }
+  },
+  {
+   "instance": "2026-11-15T16-09-08-302Z-3000-move-1",
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "colo": "IAD",
+   "seq": 1794758948305155,
+   "textBytes": 648530,
+   "jsonbBytes": 599451,
+   "patchBytes": 181,
+   "databaseSize": 2531328,
+   "workerMs": 353,
+   "workerColo": "EWR",
+   "verify": {
+    "seq": 1794758948305156,
+    "apply/js": true,
+    "apply/jsb": true,
+    "apply/sql": true,
+    "apply/sqlb": true,
+    "applyRead/sql": true,
+    "applyRead/sqlb": true,
+    "diff/js": true,
+    "diff/jsb": true,
+    "diff/sqltree": true,
+    "diff/sqlwalk": true,
+    "diff/sqlbtree": true,
+    "diff/sqlbwalk": true,
+    "workerMs": 496,
+    "workerColo": "IAD"
+   }
+  }
+ ],
+ "skipped": [],
+ "records": [
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqlbwalk",
+   "reps": 273,
+   "ping": {
+    "seq": 1794758948304219,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304220,
+    "workerMs": 220,
+    "workerColo": "EWR",
+    "reps": 273,
+    "check": 49413,
+    "logs": {
+     "wallMs": 216,
+     "cpuMs": 208,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "apply",
+   "arm": "js",
+   "reps": 3167,
+   "ping": {
+    "seq": 1794758948304222,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304223,
+    "workerMs": 148,
+    "workerColo": "EWR",
+    "reps": 3167,
+    "check": 3167,
+    "logs": {
+     "wallMs": 167,
+     "cpuMs": 141,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "applyRead",
+   "arm": "sql",
+   "reps": 3491,
+   "ping": {
+    "seq": 1794758948304225,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304226,
+    "workerMs": 164,
+    "workerColo": "EWR",
+    "reps": 3491,
+    "check": 10473,
+    "logs": {
+     "wallMs": 161,
+     "cpuMs": 149,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "readb",
+   "reps": 8533,
+   "ping": {
+    "seq": 1794758948304228,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304229,
+    "workerMs": 156,
+    "workerColo": "EWR",
+    "reps": 8533,
+    "check": 18328884,
+    "logs": {
+     "wallMs": 152,
+     "cpuMs": 147,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "sqlbpatch",
+   "reps": 11378,
+   "ping": {
+    "seq": 1794758948304231,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304232,
+    "workerMs": 170,
+    "workerColo": "EWR",
+    "reps": 11378,
+    "check": 22335014,
+    "logs": {
+     "wallMs": 183,
+     "cpuMs": 159,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "jsdiff",
+   "reps": 15360,
+   "ping": {
+    "seq": 1794758948304234,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304235,
+    "workerMs": 176,
+    "workerColo": "EWR",
+    "reps": 15360,
+    "check": 107520,
+    "logs": {
+     "wallMs": 173,
+     "cpuMs": 169,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "sqlpatch",
+   "reps": 8084,
+   "ping": {
+    "seq": 1794758948304237,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304238,
+    "workerMs": 172,
+    "workerColo": "EWR",
+    "reps": 8084,
+    "check": 17364432,
+    "logs": {
+     "wallMs": 186,
+     "cpuMs": 159,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "diff",
+   "arm": "jsb",
+   "reps": 2234,
+   "ping": {
+    "seq": 1794758948304240,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304241,
+    "workerMs": 123,
+    "workerColo": "EWR",
+    "reps": 2234,
+    "check": 404354,
+    "logs": {
+     "wallMs": 121,
+     "cpuMs": 116,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "apply",
+   "arm": "jsb",
+   "reps": 2671,
+   "ping": {
+    "seq": 1794758948304243,
+    "workerMs": 15,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 12,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304244,
+    "workerMs": 132,
+    "workerColo": "EWR",
+    "reps": 2671,
+    "check": 2671,
+    "logs": {
+     "wallMs": 130,
+     "cpuMs": 124,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "diff",
+   "arm": "js",
+   "reps": 3286,
+   "ping": {
+    "seq": 1794758948304246,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304247,
+    "workerMs": 187,
+    "workerColo": "EWR",
+    "reps": 3286,
+    "check": 594766,
+    "logs": {
+     "wallMs": 183,
+     "cpuMs": 179,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "read",
+   "reps": 12800,
+   "ping": {
+    "seq": 1794758948304249,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304250,
+    "workerMs": 159,
+    "workerColo": "EWR",
+    "reps": 12800,
+    "check": 27494400,
+    "logs": {
+     "wallMs": 155,
+     "cpuMs": 151,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqlwalk",
+   "reps": 240,
+   "ping": {
+    "seq": 1794758948304252,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304253,
+    "workerMs": 199,
+    "workerColo": "EWR",
+    "reps": 240,
+    "check": 43440,
+    "logs": {
+     "wallMs": 200,
+     "cpuMs": 191,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqltree",
+   "reps": 200,
+   "ping": {
+    "seq": 1794758948304255,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304256,
+    "workerMs": 175,
+    "workerColo": "EWR",
+    "reps": 200,
+    "check": 36200,
+    "logs": {
+     "wallMs": 171,
+     "cpuMs": 164,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "apply",
+   "arm": "sqlb",
+   "reps": 7585,
+   "ping": {
+    "seq": 1794758948304258,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304259,
+    "workerMs": 138,
+    "workerColo": "EWR",
+    "reps": 7585,
+    "check": 7585,
+    "logs": {
+     "wallMs": 151,
+     "cpuMs": 127,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "sqltree",
+   "reps": 3087,
+   "ping": {
+    "seq": 1794758948304261,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304262,
+    "workerMs": 87,
+    "workerColo": "EWR",
+    "reps": 3087,
+    "check": 200655,
+    "logs": {
+     "wallMs": 82,
+     "cpuMs": 78,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqlbtree",
+   "reps": 217,
+   "ping": {
+    "seq": 1794758948304264,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304265,
+    "workerMs": 170,
+    "workerColo": "EWR",
+    "reps": 217,
+    "check": 39277,
+    "logs": {
+     "wallMs": 169,
+     "cpuMs": 162,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "stringify",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304267,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304268,
+    "workerMs": 50,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 42960000,
+    "logs": {
+     "wallMs": 46,
+     "cpuMs": 43,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "applyRead",
+   "arm": "sqlb",
+   "reps": 4800,
+   "ping": {
+    "seq": 1794758948304270,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 7,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304271,
+    "workerMs": 210,
+    "workerColo": "EWR",
+    "reps": 4800,
+    "check": 14400,
+    "logs": {
+     "wallMs": 225,
+     "cpuMs": 197,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "jsapply",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304273,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304274,
+    "workerMs": 25,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 60000,
+    "logs": {
+     "wallMs": 20,
+     "cpuMs": 16,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "write",
+   "reps": 12800,
+   "ping": {
+    "seq": 1794758948304276,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304277,
+    "workerMs": 116,
+    "workerColo": "EWR",
+    "reps": 12800,
+    "check": 12800,
+    "logs": {
+     "wallMs": 133,
+     "cpuMs": 109,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "apply",
+   "arm": "sql",
+   "reps": 6752,
+   "ping": {
+    "seq": 1794758948304279,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 7,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304280,
+    "workerMs": 139,
+    "workerColo": "EWR",
+    "reps": 6752,
+    "check": 6752,
+    "logs": {
+     "wallMs": 227,
+     "cpuMs": 131,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "parse",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304282,
+    "workerMs": 14,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304283,
+    "workerMs": 121,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 60000,
+    "logs": {
+     "wallMs": 118,
+     "cpuMs": 114,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "write",
+   "reps": 12800,
+   "ping": {
+    "seq": 1794758948304285,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304286,
+    "workerMs": 136,
+    "workerColo": "EWR",
+    "reps": 12800,
+    "check": 12800,
+    "logs": {
+     "wallMs": 155,
+     "cpuMs": 127,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "read",
+   "reps": 12800,
+   "ping": {
+    "seq": 1794758948304288,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304289,
+    "workerMs": 187,
+    "workerColo": "EWR",
+    "reps": 12800,
+    "check": 27494400,
+    "logs": {
+     "wallMs": 204,
+     "cpuMs": 177,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqlbtree",
+   "reps": 217,
+   "ping": {
+    "seq": 1794758948304291,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304292,
+    "workerMs": 220,
+    "workerColo": "EWR",
+    "reps": 217,
+    "check": 39277,
+    "logs": {
+     "wallMs": 216,
+     "cpuMs": 209,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "diff",
+   "arm": "js",
+   "reps": 3286,
+   "ping": {
+    "seq": 1794758948304294,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304295,
+    "workerMs": 312,
+    "workerColo": "EWR",
+    "reps": 3286,
+    "check": 594766,
+    "logs": {
+     "wallMs": 347,
+     "cpuMs": 284,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "stringify",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304297,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304298,
+    "workerMs": 48,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 42960000,
+    "logs": {
+     "wallMs": 45,
+     "cpuMs": 41,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "readb",
+   "reps": 8533,
+   "ping": {
+    "seq": 1794758948304300,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 7,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304301,
+    "workerMs": 127,
+    "workerColo": "EWR",
+    "reps": 8533,
+    "check": 18328884,
+    "logs": {
+     "wallMs": 124,
+     "cpuMs": 119,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "apply",
+   "arm": "sql",
+   "reps": 6752,
+   "ping": {
+    "seq": 1794758948304303,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304304,
+    "workerMs": 163,
+    "workerColo": "EWR",
+    "reps": 6752,
+    "check": 6752,
+    "logs": {
+     "wallMs": 159,
+     "cpuMs": 153,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqlbwalk",
+   "reps": 273,
+   "ping": {
+    "seq": 1794758948304306,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304307,
+    "workerMs": 206,
+    "workerColo": "EWR",
+    "reps": 273,
+    "check": 49413,
+    "logs": {
+     "wallMs": 204,
+     "cpuMs": 197,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "sqltree",
+   "reps": 3087,
+   "ping": {
+    "seq": 1794758948304309,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304310,
+    "workerMs": 96,
+    "workerColo": "EWR",
+    "reps": 3087,
+    "check": 200655,
+    "logs": {
+     "wallMs": 104,
+     "cpuMs": 88,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqlwalk",
+   "reps": 240,
+   "ping": {
+    "seq": 1794758948304312,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304313,
+    "workerMs": 147,
+    "workerColo": "EWR",
+    "reps": 240,
+    "check": 43440,
+    "logs": {
+     "wallMs": 147,
+     "cpuMs": 140,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "jsapply",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304315,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304316,
+    "workerMs": 23,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 60000,
+    "logs": {
+     "wallMs": 20,
+     "cpuMs": 17,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "applyRead",
+   "arm": "sqlb",
+   "reps": 4800,
+   "ping": {
+    "seq": 1794758948304318,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304319,
+    "workerMs": 201,
+    "workerColo": "EWR",
+    "reps": 4800,
+    "check": 14400,
+    "logs": {
+     "wallMs": 217,
+     "cpuMs": 187,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "parse",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304321,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304322,
+    "workerMs": 111,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 60000,
+    "logs": {
+     "wallMs": 108,
+     "cpuMs": 104,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "applyRead",
+   "arm": "sql",
+   "reps": 3491,
+   "ping": {
+    "seq": 1794758948304324,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304325,
+    "workerMs": 162,
+    "workerColo": "EWR",
+    "reps": 3491,
+    "check": 10473,
+    "logs": {
+     "wallMs": 176,
+     "cpuMs": 153,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "sqlbpatch",
+   "reps": 11378,
+   "ping": {
+    "seq": 1794758948304327,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 13,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304328,
+    "workerMs": 117,
+    "workerColo": "EWR",
+    "reps": 11378,
+    "check": 22335014,
+    "logs": {
+     "wallMs": 113,
+     "cpuMs": 109,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "apply",
+   "arm": "jsb",
+   "reps": 2671,
+   "ping": {
+    "seq": 1794758948304330,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304331,
+    "workerMs": 166,
+    "workerColo": "EWR",
+    "reps": 2671,
+    "check": 2671,
+    "logs": {
+     "wallMs": 163,
+     "cpuMs": 158,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqltree",
+   "reps": 200,
+   "ping": {
+    "seq": 1794758948304333,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304334,
+    "workerMs": 146,
+    "workerColo": "EWR",
+    "reps": 200,
+    "check": 36200,
+    "logs": {
+     "wallMs": 144,
+     "cpuMs": 138,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "sqlpatch",
+   "reps": 8084,
+   "ping": {
+    "seq": 1794758948304336,
+    "workerMs": 10,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 7,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304337,
+    "workerMs": 179,
+    "workerColo": "EWR",
+    "reps": 8084,
+    "check": 17364432,
+    "logs": {
+     "wallMs": 193,
+     "cpuMs": 169,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "diff",
+   "arm": "jsb",
+   "reps": 2234,
+   "ping": {
+    "seq": 1794758948304339,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304340,
+    "workerMs": 154,
+    "workerColo": "EWR",
+    "reps": 2234,
+    "check": 404354,
+    "logs": {
+     "wallMs": 150,
+     "cpuMs": 146,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "apply",
+   "arm": "js",
+   "reps": 3167,
+   "ping": {
+    "seq": 1794758948304342,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304343,
+    "workerMs": 138,
+    "workerColo": "EWR",
+    "reps": 3167,
+    "check": 3167,
+    "logs": {
+     "wallMs": 132,
+     "cpuMs": 127,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "apply",
+   "arm": "sqlb",
+   "reps": 7585,
+   "ping": {
+    "seq": 1794758948304345,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304346,
+    "workerMs": 140,
+    "workerColo": "EWR",
+    "reps": 7585,
+    "check": 7585,
+    "logs": {
+     "wallMs": 135,
+     "cpuMs": 130,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "jsdiff",
+   "reps": 15360,
+   "ping": {
+    "seq": 1794758948304348,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304349,
+    "workerMs": 161,
+    "workerColo": "EWR",
+    "reps": 15360,
+    "check": 107520,
+    "logs": {
+     "wallMs": 157,
+     "cpuMs": 154,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "stringify",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304351,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304352,
+    "workerMs": 50,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 42960000,
+    "logs": {
+     "wallMs": 47,
+     "cpuMs": 43,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "apply",
+   "arm": "sqlb",
+   "reps": 7585,
+   "ping": {
+    "seq": 1794758948304354,
+    "workerMs": 14,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304355,
+    "workerMs": 101,
+    "workerColo": "EWR",
+    "reps": 7585,
+    "check": 7585,
+    "logs": {
+     "wallMs": 115,
+     "cpuMs": 95,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "sqlbpatch",
+   "reps": 11378,
+   "ping": {
+    "seq": 1794758948304357,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304358,
+    "workerMs": 174,
+    "workerColo": "EWR",
+    "reps": 11378,
+    "check": 22335014,
+    "logs": {
+     "wallMs": 185,
+     "cpuMs": 166,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "diff",
+   "arm": "js",
+   "reps": 3286,
+   "ping": {
+    "seq": 1794758948304360,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304361,
+    "workerMs": 166,
+    "workerColo": "EWR",
+    "reps": 3286,
+    "check": 594766,
+    "logs": {
+     "wallMs": 162,
+     "cpuMs": 157,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "apply",
+   "arm": "jsb",
+   "reps": 2671,
+   "ping": {
+    "seq": 1794758948304363,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304364,
+    "workerMs": 150,
+    "workerColo": "EWR",
+    "reps": 2671,
+    "check": 2671,
+    "logs": {
+     "wallMs": 147,
+     "cpuMs": 141,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "parse",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304366,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304367,
+    "workerMs": 96,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 60000,
+    "logs": {
+     "wallMs": 88,
+     "cpuMs": 85,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqltree",
+   "reps": 200,
+   "ping": {
+    "seq": 1794758948304369,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304370,
+    "workerMs": 158,
+    "workerColo": "EWR",
+    "reps": 200,
+    "check": 36200,
+    "logs": {
+     "wallMs": 154,
+     "cpuMs": 149,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "readb",
+   "reps": 8533,
+   "ping": {
+    "seq": 1794758948304372,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304373,
+    "workerMs": 120,
+    "workerColo": "EWR",
+    "reps": 8533,
+    "check": 18328884,
+    "logs": {
+     "wallMs": 130,
+     "cpuMs": 111,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "diff",
+   "arm": "jsb",
+   "reps": 2234,
+   "ping": {
+    "seq": 1794758948304375,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 7,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304376,
+    "workerMs": 174,
+    "workerColo": "EWR",
+    "reps": 2234,
+    "check": 404354,
+    "logs": {
+     "wallMs": 169,
+     "cpuMs": 163,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqlbtree",
+   "reps": 217,
+   "ping": {
+    "seq": 1794758948304378,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304379,
+    "workerMs": 132,
+    "workerColo": "EWR",
+    "reps": 217,
+    "check": 39277,
+    "logs": {
+     "wallMs": 131,
+     "cpuMs": 124,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqlwalk",
+   "reps": 240,
+   "ping": {
+    "seq": 1794758948304381,
+    "workerMs": 16,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 13,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304382,
+    "workerMs": 152,
+    "workerColo": "EWR",
+    "reps": 240,
+    "check": 43440,
+    "logs": {
+     "wallMs": 150,
+     "cpuMs": 144,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "jsdiff",
+   "reps": 15360,
+   "ping": {
+    "seq": 1794758948304384,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304385,
+    "workerMs": 193,
+    "workerColo": "EWR",
+    "reps": 15360,
+    "check": 107520,
+    "logs": {
+     "wallMs": 192,
+     "cpuMs": 185,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "applyRead",
+   "arm": "sql",
+   "reps": 3491,
+   "ping": {
+    "seq": 1794758948304387,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304388,
+    "workerMs": 106,
+    "workerColo": "EWR",
+    "reps": 3491,
+    "check": 10473,
+    "logs": {
+     "wallMs": 121,
+     "cpuMs": 99,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "sqltree",
+   "reps": 3087,
+   "ping": {
+    "seq": 1794758948304390,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304391,
+    "workerMs": 99,
+    "workerColo": "EWR",
+    "reps": 3087,
+    "check": 200655,
+    "logs": {
+     "wallMs": 96,
+     "cpuMs": 93,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "apply",
+   "arm": "js",
+   "reps": 3167,
+   "ping": {
+    "seq": 1794758948304393,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304394,
+    "workerMs": 145,
+    "workerColo": "EWR",
+    "reps": 3167,
+    "check": 3167,
+    "logs": {
+     "wallMs": 143,
+     "cpuMs": 137,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqlbwalk",
+   "reps": 273,
+   "ping": {
+    "seq": 1794758948304396,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 10,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304397,
+    "workerMs": 156,
+    "workerColo": "EWR",
+    "reps": 273,
+    "check": 49413,
+    "logs": {
+     "wallMs": 157,
+     "cpuMs": 147,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "write",
+   "reps": 12800,
+   "ping": {
+    "seq": 1794758948304399,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304400,
+    "workerMs": 117,
+    "workerColo": "EWR",
+    "reps": 12800,
+    "check": 12800,
+    "logs": {
+     "wallMs": 132,
+     "cpuMs": 105,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "apply",
+   "arm": "sql",
+   "reps": 6752,
+   "ping": {
+    "seq": 1794758948304402,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304403,
+    "workerMs": 153,
+    "workerColo": "EWR",
+    "reps": 6752,
+    "check": 6752,
+    "logs": {
+     "wallMs": 150,
+     "cpuMs": 146,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "jsapply",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304405,
+    "workerMs": 17,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304406,
+    "workerMs": 39,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 60000,
+    "logs": {
+     "wallMs": 35,
+     "cpuMs": 30,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "applyRead",
+   "arm": "sqlb",
+   "reps": 4800,
+   "ping": {
+    "seq": 1794758948304408,
+    "workerMs": 10,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304409,
+    "workerMs": 177,
+    "workerColo": "EWR",
+    "reps": 4800,
+    "check": 14400,
+    "logs": {
+     "wallMs": 189,
+     "cpuMs": 168,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "sqlpatch",
+   "reps": 8084,
+   "ping": {
+    "seq": 1794758948304411,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 7,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304412,
+    "workerMs": 165,
+    "workerColo": "EWR",
+    "reps": 8084,
+    "check": 17364432,
+    "logs": {
+     "wallMs": 188,
+     "cpuMs": 152,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "read",
+   "reps": 12800,
+   "ping": {
+    "seq": 1794758948304414,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 10,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304415,
+    "workerMs": 188,
+    "workerColo": "EWR",
+    "reps": 12800,
+    "check": 27494400,
+    "logs": {
+     "wallMs": 184,
+     "cpuMs": 178,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "sqlpatch",
+   "reps": 3491,
+   "ping": {
+    "seq": 1794758948304641,
+    "workerMs": 43,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 39,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304642,
+    "workerMs": 89,
+    "workerColo": "EWR",
+    "reps": 3491,
+    "check": 7498668,
+    "logs": {
+     "wallMs": 86,
+     "cpuMs": 65,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "stringify",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304644,
+    "workerMs": 31,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 23,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304645,
+    "workerMs": 84,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 42960000,
+    "logs": {
+     "wallMs": 81,
+     "cpuMs": 58,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "jsapply",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304647,
+    "workerMs": 29,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 25,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304648,
+    "workerMs": 42,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 60000,
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 17,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "sqltree",
+   "reps": 4096,
+   "ping": {
+    "seq": 1794758948304650,
+    "workerMs": 44,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304651,
+    "workerMs": 174,
+    "workerColo": "EWR",
+    "reps": 4096,
+    "check": 266240,
+    "logs": {
+     "wallMs": 171,
+     "cpuMs": 145,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqlbwalk",
+   "reps": 220,
+   "ping": {
+    "seq": 1794758948304653,
+    "workerMs": 28,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 23,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304654,
+    "workerMs": 159,
+    "workerColo": "EWR",
+    "reps": 220,
+    "check": 39820,
+    "logs": {
+     "wallMs": 150,
+     "cpuMs": 126,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "parse",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304656,
+    "workerMs": 27,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 24,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304657,
+    "workerMs": 115,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 60000,
+    "logs": {
+     "wallMs": 112,
+     "cpuMs": 91,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "diff",
+   "arm": "jsb",
+   "reps": 3087,
+   "ping": {
+    "seq": 1794758948304659,
+    "workerMs": 43,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 39,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304660,
+    "workerMs": 186,
+    "workerColo": "EWR",
+    "reps": 3087,
+    "check": 558747,
+    "logs": {
+     "wallMs": 183,
+     "cpuMs": 158,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "apply",
+   "arm": "sqlb",
+   "reps": 4420,
+   "ping": {
+    "seq": 1794758948304662,
+    "workerMs": 44,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 39,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304663,
+    "workerMs": 94,
+    "workerColo": "EWR",
+    "reps": 4420,
+    "check": 4420,
+    "logs": {
+     "wallMs": 91,
+     "cpuMs": 69,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqlwalk",
+   "reps": 130,
+   "ping": {
+    "seq": 1794758948304665,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304666,
+    "workerMs": 103,
+    "workerColo": "EWR",
+    "reps": 130,
+    "check": 23530,
+    "logs": {
+     "wallMs": 99,
+     "cpuMs": 78,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "sqlbpatch",
+   "reps": 10779,
+   "ping": {
+    "seq": 1794758948304668,
+    "workerMs": 26,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 23,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304669,
+    "workerMs": 177,
+    "workerColo": "EWR",
+    "reps": 10779,
+    "check": 21159177,
+    "logs": {
+     "wallMs": 178,
+     "cpuMs": 152,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "write",
+   "reps": 9288,
+   "ping": {
+    "seq": 1794758948304671,
+    "workerMs": 29,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 26,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304672,
+    "workerMs": 111,
+    "workerColo": "EWR",
+    "reps": 9288,
+    "check": 9288,
+    "logs": {
+     "wallMs": 107,
+     "cpuMs": 86,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqltree",
+   "reps": 196,
+   "ping": {
+    "seq": 1794758948304674,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 312,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304675,
+    "workerMs": 243,
+    "workerColo": "EWR",
+    "reps": 196,
+    "check": 35476,
+    "logs": {
+     "wallMs": 239,
+     "cpuMs": 214,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "read",
+   "reps": 13357,
+   "ping": {
+    "seq": 1794758948304677,
+    "workerMs": 43,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304678,
+    "workerMs": 186,
+    "workerColo": "EWR",
+    "reps": 13357,
+    "check": 28690836,
+    "logs": {
+     "wallMs": 189,
+     "cpuMs": 161,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "apply",
+   "arm": "js",
+   "reps": 2048,
+   "ping": {
+    "seq": 1794758948304680,
+    "workerMs": 27,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 23,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304681,
+    "workerMs": 125,
+    "workerColo": "EWR",
+    "reps": 2048,
+    "check": 2048,
+    "logs": {
+     "wallMs": 115,
+     "cpuMs": 89,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "applyRead",
+   "arm": "sqlb",
+   "reps": 5689,
+   "ping": {
+    "seq": 1794758948304683,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 39,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304684,
+    "workerMs": 203,
+    "workerColo": "EWR",
+    "reps": 5689,
+    "check": 17067,
+    "logs": {
+     "wallMs": 219,
+     "cpuMs": 177,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "apply",
+   "arm": "jsb",
+   "reps": 2871,
+   "ping": {
+    "seq": 1794758948304686,
+    "workerMs": 28,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 23,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304687,
+    "workerMs": 150,
+    "workerColo": "EWR",
+    "reps": 2871,
+    "check": 2871,
+    "logs": {
+     "wallMs": 146,
+     "cpuMs": 126,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "diff",
+   "arm": "js",
+   "reps": 3572,
+   "ping": {
+    "seq": 1794758948304689,
+    "workerMs": 28,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 25,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304690,
+    "workerMs": 225,
+    "workerColo": "EWR",
+    "reps": 3572,
+    "check": 646532,
+    "logs": {
+     "wallMs": 248,
+     "cpuMs": 194,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqlbtree",
+   "reps": 200,
+   "ping": {
+    "seq": 1794758948304692,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 39,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304693,
+    "workerMs": 163,
+    "workerColo": "EWR",
+    "reps": 200,
+    "check": 36200,
+    "logs": {
+     "wallMs": 157,
+     "cpuMs": 134,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "readb",
+   "reps": 12800,
+   "ping": {
+    "seq": 1794758948304695,
+    "workerMs": 41,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304696,
+    "workerMs": 388,
+    "workerColo": "EWR",
+    "reps": 12800,
+    "check": 27494400,
+    "logs": {
+     "wallMs": 395,
+     "cpuMs": 355,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "applyRead",
+   "arm": "sql",
+   "reps": 4838,
+   "ping": {
+    "seq": 1794758948304698,
+    "workerMs": 43,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304699,
+    "workerMs": 184,
+    "workerColo": "EWR",
+    "reps": 4838,
+    "check": 14514,
+    "logs": {
+     "wallMs": 183,
+     "cpuMs": 158,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "jsdiff",
+   "reps": 8547,
+   "ping": {
+    "seq": 1794758948304701,
+    "workerMs": 26,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 23,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304702,
+    "workerMs": 117,
+    "workerColo": "EWR",
+    "reps": 8547,
+    "check": 59829,
+    "logs": {
+     "wallMs": 115,
+     "cpuMs": 93,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "apply",
+   "arm": "sql",
+   "reps": 8777,
+   "ping": {
+    "seq": 1794758948304704,
+    "workerMs": 41,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 37,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304705,
+    "workerMs": 224,
+    "workerColo": "EWR",
+    "reps": 8777,
+    "check": 8777,
+    "logs": {
+     "wallMs": 226,
+     "cpuMs": 191,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "sqltree",
+   "reps": 4096,
+   "ping": {
+    "seq": 1794758948304707,
+    "workerMs": 45,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304708,
+    "workerMs": 174,
+    "workerColo": "EWR",
+    "reps": 4096,
+    "check": 266240,
+    "logs": {
+     "wallMs": 170,
+     "cpuMs": 141,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqlbwalk",
+   "reps": 220,
+   "ping": {
+    "seq": 1794758948304710,
+    "workerMs": 27,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 23,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304711,
+    "workerMs": 148,
+    "workerColo": "EWR",
+    "reps": 220,
+    "check": 39820,
+    "logs": {
+     "wallMs": 144,
+     "cpuMs": 121,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "jsdiff",
+   "reps": 8547,
+   "ping": {
+    "seq": 1794758948304713,
+    "workerMs": 28,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 26,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304714,
+    "workerMs": 111,
+    "workerColo": "EWR",
+    "reps": 8547,
+    "check": 59829,
+    "logs": {
+     "wallMs": 107,
+     "cpuMs": 86,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "applyRead",
+   "arm": "sql",
+   "reps": 4838,
+   "ping": {
+    "seq": 1794758948304716,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 37,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304717,
+    "workerMs": 225,
+    "workerColo": "EWR",
+    "reps": 4838,
+    "check": 14514,
+    "logs": {
+     "wallMs": 222,
+     "cpuMs": 189,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "sqlpatch",
+   "reps": 3491,
+   "ping": {
+    "seq": 1794758948304719,
+    "workerMs": 38,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 34,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304720,
+    "workerMs": 98,
+    "workerColo": "EWR",
+    "reps": 3491,
+    "check": 7498668,
+    "logs": {
+     "wallMs": 91,
+     "cpuMs": 70,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "parse",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304722,
+    "workerMs": 44,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 40,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304723,
+    "workerMs": 117,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 60000,
+    "logs": {
+     "wallMs": 114,
+     "cpuMs": 94,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "write",
+   "reps": 9288,
+   "ping": {
+    "seq": 1794758948304725,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 40,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304726,
+    "workerMs": 121,
+    "workerColo": "EWR",
+    "reps": 9288,
+    "check": 9288,
+    "logs": {
+     "wallMs": 135,
+     "cpuMs": 94,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "sqlbpatch",
+   "reps": 10779,
+   "ping": {
+    "seq": 1794758948304728,
+    "workerMs": 43,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304729,
+    "workerMs": 165,
+    "workerColo": "EWR",
+    "reps": 10779,
+    "check": 21159177,
+    "logs": {
+     "wallMs": 160,
+     "cpuMs": 137,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "apply",
+   "arm": "sql",
+   "reps": 8777,
+   "ping": {
+    "seq": 1794758948304731,
+    "workerMs": 43,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 39,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304732,
+    "workerMs": 209,
+    "workerColo": "EWR",
+    "reps": 8777,
+    "check": 8777,
+    "logs": {
+     "wallMs": 205,
+     "cpuMs": 182,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "stringify",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304734,
+    "workerMs": 41,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304735,
+    "workerMs": 75,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 42960000,
+    "logs": {
+     "wallMs": 70,
+     "cpuMs": 49,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "apply",
+   "arm": "js",
+   "reps": 2048,
+   "ping": {
+    "seq": 1794758948304737,
+    "workerMs": 41,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304738,
+    "workerMs": 119,
+    "workerColo": "EWR",
+    "reps": 2048,
+    "check": 2048,
+    "logs": {
+     "wallMs": 117,
+     "cpuMs": 95,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqltree",
+   "reps": 196,
+   "ping": {
+    "seq": 1794758948304740,
+    "workerMs": 39,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 34,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304741,
+    "workerMs": 154,
+    "workerColo": "EWR",
+    "reps": 196,
+    "check": 35476,
+    "logs": {
+     "wallMs": 149,
+     "cpuMs": 126,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "read",
+   "reps": 13357,
+   "ping": {
+    "seq": 1794758948304743,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304744,
+    "workerMs": 207,
+    "workerColo": "EWR",
+    "reps": 13357,
+    "check": 28690836,
+    "logs": {
+     "wallMs": 207,
+     "cpuMs": 176,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "diff",
+   "arm": "js",
+   "reps": 3572,
+   "ping": {
+    "seq": 1794758948304746,
+    "workerMs": 27,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 24,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304747,
+    "workerMs": 188,
+    "workerColo": "EWR",
+    "reps": 3572,
+    "check": 646532,
+    "logs": {
+     "wallMs": 185,
+     "cpuMs": 164,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "apply",
+   "arm": "jsb",
+   "reps": 2871,
+   "ping": {
+    "seq": 1794758948304749,
+    "workerMs": 44,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 39,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304750,
+    "workerMs": 167,
+    "workerColo": "EWR",
+    "reps": 2871,
+    "check": 2871,
+    "logs": {
+     "wallMs": 173,
+     "cpuMs": 142,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "diff",
+   "arm": "jsb",
+   "reps": 3087,
+   "ping": {
+    "seq": 1794758948304752,
+    "workerMs": 41,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304753,
+    "workerMs": 206,
+    "workerColo": "EWR",
+    "reps": 3087,
+    "check": 558747,
+    "logs": {
+     "wallMs": 203,
+     "cpuMs": 175,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "apply",
+   "arm": "sqlb",
+   "reps": 4420,
+   "ping": {
+    "seq": 1794758948304755,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 37,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304756,
+    "workerMs": 176,
+    "workerColo": "EWR",
+    "reps": 4420,
+    "check": 4420,
+    "logs": {
+     "wallMs": 172,
+     "cpuMs": 148,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqlwalk",
+   "reps": 130,
+   "ping": {
+    "seq": 1794758948304758,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304759,
+    "workerMs": 113,
+    "workerColo": "EWR",
+    "reps": 130,
+    "check": 23530,
+    "logs": {
+     "wallMs": 110,
+     "cpuMs": 87,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "jsapply",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304761,
+    "workerMs": 41,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304762,
+    "workerMs": 58,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 60000,
+    "logs": {
+     "wallMs": 55,
+     "cpuMs": 34,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqlbtree",
+   "reps": 200,
+   "ping": {
+    "seq": 1794758948304764,
+    "workerMs": 67,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 40,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304765,
+    "workerMs": 147,
+    "workerColo": "EWR",
+    "reps": 200,
+    "check": 36200,
+    "logs": {
+     "wallMs": 144,
+     "cpuMs": 121,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "readb",
+   "reps": 12800,
+   "ping": {
+    "seq": 1794758948304767,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304768,
+    "workerMs": 194,
+    "workerColo": "EWR",
+    "reps": 12800,
+    "check": 27494400,
+    "logs": {
+     "wallMs": 191,
+     "cpuMs": 170,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "applyRead",
+   "arm": "sqlb",
+   "reps": 5689,
+   "ping": {
+    "seq": 1794758948304770,
+    "workerMs": 41,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304771,
+    "workerMs": 231,
+    "workerColo": "EWR",
+    "reps": 5689,
+    "check": 17067,
+    "logs": {
+     "wallMs": 233,
+     "cpuMs": 196,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "sqlbpatch",
+   "reps": 10779,
+   "ping": {
+    "seq": 1794758948304773,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 39,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304774,
+    "workerMs": 355,
+    "workerColo": "EWR",
+    "reps": 10779,
+    "check": 21159177,
+    "logs": {
+     "wallMs": 351,
+     "cpuMs": 275,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "apply",
+   "arm": "js",
+   "reps": 2048,
+   "ping": {
+    "seq": 1794758948304776,
+    "workerMs": 43,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 40,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304777,
+    "workerMs": 131,
+    "workerColo": "EWR",
+    "reps": 2048,
+    "check": 2048,
+    "logs": {
+     "wallMs": 119,
+     "cpuMs": 96,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "applyRead",
+   "arm": "sql",
+   "reps": 4838,
+   "ping": {
+    "seq": 1794758948304779,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304780,
+    "workerMs": 225,
+    "workerColo": "EWR",
+    "reps": 4838,
+    "check": 14514,
+    "logs": {
+     "wallMs": 226,
+     "cpuMs": 189,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "parse",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304782,
+    "workerMs": 44,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 39,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304783,
+    "workerMs": 128,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 60000,
+    "logs": {
+     "wallMs": 120,
+     "cpuMs": 99,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "diff",
+   "arm": "jsb",
+   "reps": 3087,
+   "ping": {
+    "seq": 1794758948304785,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 324,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304786,
+    "workerMs": 186,
+    "workerColo": "EWR",
+    "reps": 3087,
+    "check": 558747,
+    "logs": {
+     "wallMs": 183,
+     "cpuMs": 158,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "apply",
+   "arm": "sqlb",
+   "reps": 4420,
+   "ping": {
+    "seq": 1794758948304788,
+    "workerMs": 27,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 23,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304789,
+    "workerMs": 93,
+    "workerColo": "EWR",
+    "reps": 4420,
+    "check": 4420,
+    "logs": {
+     "wallMs": 89,
+     "cpuMs": 69,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqlbtree",
+   "reps": 200,
+   "ping": {
+    "seq": 1794758948304791,
+    "workerMs": 26,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 23,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304792,
+    "workerMs": 148,
+    "workerColo": "EWR",
+    "reps": 200,
+    "check": 36200,
+    "logs": {
+     "wallMs": 145,
+     "cpuMs": 123,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "stringify",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304794,
+    "workerMs": 45,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304795,
+    "workerMs": 77,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 42960000,
+    "logs": {
+     "wallMs": 72,
+     "cpuMs": 50,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqlbwalk",
+   "reps": 220,
+   "ping": {
+    "seq": 1794758948304797,
+    "workerMs": 41,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304798,
+    "workerMs": 186,
+    "workerColo": "EWR",
+    "reps": 220,
+    "check": 39820,
+    "logs": {
+     "wallMs": 182,
+     "cpuMs": 156,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "jsapply",
+   "reps": 20000,
+   "ping": {
+    "seq": 1794758948304800,
+    "workerMs": 39,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 36,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304801,
+    "workerMs": 46,
+    "workerColo": "EWR",
+    "reps": 20000,
+    "check": 60000,
+    "logs": {
+     "wallMs": 43,
+     "cpuMs": 22,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "jsdiff",
+   "reps": 8547,
+   "ping": {
+    "seq": 1794758948304803,
+    "workerMs": 41,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304804,
+    "workerMs": 101,
+    "workerColo": "EWR",
+    "reps": 8547,
+    "check": 59829,
+    "logs": {
+     "wallMs": 98,
+     "cpuMs": 78,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "apply",
+   "arm": "jsb",
+   "reps": 2871,
+   "ping": {
+    "seq": 1794758948304806,
+    "workerMs": 26,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 23,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304807,
+    "workerMs": 153,
+    "workerColo": "EWR",
+    "reps": 2871,
+    "check": 2871,
+    "logs": {
+     "wallMs": 150,
+     "cpuMs": 125,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "write",
+   "reps": 9288,
+   "ping": {
+    "seq": 1794758948304809,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 39,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304810,
+    "workerMs": 120,
+    "workerColo": "EWR",
+    "reps": 9288,
+    "check": 9288,
+    "logs": {
+     "wallMs": 123,
+     "cpuMs": 96,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqltree",
+   "reps": 196,
+   "ping": {
+    "seq": 1794758948304812,
+    "workerMs": 44,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304813,
+    "workerMs": 186,
+    "workerColo": "EWR",
+    "reps": 196,
+    "check": 35476,
+    "logs": {
+     "wallMs": 182,
+     "cpuMs": 152,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "apply",
+   "arm": "sql",
+   "reps": 8777,
+   "ping": {
+    "seq": 1794758948304815,
+    "workerMs": 41,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 39,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304816,
+    "workerMs": 209,
+    "workerColo": "EWR",
+    "reps": 8777,
+    "check": 8777,
+    "logs": {
+     "wallMs": 206,
+     "cpuMs": 180,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqlwalk",
+   "reps": 130,
+   "ping": {
+    "seq": 1794758948304818,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 39,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304819,
+    "workerMs": 167,
+    "workerColo": "EWR",
+    "reps": 130,
+    "check": 23530,
+    "logs": {
+     "wallMs": 162,
+     "cpuMs": 137,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "applyRead",
+   "arm": "sqlb",
+   "reps": 5689,
+   "ping": {
+    "seq": 1794758948304821,
+    "workerMs": 27,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 23,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304822,
+    "workerMs": 380,
+    "workerColo": "EWR",
+    "reps": 5689,
+    "check": 17067,
+    "logs": {
+     "wallMs": 393,
+     "cpuMs": 352,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "read",
+   "reps": 13357,
+   "ping": {
+    "seq": 1794758948304824,
+    "workerMs": 43,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 38,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304825,
+    "workerMs": 197,
+    "workerColo": "EWR",
+    "reps": 13357,
+    "check": 28690836,
+    "logs": {
+     "wallMs": 210,
+     "cpuMs": 166,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "readb",
+   "reps": 12800,
+   "ping": {
+    "seq": 1794758948304827,
+    "workerMs": 41,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 39,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304828,
+    "workerMs": 210,
+    "workerColo": "EWR",
+    "reps": 12800,
+    "check": 27494400,
+    "logs": {
+     "wallMs": 207,
+     "cpuMs": 184,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "diff",
+   "arm": "js",
+   "reps": 3572,
+   "ping": {
+    "seq": 1794758948304830,
+    "workerMs": 46,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 23,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304831,
+    "workerMs": 202,
+    "workerColo": "EWR",
+    "reps": 3572,
+    "check": 646532,
+    "logs": {
+     "wallMs": 199,
+     "cpuMs": 176,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "sqltree",
+   "reps": 4096,
+   "ping": {
+    "seq": 1794758948304833,
+    "workerMs": 44,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 39,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304834,
+    "workerMs": 344,
+    "workerColo": "EWR",
+    "reps": 4096,
+    "check": 266240,
+    "logs": {
+     "wallMs": 340,
+     "cpuMs": 309,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 10,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "sqlpatch",
+   "reps": 3491,
+   "ping": {
+    "seq": 1794758948304836,
+    "workerMs": 26,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 23,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304837,
+    "workerMs": 86,
+    "workerColo": "EWR",
+    "reps": 3491,
+    "check": 7498668,
+    "logs": {
+     "wallMs": 175,
+     "cpuMs": 61,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "diff",
+   "arm": "js",
+   "reps": 8,
+   "ping": {
+    "seq": 1794758948304957,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 15,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304958,
+    "workerMs": 125,
+    "workerColo": "EWR",
+    "reps": 8,
+    "check": 1448,
+    "logs": {
+     "wallMs": 122,
+     "cpuMs": 100,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "diff",
+   "arm": "jsb",
+   "reps": 8,
+   "ping": {
+    "seq": 1794758948304960,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304961,
+    "workerMs": 161,
+    "workerColo": "EWR",
+    "reps": 8,
+    "check": 1448,
+    "logs": {
+     "wallMs": 158,
+     "cpuMs": 135,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "apply",
+   "arm": "js",
+   "reps": 24,
+   "ping": {
+    "seq": 1794758948304963,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304964,
+    "workerMs": 159,
+    "workerColo": "EWR",
+    "reps": 24,
+    "check": 24,
+    "logs": {
+     "wallMs": 157,
+     "cpuMs": 134,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "sqlbpatch",
+   "reps": 662,
+   "ping": {
+    "seq": 1794758948304966,
+    "workerMs": 151,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 29,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304967,
+    "workerMs": 160,
+    "workerColo": "EWR",
+    "reps": 662,
+    "check": 396836562,
+    "logs": {
+     "wallMs": 157,
+     "cpuMs": 136,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqlwalk",
+   "reps": 8,
+   "ping": {
+    "seq": 1794758948304969,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 16,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304970,
+    "workerMs": 168,
+    "workerColo": "EWR",
+    "reps": 8,
+    "check": 1448,
+    "logs": {
+     "wallMs": 165,
+     "cpuMs": 144,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "applyRead",
+   "arm": "sqlb",
+   "reps": 44,
+   "ping": {
+    "seq": 1794758948304972,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304973,
+    "workerMs": 166,
+    "workerColo": "EWR",
+    "reps": 44,
+    "check": 132,
+    "logs": {
+     "wallMs": 163,
+     "cpuMs": 142,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "stringify",
+   "reps": 69,
+   "ping": {
+    "seq": 1794758948304975,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304976,
+    "workerMs": 154,
+    "workerColo": "EWR",
+    "reps": 69,
+    "check": 44748570,
+    "logs": {
+     "wallMs": 151,
+     "cpuMs": 129,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "applyRead",
+   "arm": "sql",
+   "reps": 24,
+   "ping": {
+    "seq": 1794758948304978,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304979,
+    "workerMs": 158,
+    "workerColo": "EWR",
+    "reps": 24,
+    "check": 72,
+    "logs": {
+     "wallMs": 153,
+     "cpuMs": 131,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "jsapply",
+   "reps": 107,
+   "ping": {
+    "seq": 1794758948304981,
+    "workerMs": 19,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 16,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304982,
+    "workerMs": 126,
+    "workerColo": "EWR",
+    "reps": 107,
+    "check": 321,
+    "logs": {
+     "wallMs": 123,
+     "cpuMs": 102,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "sqltree",
+   "reps": 103,
+   "ping": {
+    "seq": 1794758948304984,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304985,
+    "workerMs": 237,
+    "workerColo": "EWR",
+    "reps": 103,
+    "check": 1711345,
+    "logs": {
+     "wallMs": 232,
+     "cpuMs": 208,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "sqlpatch",
+   "reps": 100,
+   "ping": {
+    "seq": 1794758948304987,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304988,
+    "workerMs": 174,
+    "workerColo": "EWR",
+    "reps": 100,
+    "check": 64853000,
+    "logs": {
+     "wallMs": 171,
+     "cpuMs": 148,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "apply",
+   "arm": "sql",
+   "reps": 91,
+   "ping": {
+    "seq": 1794758948304990,
+    "workerMs": 32,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 28,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304991,
+    "workerMs": 187,
+    "workerColo": "EWR",
+    "reps": 91,
+    "check": 91,
+    "logs": {
+     "wallMs": 184,
+     "cpuMs": 163,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "apply",
+   "arm": "sqlb",
+   "reps": 157,
+   "ping": {
+    "seq": 1794758948304993,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 15,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304994,
+    "workerMs": 100,
+    "workerColo": "EWR",
+    "reps": 157,
+    "check": 157,
+    "logs": {
+     "wallMs": 96,
+     "cpuMs": 75,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "parse",
+   "reps": 76,
+   "ping": {
+    "seq": 1794758948304996,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 15,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948304997,
+    "workerMs": 171,
+    "workerColo": "EWR",
+    "reps": 76,
+    "check": 228,
+    "logs": {
+     "wallMs": 167,
+     "cpuMs": 146,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "read",
+   "reps": 760,
+   "ping": {
+    "seq": 1794758948304999,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 16,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305000,
+    "workerMs": 189,
+    "workerColo": "EWR",
+    "reps": 760,
+    "check": 492882800,
+    "logs": {
+     "wallMs": 185,
+     "cpuMs": 164,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqlbwalk",
+   "reps": 12,
+   "ping": {
+    "seq": 1794758948305002,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305003,
+    "workerMs": 198,
+    "workerColo": "EWR",
+    "reps": 12,
+    "check": 2172,
+    "logs": {
+     "wallMs": 194,
+     "cpuMs": 174,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "apply",
+   "arm": "jsb",
+   "reps": 20,
+   "ping": {
+    "seq": 1794758948305005,
+    "workerMs": 23,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305006,
+    "workerMs": 159,
+    "workerColo": "EWR",
+    "reps": 20,
+    "check": 20,
+    "logs": {
+     "wallMs": 157,
+     "cpuMs": 134,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "readb",
+   "reps": 223,
+   "ping": {
+    "seq": 1794758948305008,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305009,
+    "workerMs": 145,
+    "workerColo": "EWR",
+    "reps": 223,
+    "check": 144622190,
+    "logs": {
+     "wallMs": 142,
+     "cpuMs": 119,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "jsdiff",
+   "reps": 17,
+   "ping": {
+    "seq": 1794758948305011,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 15,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305012,
+    "workerMs": 128,
+    "workerColo": "EWR",
+    "reps": 17,
+    "check": 119,
+    "logs": {
+     "wallMs": 125,
+     "cpuMs": 104,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqlbtree",
+   "reps": 2,
+   "ping": {
+    "seq": 1794758948305014,
+    "workerMs": 31,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 32,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305015,
+    "workerMs": 201,
+    "workerColo": "EWR",
+    "reps": 2,
+    "check": 362,
+    "logs": {
+     "wallMs": 198,
+     "cpuMs": 176,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqltree",
+   "reps": 2,
+   "ping": {
+    "seq": 1794758948305017,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305018,
+    "workerMs": 189,
+    "workerColo": "EWR",
+    "reps": 2,
+    "check": 362,
+    "logs": {
+     "wallMs": 186,
+     "cpuMs": 164,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 0,
+   "what": "part",
+   "arm": "write",
+   "reps": 278,
+   "ping": {
+    "seq": 1794758948305020,
+    "workerMs": 23,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305021,
+    "workerMs": 73,
+    "workerColo": "EWR",
+    "reps": 278,
+    "check": 278,
+    "logs": {
+     "wallMs": 69,
+     "cpuMs": 48,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "stringify",
+   "reps": 69,
+   "ping": {
+    "seq": 1794758948305023,
+    "workerMs": 19,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305024,
+    "workerMs": 168,
+    "workerColo": "EWR",
+    "reps": 69,
+    "check": 44748570,
+    "logs": {
+     "wallMs": 164,
+     "cpuMs": 140,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqlwalk",
+   "reps": 8,
+   "ping": {
+    "seq": 1794758948305026,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305027,
+    "workerMs": 245,
+    "workerColo": "EWR",
+    "reps": 8,
+    "check": 1448,
+    "logs": {
+     "wallMs": 241,
+     "cpuMs": 217,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqlbwalk",
+   "reps": 12,
+   "ping": {
+    "seq": 1794758948305029,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 15,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305030,
+    "workerMs": 191,
+    "workerColo": "EWR",
+    "reps": 12,
+    "check": 2172,
+    "logs": {
+     "wallMs": 187,
+     "cpuMs": 166,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "applyRead",
+   "arm": "sqlb",
+   "reps": 44,
+   "ping": {
+    "seq": 1794758948305032,
+    "workerMs": 23,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305033,
+    "workerMs": 167,
+    "workerColo": "EWR",
+    "reps": 44,
+    "check": 132,
+    "logs": {
+     "wallMs": 235,
+     "cpuMs": 142,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "apply",
+   "arm": "sql",
+   "reps": 91,
+   "ping": {
+    "seq": 1794758948305035,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305036,
+    "workerMs": 174,
+    "workerColo": "EWR",
+    "reps": 91,
+    "check": 91,
+    "logs": {
+     "wallMs": 171,
+     "cpuMs": 149,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "diff",
+   "arm": "jsb",
+   "reps": 8,
+   "ping": {
+    "seq": 1794758948305038,
+    "workerMs": 17,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 14,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305039,
+    "workerMs": 103,
+    "workerColo": "EWR",
+    "reps": 8,
+    "check": 1448,
+    "logs": {
+     "wallMs": 99,
+     "cpuMs": 77,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "sqltree",
+   "reps": 103,
+   "ping": {
+    "seq": 1794758948305041,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305042,
+    "workerMs": 164,
+    "workerColo": "EWR",
+    "reps": 103,
+    "check": 1711345,
+    "logs": {
+     "wallMs": 161,
+     "cpuMs": 140,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "parse",
+   "reps": 76,
+   "ping": {
+    "seq": 1794758948305044,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305045,
+    "workerMs": 172,
+    "workerColo": "EWR",
+    "reps": 76,
+    "check": 228,
+    "logs": {
+     "wallMs": 169,
+     "cpuMs": 147,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "apply",
+   "arm": "jsb",
+   "reps": 20,
+   "ping": {
+    "seq": 1794758948305047,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 15,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305048,
+    "workerMs": 228,
+    "workerColo": "EWR",
+    "reps": 20,
+    "check": 20,
+    "logs": {
+     "wallMs": 224,
+     "cpuMs": 202,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "read",
+   "reps": 760,
+   "ping": {
+    "seq": 1794758948305050,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 15,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305051,
+    "workerMs": 189,
+    "workerColo": "EWR",
+    "reps": 760,
+    "check": 492882800,
+    "logs": {
+     "wallMs": 185,
+     "cpuMs": 164,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "apply",
+   "arm": "sqlb",
+   "reps": 157,
+   "ping": {
+    "seq": 1794758948305053,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 16,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305054,
+    "workerMs": 103,
+    "workerColo": "EWR",
+    "reps": 157,
+    "check": 157,
+    "logs": {
+     "wallMs": 100,
+     "cpuMs": 79,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "jsapply",
+   "reps": 107,
+   "ping": {
+    "seq": 1794758948305056,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305057,
+    "workerMs": 127,
+    "workerColo": "EWR",
+    "reps": 107,
+    "check": 321,
+    "logs": {
+     "wallMs": 124,
+     "cpuMs": 103,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "applyRead",
+   "arm": "sql",
+   "reps": 24,
+   "ping": {
+    "seq": 1794758948305059,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305060,
+    "workerMs": 129,
+    "workerColo": "EWR",
+    "reps": 24,
+    "check": 72,
+    "logs": {
+     "wallMs": 124,
+     "cpuMs": 103,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "sqlbpatch",
+   "reps": 662,
+   "ping": {
+    "seq": 1794758948305062,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305063,
+    "workerMs": 168,
+    "workerColo": "EWR",
+    "reps": 662,
+    "check": 396836562,
+    "logs": {
+     "wallMs": 165,
+     "cpuMs": 144,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "diff",
+   "arm": "js",
+   "reps": 8,
+   "ping": {
+    "seq": 1794758948305065,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305066,
+    "workerMs": 142,
+    "workerColo": "EWR",
+    "reps": 8,
+    "check": 1448,
+    "logs": {
+     "wallMs": 140,
+     "cpuMs": 116,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "apply",
+   "arm": "js",
+   "reps": 24,
+   "ping": {
+    "seq": 1794758948305068,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 16,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305069,
+    "workerMs": 144,
+    "workerColo": "EWR",
+    "reps": 24,
+    "check": 24,
+    "logs": {
+     "wallMs": 141,
+     "cpuMs": 120,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "readb",
+   "reps": 223,
+   "ping": {
+    "seq": 1794758948305071,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 15,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305072,
+    "workerMs": 144,
+    "workerColo": "EWR",
+    "reps": 223,
+    "check": 144622190,
+    "logs": {
+     "wallMs": 140,
+     "cpuMs": 120,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "write",
+   "reps": 278,
+   "ping": {
+    "seq": 1794758948305074,
+    "workerMs": 17,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 14,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305075,
+    "workerMs": 72,
+    "workerColo": "EWR",
+    "reps": 278,
+    "check": 278,
+    "logs": {
+     "wallMs": 69,
+     "cpuMs": 49,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqlbtree",
+   "reps": 2,
+   "ping": {
+    "seq": 1794758948305077,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 20,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305078,
+    "workerMs": 212,
+    "workerColo": "EWR",
+    "reps": 2,
+    "check": 362,
+    "logs": {
+     "wallMs": 209,
+     "cpuMs": 188,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "jsdiff",
+   "reps": 17,
+   "ping": {
+    "seq": 1794758948305080,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305081,
+    "workerMs": 130,
+    "workerColo": "EWR",
+    "reps": 17,
+    "check": 119,
+    "logs": {
+     "wallMs": 127,
+     "cpuMs": 106,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqltree",
+   "reps": 2,
+   "ping": {
+    "seq": 1794758948305083,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305084,
+    "workerMs": 285,
+    "workerColo": "EWR",
+    "reps": 2,
+    "check": 362,
+    "logs": {
+     "wallMs": 288,
+     "cpuMs": 258,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 1,
+   "what": "part",
+   "arm": "sqlpatch",
+   "reps": 100,
+   "ping": {
+    "seq": 1794758948305086,
+    "workerMs": 23,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 20,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305087,
+    "workerMs": 166,
+    "workerColo": "EWR",
+    "reps": 100,
+    "check": 64853000,
+    "logs": {
+     "wallMs": 162,
+     "cpuMs": 142,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "sqltree",
+   "reps": 103,
+   "ping": {
+    "seq": 1794758948305089,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305090,
+    "workerMs": 208,
+    "workerColo": "EWR",
+    "reps": 103,
+    "check": 1711345,
+    "logs": {
+     "wallMs": 204,
+     "cpuMs": 182,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "sqlbpatch",
+   "reps": 662,
+   "ping": {
+    "seq": 1794758948305092,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305093,
+    "workerMs": 155,
+    "workerColo": "EWR",
+    "reps": 662,
+    "check": 396836562,
+    "logs": {
+     "wallMs": 152,
+     "cpuMs": 131,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "apply",
+   "arm": "sql",
+   "reps": 91,
+   "ping": {
+    "seq": 1794758948305095,
+    "workerMs": 19,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 15,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305096,
+    "workerMs": 167,
+    "workerColo": "EWR",
+    "reps": 91,
+    "check": 91,
+    "logs": {
+     "wallMs": 159,
+     "cpuMs": 136,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "diff",
+   "arm": "js",
+   "reps": 8,
+   "ping": {
+    "seq": 1794758948305098,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305099,
+    "workerMs": 137,
+    "workerColo": "EWR",
+    "reps": 8,
+    "check": 1448,
+    "logs": {
+     "wallMs": 134,
+     "cpuMs": 111,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqlwalk",
+   "reps": 8,
+   "ping": {
+    "seq": 1794758948305101,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305102,
+    "workerMs": 176,
+    "workerColo": "EWR",
+    "reps": 8,
+    "check": 1448,
+    "logs": {
+     "wallMs": 173,
+     "cpuMs": 151,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "diff",
+   "arm": "jsb",
+   "reps": 8,
+   "ping": {
+    "seq": 1794758948305104,
+    "workerMs": 19,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 16,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305105,
+    "workerMs": 123,
+    "workerColo": "EWR",
+    "reps": 8,
+    "check": 1448,
+    "logs": {
+     "wallMs": 119,
+     "cpuMs": 97,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "readb",
+   "reps": 223,
+   "ping": {
+    "seq": 1794758948305107,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305108,
+    "workerMs": 158,
+    "workerColo": "EWR",
+    "reps": 223,
+    "check": 144622190,
+    "logs": {
+     "wallMs": 153,
+     "cpuMs": 133,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "parse",
+   "reps": 76,
+   "ping": {
+    "seq": 1794758948305110,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305111,
+    "workerMs": 182,
+    "workerColo": "EWR",
+    "reps": 76,
+    "check": 228,
+    "logs": {
+     "wallMs": 179,
+     "cpuMs": 158,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "write",
+   "reps": 278,
+   "ping": {
+    "seq": 1794758948305113,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305114,
+    "workerMs": 73,
+    "workerColo": "EWR",
+    "reps": 278,
+    "check": 278,
+    "logs": {
+     "wallMs": 71,
+     "cpuMs": 49,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "sqlpatch",
+   "reps": 100,
+   "ping": {
+    "seq": 1794758948305116,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 16,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305117,
+    "workerMs": 167,
+    "workerColo": "EWR",
+    "reps": 100,
+    "check": 64853000,
+    "logs": {
+     "wallMs": 162,
+     "cpuMs": 140,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "jsapply",
+   "reps": 107,
+   "ping": {
+    "seq": 1794758948305119,
+    "workerMs": 33,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 28,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305120,
+    "workerMs": 119,
+    "workerColo": "EWR",
+    "reps": 107,
+    "check": 321,
+    "logs": {
+     "wallMs": 114,
+     "cpuMs": 94,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "jsdiff",
+   "reps": 17,
+   "ping": {
+    "seq": 1794758948305122,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305123,
+    "workerMs": 176,
+    "workerColo": "EWR",
+    "reps": 17,
+    "check": 119,
+    "logs": {
+     "wallMs": 173,
+     "cpuMs": 148,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "read",
+   "reps": 760,
+   "ping": {
+    "seq": 1794758948305125,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305126,
+    "workerMs": 185,
+    "workerColo": "EWR",
+    "reps": 760,
+    "check": 492882800,
+    "logs": {
+     "wallMs": 181,
+     "cpuMs": 160,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "apply",
+   "arm": "jsb",
+   "reps": 20,
+   "ping": {
+    "seq": 1794758948305128,
+    "workerMs": 31,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 28,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305129,
+    "workerMs": 144,
+    "workerColo": "EWR",
+    "reps": 20,
+    "check": 20,
+    "logs": {
+     "wallMs": 140,
+     "cpuMs": 117,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "applyRead",
+   "arm": "sql",
+   "reps": 24,
+   "ping": {
+    "seq": 1794758948305131,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305132,
+    "workerMs": 113,
+    "workerColo": "EWR",
+    "reps": 24,
+    "check": 72,
+    "logs": {
+     "wallMs": 110,
+     "cpuMs": 89,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqlbwalk",
+   "reps": 12,
+   "ping": {
+    "seq": 1794758948305134,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305135,
+    "workerMs": 181,
+    "workerColo": "EWR",
+    "reps": 12,
+    "check": 2172,
+    "logs": {
+     "wallMs": 178,
+     "cpuMs": 158,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqltree",
+   "reps": 2,
+   "ping": {
+    "seq": 1794758948305137,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305138,
+    "workerMs": 195,
+    "workerColo": "EWR",
+    "reps": 2,
+    "check": 362,
+    "logs": {
+     "wallMs": 191,
+     "cpuMs": 169,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "apply",
+   "arm": "js",
+   "reps": 24,
+   "ping": {
+    "seq": 1794758948305140,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305141,
+    "workerMs": 239,
+    "workerColo": "EWR",
+    "reps": 24,
+    "check": 24,
+    "logs": {
+     "wallMs": 235,
+     "cpuMs": 211,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "apply",
+   "arm": "sqlb",
+   "reps": 157,
+   "ping": {
+    "seq": 1794758948305143,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305144,
+    "workerMs": 103,
+    "workerColo": "EWR",
+    "reps": 157,
+    "check": 157,
+    "logs": {
+     "wallMs": 100,
+     "cpuMs": 80,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqlbtree",
+   "reps": 2,
+   "ping": {
+    "seq": 1794758948305146,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305147,
+    "workerMs": 257,
+    "workerColo": "EWR",
+    "reps": 2,
+    "check": 362,
+    "logs": {
+     "wallMs": 253,
+     "cpuMs": 229,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "applyRead",
+   "arm": "sqlb",
+   "reps": 44,
+   "ping": {
+    "seq": 1794758948305149,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305150,
+    "workerMs": 165,
+    "workerColo": "EWR",
+    "reps": 44,
+    "check": 132,
+    "logs": {
+     "wallMs": 161,
+     "cpuMs": 140,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 0,
+   "round": 2,
+   "what": "part",
+   "arm": "stringify",
+   "reps": 69,
+   "ping": {
+    "seq": 1794758948305152,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 15,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305153,
+    "workerMs": 148,
+    "workerColo": "EWR",
+    "reps": 69,
+    "check": 44748570,
+    "logs": {
+     "wallMs": 144,
+     "cpuMs": 122,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqltree",
+   "reps": 1,
+   "ping": {
+    "seq": 1794758948305263,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305264,
+    "workerMs": 153,
+    "workerColo": "EWR",
+    "reps": 1,
+    "check": 181,
+    "logs": {
+     "wallMs": 150,
+     "cpuMs": 132,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "sqlbpatch",
+   "reps": 452,
+   "ping": {
+    "seq": 1794758948305266,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 10,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305267,
+    "workerMs": 159,
+    "workerColo": "EWR",
+    "reps": 452,
+    "check": 270951852,
+    "logs": {
+     "wallMs": 152,
+     "cpuMs": 120,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "jsdiff",
+   "reps": 13,
+   "ping": {
+    "seq": 1794758948305269,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305270,
+    "workerMs": 201,
+    "workerColo": "EWR",
+    "reps": 13,
+    "check": 91,
+    "logs": {
+     "wallMs": 197,
+     "cpuMs": 182,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "apply",
+   "arm": "sqlb",
+   "reps": 59,
+   "ping": {
+    "seq": 1794758948305272,
+    "workerMs": 8,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305273,
+    "workerMs": 53,
+    "workerColo": "EWR",
+    "reps": 59,
+    "check": 59,
+    "logs": {
+     "wallMs": 49,
+     "cpuMs": 37,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "diff",
+   "arm": "jsb",
+   "reps": 3,
+   "ping": {
+    "seq": 1794758948305275,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 15,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305276,
+    "workerMs": 57,
+    "workerColo": "EWR",
+    "reps": 3,
+    "check": 543,
+    "logs": {
+     "wallMs": 54,
+     "cpuMs": 44,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "parse",
+   "reps": 53,
+   "ping": {
+    "seq": 1794758948305278,
+    "workerMs": 17,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 7,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305279,
+    "workerMs": 157,
+    "workerColo": "EWR",
+    "reps": 53,
+    "check": 159,
+    "logs": {
+     "wallMs": 151,
+     "cpuMs": 132,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "stringify",
+   "reps": 63,
+   "ping": {
+    "seq": 1794758948305281,
+    "workerMs": 10,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305282,
+    "workerMs": 255,
+    "workerColo": "EWR",
+    "reps": 63,
+    "check": 40857390,
+    "logs": {
+     "wallMs": 250,
+     "cpuMs": 237,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "diff",
+   "arm": "js",
+   "reps": 8,
+   "ping": {
+    "seq": 1794758948305284,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305285,
+    "workerMs": 115,
+    "workerColo": "EWR",
+    "reps": 8,
+    "check": 1448,
+    "logs": {
+     "wallMs": 109,
+     "cpuMs": 99,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqlwalk",
+   "reps": 3,
+   "ping": {
+    "seq": 1794758948305287,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305288,
+    "workerMs": 80,
+    "workerColo": "EWR",
+    "reps": 3,
+    "check": 543,
+    "logs": {
+     "wallMs": 77,
+     "cpuMs": 65,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "jsapply",
+   "reps": 132,
+   "ping": {
+    "seq": 1794758948305290,
+    "workerMs": 10,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305291,
+    "workerMs": 271,
+    "workerColo": "EWR",
+    "reps": 132,
+    "check": 396,
+    "logs": {
+     "wallMs": 265,
+     "cpuMs": 251,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "read",
+   "reps": 74,
+   "ping": {
+    "seq": 1794758948305293,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305294,
+    "workerMs": 60,
+    "workerColo": "EWR",
+    "reps": 74,
+    "check": 47991220,
+    "logs": {
+     "wallMs": 56,
+     "cpuMs": 45,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "write",
+   "reps": 519,
+   "ping": {
+    "seq": 1794758948305296,
+    "workerMs": 14,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305297,
+    "workerMs": 140,
+    "workerColo": "EWR",
+    "reps": 519,
+    "check": 519,
+    "logs": {
+     "wallMs": 136,
+     "cpuMs": 118,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "apply",
+   "arm": "jsb",
+   "reps": 14,
+   "ping": {
+    "seq": 1794758948305299,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305300,
+    "workerMs": 149,
+    "workerColo": "EWR",
+    "reps": 14,
+    "check": 14,
+    "logs": {
+     "wallMs": 142,
+     "cpuMs": 115,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "applyRead",
+   "arm": "sql",
+   "reps": 16,
+   "ping": {
+    "seq": 1794758948305302,
+    "workerMs": 10,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305303,
+    "workerMs": 89,
+    "workerColo": "EWR",
+    "reps": 16,
+    "check": 48,
+    "logs": {
+     "wallMs": 85,
+     "cpuMs": 75,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "apply",
+   "arm": "sql",
+   "reps": 30,
+   "ping": {
+    "seq": 1794758948305305,
+    "workerMs": 7,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305306,
+    "workerMs": 64,
+    "workerColo": "EWR",
+    "reps": 30,
+    "check": 30,
+    "logs": {
+     "wallMs": 62,
+     "cpuMs": 51,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "apply",
+   "arm": "js",
+   "reps": 17,
+   "ping": {
+    "seq": 1794758948305308,
+    "workerMs": 8,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305309,
+    "workerMs": 124,
+    "workerColo": "EWR",
+    "reps": 17,
+    "check": 17,
+    "logs": {
+     "wallMs": 120,
+     "cpuMs": 110,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqlbtree",
+   "reps": 1,
+   "ping": {
+    "seq": 1794758948305311,
+    "workerMs": 6,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305312,
+    "workerMs": 233,
+    "workerColo": "EWR",
+    "reps": 1,
+    "check": 181,
+    "logs": {
+     "wallMs": 226,
+     "cpuMs": 203,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "diff",
+   "arm": "sqlbwalk",
+   "reps": 6,
+   "ping": {
+    "seq": 1794758948305314,
+    "workerMs": 10,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305315,
+    "workerMs": 107,
+    "workerColo": "EWR",
+    "reps": 6,
+    "check": 1086,
+    "logs": {
+     "wallMs": 106,
+     "cpuMs": 94,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "applyRead",
+   "arm": "sqlb",
+   "reps": 19,
+   "ping": {
+    "seq": 1794758948305317,
+    "workerMs": 10,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305318,
+    "workerMs": 102,
+    "workerColo": "EWR",
+    "reps": 19,
+    "check": 57,
+    "logs": {
+     "wallMs": 97,
+     "cpuMs": 85,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "readb",
+   "reps": 53,
+   "ping": {
+    "seq": 1794758948305320,
+    "workerMs": 15,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305321,
+    "workerMs": 49,
+    "workerColo": "EWR",
+    "reps": 53,
+    "check": 34372090,
+    "logs": {
+     "wallMs": 46,
+     "cpuMs": 35,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "sqltree",
+   "reps": 77,
+   "ping": {
+    "seq": 1794758948305323,
+    "workerMs": 7,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 7,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305324,
+    "workerMs": 149,
+    "workerColo": "EWR",
+    "reps": 77,
+    "check": 1279355,
+    "logs": {
+     "wallMs": 146,
+     "cpuMs": 120,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 0,
+   "what": "part",
+   "arm": "sqlpatch",
+   "reps": 45,
+   "ping": {
+    "seq": 1794758948305326,
+    "workerMs": 16,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305327,
+    "workerMs": 83,
+    "workerColo": "EWR",
+    "reps": 45,
+    "check": 29183850,
+    "logs": {
+     "wallMs": 79,
+     "cpuMs": 69,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "apply",
+   "arm": "sql",
+   "reps": 30,
+   "ping": {
+    "seq": 1794758948305329,
+    "workerMs": 17,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305330,
+    "workerMs": 72,
+    "workerColo": "EWR",
+    "reps": 30,
+    "check": 30,
+    "logs": {
+     "wallMs": 67,
+     "cpuMs": 57,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "jsapply",
+   "reps": 132,
+   "ping": {
+    "seq": 1794758948305332,
+    "workerMs": 7,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305333,
+    "workerMs": 142,
+    "workerColo": "EWR",
+    "reps": 132,
+    "check": 396,
+    "logs": {
+     "wallMs": 138,
+     "cpuMs": 130,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "apply",
+   "arm": "jsb",
+   "reps": 14,
+   "ping": {
+    "seq": 1794758948305335,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305336,
+    "workerMs": 111,
+    "workerColo": "EWR",
+    "reps": 14,
+    "check": 14,
+    "logs": {
+     "wallMs": 107,
+     "cpuMs": 97,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "readb",
+   "reps": 53,
+   "ping": {
+    "seq": 1794758948305338,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 5,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305339,
+    "workerMs": 52,
+    "workerColo": "EWR",
+    "reps": 53,
+    "check": 34372090,
+    "logs": {
+     "wallMs": 46,
+     "cpuMs": 37,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "apply",
+   "arm": "sqlb",
+   "reps": 59,
+   "ping": {
+    "seq": 1794758948305341,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 5,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305342,
+    "workerMs": 48,
+    "workerColo": "EWR",
+    "reps": 59,
+    "check": 59,
+    "logs": {
+     "wallMs": 45,
+     "cpuMs": 36,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqlwalk",
+   "reps": 3,
+   "ping": {
+    "seq": 1794758948305344,
+    "workerMs": 15,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 7,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305345,
+    "workerMs": 69,
+    "workerColo": "EWR",
+    "reps": 3,
+    "check": 543,
+    "logs": {
+     "wallMs": 65,
+     "cpuMs": 56,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "apply",
+   "arm": "js",
+   "reps": 17,
+   "ping": {
+    "seq": 1794758948305347,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305348,
+    "workerMs": 118,
+    "workerColo": "EWR",
+    "reps": 17,
+    "check": 17,
+    "logs": {
+     "wallMs": 114,
+     "cpuMs": 104,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "parse",
+   "reps": 53,
+   "ping": {
+    "seq": 1794758948305350,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 5,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305351,
+    "workerMs": 144,
+    "workerColo": "EWR",
+    "reps": 53,
+    "check": 159,
+    "logs": {
+     "wallMs": 139,
+     "cpuMs": 123,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqltree",
+   "reps": 1,
+   "ping": {
+    "seq": 1794758948305353,
+    "workerMs": 6,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305354,
+    "workerMs": 129,
+    "workerColo": "EWR",
+    "reps": 1,
+    "check": 181,
+    "logs": {
+     "wallMs": 124,
+     "cpuMs": 113,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "jsdiff",
+   "reps": 13,
+   "ping": {
+    "seq": 1794758948305356,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305357,
+    "workerMs": 126,
+    "workerColo": "EWR",
+    "reps": 13,
+    "check": 91,
+    "logs": {
+     "wallMs": 118,
+     "cpuMs": 106,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "sqlpatch",
+   "reps": 45,
+   "ping": {
+    "seq": 1794758948305359,
+    "workerMs": 8,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305360,
+    "workerMs": 86,
+    "workerColo": "EWR",
+    "reps": 45,
+    "check": 29183850,
+    "logs": {
+     "wallMs": 83,
+     "cpuMs": 72,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqlbwalk",
+   "reps": 6,
+   "ping": {
+    "seq": 1794758948305362,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305363,
+    "workerMs": 263,
+    "workerColo": "EWR",
+    "reps": 6,
+    "check": 1086,
+    "logs": {
+     "wallMs": 257,
+     "cpuMs": 228,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "diff",
+   "arm": "jsb",
+   "reps": 3,
+   "ping": {
+    "seq": 1794758948305365,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 5,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305366,
+    "workerMs": 53,
+    "workerColo": "EWR",
+    "reps": 3,
+    "check": 543,
+    "logs": {
+     "wallMs": 50,
+     "cpuMs": 40,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "write",
+   "reps": 519,
+   "ping": {
+    "seq": 1794758948305368,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 5,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305369,
+    "workerMs": 119,
+    "workerColo": "EWR",
+    "reps": 519,
+    "check": 519,
+    "logs": {
+     "wallMs": 113,
+     "cpuMs": 102,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "diff",
+   "arm": "js",
+   "reps": 8,
+   "ping": {
+    "seq": 1794758948305371,
+    "workerMs": 6,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305372,
+    "workerMs": 177,
+    "workerColo": "EWR",
+    "reps": 8,
+    "check": 1448,
+    "logs": {
+     "wallMs": 172,
+     "cpuMs": 160,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "diff",
+   "arm": "sqlbtree",
+   "reps": 1,
+   "ping": {
+    "seq": 1794758948305374,
+    "workerMs": 7,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 5,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305375,
+    "workerMs": 134,
+    "workerColo": "EWR",
+    "reps": 1,
+    "check": 181,
+    "logs": {
+     "wallMs": 131,
+     "cpuMs": 117,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "applyRead",
+   "arm": "sql",
+   "reps": 16,
+   "ping": {
+    "seq": 1794758948305377,
+    "workerMs": 8,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305378,
+    "workerMs": 110,
+    "workerColo": "EWR",
+    "reps": 16,
+    "check": 48,
+    "logs": {
+     "wallMs": 108,
+     "cpuMs": 93,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "read",
+   "reps": 74,
+   "ping": {
+    "seq": 1794758948305380,
+    "workerMs": 8,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 5,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305381,
+    "workerMs": 32,
+    "workerColo": "EWR",
+    "reps": 74,
+    "check": 47991220,
+    "logs": {
+     "wallMs": 30,
+     "cpuMs": 19,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "sqltree",
+   "reps": 77,
+   "ping": {
+    "seq": 1794758948305383,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 11,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305384,
+    "workerMs": 223,
+    "workerColo": "EWR",
+    "reps": 77,
+    "check": 1279355,
+    "logs": {
+     "wallMs": 219,
+     "cpuMs": 205,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "sqlbpatch",
+   "reps": 452,
+   "ping": {
+    "seq": 1794758948305386,
+    "workerMs": 8,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305387,
+    "workerMs": 150,
+    "workerColo": "EWR",
+    "reps": 452,
+    "check": 270951852,
+    "logs": {
+     "wallMs": 145,
+     "cpuMs": 129,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "applyRead",
+   "arm": "sqlb",
+   "reps": 19,
+   "ping": {
+    "seq": 1794758948305389,
+    "workerMs": 14,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305390,
+    "workerMs": 82,
+    "workerColo": "EWR",
+    "reps": 19,
+    "check": 57,
+    "logs": {
+     "wallMs": 77,
+     "cpuMs": 67,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 1,
+   "what": "part",
+   "arm": "stringify",
+   "reps": 63,
+   "ping": {
+    "seq": 1794758948305392,
+    "workerMs": 8,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305393,
+    "workerMs": 149,
+    "workerColo": "EWR",
+    "reps": 63,
+    "check": 40857390,
+    "logs": {
+     "wallMs": 143,
+     "cpuMs": 129,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "read",
+   "reps": 74,
+   "ping": {
+    "seq": 1794758948305395,
+    "workerMs": 7,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305396,
+    "workerMs": 35,
+    "workerColo": "EWR",
+    "reps": 74,
+    "check": 47991220,
+    "logs": {
+     "wallMs": 30,
+     "cpuMs": 21,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "jsdiff",
+   "reps": 13,
+   "ping": {
+    "seq": 1794758948305398,
+    "workerMs": 8,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305399,
+    "workerMs": 106,
+    "workerColo": "EWR",
+    "reps": 13,
+    "check": 91,
+    "logs": {
+     "wallMs": 103,
+     "cpuMs": 93,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "stringify",
+   "reps": 63,
+   "ping": {
+    "seq": 1794758948305401,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305402,
+    "workerMs": 136,
+    "workerColo": "EWR",
+    "reps": 63,
+    "check": 40857390,
+    "logs": {
+     "wallMs": 132,
+     "cpuMs": 123,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "sqlbpatch",
+   "reps": 452,
+   "ping": {
+    "seq": 1794758948305404,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305405,
+    "workerMs": 123,
+    "workerColo": "EWR",
+    "reps": 452,
+    "check": 270951852,
+    "logs": {
+     "wallMs": 119,
+     "cpuMs": 106,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "diff",
+   "arm": "js",
+   "reps": 8,
+   "ping": {
+    "seq": 1794758948305407,
+    "workerMs": 10,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305408,
+    "workerMs": 194,
+    "workerColo": "EWR",
+    "reps": 8,
+    "check": 1448,
+    "logs": {
+     "wallMs": 189,
+     "cpuMs": 175,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqlbtree",
+   "reps": 1,
+   "ping": {
+    "seq": 1794758948305410,
+    "workerMs": 10,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 5,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305411,
+    "workerMs": 231,
+    "workerColo": "EWR",
+    "reps": 1,
+    "check": 181,
+    "logs": {
+     "wallMs": 226,
+     "cpuMs": 201,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "apply",
+   "arm": "sql",
+   "reps": 30,
+   "ping": {
+    "seq": 1794758948305413,
+    "workerMs": 19,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305414,
+    "workerMs": 90,
+    "workerColo": "EWR",
+    "reps": 30,
+    "check": 30,
+    "logs": {
+     "wallMs": 98,
+     "cpuMs": 54,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqlwalk",
+   "reps": 3,
+   "ping": {
+    "seq": 1794758948305416,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305417,
+    "workerMs": 90,
+    "workerColo": "EWR",
+    "reps": 3,
+    "check": 543,
+    "logs": {
+     "wallMs": 82,
+     "cpuMs": 69,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "diff",
+   "arm": "jsb",
+   "reps": 3,
+   "ping": {
+    "seq": 1794758948305419,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305420,
+    "workerMs": 95,
+    "workerColo": "EWR",
+    "reps": 3,
+    "check": 543,
+    "logs": {
+     "wallMs": 91,
+     "cpuMs": 76,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqlbwalk",
+   "reps": 6,
+   "ping": {
+    "seq": 1794758948305422,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305423,
+    "workerMs": 131,
+    "workerColo": "EWR",
+    "reps": 6,
+    "check": 1086,
+    "logs": {
+     "wallMs": 127,
+     "cpuMs": 114,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "write",
+   "reps": 519,
+   "ping": {
+    "seq": 1794758948305425,
+    "workerMs": 7,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305426,
+    "workerMs": 139,
+    "workerColo": "EWR",
+    "reps": 519,
+    "check": 519,
+    "logs": {
+     "wallMs": 134,
+     "cpuMs": 119,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "diff",
+   "arm": "sqltree",
+   "reps": 1,
+   "ping": {
+    "seq": 1794758948305428,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305429,
+    "workerMs": 145,
+    "workerColo": "EWR",
+    "reps": 1,
+    "check": 181,
+    "logs": {
+     "wallMs": 140,
+     "cpuMs": 127,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "apply",
+   "arm": "js",
+   "reps": 17,
+   "ping": {
+    "seq": 1794758948305431,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305432,
+    "workerMs": 147,
+    "workerColo": "EWR",
+    "reps": 17,
+    "check": 17,
+    "logs": {
+     "wallMs": 140,
+     "cpuMs": 112,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "parse",
+   "reps": 53,
+   "ping": {
+    "seq": 1794758948305434,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305435,
+    "workerMs": 137,
+    "workerColo": "EWR",
+    "reps": 53,
+    "check": 159,
+    "logs": {
+     "wallMs": 132,
+     "cpuMs": 120,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "applyRead",
+   "arm": "sqlb",
+   "reps": 19,
+   "ping": {
+    "seq": 1794758948305437,
+    "workerMs": 8,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305438,
+    "workerMs": 88,
+    "workerColo": "EWR",
+    "reps": 19,
+    "check": 57,
+    "logs": {
+     "wallMs": 82,
+     "cpuMs": 71,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "apply",
+   "arm": "sqlb",
+   "reps": 59,
+   "ping": {
+    "seq": 1794758948305440,
+    "workerMs": 7,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305441,
+    "workerMs": 58,
+    "workerColo": "EWR",
+    "reps": 59,
+    "check": 59,
+    "logs": {
+     "wallMs": 53,
+     "cpuMs": 42,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "sqltree",
+   "reps": 77,
+   "ping": {
+    "seq": 1794758948305443,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305444,
+    "workerMs": 140,
+    "workerColo": "EWR",
+    "reps": 77,
+    "check": 1279355,
+    "logs": {
+     "wallMs": 134,
+     "cpuMs": 122,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "apply",
+   "arm": "jsb",
+   "reps": 14,
+   "ping": {
+    "seq": 1794758948305446,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305447,
+    "workerMs": 126,
+    "workerColo": "EWR",
+    "reps": 14,
+    "check": 14,
+    "logs": {
+     "wallMs": 223,
+     "cpuMs": 111,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "applyRead",
+   "arm": "sql",
+   "reps": 16,
+   "ping": {
+    "seq": 1794758948305449,
+    "workerMs": 8,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305450,
+    "workerMs": 87,
+    "workerColo": "EWR",
+    "reps": 16,
+    "check": 48,
+    "logs": {
+     "wallMs": 81,
+     "cpuMs": 72,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "sqlpatch",
+   "reps": 45,
+   "ping": {
+    "seq": 1794758948305452,
+    "workerMs": 8,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 5,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305453,
+    "workerMs": 93,
+    "workerColo": "EWR",
+    "reps": 45,
+    "check": 29183850,
+    "logs": {
+     "wallMs": 88,
+     "cpuMs": 73,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "jsapply",
+   "reps": 132,
+   "ping": {
+    "seq": 1794758948305455,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305456,
+    "workerMs": 255,
+    "workerColo": "EWR",
+    "reps": 132,
+    "check": 396,
+    "logs": {
+     "wallMs": 251,
+     "cpuMs": 238,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "n": 3000,
+   "mutation": "move",
+   "object": 1,
+   "round": 2,
+   "what": "part",
+   "arm": "readb",
+   "reps": 53,
+   "ping": {
+    "seq": 1794758948305458,
+    "workerMs": 8,
+    "workerColo": "IAD",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "run": {
+    "seq": 1794758948305459,
+    "workerMs": 54,
+    "workerColo": "EWR",
+    "reps": 53,
+    "check": 34372090,
+    "logs": {
+     "wallMs": 48,
+     "cpuMs": 37,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  }
+ ],
+ "finishedAt": "2026-11-15T16:11:18.456Z",
+ "logsJoinedAt": "2026-11-15T16:12:33.869Z"
+}

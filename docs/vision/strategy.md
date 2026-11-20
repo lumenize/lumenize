@@ -1,3 +1,8 @@
+---
+status: rough draft
+status_dated: 2026-09-20
+---
+
 # Nebula Product Strategy
 
 > **Nebula is where domain experts build secure SaaS apps — and get paid.**
@@ -7,7 +12,7 @@
 | **Status** | Living doc — current strategy as of 2026-06-21. Update in place; note material pivots with a dated line. |
 | **Audience** | Internal. Also a `/review-task` product-vision lens — tasks that optimize against the checks below should get flagged. |
 | **Scope** | Nebula the SaaS platform. The MIT packages (Mesh and friends) are the substrate, not the subject. |
-| **Convention** | This doc + `enterprise.md` are **dual-purpose** (VC pitch / leave-behind **and** the `/review-task` lens). Files in this folder prefixed `_` (e.g. `_review-lens.md`) are **internal-only** — they feed the review lens but are **not** part of the external narrative. Ignore `_`-files for the deck. |
+| **Convention** | This doc, `enterprise.md`, and `self-improving-platform.md` are **dual-purpose** (VC pitch / leave-behind **and** the `/review-task` lens). Files in this folder prefixed `_` (e.g. `_review-lens.md`) are **internal-only** — they feed the review lens but are **not** part of the external narrative. Ignore `_`-files for the deck. `deck-workplan.md` is a third kind: the internal pitch-process gap list for the CEO — not a leave-behind, not a lens. ⚠️ **Pitch-process and evidence-confidence notes belong in `deck-workplan.md`, not in the dual-purpose docs** (added 2026-07-31): here, state the position. When a position rests on evidence thin enough to be worth flagging, attach a **`TODO: CONSIDER`** annotation with the evidence in *[square brackets]* — never inline hedging, which reads as the position itself being tentative. Claim-boundary notes (*Deck discipline*, *Claim discipline*) are a different genus and stay. |
 
 The macro thesis is that AI is the earthquake creating fissures that the traditional software development factory and roles are collapsing into, and at the same time creating new higher ground for the rise of the solopreneur/intrapreneur. 
 
@@ -19,11 +24,19 @@ The macro thesis is that AI is the earthquake creating fissures that the traditi
 
 Three load-bearing words, none optional:
 
-- **Secure** — security is the default, not a feature you remember to turn on; the same access control even governs the built-in end-user-facing AI chat, so it answers only from data the user may already see. This is the wedge (see *Why now*).
+- **Secure** — security is the default, not a feature you remember to turn on; the same access control even governs the built-in end-user-facing AI chat, so it answers only from data the user may already see. This is the wedge (see § *Why now*).
 - **SaaS apps** — real products with real end users, not toys or demos. The unit of value is a deployed, multi-tenant, revenue-capable application.
 - **Get paid** — the builder can charge their customers. This is the motivator that outlasts novelty, and it's what makes Nebula a *business platform* rather than a hobby gallery.
 
 The persona is always the **user-developer**: a solopreneur or intrapreneur who is a *domain expert*, who may not be an experienced coder. Never "vibe-coder."
+
+**The design center is one visionary — not one person in the room (corrected 2026-07-31; supersedes "~90% solo").** The user-developer is whoever *has the idea and drives it*: one visionary, one decision-maker, one buyer. They are **not** assumed to work alone. The earlier "~90% solo user-developers" estimate is **retired** — it measured headcount, which was never the load-bearing property, and the only real evidence we have runs against it. **Three of the four builders we can observe brought in a second person**: Jennifer wants Austen on Gigi's Almanac, Sydney wants Cass on the Secret Santa idea, and Timothy invited his brother Matthew — that one on a *competing* agentic builder, which makes it the cleanest of the three, since the pull toward a collaborator came from the work rather than from anything we built or pitched. Morgan is the fourth, and intends to work alone.
+
+**TODO: CONSIDER** — revisit this framing once there are more than a handful of real user-developers. *[Evidence today is 3 of 4, against a retired estimate that predicted roughly 1 in 10 — strong on direction, thin on magnitude. `deck-workplan.md` item 2 carries the sample's composition and the metric that would settle it.]*
+
+**What follows, and what does not.** **The buyer is one person; the workspace is multiplayer.** So "bring in whoever you need" is a legitimate part of the pitch *to the visionary*, and inviting a collaborator is a normal thing a user-developer does rather than an exception to the persona. ⚠️ **This is a correction to the persona's shape, not to the sequencing.** We still do not **sell to teams** (per-seat plans, team procurement, org-chart UI), and density-dependent business surface stays gated behind single-player value (checks 2, 3 and 7 below; `enterprise.md` *Timing gates*). **Solo-capable remains non-negotiable** — the product must be worth paying for before anyone else is invited.
+
+**Which word does which job — committed 2026-07-02 (formerly an open question):** **get paid** (plus agentic speed) is the *acquisition hook* — it's why a builder shows up, because solopreneurs choose tools on outcome, not on liability fear. **Secure** is the *trust moat* — why they stay, why their end users pay, and the entire enterprise expansion. The **coach loop** (see § *The coach in the loop* below) is the *conversion layer* in between — how a domain expert who showed up for the outcome actually gets to a shipped, paying app. Don't pitch security as the reason to sign up; pitch it as the reason you can charge money on day one and never look back.
 
 ---
 
@@ -39,16 +52,39 @@ The agentic-build space is a red ocean (Replit, Lovable, Cursor, v0, Bolt, Claud
 
 If Microsoft can't bolt this on safely, a domain expert on Replit can't either. Secure-by-default is the wedge because the entire field is insecure-by-default — and the agentic rung is one nobody else is even structurally attempting.
 
+**And the industry's answer to it is pointed at the wrong place.** The obvious counter to our wedge — *just run a scanner over the generated code* — assumes the pipeline "shift left" was built for: a human writes code, opens a pull request, a scanner reads what came out. Generated code never arrives that way. It arrives from an agent taking hundreds of actions nobody reads, already installed, already wired, and in most of these products already deployed. AI coding tools also write past the parts a platform team hardened, hand-rolling a raw handler where an authenticated abstraction already existed. So the scanner runs on the far side of the event, and what it finds is what is already broken and already live. **Building the platform so the default is not broken is the only control that acts before that** — which is the same argument, one layer down, for why the wedge has to be the foundation rather than a checker bolted above it. *(Framing from Chris Hughes, Resilient Cyber, 2026-09-10. Deck discipline: the write-past-hardened-abstractions claim is our own observation — it needs a citation or a named example before it goes in front of a buyer, and the sourcing pass that killed the round-number ladder is why.)*
+
 **And the cost of that insecurity just went up.** Two shifts turn an insecure app from an embarrassment into an existential risk for the builder:
 
-1. **Strict liability is law.** The EU Product Liability Directive (2024/2853, effective Dec 2026) and the Cyber Resilience Act treat software as a product under strict liability — "reasonable and customary practice" is no longer a shield; NIS2 adds personal executive liability. The domain expert who ships is now *liable* in a way they weren't three years ago.
-2. **Attacks run at machine speed.** Autonomous exploitation (Project Shannon-class, ~96% success in published results) targets the application/API/auth layer — exactly the surface these generated apps leave open.
+1. **The liability regime is turning against the shipper.** The EU Product Liability Directive (2024/2853, member-state transposition due Dec 2026) extends strict product liability to software, the Cyber Resilience Act adds security-by-design obligations, and NIS2 adds personal executive liability. The exact reach into pure SaaS is still being transposed and tested — but the direction is one-way: "reasonable and customary practice" is eroding as a shield, and the domain expert who ships is exposed in a way they weren't three years ago.
+2. **Attacks run at machine speed.** Autonomous exploitation agents now work the application/API/auth layer — exactly the surface these generated apps leave open — at a speed and cost that makes every exposed app worth probing. *(Deck discipline: any specific success-rate number used externally must carry a citation — the widely-repeated ones don't survive sourcing.)*
 
-A domain expert building their own SaaS app cannot personally secure it, and the law no longer forgives them for failing to. **Nebula's answer: they don't have to.** The platform's substrate — the ReBAC/DAG access-control model, secure-by-default node core (ADR-007), structured-clone-everywhere correctness (ADR-002), temporal/non-destructive resources (ADR-004), optimistic-concurrency idempotency (ADR-005) — makes the *default* app a secure app. That is a claim our competitors structurally cannot make, because they let you deploy anywhere and write arbitrary server code.
+A domain expert building their own SaaS app cannot personally secure it, and the law no longer forgives them for failing to. **Nebula's answer: they don't have to.** The platform's substrate — relationship-based access control woven into the data model, a secure-by-default node core, lossless data handling, non-destructive versioned storage, and correctness under concurrency and retries — makes the *default* app a secure app. That is a claim our competitors structurally cannot make, because they let you deploy anywhere and write arbitrary server code.
 
-**Secure *and* agentic — one claim, not two.** That last rung — the agentic one — is the one Nebula closes by construction. Every app ships with a chat that lets end users query their own data in natural language, and the same ReBAC/DAG substrate that secures the app governs what that chat can read, so it answers only from data the user already has access to. Everyone else bolts AI on after the fact and the model sees more than the user should; here, an AI that *can't* leak is the default, not a hardening project.
+### The substrate, in plain English
 
-**Least-privilege without the quality tax.** The obvious objection — if the AI only sees what the user may see, aren't its answers worse than one that sees everything? — has two answers. First, DAG-based ReBAC makes the user's *legitimate* reach precise rather than coarse: they automatically get everything their relationships entitle them to, so the model rarely lacks data it should have had. Second, when an answer would be materially better with data the user *can't* yet see, the system doesn't silently degrade — it routes a just-in-time access request to whoever holds that grant authority up the org tree (the [access-request flow](enterprise.md)), turning the security boundary from a wall into a governed, auditable membrane. Secure-by-default and best-answer stop being a tradeoff — which is the part competitors with no real access model can't follow.
+- **Every piece of data knows who may see it.** Relationship-based access control is woven into the data model itself, not checked at the edges — and the built-in AI chat inherits it automatically (the agentic rung, below).
+- **Nothing is ever silently destroyed.** Every change is a new version; full history and a "who changed what, when" audit trail are properties of the storage model, not a logging feature someone must remember to add.
+- **Concurrent edits can't silently clobber each other, and retried requests can't double-apply.** Correctness under failure is the default, not an advanced setting.
+- **Data survives the wire intact.** No lossy translation layers between client, network, and storage — the seams where type confusion (a classic vulnerability source) creeps in.
+- **Every node speaks through one guarded core.** There is exactly one implementation of "receive a call, verify who's calling, enforce what they may do" — new capabilities compose it; nobody hand-rolls their own security check.
+
+Each of these is pinned as an **Architecture Decision Record** — a short written commitment that our automated review process checks every piece of work against, so the guarantees can't erode one convenient exception at a time. *(Internally: ADR-002, -004, -005, -007 in `docs/adr/`; the `/review-task` lens reads them in full.)*
+
+**Secure *and* agentic — one claim, not two.** That last rung — the agentic one — is the one Nebula closes by construction. Every app ships with a chat that lets end users query their own data in natural language, and the same ReBAC/DAG substrate that secures the app governs what that chat can read, so it answers only from data the user already has access to. Everyone else bolts AI on after the fact and the model sees more than the user should; here, an AI that **can never read what the asking user can't read** is the default, not a hardening project. (State the claim exactly that way — it is the bounded, defensible one. Prompt injection can still misuse data *within* the user's legitimate scope; what the substrate guarantees is that the blast radius of any such attack is capped at what that user could already see. "An AI that can't leak," unqualified, is an absolute a CISO-grade reviewer will break.)
+
+**Least-privilege without the quality tax.** The obvious objection — if the AI only sees what the user may see, aren't its answers worse than one that sees everything? — has two answers. First, DAG-based ReBAC makes the user's *legitimate* reach precise rather than coarse: they automatically get everything their relationships entitle them to, so the model rarely lacks data it should have had. Second, when an answer would be materially better with data the user *can't* yet see, the system doesn't silently degrade — it routes a just-in-time access request to whoever holds that grant authority up the org tree (the [access-request flow](enterprise.md)). The security boundary stops being a dead end and becomes a junction: the refusal arrives naming the person who can lift it, and the track onward gets laid as soon as they say yes. Secure-by-default and best-answer stop being a tradeoff — which is the part competitors with no real access model can't follow.
+
+### Independent corroboration — YC's Fall 2026 RFS (added 2026-07-31)
+
+Y Combinator's [Fall 2026 Requests for Startups](https://www.ycombinator.com/rfs) names **A Cloud for Small Software** (Pete Koomen, YC group partner) as a category it wants funded, and its framing is ours: this class of software is now easy to *build* and still hard to *deploy and share*, because the incumbent clouds were designed for software that scales to many users and charge complexity for it — so a cloud designed for the small case could delete most of that complexity.
+
+The load-bearing part for us is the **hard problems it names**. The RFS lists three, and two are precisely what Nebula's substrate exists to solve: that *"auth & permissions are hard"*, and that letting nontechnical users share arbitrary code is hard to do securely. That is an investor-side statement, arrived at independently of us, that the bottleneck under agentic building is the access model and the safe-sharing boundary — § *The substrate, in plain English* above, and the walled garden below. The third named problem — every company wanting to customize the environment its software runs in — is the **garden ceiling**, stated by someone with no stake in our answer to it; we take that trade deliberately (see § *Honest about the ceiling*).
+
+⚠️ **Two disciplines before using this externally.**
+
+1. **It corroborates the infrastructure thesis, not the positioning.** YC's small software is *bespoke tools with one or a handful of users*; our unit of value is a multi-tenant, revenue-capable app (§ *What we are NOT*). Cite the RFS for "the category is real and its named hard problems are ours" — never let it pull the product toward internal-tools-for-one-team, which would undercut the get-paid crown jewel.
+2. **Security is not that RFS's headline** — it appears as a hard *sub*-problem beneath a deployment-simplicity headline. That is independent confirmation of our own wedge sequencing (§ *The positioning*, committed 2026-07-02): builders show up for the outcome and the speed; secure is why they can charge money and stay. Read it as evidence *for* that ordering, not as evidence the wedge is wrong.
 
 ---
 
@@ -67,6 +103,27 @@ This is the dominant enterprise-SaaS pattern of the last 15 years — Slack, Dro
 
 ---
 
+## The coach in the loop — how a domain expert actually ships
+
+Every citizen-development thesis has the same credibility hole: most non-coders stall, and the incumbent answer (templates, docs, community forums) doesn't unstall them. Nebula's answer is structural: **the agentic chat where the user-developer builds is multi-participant by construction.** A human coach can join that chat at any moment, see exactly what the builder is struggling with — full context, no "can you describe the problem" — and unblock them in place.
+
+⚠️ **The mechanism is general; the coach is one use of it.** What's built is an open invitation: the builder invites whoever they need into the thread with Nebula — a coach, a designer, a subject-matter peer, a teammate — and **participation is a uniform floor** (post, subscribe, and trigger Nebula) rather than a coach-shaped support channel with observers. Permissions *above* that floor still vary per person; participation itself does not. Say it that way round. Describing this as "a coach can join your chat" is how the capability gets undersold — it names the case instead of the thing, makes a general substrate sound like a service offering, and is the framing to correct on sight (the mechanics are pinned in [`nebula-galaxy-collapse-and-chat`](../../tasks/archive/nebula-galaxy-collapse-and-chat.md)). The rest of this section is about a *go-to-market motion* that rides this substrate — not about a limit on who may be in the room.
+
+The coaching is nominally success-enablement, and it is that. But its primary value is that it is the **highest-bandwidth product-feedback loop available**: every intervention yields one of two concrete artifacts —
+
+- a **workaround**, which is by definition a Nebula change proposal (the coach just proved the gap *and* the fix in a live session), or
+- a **discoverability/learning gap** — the capability existed and the builder couldn't find it — a different, equally concrete class of product improvement.
+
+Every product Larry has shipped has had this loop; it has been hard to sell in advance and decisive in practice every time. What's new is that the market just got a reference point: **Anthropic's Claude Tag** ([announced June 2026](https://www.anthropic.com/news/introducing-claude-tag)) is the same interaction model — one shared agentic chat, multiple humans, anyone can see the work and pick it up where the last person left off — and Anthropic reports tagging Claude is now one of the main ways it gets its own work done (~65% of its product team's code, per the announcement). Claude Tag targets small teams, so it lands slightly off our solopreneur center — but it maps one-for-one onto the coach-joins-your-chat mechanic, and it carries over *directly* to the **intrapreneur working inside an enterprise team**, which is precisely the expansion persona ([`enterprise.md`](enterprise.md)).
+
+**A second, independent reference point — and this one is investor-side (added 2026-07-31).** Y Combinator's [Fall 2026 RFS](https://www.ycombinator.com/rfs) asks for **Multiplayer AI** (Aaron Epstein, YC group partner): anyone on a team should be able to drop into the same live agent session, watch it work, redirect it, and hand it off. Note what is being asked for — *anyone*, and full participation (redirect, hand off), not a spectator channel. That is our participation floor, described by someone who has never seen Nebula. Three things follow. First, it retires the "will anyone want more than one human in the agent chat?" objection — a vendor (Anthropic) shipped it and an investor is asking to fund it, which is a stronger pair than either alone. Second, it is direct support for the 2026-07-19 substrate decision below: shared-thread-by-construction is where the category is going, so building the single-participant version first would be building the thing we'd have to tear out. Third — and this is the one to hold onto — **the match is to the general invitation, not to coaching.** A doc (or a demo) that presents this as "a coach can join" understates what is built and reads as a support feature; the RFS is asking for the uniform thing we already pinned. It is also outside evidence for the **persona** correction in § *The positioning* — an investor betting that agent sessions are multiplayer by nature is betting against the lone-builder picture, the same way our first two prospective user-developers did. **Sequencing discipline is unchanged** — we still do not sell to teams (§ *What we are NOT*).
+
+**What this changed — the substrate, not the positioning (updated 2026-07-19).** Anthropic's number is precisely why the chat is **multi-participant from day one** rather than something team collaboration inherits later: Nebula + the owner + a coach + an invited collaborator share one thread **pre-alpha**. That substrate is now core, and we will not ship the single-participant version. The **sequencing discipline is unchanged**: we do not sell to teams, and density-dependent business surface stays gated behind single-player value. *(Corrected 2026-07-31 — this line's persona half read "the persona is still the ~90%-solo user-developer"; see* The positioning *. The sequencing half stands.)*
+
+Economically, coaching is a scale question (human touch doesn't scale like software), and that's fine at wedge stage: the coach loop is how the wedge *converts and compounds* while the platform is young, not a permanent COGS line — over time the same feedback loop trains the platform's own agents, docs, and defaults — the compounding *self-improving-platform* moat ([`self-improving-platform.md`](self-improving-platform.md)). (Coach economics is a research item in `deck-workplan.md`.)
+
+---
+
 ## The walled garden is the moat (and its own ceiling)
 
 Nebula is intentionally constrained:
@@ -82,6 +139,14 @@ Nebula is intentionally constrained:
 
 **Honest about the ceiling:** the garden caps what can be built (the most valuable apps often need exactly the server-side flexibility we sandbox), and "you deploy to Nebula, full stop" *is* the platform-risk story competitors will tell. We accept this trade deliberately. Our bet is that the secure-default + get-paid value, for this persona, outweighs the lock-in objection — and that the homogeneity it buys is worth more than the flexibility it costs.
 
+**"Why won't the platform beneath you just do this?"** Because the moat is not the deploy target — it's the substrate (§ *The substrate, in plain English*, above) — years of opinionated engineering that exists *because* we refuse arbitrary server code. Cloudflare Workers infrastructure is our substrate, not our competitor: they win when we win. And the agentic-builder incumbents (Replit, Lovable, …) can't follow without first abandoning deploy-anywhere and arbitrary server code — i.e., breaking their core promise to their existing base — and then rebuilding this substrate from scratch.
+
+⚠️ **The old form of that answer is RETIRED (surfaced 2026-08-05).** It used to read *"Cloudflare sells neutral primitives to developers; Nebula sells an opinionated app platform to domain experts."* The first clause is now false: [Cloudflare OS](https://blog.cloudflare.com/cloudflare-os/) is an open-source agentic build-and-automate platform aimed explicitly at non-developers, on Workers, Durable Object facets, and AI Gateway. **Assume they will keep building up-stack wherever it drives consumption** — the platform-risk objection is sharper now, not softer, and a pitch that leans on "different DNA" will get caught. The distinction that survives is narrower, more concrete, and **they drew it**:
+
+- **They protect the org from the agent; we protect an app's end users from each other and from the agent.** Their control point is the **Gatekeeper** — a Worker per external service, *hand-written by the adopting organization*, handing agents typed bindings instead of raw credentials. That is real security and it is the right design for their customer. But it is perimeter mediation somebody must author correctly per service, and there is **no row-level, record-level, or relationship-based access control inside an app built on it** — because there is nothing to isolate: everyone is an employee behind Cloudflare Access. Ours is substrate enforcement woven into the data model that nobody hand-writes. A policy you must get right per service, versus a default you inherit.
+- **No external end users, so no "get paid."** The crown-jewel flywheel (§ *Three flywheels*) requires multi-tenancy, payments, payouts, discovery, and trust & safety. Cloudflare monetizes consumption; none of that business is on their path, and it is the whole of ours.
+- **A kit you operate, not a product you buy.** It is self-hosted into your own Cloudflare account with your own Access policies and integrations. That difference is the sharpest one for the enterprise expansion — depth in [`enterprise.md`](enterprise.md), *The newer objection*.
+
 ---
 
 ## Three flywheels — know which one is the business
@@ -96,6 +161,11 @@ A recurring strategic error is conflating these. They are different network effe
 
 The crown jewel is **builder → user**: a domain expert builds a SaaS app and *reaches paying customers* on a secure substrate. Remix and discovery (builder → builder) are an acquisition mechanic feeding that marketplace — not a substitute for it.
 
+Two mechanics attach to the crown jewel:
+
+- **Commerce enforces security — "get paid" and "secure" are one motion.** The moment an app charges real customers, its security stops being optional: paying end users demand it, and the payment rails police it (processors like Stripe suspend merchants who get breached). A solopreneur cannot pass that bar alone; the substrate passes it for them. Secure-by-default is what makes "get paid" *sustainable* — the wedge and the crown jewel are the same product, not two features.
+- **Every deployed app is distribution (the powered-by loop).** A builder's app reaches end users who are themselves potential builders — they can see it runs on Nebula and remix it into their own app (safely, per the walled-garden section). This is the Shopify/Calendly-style loop that feeds builder acquisition off the back of builder→user success, without making the product a social network.
+
 ### Sequencing: single-player value first
 
 Community and discovery are an *outcome* of density, never a shortcut to it — they accrue only once the platform is full of apps worth finding. Three disciplines follow:
@@ -109,8 +179,8 @@ Community and discovery are an *outcome* of density, never a shortcut to it — 
 ## What we are NOT
 
 - **Not a deployment-flexibility play.** "Deploy anywhere" is the opposite of our moat.
-- **Not a social-network play.** Remix and discovery are an acquisition funnel, not the product; forks and "trending" are not success metrics — retained, paying user-developers are.
-- **Not collaboration-first.** The persona is ~90% solo user-developers. Multi-user collaborative editing is, at most, a late and minor feature.
+- **Not a social-network play.** Remix and discovery are an acquisition funnel, not the product; forks and "trending" are not success metrics — retained, user-developers producing money-making apps are.
+- **Not collaboration-*sold*.** We don't sell to teams — no per-seat plans, no team procurement, no org-chart UI — and we don't build density-dependent business surface before single-player value exists. The **buyer is one person; the workspace is multiplayer** (§ *The positioning*): the multi-participant chat is core and ships pre-alpha, and a user-developer inviting a collaborator is the persona working as intended, not an exception to it.
 - **Not a toy gallery.** The unit of value is a deployable, revenue-capable SaaS app.
 
 ---
@@ -121,7 +191,7 @@ Flag a task that:
 
 1. **Trades away security defaults for flexibility, speed, or AI answer quality** — the wedge is secure-by-default; if the AI needs more data, the answer is just-in-time elevation up the org tree, never broader default access. A footgun is a strategy violation, not just a bug.
 2. **Optimizes a vanity metric** (forks, trending, stars) as if it were the business, or builds density-dependent features before single-player value exists.
-3. **Assumes collaboration / multi-user as a primary persona** rather than the ~90%-solo user-developer.
+3. **Sells to teams, or builds density-dependent business surface** (per-seat/team billing, seat management, team procurement, org-chart UI) **before single-player value exists.** The test is whether the task assumes **an org buying** — *not* whether more than one person is in the room. The buyer is one visionary; the workspace is multiplayer (§ *The positioning*), so multi-participant chat, shared threads, invited collaborators, and presence are **substrate** and never trip this check. *(Rewritten 2026-07-31 — previously keyed off a "~90%-solo" persona estimate, now retired.)*
 4. **Weakens the "get-paid" path** — anything that makes it harder for a user-developer to reach or charge end users undercuts the crown-jewel flywheel.
 5. **Erodes homogeneity** — special-casing, escape hatches to "deploy elsewhere," or per-app infrastructure divergence dissolves the moat.
 6. **Treats discovery as a someday problem** — adds publishable artifacts without an anti-slop/quality story.
@@ -131,10 +201,10 @@ Flag a task that:
 
 ## Open questions
 
-- **Monetization mechanics.** "Get paid" imports App-Store/Shopify-grade infrastructure: payments, payouts, trust, refunds, fraud, taxes, and *getting end users to discover and pay for a stranger's agentic app*. This is the hardest unsolved piece and probably deserves its own vision doc.
+- **Monetization mechanics — designed, release-gated, not yet written down.** The architecture is largely worked out and external launch is gated on it (we do not release without the get-paid path). What remains genuinely open: discovery — *getting end users to find and pay for a stranger's agentic app* — and the operational tail (refunds, fraud, taxes). This is the next sibling vision doc to write (`monetization.md`), and the deck needs its hypothesis-grade business-model slide now (see `deck-workplan.md`).
 - **Anti-slop / durable reputation.** What makes a ranking or reputation signal meaningful when output is machine-generated and near-free to produce?
 - **The garden ceiling.** Where exactly is the line between "secure sandbox" and "too constrained to build anything valuable"? The Dynamic Worker sandbox story (governed external connectivity) is the current answer — its limits define the addressable app space.
-- **Wedge sequencing.** Secure-by-default is the differentiator, but is it the *acquisition hook* (why a builder shows up) or the *retention/trust moat* (why they stay)? If the former, what gets them in the door before they care about liability?
+- ~~**Wedge sequencing.**~~ **Resolved 2026-07-02** — committed in § *The positioning* above: get-paid (+ agentic speed) is the acquisition hook, secure is the trust moat, the coach loop is the conversion layer between them.
 
 ---
 

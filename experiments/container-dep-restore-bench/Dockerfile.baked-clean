@@ -1,0 +1,7 @@
+# Same as Dockerfile.baked but drops the npm cache the install leaves behind.
+# A/B against Dockerfile.baked isolates how much of our image is dead cache.
+FROM node:22-slim
+WORKDIR /app
+COPY fixture/package.json ./
+RUN npm install --no-audit --no-fund && npm cache clean --force
+COPY fixture/ ./

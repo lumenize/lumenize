@@ -11,7 +11,7 @@
  * concurrent in-flight calls.
  *
  * Also captures `bench_marker` frames emitted by
- * `InstrumentedNebulaClientGateway` for the gateway-hop benchmark
+ * the instrumented host nodes (`worker/instrumented-hosts.ts`) for the gateway-hop benchmark
  * (`tasks/gateway-hop-benchmark.md`). Markers are correlated by the
  * callId carried in each frame and timestamped on arrival via
  * `performance.now()`. The decomposed-call helpers (`callStarDelayDecomposed`,
@@ -20,8 +20,8 @@
  */
 
 import { mesh } from '@lumenize/mesh/client';
-import { NebulaClient } from '@lumenize/nebula/client';
-import type { OperationDescriptor, Snapshot, TransactionResult } from '@lumenize/nebula/client';
+import { NebulaClient } from '@lumenize/resources/client';
+import type { OperationDescriptor, Snapshot, TransactionResult } from '@lumenize/resources/client';
 
 /** Per-call decomposed timing: arrival timestamps from the Node clock. */
 export interface DecomposedTimings {
@@ -42,13 +42,13 @@ export class HarnessNebulaClient extends NebulaClient {
   /** Map<callId, markerArrival ms>. Entries are deleted by the helper that consumed them. */
   #markersByCallId = new Map<string, number>();
   /**
-   * Map<eTag, t_arrived ms> — populated by every `handleResourceUpdate` carrying
+   * Map<version, t_arrived ms> — populated by every `handleResourceUpdate` carrying
    * a non-error Snapshot. Used by the fanout bench (`tasks/fanout-scaling-benchmark.md`)
-   * to capture per-subscriber push delivery time, correlated by the eTag the
-   * originator pre-generates via `client.resources.transaction({ newETag })`.
+   * to capture per-subscriber push delivery time, correlated by the version the
+   * server minted for the commit, which the originator reads off its outcome.
    */
-  #fanoutArrivalsByETag = new Map<string, number>();
-  /** Resolvers registered by `waitForFanoutArrival` for eTags not yet seen. */
+  #fanoutArrivalsByVersion = new Map<string, number>();
+  /** Resolvers registered by `waitForFanoutArrival` for versions not yet seen. */
   #pendingFanoutWaits = new Map<string, (t: number) => void>();
 
   #settle(v: any): void {
@@ -65,18 +65,6 @@ export class HarnessNebulaClient extends NebulaClient {
     super.onUnknownMessage(message);
   }
 
-  // Mesh callbacks the Star invokes directly over the existing WS.
-  // Always chain to super so the public-API in-flight queue used by
-  // `client.resources.transaction()` settles too. Tests using the direct
-  // `callStarTransaction` pattern leave `#inFlightTxn` unset, so super is
-  // a no-op in that mode; tests using the public API never set `#pending`,
-  // so the `#settle` call is a no-op in that mode.
-  @mesh()
-  override handleTransactionResult(r: TransactionResult | Error): void {
-    this.#settle(r);
-    super.handleTransactionResult(r);
-  }
-
   @mesh()
   handlePingResult(r: number | Error): void {
     this.#settle(r);
@@ -84,9 +72,9 @@ export class HarnessNebulaClient extends NebulaClient {
 
   /**
    * Override `handleResourceUpdate` to record the Node-side arrival time for
-   * every snapshot delivery, keyed by `snapshot.meta.eTag`. Initial-subscribe
+   * every snapshot delivery, keyed by `snapshot.meta.validFrom`. Initial-subscribe
    * snapshots and fanout pushes both flow through here — the fanout bench
-   * filters by the originator-generated eTag so initial-snapshot deliveries
+   * filters by the originator-generated version so initial-snapshot deliveries
    * don't pollute the measurement.
    *
    * Calls super to preserve normal subscribe-Promise settlement, bound-state
@@ -99,12 +87,12 @@ export class HarnessNebulaClient extends NebulaClient {
     result: Snapshot | null | Error,
   ): void {
     if (result && !(result instanceof Error)) {
-      const eTag = result.meta.eTag;
+      const version = result.meta.validFrom;
       const t = performance.now();
-      this.#fanoutArrivalsByETag.set(eTag, t);
-      const waiter = this.#pendingFanoutWaits.get(eTag);
+      this.#fanoutArrivalsByVersion.set(version, t);
+      const waiter = this.#pendingFanoutWaits.get(version);
       if (waiter) {
-        this.#pendingFanoutWaits.delete(eTag);
+        this.#pendingFanoutWaits.delete(version);
         waiter(t);
       }
     }
@@ -113,24 +101,23 @@ export class HarnessNebulaClient extends NebulaClient {
 
   /**
    * Resolve with the `performance.now()` timestamp captured when this client's
-   * `handleResourceUpdate` fired for `eTag`. If already received, resolves
+   * `handleResourceUpdate` fired for `version`. If already received, resolves
    * immediately; otherwise waits until the matching delivery arrives.
    *
-   * Test code typically pre-generates `eTag` via `crypto.randomUUID()` and
-   * passes it to `client.resources.transaction(ops, { newETag: eTag })` so the
-   * eTag is known before any subscriber receives the push.
+   * The version is the moment the commit's outcome carries; a push that arrived
+   * before the outcome resolves at once from the kept arrivals.
    */
-  waitForFanoutArrival(eTag: string, timeoutMs = 30_000): Promise<number> {
-    const cached = this.#fanoutArrivalsByETag.get(eTag);
+  waitForFanoutArrival(version: string, timeoutMs = 30_000): Promise<number> {
+    const cached = this.#fanoutArrivalsByVersion.get(version);
     if (cached !== undefined) {
       return Promise.resolve(cached);
     }
     return new Promise<number>((resolve, reject) => {
       const timer = globalThis.setTimeout(() => {
-        this.#pendingFanoutWaits.delete(eTag);
-        reject(new Error(`waitForFanoutArrival: timeout after ${timeoutMs}ms for eTag ${eTag}`));
+        this.#pendingFanoutWaits.delete(version);
+        reject(new Error(`waitForFanoutArrival: timeout after ${timeoutMs}ms for version ${version}`));
       }, timeoutMs);
-      this.#pendingFanoutWaits.set(eTag, (t) => {
+      this.#pendingFanoutWaits.set(version, (t) => {
         globalThis.clearTimeout(timer);
         resolve(t);
       });
@@ -139,7 +126,7 @@ export class HarnessNebulaClient extends NebulaClient {
 
   /** Drop any captured arrivals — useful between bench iterations to bound memory. */
   resetFanoutArrivals(): void {
-    this.#fanoutArrivalsByETag.clear();
+    this.#fanoutArrivalsByVersion.clear();
   }
 
   // Plain handler for callers that explicitly forward via
@@ -153,16 +140,16 @@ export class HarnessNebulaClient extends NebulaClient {
     starName: string,
     ontologyVersion: string,
     ops: Record<string, OperationDescriptor>,
-    newETag: string = crypto.randomUUID(),
   ): Promise<DecomposedCallResult<TransactionResult>> {
     return this.#callWithMarker((onSent) => {
-      this.lmz.call(
+      // Transactions now return via `callAsync` (D5 pattern (a)); route the resolved value / rejection
+      // into the single-slot `#settle` that `#callWithMarker` awaits.
+      this.lmz.callAsync(
         'STAR',
         starName,
-        (this.ctn() as any).transaction(ontologyVersion, newETag, ops),
-        undefined,
+        (this.ctn() as any).resources.transaction(ontologyVersion, ops),
         { onSent },
-      );
+      ).then((r: any) => this.#settle(r), (e: any) => this.#settle(e));
     });
   }
 
@@ -172,20 +159,21 @@ export class HarnessNebulaClient extends NebulaClient {
         'STAR',
         starName,
         (this.ctn() as any).ping(),
-        undefined,
-        { onSent },
+        // A refused ping settles the slot with its Error; the answer itself arrives as a push.
+        (this.ctn() as any).handlePingResult(),
+        { onSent, onErrorOnly: true },
       );
     });
   }
 
   /**
-   * Mesh-callback helper: dispatches a fire-and-forget `lmz.call` whose
-   * result is delivered via `handleTransactionResult` / `handlePingResult`
-   * (not via CALL_RESPONSE), and combines that with the per-callId marker
-   * arrival into a `DecomposedCallResult`.
+   * Marker helper: dispatches a call whose result is routed to the single `#settle` slot — a
+   * `callAsync` `.then`/`.catch` for transactions, or the `handlePingResult`/`handleResult` mesh
+   * callbacks for ping/delay — and combines that with the per-callId `bench_marker` arrival into a
+   * `DecomposedCallResult`.
    *
-   * The dispatch closure receives the `onSent` callback and is responsible
-   * for calling `lmz.call(...)` with `{ onSent }` in CallOptions.
+   * The dispatch closure receives the `onSent` callback and is responsible for calling
+   * `lmz.call(...)` / `lmz.callAsync(...)` with `{ onSent }` in CallOptions.
    */
   #callWithMarker<T>(dispatch: (onSent: (id: string) => void) => void): Promise<DecomposedCallResult<T>> {
     return new Promise<DecomposedCallResult<T>>((resolve, reject) => {
@@ -212,43 +200,43 @@ export class HarnessNebulaClient extends NebulaClient {
   }
 
   /**
-   * Spike helper: invokes `Star.delay(delayMs)`, which awaits server-side
-   * before returning. Uses `callRaw` (the async/Promise variant) since
-   * `delay()` returns its argument directly via CALL_RESPONSE — no mesh
-   * callback needed.
+   * Spike helper: invokes `Star.delay(delayMs)`, which awaits server-side before
+   * returning its argument. Uses the 4-arg `call()` fire-back (continuation-only
+   * model — no awaited callRaw, which is removed): `delay`'s result is delivered to
+   * `handleResult`, combined with the per-callId marker arrival into a
+   * `DecomposedCallResult`.
    */
-  async callStarDelay(starName: string, delayMs: number): Promise<DecomposedCallResult<number>> {
-    let callId: string | undefined;
-    let sendTs = NaN;
-    const result = await this.lmz.callRaw(
-      'STAR',
-      starName,
-      (this.ctn() as any).delay(delayMs),
-      {
-        onSent: (id: string) => {
-          callId = id;
-          sendTs = performance.now();
-        },
-      },
-    );
-    const responseArrival = performance.now();
-    if (!callId) throw new Error('callStarDelay: onSent never fired');
-    const markerArrival = this.#markersByCallId.get(callId);
-    if (markerArrival === undefined) {
-      throw new Error(`callStarDelay: no bench_marker received for callId ${callId}`);
-    }
-    this.#markersByCallId.delete(callId);
-    return { result, sendTs, markerArrival, responseArrival };
+  callStarDelay(starName: string, delayMs: number): Promise<DecomposedCallResult<number>> {
+    return this.#callWithMarker<number>((onSent) => {
+      const remote = (this.ctn() as any).delay(delayMs);
+      this.lmz.call('STAR', starName, remote, (this.ctn() as any).handleResult(remote), { onSent });
+    });
   }
 
-  callGalaxyAppendOntologyVersion(
-    galaxyName: string,
+  /**
+   * Cold-start anatomy (2026-07-22): the pure mesh round-trip. Fires `StarTest.echo(value)`
+   * (returns its arg, zero data-plane work) via the 4-arg fire-back into `handleResult`,
+   * combined with the per-callId `bench_marker` into a DecomposedCallResult. A COLD echo
+   * on a fresh Star measures fresh-Star cold-wake with no ontology/transaction path.
+   */
+  callStarEcho(starName: string, value: unknown): Promise<DecomposedCallResult<unknown>> {
+    return this.#callWithMarker<unknown>((onSent) => {
+      const remote = (this.ctn() as any).echo(value);
+      this.lmz.call('STAR', starName, remote, (this.ctn() as any).handleResult(remote), { onSent });
+    });
+  }
+
+  /** Install an ontology version directly on `starName` — `StarTest.applyOntologyForTest`
+   *  compiles server-side in the test app (the Galaxy test-install path is deleted;
+   *  the deployed Worker carries no compiler). Admin-gated on the star. */
+  callStarInstallOntology(
+    starName: string,
     cfg: { version: string; types: string },
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       this.#pending = { resolve, reject };
-      const remote = (this.ctn() as any).appendOntologyVersion(cfg);
-      this.lmz.call('GALAXY', galaxyName, remote, (this.ctn() as any).handleResult(remote));
+      const remote = (this.ctn() as any).applyOntologyForTest(cfg);
+      this.lmz.call('STAR', starName, remote, (this.ctn() as any).handleResult(remote));
     });
   }
 

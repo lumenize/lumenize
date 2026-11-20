@@ -1,16 +1,8 @@
 /**
- * RFC 7396 JSON Merge Patch — hand-rolled implementation.
+ * RFC 7396 JSON Merge Patch over the codec's encoding — hand-rolled, no deps.
  *
- * Hand-rolled (no library dep) because:
- *  - Apply is ~30 LOC; diff is ~50 LOC; surface area is tiny.
- *  - `@lumenize/structured-clone` aggressively minimizes its dependency
- *    footprint — every consumer inherits our deps.
- *  - Behavior is fully predictable; no surprises from upstream maintenance.
- *
- * Conformance: verified against all 15 test vectors from RFC 7396 Appendix A.
- * See `test/merge-patch-rfc7396.test.ts` for the canonical spec compliance
- * suite (vectors copied verbatim from the public RFC). Round-trip
- * (`apply(before, diff(before, after)) === after`) is also covered there.
+ * Conformance: verified against all 15 test vectors from RFC 7396 Appendix A
+ * (`test/merge-patch-rfc7396.test.ts`).
  *
  * Contract (RFC 7396):
  *  - `null` in a patch means "delete this key from target".
@@ -18,16 +10,18 @@
  *  - Plain objects are merged recursively.
  *  - Other primitives are replaced.
  *
- * Sentinel: we represent the "no-op patch" as `undefined` (return value of
- * `diff(a, a)` for identical inputs) rather than `{}`, since `{}` could be
- * a legitimate full replacement of a target.
+ * A patch can move no key, so `diff` keeps order only where the codec does:
+ * a Map's, Set's or object-form array's members, through the `object` member
+ * of its tag. A plain object's key order is not kept.
  *
- * Phase 1 (experiments/structured-clone-object-format) showed this is the
- * right diff primitive for the new wire format (W4: nested JSON + sparse
- * meta sidecar). See experiments/structured-clone-object-format/RESULTS.md.
+ * Every key is data: reads are own-property reads and writes define own
+ * properties, so a key named `__proto__` or `constructor` patches like any
+ * other and touches no prototype.
  *
  * @packageDocumentation
  */
+
+import { setOwn } from './preprocess';
 
 /** JSON-compatible value type. */
 export type JsonValue =
@@ -38,106 +32,194 @@ export type JsonValue =
   | JsonValue[]
   | { [k: string]: JsonValue };
 
-/** RFC 7396 merge patch. `undefined` represents the no-op patch. */
-export type MergePatch = JsonValue | undefined;
+/** One RFC 7396 merge patch. */
+export type MergePatch = JsonValue;
 
 type JsonObject = { [k: string]: JsonValue };
 
+/** `before` and `after` are the same encoding, every kept order included. */
+export interface DiffSame {
+  kind: 'same';
+}
+
 /**
- * Apply an RFC 7396 merge patch to a target. Returns the new value (does
- * not mutate `target`).
+ * Applying `patches` to `before` in order gives `after`, with
+ * `applyMergePatch` or with SQLite's `json_patch` nested once per patch.
+ * There are two when a Map, Set or object-form array under a plain object
+ * changed order: the first deletes it and the second sets it again.
+ */
+export interface DiffPatches {
+  kind: 'patches';
+  patches: MergePatch[];
+}
+
+/**
+ * No patch keeps `after`'s order: a Map, Set or object-form array at the
+ * root, or inside a Map, changed order. Send `after` whole.
+ */
+export interface DiffFull {
+  kind: 'full';
+}
+
+export type Diff = DiffSame | DiffPatches | DiffFull;
+
+/**
+ * Applies one RFC 7396 merge patch to a target, without mutating it.
  *
- * @param target - The value to patch.
- * @param patch - The merge patch. `undefined` returns a deep clone of `target`.
- * @returns The patched value.
+ * @throws TypeError for a value JSON cannot hold: an object whose prototype is
+ *   neither `Object.prototype` nor `null`, such as a decoded `Date` or `Map`,
+ *   or a function, bigint, symbol or `undefined`.
  */
 export function applyMergePatch(target: JsonValue, patch: MergePatch): JsonValue {
-  if (patch === undefined) return deepClone(target);
-  if (!isPlainObject(patch)) return deepClone(patch);
-  const base: JsonObject = isPlainObject(target) ? { ...target } : {};
+  if (!isJsonObject(patch)) return deepClone(patch);
+  const base: JsonObject = isJsonObject(target) ? { ...target } : {};
   for (const key of Object.keys(patch)) {
-    const pv = (patch as JsonObject)[key];
+    const pv = patch[key];
     if (pv === null) {
       delete base[key];
-    } else if (isPlainObject(pv)) {
-      base[key] = applyMergePatch(base[key] ?? {}, pv) as JsonValue;
+    } else if (isJsonObject(pv)) {
+      setOwn(base, key, applyMergePatch(Object.hasOwn(base, key) ? base[key] : {}, pv));
     } else {
-      base[key] = deepClone(pv);
+      setOwn(base, key, deepClone(pv));
     }
   }
   return base;
 }
 
 /**
- * Compute an RFC 7396 merge patch that, when applied to `before`, produces
- * `after`. Returns `undefined` for identical inputs (no-op patch).
+ * The patches that turn one encoding into another.
  *
- * Arrays are atomic — any change at any depth produces a wholesale array
- * replacement. Plain objects are diffed recursively. Removed keys appear
- * as `null` in the patch.
+ * Inside a Map's, Set's or object-form array's members, a patch keeps
+ * `before`'s surviving members in place and adds new ones last. When `after`
+ * orders them any other way, the collection is set again whole: under a plain
+ * object by two patches, and at the root or inside a Map by `{ kind: 'full' }`.
+ *
+ * @throws TypeError for a value JSON cannot hold: an object whose prototype is
+ *   neither `Object.prototype` nor `null`, such as a decoded `Date` or `Map`,
+ *   or a function, bigint, symbol or `undefined`.
  */
-export function diff(before: JsonValue, after: JsonValue): MergePatch {
-  if (jsonEqual(before, after)) return undefined;
-  if (!isPlainObject(before) || !isPlainObject(after)) {
-    return deepClone(after);
+export function diff(before: JsonValue, after: JsonValue): Diff {
+  if (jsonEqual(before, after, false)) return { kind: 'same' };
+  const step = diffAt(before, after);
+  if (step === FULL || step === REORDERED) return { kind: 'full' };
+  return { kind: 'patches', patches: step.second === undefined ? [step.first] : [step.first, step.second] };
+}
+
+// The first patch's value for one position, and the second patch's, which
+// sets again each collection the first deleted.
+interface Step {
+  first: JsonValue;
+  second: JsonObject | undefined;
+}
+
+// A collection at this position changed order, so its parent decides: a
+// plain object deletes and sets it again, anything else answers FULL.
+const REORDERED = Symbol('reordered');
+const FULL = Symbol('full');
+
+// The patch for one position whose values differ.
+function diffAt(b: JsonValue, a: JsonValue): Step | typeof REORDERED | typeof FULL {
+  if (!isJsonObject(b) || !isJsonObject(a)) return { first: deepClone(a), second: undefined };
+  if (isObjectForm(a) && orderChanged(b, a)) return REORDERED;
+  return diffObjects(b, a, false);
+}
+
+// `members` is true for a collection's `object`, whose keys keep their order.
+function diffObjects(b: JsonObject, a: JsonObject, members: boolean): Step | typeof FULL {
+  const first: JsonObject = {};
+  let second: JsonObject | undefined;
+  for (const key of Object.keys(b)) {
+    if (!Object.hasOwn(a, key)) setOwn(first, key, null);
   }
-  const patch: JsonObject = {};
-  for (const key of Object.keys(before)) {
-    if (!(key in after)) patch[key] = null;
-  }
-  for (const key of Object.keys(after)) {
-    const bv = before[key];
-    const av = after[key];
-    if (bv === undefined) {
-      patch[key] = deepClone(av);
+  for (const key of Object.keys(a)) {
+    const av = a[key];
+    if (!Object.hasOwn(b, key)) {
+      setOwn(first, key, deepClone(av));
       continue;
     }
-    if (jsonEqual(bv, av)) continue;
-    if (isPlainObject(bv) && isPlainObject(av)) {
-      const sub = diff(bv, av);
-      patch[key] = sub as JsonValue;
-    } else {
-      patch[key] = deepClone(av);
+    const bv = b[key];
+    const holdsMembers = key === 'object' && isObjectForm(a);
+    if (jsonEqual(bv, av, holdsMembers)) continue;
+    const sub = holdsMembers && isJsonObject(bv) ? diffObjects(bv, av as JsonObject, true) : diffAt(bv, av);
+    if (sub === FULL) return FULL;
+    if (sub === REORDERED) {
+      if (members) return FULL;
+      setOwn(first, key, null);
+      setOwn((second ??= {}), key, deepClone(av));
+      continue;
     }
+    setOwn(first, key, sub.first);
+    if (sub.second !== undefined) setOwn((second ??= {}), key, sub.second);
   }
-  return patch;
+  return { first, second };
 }
 
-function isPlainObject(v: unknown): v is JsonObject {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
+// Whether applying a patch would order `a`'s members differently from `a`:
+// it keeps `b`'s surviving members in place and adds new ones last.
+function orderChanged(b: JsonObject, a: JsonObject): boolean {
+  const after = a.object as JsonObject;
+  const before = Object.hasOwn(b, 'object') && isJsonObject(b.object) ? b.object : {};
+  const kept = Object.keys(before).filter((k) => Object.hasOwn(after, k));
+  const added = Object.keys(after).filter((k) => !Object.hasOwn(before, k));
+  const order = Object.keys(after);
+  return [...kept, ...added].some((k, i) => k !== order[i]);
 }
 
-function jsonEqual(a: JsonValue, b: JsonValue): boolean {
-  if (a === b) return true;
-  if (typeof a !== typeof b) return false;
-  if (a === null || b === null) return a === b;
-  if (Array.isArray(a)) {
-    if (!Array.isArray(b) || a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      if (!jsonEqual(a[i] as JsonValue, b[i] as JsonValue)) return false;
+// A Map's, Set's or array's object form: `{ $type, object }`.
+function isObjectForm(v: JsonObject): boolean {
+  const type = Object.hasOwn(v, '$type') ? v.$type : undefined;
+  return (type === 'map' || type === 'set' || type === 'array')
+    && Object.hasOwn(v, 'object') && isJsonObject(v.object);
+}
+
+function isJsonObject(v: unknown): v is JsonObject {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+  const proto = Object.getPrototypeOf(v);
+  if (proto !== Object.prototype && proto !== null) {
+    throw new TypeError(`Not JSON: an object whose prototype is ${proto?.constructor?.name ?? 'not Object.prototype'}`);
+  }
+  return true;
+}
+
+// Refuses a value JSON cannot hold: a function, bigint, symbol or undefined.
+function checkScalar(v: unknown): void {
+  const type = typeof v;
+  if (type === 'function' || type === 'bigint' || type === 'symbol' || type === 'undefined') {
+    throw new TypeError(`Not JSON: a ${type}`);
+  }
+}
+
+// `ordered` is true for a collection's members, whose key order counts.
+function jsonEqual(x: JsonValue, y: JsonValue, ordered: boolean): boolean {
+  checkScalar(x);
+  checkScalar(y);
+  if (x === y) return true;
+  if (Array.isArray(x) || Array.isArray(y)) {
+    if (!Array.isArray(x) || !Array.isArray(y) || x.length !== y.length) return false;
+    for (let i = 0; i < x.length; i++) {
+      if (!jsonEqual(x[i], y[i], false)) return false;
     }
     return true;
   }
-  if (typeof a === 'object') {
-    if (typeof b !== 'object' || Array.isArray(b)) return false;
-    const ak = Object.keys(a);
-    const bk = Object.keys(b);
-    if (ak.length !== bk.length) return false;
-    for (const k of ak) {
-      if (!(k in (b as JsonObject))) return false;
-      if (!jsonEqual((a as JsonObject)[k] as JsonValue, (b as JsonObject)[k] as JsonValue)) return false;
-    }
-    return true;
+  if (!isJsonObject(x) || !isJsonObject(y)) return false;
+  const xKeys = Object.keys(x);
+  const yKeys = Object.keys(y);
+  if (xKeys.length !== yKeys.length) return false;
+  const holdsMembers = isObjectForm(x);
+  for (let i = 0; i < xKeys.length; i++) {
+    const k = xKeys[i];
+    if (ordered ? yKeys[i] !== k : !Object.hasOwn(y, k)) return false;
+    if (!jsonEqual(x[k], y[k], holdsMembers && k === 'object')) return false;
   }
-  return false;
+  return true;
 }
 
 function deepClone<T extends JsonValue>(v: T): T {
+  checkScalar(v);
   if (v === null || typeof v !== 'object') return v;
-  if (Array.isArray(v)) return v.map((x) => deepClone(x as JsonValue)) as unknown as T;
+  if (Array.isArray(v)) return v.map((x) => deepClone(x)) as T;
+  if (!isJsonObject(v)) return v;
   const out: JsonObject = {};
-  for (const k of Object.keys(v)) {
-    out[k] = deepClone((v as JsonObject)[k] as JsonValue);
-  }
-  return out as unknown as T;
+  for (const k of Object.keys(v)) setOwn(out, k, deepClone(v[k]));
+  return out as T;
 }

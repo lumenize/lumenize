@@ -24,7 +24,7 @@
  * log.debug('processing request', { url, method });
  * log.info('milestone reached', { step: 3 });
  * log.warn('retry limit reached', { retryCount: 5 });
- * log.error('unexpected failure', { error: e.message }); // ALWAYS outputs
+ * log.error('unexpected failure', { error: e }); // ALWAYS outputs; e's stack becomes `stack`
  * ```
  *
  * Configuration:

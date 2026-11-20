@@ -2,6 +2,8 @@
 
 **Status**: Not started. (The original "do it before millions of resources exist" urgency has softened — Resources core, the Vue frontend, and resource-creation infrastructure shipped/merged 2026-06-15 without it. Still worth doing; re-justify priority against current work.)
 
+> ⚠️ **Stale assumption (2026-07-02): "monotonic ULID for entity ids / callIds" conflicts with committed decisions — reconcile before building.** `nodeId` is now pinned to **UUID** (`tasks/dag-client-supplied-nodeid.md`), and **callId stays UUID** — the mesh-continuation session decided "do NOT ULID-ify" because cross-node clock skew makes a ULID's timestamp-ordering useless globally (`callChain` *structure*, not timestamps, gives trace order). The `uniqueId()`/`secureToken()` **split** may still be worth it, but for anything that crosses nodes, `secureToken()` (random UUID) is the right default and monotonic-ULID is likely wrong. Treat the "ULID for trackable ids" framing below as unsettled.
+
 ## Objective
 
 Add per-call IDs to Mesh's `callChain[]` so `@lumenize/debug` (and any other observer) can reconstruct full call trees — including forks where one node makes multiple outgoing `lmz.call()`s — by reading `lmz.callContext`. As a paired change, standardize unique-ID generation across `@lumenize/mesh` and `apps/nebula` on two blessed primitives that close out a known footgun (non-monotonic ULID in Workers).

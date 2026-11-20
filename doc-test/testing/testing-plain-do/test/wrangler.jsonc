@@ -1,18 +1,13 @@
 {
   "name": "testing-plain-do",
   "main": "./test-harness.ts",  // The only change from your real wrangler.jsonc
-  "compatibility_date": "2026-03-12",
+  "compatibility_date": "2026-10-01",
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "migrations": [
-    {
-      "new_sqlite_classes": [
-        "MyDO"
-      ],
-      "tag": "v1"
-    }
-  ],
+  "exports": {
+    "MyDO": { "type": "durable-object", "storage": "sqlite" }
+  },
   "durable_objects": {
     "bindings": [
       {

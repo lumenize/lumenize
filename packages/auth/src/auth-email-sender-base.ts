@@ -67,8 +67,9 @@ export function defaultInviteNewHtml(message: InviteNewMessage, appName: string)
  * Extend it and set `from`; the provider is chosen by the environment via
  * `@lumenize/email`'s `createEmailTransport` (the `EMAIL` binding → Cloudflare;
  * `EMAIL_PROVIDER=resend` or no `EMAIL` binding → Resend). Optionally override
- * `replyTo`, `appName`, any of the 5 template methods, or any of the 5 subject
- * methods. Override `sendEmail` only to force a specific transport.
+ * `replyTo`, `appName`, any of the 5 template methods, any of the 5 subject
+ * methods, or the single `headers` hook (one for all types — see its JSDoc).
+ * Override `sendEmail` only to force a specific transport.
  *
  * @see https://lumenize.com/docs/auth/getting-started#email-provider — setup walkthrough
  * @see https://lumenize.com/docs/auth/configuration#email-provider — reference (class hierarchy, overridable methods)
@@ -94,33 +95,27 @@ export abstract class AuthEmailSenderBase extends WorkerEntrypoint {
 
     let subject: string;
     let html: string;
-    let headers: Record<string, string>;
 
     switch (message.type) {
       case 'magic-link':
         subject = this.magicLinkSubject(message);
         html = this.magicLinkHtml(message);
-        headers = this.magicLinkHeaders(message);
         break;
       case 'admin-notification':
         subject = this.adminNotificationSubject(message);
         html = this.adminNotificationHtml(message);
-        headers = this.adminNotificationHeaders(message);
         break;
       case 'approval-confirmation':
         subject = this.approvalConfirmationSubject(message);
         html = this.approvalConfirmationHtml(message);
-        headers = this.approvalConfirmationHeaders(message);
         break;
       case 'invite-existing':
         subject = this.inviteExistingSubject(message);
         html = this.inviteExistingHtml(message);
-        headers = this.inviteExistingHeaders(message);
         break;
       case 'invite-new':
         subject = this.inviteNewSubject(message);
         html = this.inviteNewHtml(message);
-        headers = this.inviteNewHeaders(message);
         break;
     }
 
@@ -131,7 +126,9 @@ export abstract class AuthEmailSenderBase extends WorkerEntrypoint {
       from: this.from,
       replyTo: resolvedReplyTo,
       appName: this.appName,
-      headers,
+      // Outside the switch ON PURPOSE — see `headers()`. Every message type gets the same hook,
+      // so a new type cannot silently ship untagged.
+      headers: this.headers(message),
     };
 
     await this.sendEmail(resolved);
@@ -196,30 +193,25 @@ export abstract class AuthEmailSenderBase extends WorkerEntrypoint {
   }
 
   // ============================================
-  // Overridable header hooks (return Record<string, string>)
-  //
-  // Default to `{}`. Override to thread routing/correlation IDs, multi-tenant
-  // scope markers, A/B variant labels, etc. through to provider-emitted email
-  // headers (Cloudflare's `binding.send({...})` accepts a `headers` field).
+  // Overridable header hook (returns Record<string, string>)
   // ============================================
 
-  magicLinkHeaders(_message: MagicLinkMessage): Record<string, string> {
-    return {};
-  }
-
-  adminNotificationHeaders(_message: AdminNotificationMessage): Record<string, string> {
-    return {};
-  }
-
-  approvalConfirmationHeaders(_message: ApprovalConfirmationMessage): Record<string, string> {
-    return {};
-  }
-
-  inviteExistingHeaders(_message: InviteExistingMessage): Record<string, string> {
-    return {};
-  }
-
-  inviteNewHeaders(_message: InviteNewMessage): Record<string, string> {
+  /**
+   * Provider-emitted email headers, for **every** message type (Cloudflare's
+   * `binding.send({...})` accepts a `headers` field). Defaults to `{}` — no headers.
+   *
+   * Override to thread routing/correlation IDs, multi-tenant scope markers, A/B variant
+   * labels, etc. Derive them from `message` rather than switching on `message.type`, so a
+   * type you don't enumerate is still covered.
+   *
+   * ⚠️ **Deliberately ONE hook, not one per message type** — unlike the subject and template
+   * hooks, which stay per-type because their *content* genuinely differs. Everything headers
+   * carry is cross-cutting, so a per-type hook is an enumeration a subclass silently falls out
+   * of, and the failure mode is invisible: the mail still sends, just untagged, and whatever
+   * downstream consumer filters on the header waits until it times out. That shipped once —
+   * `NebulaEmailSender` tagged magic-link and, months later, not invite.
+   */
+  headers(_message: EmailMessage): Record<string, string> {
     return {};
   }
 }

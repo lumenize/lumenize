@@ -1,0 +1,9 @@
+{
+  "//": "Type-checks the container-side build job (plain Node in the build box — job.ts, sfc-check.ts). Needs @types/node, not the Workers env; the imported apps/nebula/src/ontology-compile.ts is Node-safe by construction (its header pins the no-mesh, no-cloudflare:workers rule). Wired into scripts/type-check.sh (the apps/nebula/harness precedent). Run directly: `npx tsc --noEmit -p apps/nebula/container/compiler/tsconfig.json`.",
+  "extends": "../../../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["*.ts"]
+}

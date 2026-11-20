@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "experiment-workers-issues",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "durable_objects": {
+    "bindings": [{ "name": "PROBE", "class_name": "IssuesProbe" }]
+  },
+  "exports": {
+    "IssuesProbe": { "type": "durable-object", "storage": "sqlite" }
+  },
+  // Issues on, Workers Logs left off: Nebula's own config has no observability block, and the
+  // docs say Issues needs neither logs nor traces. If nothing shows up at all, that claim is the
+  // first thing to test.
+  "observability": {
+    "issues": { "enabled": true }
+  },
+  "upload_source_maps": true,
+  // Round 3: lets @lumenize/debug's warn level print, for the `realwarn` route.
+  "vars": { "DEBUG": "exp" }
+}

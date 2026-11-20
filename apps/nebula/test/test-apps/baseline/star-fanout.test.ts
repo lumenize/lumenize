@@ -3,39 +3,38 @@
  *
  * Tests that mutations on a Star fan out to non-originator subscribers via
  * `handleResourceUpdate`, that originators are excluded (BroadcastChannel
- * semantics), and that ontology-version installs clear the Subscribers
- * registry.
+ * semantics), and that ontology-version installs clear the resource rows in the Subscriptions
+ * table.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Snapshot, TransactionResult, SubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import type { Snapshot, TransactionResult, SubscriberRow } from '@lumenize/resources';
+import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 // Two distinct admin clients on the same Star — different browsers means
-// different Gateway instances means different `clientId`s, even though the
+// different tabIds means different client addresses, even though the
 // underlying `sub` (user identity) is the same. Sufficient for fanout
-// testing: originator exclusion is keyed on `clientId`.
+// testing: originator exclusion is keyed on the client's address.
 async function twoAdminClients(star: string) {
-  const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  a.client.callStarApplyOntology(star, {
+  a.client.callStarInstallOntology(star, {
     version: ONTOLOGY_VERSION,
     types: TEST_TYPES,
   });
   await waitForResult(a.client);
 
-  const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   return { a, b };
 }
 
@@ -63,7 +62,7 @@ async function createResource(
   });
   const result = await waitForSuccess(client) as TransactionResult;
   if (!result.ok) throw new Error('Expected create ok');
-  return result.eTags[resourceId];
+  return result.validFrom;
 }
 
 // Wait until the count reaches at least `n`. Used to assert that fanout
@@ -80,8 +79,8 @@ describe('star-fanout', () => {
   it('subscriber receives fanout on mutation by another client', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const resourceId = generateUuid();
-    const eTag = await createResource(a.client, star, resourceId, 'Initial');
+    const resourceId = crypto.randomUUID();
+    const version = await createResource(a.client, star, resourceId, 'Initial');
 
     // b subscribes
     b.client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
@@ -90,7 +89,7 @@ describe('star-fanout', () => {
 
     // a mutates
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [resourceId]: { op: 'put', eTag, value: { title: 'Updated by A' } },
+      [resourceId]: { op: 'put', ifValidFromMatches: version, value: { title: 'Updated by A' } },
     });
     await waitForSuccess(a.client);
 
@@ -100,7 +99,7 @@ describe('star-fanout', () => {
     expect(b.client.lastResourceUpdate!.resourceId).toBe(resourceId);
     const snap = b.client.lastResourceUpdate!.snapshot as Snapshot;
     expect(snap.value.title).toBe('Updated by A');
-    expect(snap.meta.eTag).not.toBe(eTag); // new eTag from the update
+    expect(snap.meta.validFrom).not.toBe(version); // new version from the update
     expect(snap.meta.deleted).toBe(false);
 
     a.client[Symbol.dispose]();
@@ -110,8 +109,8 @@ describe('star-fanout', () => {
   it('originator excluded from own mutation fanout (BroadcastChannel)', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const resourceId = generateUuid();
-    const eTag = await createResource(a.client, star, resourceId, 'Initial');
+    const resourceId = crypto.randomUUID();
+    const version = await createResource(a.client, star, resourceId, 'Initial');
 
     // Both a and b subscribe to the same resource
     a.client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
@@ -119,14 +118,14 @@ describe('star-fanout', () => {
     b.client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
     await waitForUpdateCount(b.client, 1);
 
-    // a mutates — handleTransactionResult fires on a; fanout should reach b
+    // a mutates — a's transaction resolves via callAsync; fanout should reach b
     // but NOT a (originator). callStarTransaction's resetResults() zeroes
     // a's resourceUpdateCount, so the assertion is: a.count stays 0
     // through the entire mutation cycle while b's count climbs to 2.
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [resourceId]: { op: 'put', eTag, value: { title: 'Self-mutation' } },
+      [resourceId]: { op: 'put', ifValidFromMatches: version, value: { title: 'Self-mutation' } },
     });
-    await waitForSuccess(a.client); // handleTransactionResult fires for a
+    await waitForSuccess(a.client); // a's transaction callAsync resolves
     await waitForUpdateCount(b.client, 2); // proves fanout completed
 
     // If originator-exclusion is working, a never got fanout for its own write.
@@ -142,11 +141,11 @@ describe('star-fanout', () => {
   it('multiple subscribers receive same fanout', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    // Spin up a third client (also admin, distinct browser → distinct clientId)
-    const c = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    // Spin up a third client (also admin, distinct browser → distinct client address)
+    const c = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
-    const resourceId = generateUuid();
-    const eTag = await createResource(a.client, star, resourceId, 'Initial');
+    const resourceId = crypto.randomUUID();
+    const version = await createResource(a.client, star, resourceId, 'Initial');
 
     b.client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
     await waitForUpdateCount(b.client, 1);
@@ -154,7 +153,7 @@ describe('star-fanout', () => {
     await waitForUpdateCount(c.client, 1);
 
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [resourceId]: { op: 'put', eTag, value: { title: 'Broadcast' } },
+      [resourceId]: { op: 'put', ifValidFromMatches: version, value: { title: 'Broadcast' } },
     });
     await waitForSuccess(a.client);
 
@@ -172,8 +171,8 @@ describe('star-fanout', () => {
   it('subscribers to other resources unaffected', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const r1 = generateUuid();
-    const r2 = generateUuid();
+    const r1 = crypto.randomUUID();
+    const r2 = crypto.randomUUID();
     const eTag2 = await createResource(a.client, star, r2, 'R2 initial');
     await createResource(a.client, star, r1, 'R1 initial');
 
@@ -184,7 +183,7 @@ describe('star-fanout', () => {
 
     // a mutates r2 (not r1)
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [r2]: { op: 'put', eTag: eTag2, value: { title: 'R2 updated' } },
+      [r2]: { op: 'put', ifValidFromMatches: eTag2, value: { title: 'R2 updated' } },
     });
     await waitForSuccess(a.client);
 
@@ -199,14 +198,14 @@ describe('star-fanout', () => {
   it('delete fans out snapshot with meta.deleted=true (not null)', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const resourceId = generateUuid();
-    const eTag = await createResource(a.client, star, resourceId, 'About to be deleted');
+    const resourceId = crypto.randomUUID();
+    const version = await createResource(a.client, star, resourceId, 'About to be deleted');
 
     b.client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
     await waitForUpdateCount(b.client, 1);
 
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [resourceId]: { op: 'delete', eTag },
+      [resourceId]: { op: 'delete', ifValidFromMatches: version },
     });
     await waitForSuccess(a.client);
 
@@ -214,7 +213,7 @@ describe('star-fanout', () => {
     const snap = b.client.lastResourceUpdate!.snapshot as Snapshot;
     expect(snap).not.toBeNull();
     expect(snap.meta.deleted).toBe(true);
-    // Value carries through from the pre-delete snapshot per resources.ts
+    // Value carries through from the pre-delete snapshot per snapshots.ts
     // semantics (soft delete preserves the last value).
     expect(snap.value.title).toBe('About to be deleted');
 
@@ -222,10 +221,10 @@ describe('star-fanout', () => {
     b.client[Symbol.dispose]();
   });
 
-  it('ontology version install clears all Subscribers rows', async () => {
+  it('ontology version install clears every resource row', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     await createResource(a.client, star, resourceId, 'v1 resource');
 
     // b subscribes under v1
@@ -239,15 +238,14 @@ describe('star-fanout', () => {
 
     // Register v2 on Galaxy
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    a.client.callStarApplyOntology(star, {
+    a.client.callStarInstallOntology(star, {
       version: 'v2',
       types: TEST_TYPES,
     });
     await waitForResult(a.client);
 
-    // Trigger Star to install v2 by issuing a v2 read — this exercises the
-    // cache-miss → Galaxy fetch → #installState path, which calls
-    // Subscriptions.clear() when prevLatest !== row.version.
+    // A v2 read after the v2 install: the install replaced v1, so the plane's drain
+    // (`Subscriptions.clear`) has already run.
     a.client.callStarRead(star, 'v2', resourceId);
     await waitForResult(a.client);
 

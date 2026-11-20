@@ -53,4 +53,12 @@ export interface DebugLogOutput {
   message: string;
   timestamp: string;
   data?: any;
+  /**
+   * On an error-level entry, the stack of the Error it carries — `data` itself, or the first Error
+   * among its own values. Top-level because Workers Issues reads a stack only here: it source-maps
+   * it, adds the top frame to the issue's signature and keeps `message` as the title. Never set on
+   * another level, since a top-level stack makes Issues treat any line as an error (measured in
+   * `experiments/workers-issues/RESULTS.md`).
+   */
+  stack?: string;
 }

@@ -141,7 +141,8 @@ describe('BroadcastChannelMock', () => {
       const registry = createRegistry();
       const ch1 = new BroadcastChannelMock('test', registry);
       ch1.close();
-      ch1.close(); // Should not throw
+      expect(() => ch1.close()).not.toThrow();
+      expect(registry.has('test')).toBe(false);
     });
 
     it('should clean up registry when last channel closes', () => {

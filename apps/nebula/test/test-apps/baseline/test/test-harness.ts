@@ -5,17 +5,15 @@ const instrumented = instrumentDOProject(sourceModule);
 
 // Wrangler requires DO classes as named exports.
 export const {
-  NebulaClientGateway,
   Universe,
-  Galaxy,
+  GalaxyTest,
   StarTest,
-  DevContainerServeStub,
-  NebulaAuth,
-  NebulaAuthRegistry,
+  AuthRegistry,
   NebulaClientTest,
+  ProfileTest,
 } = instrumented.dos;
 
 // Non-DO classes are passed through unwrapped
-export const { NebulaEmailSender } = instrumented;
+export const { AuthEmailSender, NebulaAuthFacade, PlatformHost } = instrumented;
 
 export default instrumented;

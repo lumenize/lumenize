@@ -1,10 +1,9 @@
 import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
 import { ALL_SCHEMAS } from './schemas';
-import type { Subject, MagicLink, RefreshToken, LoginResponse, AuthError, EmailMessage } from './types';
+import type { Subject, MagicLink, RefreshToken, LoginResponse, AuthError, EmailMessage, AuthClaims } from './types';
 import {
   generateRandomString,
-  generateUuid,
   hashString,
   signJwt,
   verifyJwt,
@@ -13,7 +12,7 @@ import {
   importPublicKey,
   createJwtPayload,
   parseJwtUnsafe
-} from './jwt';
+} from '@lumenize/crypto';
 
 /**
  * Error thrown by #authenticateRequest when authentication fails.
@@ -82,8 +81,32 @@ export class LumenizeAuth extends DurableObject {
   get #refreshTokenTtl(): number { return Number((this.env as any).LUMENIZE_AUTH_REFRESH_TOKEN_TTL) || 2592000; }
   get #magicLinkTtl(): number { return Number((this.env as any).LUMENIZE_AUTH_MAGIC_LINK_TTL) || 1800; }
   get #prefix(): string { return (this.env as any).LUMENIZE_AUTH_PREFIX || '/auth'; }
-  get #bootstrapEmail(): string | undefined { return (this.env as any).LUMENIZE_AUTH_BOOTSTRAP_EMAIL?.toLowerCase(); }
+  /**
+   * Bootstrap-admin emails as a normalized `string[]`. `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` is a
+   * COMMA-SEPARATED list (`a@x.io, b@y.io`) — split → trim → lowercase → drop empties → dedup.
+   * Consumers MUST compare via array-membership (`.includes(normalizedEmail)`), NEVER
+   * `String.prototype.includes` on the raw joined value (a substring match would let `a@x.io`
+   * match the entry `a@x.io,b@y.io`; a stray trailing space would silently fail BOTH promotion AND
+   * modify-protection). Empty/unset → `[]`. (Getter contract mirrors nebula-auth `NebulaAuth`; the
+   * two stay in lockstep until the de-fork — see tasks/archive/nebula-auth-decouple-from-auth.md.)
+   */
+  get #bootstrapEmails(): string[] {
+    const raw = (this.env as any).LUMENIZE_AUTH_BOOTSTRAP_EMAIL as string | undefined;
+    if (!raw) return [];
+    return [...new Set(raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean))];
+  }
   get #inviteTtl(): number { return Number((this.env as any).LUMENIZE_AUTH_INVITE_TTL) || 604800; }
+  /**
+   * The FIRST of two required test-mode factors, and never sufficient alone: every gate also
+   * requires a per-request `?_test=true`, so a leaked binding on a deployed Worker can only reach
+   * requests that deliberately opted in.
+   *
+   * ⚠️ Do not collapse a call site to this getter by itself, and do not add a helper that folds
+   * both factors behind one name — either turns a two-factor gate into a one-factor gate silently.
+   * The second factor is this package's only line of defence, because the binding alone is exactly
+   * what the sibling `nebula-auth` registry gates on (its decision happens inside a DO reached by
+   * RPC, with no request URL to read), and a leak there reaches ordinary traffic.
+   */
   get #isTestMode(): boolean { return (this.env as any).LUMENIZE_AUTH_TEST_MODE === 'true'; }
 
   /**
@@ -487,7 +510,7 @@ export class LumenizeAuth extends DurableObject {
       return this.#errorResponse(404, 'not_found', 'Subject not found');
     }
 
-    if (targetRows[0].email === this.#bootstrapEmail) {
+    if (this.#bootstrapEmails.includes(targetRows[0].email)) {
       return this.#errorResponse(403, 'forbidden', 'Cannot modify bootstrap admin');
     }
 
@@ -556,7 +579,7 @@ export class LumenizeAuth extends DurableObject {
       return this.#errorResponse(404, 'not_found', 'Subject not found');
     }
 
-    if (targetRows[0].email === this.#bootstrapEmail) {
+    if (this.#bootstrapEmails.includes(targetRows[0].email)) {
       return this.#errorResponse(403, 'forbidden', 'Cannot modify bootstrap admin');
     }
 
@@ -792,7 +815,7 @@ export class LumenizeAuth extends DurableObject {
           // Exists but not verified — generate invite token and send
         } else {
           // Create new subject with adminApproved=true, emailVerified=false
-          const sub = generateUuid();
+          const sub = crypto.randomUUID();
           const now = Date.now();
           this.#sql`
             INSERT INTO Subjects (sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt)
@@ -1191,7 +1214,7 @@ export class LumenizeAuth extends DurableObject {
   #loginSubject(email: string): Subject {
     const normalizedEmail = email.toLowerCase();
     const now = Date.now();
-    const isBootstrap = this.#bootstrapEmail === normalizedEmail;
+    const isBootstrap = this.#bootstrapEmails.includes(normalizedEmail);
 
     const existingRows = this.#sql`
       SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
@@ -1205,7 +1228,7 @@ export class LumenizeAuth extends DurableObject {
       sub = existingRows[0].sub;
     } else {
       // Create new subject
-      sub = generateUuid();
+      sub = crypto.randomUUID();
       this.#sql`
         INSERT INTO Subjects (sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt)
         VALUES (${sub}, ${normalizedEmail}, 0, 0, 0, ${now}, ${now})
@@ -1276,14 +1299,21 @@ export class LumenizeAuth extends DurableObject {
 
     const privateKey = await importPrivateKey(privateKeyPem);
 
+    // Annotated with `AuthClaims` deliberately: this is the MINT end of the contract whose
+    // READ end is `hooks.ts`'s access gate. Both narrow through the one interface, so
+    // renaming a field on either side is a compile error rather than a silently-ungated token.
+    const customClaims: AuthClaims = {
+      emailVerified: subject.emailVerified,
+      adminApproved: subject.adminApproved,
+      ...(subject.isAdmin ? { isAdmin: true } : {}),
+    };
+
     const payload = createJwtPayload({
       issuer: this.#issuer,
       audience: this.#audience,
       subject: subject.sub,
       expiresInSeconds: this.#accessTokenTtl,
-      emailVerified: subject.emailVerified,
-      adminApproved: subject.adminApproved,
-      isAdmin: subject.isAdmin || undefined,
+      customClaims,
       act: actorSub ? { sub: actorSub } : undefined,
     });
 

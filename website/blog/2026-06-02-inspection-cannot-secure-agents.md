@@ -27,6 +27,8 @@ Deming, Juran, and Crosby all converged on this from different directions. Demin
 
 A per-action control plane is final inspection wearing a security costume. It evaluates each action in turn, acts late, scales with volume, and leaves the agent that proposed the action exactly as likely to propose the next one.
 
+Our own industry learned this again, more recently. Before SRE, production safety meant ITIL change management and its Change Advisory Board — a committee that pre-approved changes. Every argument now made for gating agent actions was made for the CAB first, and made well. It lost on *safety*, not merely speed: DORA's research found external change-approval boards slowed throughput without improving change-failure rates. The review wasn't catching what it existed to catch; smaller changes with fast detection and automated recovery were. A board couldn't keep pace with humans deploying a few times a day, and the proposal now is to point that same instrument at behavior regenerated every single run.
+
 ## The move: feedback that changes the process
 
 So do for agentic security what continuous improvement did for manufacturing. Stop spending your effort on verdicts about individual actions and spend it on the **process that generates them** — the agent's system prompt, its skills, its tools, what it keeps in memory.
@@ -41,13 +43,19 @@ Note who approves what. The agent rewrites its own memory without asking me. It 
 
 ## The hard part: which actions are which
 
-That distinction is the entire problem, and I won't wave at it. Start with the cost nobody prices: every gate is friction, and friction is lost utility. In a tool people *choose* to use, that's not a safety win — it's a reason to reach for something else, or to switch the gate off, and a control that gets switched off secures nothing. Gating is paid for in the only currency that keeps the product alive, so one pressure pushes hard in every case: gate as little as you possibly can.
+That distinction is the entire problem, and I won't wave at it. Start with the cost nobody prices: every gate is friction, and friction is lost utility. In a tool people *choose* to use, that's not a safety win — it's a reason to reach for something else, or to switch the gate off, and a control that gets switched off secures nothing.
+
+This is no longer a prediction. Chris Hughes, working from Anthropic's own Claude Code data, reports that users approve [93% of permission prompts](https://www.resilientcyber.io/p/the-human-in-the-loop-illusion), with experienced users auto-approving in over 40% of sessions by 750 interactions. His conclusion is that the human in the loop "is not functioning as a meaningful safety control. It is a formality that users power through." That's the friction tax, measured, on the gate we already shipped industry-wide.
+
+It arrives through the org chart too. A security standard gets implemented by the security organization; developers give it lip service while they have a roadmap to ship. Defaults land conservative, because nobody is ever punished for over-blocking. So it over-blocks, and then it gets switched off or exempted into irrelevance. Same tax, different collector — and one pressure pushes hard in every case: gate as little as you possibly can.
 
 The opposing pressure is irreversibility. Continuous improvement works on manufacturing defects because they're recoverable — the loop learns from a failure that already happened, which is fine when the cost is bounded. Some agent actions aren't. You can recall a defective car; you cannot un-send a wire transfer or un-leak a database. For those, "flag it for tomorrow's review" is no strategy, because the only way to get the training signal is to incur the harm. So some things you must gate, whatever the friction costs.
 
 The **classifier that resolves that tension is the real artifact.** Route the reversible, low-blast-radius, high-volume majority — drafting, reading, writes you can roll back — to the improvement loop at zero friction. Keep a mechanical gate on the irreversible tail — moving money, changing permissions, deleting data, bulk reads shaped like exfiltration. The gate is affordable *precisely because the tail is small*: a step-up that fires rarely never fatigues anyone. Alert fatigue is what you get when you gate everything and the one critical approval drowns in a thousand trivial ones. Shrinking the gated set spends your scarce friction budget only where it's earned — which is also what *restores* real human oversight where it's warranted.
 
 Here's the part I like most: **the loop improves the classifier too.** Usually that just means nudging a threshold. But sometimes the right move isn't to reclassify the action — it's to *de-risk* it. If an action sits in the gated bucket only because it can't be undone, then "give it a rollback" is a process change that moves it, safely, into the bucket that needs no human. The loop doesn't just sort actions; it changes what makes them dangerous.
+
+And you can do that structurally rather than one action at a time. The system I work on stores every resource as a sequence of immutable snapshots: writes never overwrite, and "delete" is just another snapshot. Rollback isn't a feature anyone remembers to add per action — it's a property of the storage model, so the *entire* class of data-plane writes sits below the gate line permanently, by construction. Most systems have to run the loop for years to walk actions across that line individually. It's worth asking which of your own gated actions are gated only because of a storage decision you could change once.
 
 ## Do this first
 

@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts", "../nebula/worker-configuration.d.ts"]
 }

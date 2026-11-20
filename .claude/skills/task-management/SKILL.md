@@ -13,8 +13,10 @@ description: Workflow selection for new tasks — docs-first vs task-file-first.
 
 **Ask: "Will this change how a developer (even an internal one, like us developing Nebula on top of Mesh) uses this package?"**
 
+> ✍️ **Drafting a task file is `/write-task`.** Both tracks below say "create/define the task file" — that step is its own skill, which drafts *design intent first*, stops for a hand review, and only then writes phases. The pipeline is **`/task-management` (route) → `/write-task` (draft) → `/review-task` (review) → `/build-task` (implement)**. Skip `/write-task` only for small mechanical tasks.
+
 ### If YES → Docs-First
-1. Create task file pointing to the doc location(s)
+1. Create task file pointing to the doc location(s) — via `/write-task`
 2. Draft docs first (`website/docs/[package]/[feature].md` — `.md` by default; `.mdx` is mostly legacy for this project, but, if necessary, can be used with explicit human approval, see `.claude/rules/documentation.md`)
 3. Iterate until docs are approved
 4. Add implementation phases to task file (goals + success criteria, not steps)
@@ -33,7 +35,7 @@ description: Workflow selection for new tasks — docs-first vs task-file-first.
 **Docs-to-implementation handoff**: When the docs phases are done and implementation begins (often in a new session with fresh context), the docs are a *specification*, not a description of existing reality. Code examples with `@skip-check` don't work yet — they describe the target API. The task file should clearly mark this transition, and session prompts should state: "The docs in `website/docs/[package]/` are the spec — code examples describe the target API, not current behavior."
 
 ### If NO → Task-File-First
-1. Add to `tasks/backlog.md` (small) or create `tasks/[project-name].md` (multi-phase)
+1. Add to `tasks/backlog.md` (small) or create `tasks/[project-name].md` (multi-phase) — via `/write-task` for anything multi-phase
 2. Define phases with goals + success criteria
 3. Review → go (see below; skip for small backlog items)
 4. Implement, updating task file as you go

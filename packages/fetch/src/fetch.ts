@@ -7,7 +7,7 @@
  */
 
 import { debug, type DebugLogger } from '@lumenize/debug';
-import { NadisPlugin, getOperationChain, replaceNestedOperationMarkers, type LumenizeDO } from '@lumenize/mesh';
+import { NadisPlugin, getOperationChain, replaceNestedOperationMarkers, executeFilledChain, type LumenizeDO } from '@lumenize/mesh';
 import { stringify, parse, RequestSync, type ResponseSync } from '@lumenize/structured-clone';
 import { FetchTimeoutError } from './errors';
 import type { ProxyFetchWorkerOptions } from './types';
@@ -19,7 +19,7 @@ import type { FetchExecutorEntrypoint } from './fetch-executor-entrypoint';
  */
 export interface FetchMessage {
   reqId: string;
-  request: string | RequestSync; // URL string or RequestSync (callRaw handles serialization)
+  request: string | RequestSync; // URL string or RequestSync (the mesh call handles serialization)
   originBinding: string;
   originId: string;
   options?: ProxyFetchWorkerOptions;
@@ -161,7 +161,7 @@ export class Fetch extends NadisPlugin {
       reqId: finalReqId
     });
 
-    // Prepare message for Worker (callRaw handles serialization)
+    // Prepare message for Worker (the mesh call handles serialization)
     const message: FetchMessage = {
       reqId: finalReqId,
       request,
@@ -171,7 +171,7 @@ export class Fetch extends NadisPlugin {
       fetchTimeout: timeout
     };
 
-    // Call Worker directly via lmz.call() (fire-and-forget)
+    // Call the Worker directly via lmz.call(), with a handler that hears only a failed call
     // Worker will explicitly call back to svc.fetch.__handleProxyFetchResult when done
     const executorBinding = options?.executorBinding || 'FETCH_EXECUTOR';
     
@@ -181,16 +181,18 @@ export class Fetch extends NadisPlugin {
       url
     });
 
-    // call() returns immediately, uses blockConcurrencyWhile internally
-    // No handler needed - worker explicitly calls back to svc.fetch.__handleProxyFetchResult
+    // call() returns immediately. The result arrives separately, when the Worker calls back to
+    // svc.fetch.__handleProxyFetchResult, so the handler only logs a call that failed.
     const ctn = (this.doInstance as any).ctn() as any;
     (this.doInstance as any).lmz.call(
       executorBinding,
       undefined, // Workers don't have instance IDs
-      ctn.executeFetch(message)
+      ctn.executeFetch(message),
+      ((this.doInstance as any).ctn() as any).svc.fetch.logExecutorCallFailed(finalReqId),
+      { onErrorOnly: true },
     );
 
-    this.#log.debug('Worker call initiated (fire-and-forget)', { reqId: finalReqId });
+    this.#log.debug('Worker call initiated', { reqId: finalReqId });
 
     return finalReqId;
   }
@@ -214,6 +216,11 @@ export class Fetch extends NadisPlugin {
     options?: { timeout?: number }
   ): string {
     throw new Error('Fetch.direct() is not yet implemented. Use Fetch.proxy() for now.');
+  }
+
+  /** The result handler for the call to the executor, sent `onErrorOnly`: logs a call that failed. */
+  logExecutorCallFailed(reqId: string, result?: unknown): void {
+    if (result instanceof Error) this.#log.error('Executor call failed', { reqId, error: result.message });
   }
 
   /**
@@ -256,7 +263,10 @@ export class Fetch extends NadisPlugin {
     // Skip @mesh decorator check since this is an internal framework continuation
     const userContinuation = parse(continuation);
     const filledChain = await replaceNestedOperationMarkers(userContinuation, result);
-    await (this.doInstance as any).__localChainExecutor(filledChain, { requireMeshDecorator: false });
+    // The FILLED entry, not `__localChainExecutor`: this chain's last apply holds the fetch result,
+    // and the template entry would scan it for nested markers — so a response body the far side
+    // authored could become a chain and run on this DO.
+    await executeFilledChain(filledChain, this.doInstance, { requireMeshDecorator: false });
   }
 }
 
