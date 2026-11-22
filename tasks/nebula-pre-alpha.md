@@ -21,14 +21,16 @@
 
 | # | Item | Specified in | Gate |
 |---|---|---|---|
-| — | **A query names its node, and sorts, pages and limits** — a query reads under the node it names, is checked once there, and answers newest first a page at a time, so a chat past 1,000 messages still reaches the agent | [nebula-query-names-its-node.md](nebula-query-names-its-node.md), waiting on Larry's read of its Pass 1 | deploy |
+| — | **Our hosts' lifecycle hooks replace the tree seed** — the Galaxy creates its chat nodes in an in-process `onNewOntologyVersion` and writes the agent's grant back in `onStart`, `createNode` becomes idempotent, and `protected` goes | [nebula-lifecycle-hooks.md](nebula-lifecycle-hooks.md), Pass 1 with one question open | deploy |
+| — | **Queries upgraded** — a query reads under the node it names and is checked once there, and its subscriber holds the whole result, kept current by patches, so a chat past 1,000 messages still reaches the agent | [nebula-query-upgrade.md](nebula-query-upgrade.md), paused until our hosts' lifecycle hooks land (Larry, 2026-11-22) | deploy |
+| — | **An app's code creates its nodes** — an app's ontology becomes the folder `src/ontology/`, and the `onNewOntologyVersion` and `onStart` it exports run in a facet, so its pages can name their nodes in every Star | [nebula-app-lifecycle-hooks.md](nebula-app-lifecycle-hooks.md), Pass 1, reviewed once the query change lands | deploy |
 | — | **Shared pages** — a new founder names the account and its first app on the account's page after accepting, Galaxy create asks for each later app's name, Studio shows each account's and app's name and picture, and each page decides whether an app forwards to ours or runs its own | § *Shared pages*. The names are [nebula-accounts-and-apps-have-names.md](nebula-accounts-and-apps-have-names.md), waiting on Larry's read of its Pass 1 | deploy |
 | — | **Denied access shows in the app** — a generated app shows what a subscriber cannot read and who can grant it | § *Denied access in generated apps* | deploy |
 | — | **A `computed()` over the store can miss its subscription**, and the view goes stale with no error | § *A `computed()` misses its subscription* | deploy |
 | — | **Generated apps are pure Vapor** | § *Generated apps are pure Vapor* | deploy |
 | ③ | **Use the turn record** — Claude Code reads turns back from production, and the first invite waits on it reading one | § *③ Use the turn record* | deploy |
 
-**Why this order.** The riskiest goes first, and risk here is unresolved design, not hard implementation (Larry, 2026-09-02). The query change goes first: its open questions are the most unresolved design left, and denied access renders what it decides a caller without `read` is answered. The `computed()` fix comes before Vapor, so Vapor builds on a store whose every read subscribes. ③ comes last because its check reads a turn back from the deploy itself.
+**Why this order.** The riskiest goes first, and risk here is unresolved design, not hard implementation (Larry, 2026-09-02). Our hosts' lifecycle hooks go first, so the Galaxy drops its seed before the query change builds on it (Larry, 2026-11-22). The query change follows: its open questions are the most unresolved design left, and denied access renders what it decides a caller without `read` is answered. An app's lifecycle hooks come right after it, so a generated app can name its own nodes in the queries the change introduces. The `computed()` fix comes before Vapor, so Vapor builds on a store whose every read subscribes. ③ comes last because its check reads a turn back from the deploy itself.
 
 **The first invite waits on both tables, and on ③ reading a turn back from production.** Larry then provisions and invites ~4–5 users, each with a first-app idea chosen for them (Sydney: secret santa with a wishlist).
 
@@ -65,7 +67,7 @@
 
 ## Denied access in generated apps
 
-**A subscriber sees what it can read and is told which nodes it cannot, so an app with no UI for the missing part looks like it works.** Bob sees 20 of a project's 21 tasks, and nothing tells him one is missing unless he compares notes with a coworker. Refusing the whole subscription would have failed loudly, and lost because it costs Bob all 20 when one task is out of his reach (Larry, 2026-09-28). So the partial answer is the better experience only once the app shows what is missing.
+**A subscriber sees what it can read and is told which nodes it cannot, so an app with no UI for the missing part looks like it works.** Bob sees 20 of a project's 21 tasks, and nothing tells him one is missing unless he compares notes with a coworker. Refusing the whole subscription would have failed loudly, and lost because it costs Bob all 20 when one task is out of his reach (Larry, 2026-09-28). So the partial answer is the better experience only once the app shows what is missing. For a query, Larry reversed that call on 2026-11-20 ([nebula-query-upgrade.md](nebula-query-upgrade.md) § *Decisions*, D6): a query is checked only at the node it names, so a page that queries at the project shows Bob nothing and names the project in `deniedNodes`, and Bob's page queries at the node his grant is on. A resource subscription still answers each resource on its own.
 
 This item settles:
 
