@@ -8,7 +8,9 @@ Items carry IDs, numbered in the order they were raised and never reused: `B` is
 
 ## Objective
 
-**A query names the orgTree node it reads under and is checked against `read` there, in one change to `QueryDescriptor` that the docs and every caller take at once. Its subscriber then holds the whole result, each resource's value included, and is kept current by merge patches computed once per change. A client coming back names the moment it holds and receives only what it missed.**
+**A query names the orgTree node it reads under and is checked against `read` there, [[this...]] in one change to `QueryDescriptor` that the docs and every caller take at once [[... is confusing to me. I assume QueryDescriptor is an interface and that seems too low level for an objective. Also, I would want to see the new descriptor in a code block with a comment showing what's different. I know this may duplicate the diffs at the bottom of the document but I want to optimize for the bottleneck. Me reading. If you agree, please do for this instance but also do that in other places. Again, I'm accepting that it's going to risk divergence from the diffs. In the case of conflict, I want the prose to take precedence because it's what I'll read.]]. Its subscriber then holds the whole result, each resource's value included, and is kept current by merge patches computed once per change. A client coming back names the moment it holds and receives only what it missed. [[This implies that we implement the query in the past now so our recent discussion in the chat around the future for time-series is not so "future" really. We'll have to implement that now. Right? If so, I think we'll need an entire section on how that's accomplished.]]**
+
+[[The interface below shows a single typeName. Are we assuming that the client will subscribe to all types that it wants and aggregate on the client?]]
 
 ```ts
 const thread = client.resources.subscribeQuery({
@@ -16,15 +18,15 @@ const thread = client.resources.subscribeQuery({
   nodeId: MESSAGES_NODE_ID,         // reads at this node and beneath it
   filter: { chat: DEFAULT_CHAT_ID },
 });
-await thread.ready;                 // the whole result has arrived, in pages of about 2 MB
+await thread.ready;                 // the whole result has arrived, in pages of about 2 MB [[I don't understand. Are we going to calculate all of the pages in advance? I'm thinking we calculate the first page only. Send it. That will update the marker on the client, then the client requests the next page. That's inefficient for both large queries with a large number of subscribers though so maybe you are thinking of calculating and maybe even storing all of the pages.]]
 for (const id of thread.resourceIds) {
-  store.resources.Message[id].value.content;   // already held: nothing more subscribes
+  store.resources.Message[id].value.content;   // already held: nothing more subscribes [[You are just showing a loop to read them but not doing anything with it. Right? If so, that's confusing. So, add a comment line in the loop something to the effect of "do something" showing how you access it. Also show accessing meta. I like how you access the values because that matches all other client side access. Elegant! How do we implement that under the covers? Is it stored in one big object or is it actually spread out. Let's say there is an overlap between a query subscription and an individual subscription. How do we prevent that duplicate work from occuring? or do we not? I think it's OK if we don't actively do it so long as we discourage that and there is no risk of conflict.]]
 }
 ```
 
 | Reader | Today | After |
 |---|---|---|
-| The Galaxy's round store | every `Round` naming the message, then keeps those at `turns` | the `Round`s under `turns` |
+| The Galaxy's round store | every `Round` naming the message, then keeps those at `turns` | the `Round`s under `turns` [[`turns` has been changed by the currently being built task file to `rounds`]] |
 | Studio's tool-call marks | every `Round` naming the message, then keeps those the agent last wrote | the `Round`s under `turns` |
 | The Galaxy's waiting posts | the oldest 1,000 `Message`s, each read again to check `read` | every `Message` under `messages` (D10) |
 | Studio's thread | the oldest 1,000 `Message` ids, and a subscription per rendered row | every `Message` under `messages`, values included |
@@ -58,12 +60,13 @@ The sections that follow state what the descriptor and its pushes become, the cl
 
 ## Goals
 
-1. **A reader sees what the tree puts under its node, and filters nothing itself.** Today the round store, the marks and the Galaxy's thread each filter what a query answered.
+1. **A reader sees what the tree puts under its node, and filters nothing itself.** Today the round store, the marks and the Galaxy's thread each filter what a query answered. [[This wording is confusing. Say it more plainly.]]
 2. **A query is checked once, at its node.** A grant at a node reaches everything beneath it, so `read` there covers every result, and a reader without it reads none of them (D6). Today the plane looks up every result's node, for each subscriber on each push (B1).
-3. **A list of any size reaches its reader whole, and the host never holds more than a page of it.** Today it shows the oldest 1,000 (B2), which quietly stalls the agent in a long chat (C4).
+3. **A list of any size reaches its reader whole, and the host never holds more than a page of it.** Today it shows the oldest 1,000 (B2), which quietly stalls the agent in a long chat (C4).  [[The code above reads like it came from a client so would apply to a subscription over the internet to a UI rendered in the browser. How do we handle subscriptions that are local like the agent loop inside the Galaxy itself? Does it look exactly the same or is it different? If it's different, I think we need to show that difference.]]
 4. **A change to one result sends that one result.** A deal that changes stage reaches each subscriber as a patch of that deal. Today every subscriber gets the whole list (B5).
 5. **A client that missed a few writes receives only those.** A tab that slept through a few new messages receives those messages. Today a reconnect sends the whole list again (B6).
 6. **A row on screen draws from what the client holds.** Scrolling a list opens no subscription and writes nothing on the host. Today each row scrolled into view costs a write and a round trip before it can draw (B7).
+7. **Nothing decided here makes a query as of a past moment harder to add** (Larry, 2026-11-23). A chart of six months runs its query once per month, each reading that month's end through today's tree and today's grants. None of it is built here, and § *Beyond this task* says what it needs. The choices that bear on it most are the indexes of Q2 and Q6.
 
 ## Relationships
 
@@ -192,6 +195,12 @@ Claims the design rests on:
 - ⚠️ Design consideration: **a list too big to hold could page by a sort on the server.** The first draft of this file had a sort, a limit and keyset paging in the descriptor (D2). If a real list grows too slow to load whole, that is the design to return to.
 - **A query could name several types** (Larry, 2026-11-20). `typeName` is one required field today: `compileWhere` resolves the filter against that type's fields, each `@index` covers one type's rows, and results land in `store.resources.<typeName>`. A page can already hold one query per type and merge them, since each delivers whole values. One query across types needs a filter that means something for each, and Q6's experiment shows whether one statement reads them as cheaply as one per type.
 - **A query could name the fields it holds**, a task of its own after this one (Larry, 2026-11-20), if holding whole values makes a list too heavy.
+- **A query could read as of a past moment, for time series** (Larry, 2026-11-23). A monthly chart of six months runs its query at each month's end, seven queries with the month in progress, and merges them. Goal 7 keeps this from getting harder, and none of it is built here.
+  - **The default looks at the past through today's tree.** The plane expands the query's node to today's subtree and checks today's grants (DI1, DI2), then reads each resource's version at the past moment in place of its current one. A node keeps its id when it is reparented, so a business unit moved to another division three months ago is in the chart from its first month.
+  - **A resource moved between nodes is found where it sat then.** A `move` writes a new version with the new `nodeId`, and earlier versions keep the old one. A deal moved into that business unit three months ago enters the chart partway through. Larry's earlier systems never met this, since they moved the node, which was less work (2026-11-23). When time series is built, the guidance the coding agent reads may need to prefer moving a node over moving its resources, and a person moving a resource may need a warning to confirm what it does to a chart.
+  - **Every index today covers current rows only:** `idx_Snapshots_current`, each `@index`, and Q2's (b). A past read scans a type's history unless an index covers every row, as Q6's (a) and (d) do, and every write pays for one.
+  - **A second mode reads the past through the tree as it stood then.** It needs the tree's history, which the tree does not keep (DI16), so it can look back only as far as that history is recorded. A tree change already takes a moment of its own (DI8), which is where recording would start.
+  - **The descriptor takes it as one optional field,** a moment, which enters the query's hash as any field does.
 - **Single-resource subscriptions could rerun on a tree change too**, which would retire `#askAgain` entirely.
 - **The org tree's push stays whole here.** It is one value on a channel of its own, so it is patched as a resource is, by fast-follow's Item 14. That item's *Consider: an order column* says why a new node would still send the whole tree.
 - **A resource subscription could name a moment too**, and answer "unchanged" when the client holds the current version. Item 14's read with a version is that.
