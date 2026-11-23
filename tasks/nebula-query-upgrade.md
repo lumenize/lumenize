@@ -8,26 +8,45 @@ Items carry IDs, numbered in the order they were raised and never reused: `B` is
 
 ## Objective
 
-**A query names the orgTree node it reads under and is checked against `read` there, [[this...]] in one change to `QueryDescriptor` that the docs and every caller take at once [[... is confusing to me. I assume QueryDescriptor is an interface and that seems too low level for an objective. Also, I would want to see the new descriptor in a code block with a comment showing what's different. I know this may duplicate the diffs at the bottom of the document but I want to optimize for the bottleneck. Me reading. If you agree, please do for this instance but also do that in other places. Again, I'm accepting that it's going to risk divergence from the diffs. In the case of conflict, I want the prose to take precedence because it's what I'll read.]]. Its subscriber then holds the whole result, each resource's value included, and is kept current by merge patches computed once per change. A client coming back names the moment it holds and receives only what it missed. [[This implies that we implement the query in the past now so our recent discussion in the chat around the future for time-series is not so "future" really. We'll have to implement that now. Right? If so, I think we'll need an entire section on how that's accomplished.]]**
+**A query names the orgTree node it reads under, and is checked against `read` there. Its subscriber then holds the whole result, each resource's value included, and is kept current by merge patches computed once per change. A client coming back names the moment it holds and receives only what it missed.**
 
-[[The interface below shows a single typeName. Are we assuming that the client will subscribe to all types that it wants and aggregate on the client?]]
+The node is one new required field on the object every query is written as:
+
+```ts
+interface QueryDescriptor {
+  typeName: string;      // unchanged: one type per query
+  nodeId: string;        // NEW and required: the node to read under, and every node beneath it
+  filter: Filter;        // unchanged
+  allowScan?: boolean;   // unchanged
+}
+```
+
+- **Every query written today breaks once.** Our own readers, the docs the model reads and each generated app's queries gain the node in the same change, and nothing accepts the old shape (DI12).
+- **A page that wants several types subscribes to each and merges them itself.** Each query delivers whole values, so the page has what it needs to merge. One query across types is in § *Beyond this task*.
+- **The moment a client names is one it already holds.** So a catch-up reads the past only for the resources written since, each by its key, and no query runs as of a past moment (DI23).
+
+A page reads a list this way:
 
 ```ts
 const thread = client.resources.subscribeQuery({
   typeName: 'Message',
-  nodeId: MESSAGES_NODE_ID,         // reads at this node and beneath it
+  nodeId: MESSAGES_NODE_ID,         // NEW: reads at this node and beneath it
   filter: { chat: DEFAULT_CHAT_ID },
 });
-await thread.ready;                 // the whole result has arrived, in pages of about 2 MB [[I don't understand. Are we going to calculate all of the pages in advance? I'm thinking we calculate the first page only. Send it. That will update the marker on the client, then the client requests the next page. That's inefficient for both large queries with a large number of subscribers though so maybe you are thinking of calculating and maybe even storing all of the pages.]]
+await thread.ready;                 // the whole result is held; the client asked for it a page at a time (DI17)
 for (const id of thread.resourceIds) {
-  store.resources.Message[id].value.content;   // already held: nothing more subscribes [[You are just showing a loop to read them but not doing anything with it. Right? If so, that's confusing. So, add a comment line in the loop something to the effect of "do something" showing how you access it. Also show accessing meta. I like how you access the values because that matches all other client side access. Elegant! How do we implement that under the covers? Is it stored in one big object or is it actually spread out. Let's say there is an overlap between a query subscription and an individual subscription. How do we prevent that duplicate work from occuring? or do we not? I think it's OK if we don't actively do it so long as we discourage that and there is no risk of conflict.]]
+  const { value, meta } = store.resources.Message[id];   // held already: this read subscribes to nothing
+  showPost(value.content, meta.validFrom);                // do something with each
 }
+// GONE: thread.setRenderWindow(), thread.more, and a subscription for each row
 ```
+
+`store.resources.Message[id]` is the entry every other read of a resource uses, and DI19 says what sits behind it. Code inside the Galaxy reads the same query without a subscription (DI24).
 
 | Reader | Today | After |
 |---|---|---|
-| The Galaxy's round store | every `Round` naming the message, then keeps those at `turns` | the `Round`s under `turns` [[`turns` has been changed by the currently being built task file to `rounds`]] |
-| Studio's tool-call marks | every `Round` naming the message, then keeps those the agent last wrote | the `Round`s under `turns` |
+| The Galaxy's round store | every `Round` naming the message, then keeps those at `rounds` | the `Round`s under `rounds` |
+| Studio's tool-call marks | every `Round` naming the message, then keeps those the agent last wrote | the `Round`s under `rounds` |
 | The Galaxy's waiting posts | the oldest 1,000 `Message`s, each read again to check `read` | every `Message` under `messages` (D10) |
 | Studio's thread | the oldest 1,000 `Message` ids, and a subscription per rendered row | every `Message` under `messages`, values included |
 | Studio's landed build | the last of the oldest 1,000 `ServedBuild`s | the `ServedBuild` with the latest write |
@@ -36,7 +55,7 @@ for (const id of thread.resourceIds) {
 
 **A query names a type and a filter, and answers the matches anywhere on the host.** Studio's marks ask `{ typeName: 'Round', filter: { message: id } }`, built by `roundsOf` in `participants.ts`. The plane runs that filter over every current `Round` the Galaxy holds, then climbs the tree once for each distinct node a result sits under, to find the ones the reader may see.
 
-**Because a query cannot say where it reads, our own readers filter afterwards.** A member who can post at `messages` can also write a `Round` there naming a running turn, so the round store in `galaxy.ts` keeps only the rounds at `TURNS_NODE_ID`. Studio's `toolCallMarks` keeps only rounds whose current snapshot `agent:lumenize` wrote. The Galaxy's `#thread()` reads every `Message` with no check, then reads each one again and skips any its read is refused. Each is a second check beside the tree, which ADR-025 rules out, and the marks' test is the one `calibration.md` § 16 names: reading who wrote a resource to decide whether to trust it. `access-control.md` § *Drawing the tree: a node for each audience* teaches user-developers the same thing, and our own readers do not follow it yet.
+**Because a query cannot say where it reads, our own readers filter afterwards.** A member who can post at `messages` can also write a `Round` there naming a running turn, so the round store in `galaxy.ts` keeps only the rounds at `ROUNDS_NODE_ID`. Studio's `toolCallMarks` keeps only rounds whose current snapshot `agent:lumenize` wrote. The Galaxy's `#thread()` reads every `Message` with no check, then reads each one again and skips any its read is refused. Each is a second check beside the tree, which ADR-025 rules out, and the marks' test is the one `calibration.md` § 16 names: reading who wrote a resource to decide whether to trust it. `access-control.md` § *Drawing the tree: a node for each audience* teaches user-developers the same thing, and our own readers do not follow it yet.
 
 **A query also stops at 1,000.** It orders by each result's latest write, oldest first, and keeps the first `QUERY_RESULT_CAP` with `more` set. So a list that grows keeps its oldest entries and drops its newest. In a Galaxy whose chat passes 1,000 messages, the agent stops seeing new posts (C4). Nothing goes red when that happens, and nothing has reached the cap yet.
 
@@ -60,13 +79,13 @@ The sections that follow state what the descriptor and its pushes become, the cl
 
 ## Goals
 
-1. **A reader sees what the tree puts under its node, and filters nothing itself.** Today the round store, the marks and the Galaxy's thread each filter what a query answered. [[This wording is confusing. Say it more plainly.]]
+1. **A query answers only what sits under the node it names, so the code that asked keeps everything it gets back.** Today a query answers matches from anywhere on the host, and the round store, Studio's marks and the Galaxy's thread each throw part of the answer away.
 2. **A query is checked once, at its node.** A grant at a node reaches everything beneath it, so `read` there covers every result, and a reader without it reads none of them (D6). Today the plane looks up every result's node, for each subscriber on each push (B1).
-3. **A list of any size reaches its reader whole, and the host never holds more than a page of it.** Today it shows the oldest 1,000 (B2), which quietly stalls the agent in a long chat (C4).  [[The code above reads like it came from a client so would apply to a subscription over the internet to a UI rendered in the browser. How do we handle subscriptions that are local like the agent loop inside the Galaxy itself? Does it look exactly the same or is it different? If it's different, I think we need to show that difference.]]
+3. **A list of any size reaches its reader whole, and the host never holds more than a page of it.** Today it shows the oldest 1,000 (B2), which quietly stalls the agent in a long chat (C4). Code inside the Galaxy, such as the agent loop, reads a page at a time too, and holds no subscription (DI24).
 4. **A change to one result sends that one result.** A deal that changes stage reaches each subscriber as a patch of that deal. Today every subscriber gets the whole list (B5).
 5. **A client that missed a few writes receives only those.** A tab that slept through a few new messages receives those messages. Today a reconnect sends the whole list again (B6).
 6. **A row on screen draws from what the client holds.** Scrolling a list opens no subscription and writes nothing on the host. Today each row scrolled into view costs a write and a round trip before it can draw (B7).
-7. **Nothing decided here makes a query as of a past moment harder to add** (Larry, 2026-11-23). A chart of six months runs its query once per month, each reading that month's end through today's tree and today's grants. None of it is built here, and § *Beyond this task* says what it needs. The choices that bear on it most are the indexes of Q2 and Q6.
+7. **Nothing decided here makes a query as of a past moment harder to add** (Larry, 2026-11-23). A chart of six months runs its query once per month, each reading that month's end through today's tree and today's grants. None of it is built here: this task reads a past version only by its key (DI23), and § *Beyond this task* says what the rest needs. The choices that bear on it most are the indexes of Q2 and Q6.
 
 ## Relationships
 
@@ -75,7 +94,7 @@ The sections that follow state what the descriptor and its pushes become, the cl
 - **Before [nebula-pre-alpha.md](nebula-pre-alpha.md) § *Denied access in generated apps*.** That item renders a query's `deniedNodes`, which under D6 is the query's own node, for a reader who cannot read it. A page then queries at the node its viewer's grant is on (DI11).
 - **Beside [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 14: A change travels as a merge patch, not a full value*.** This task patches a query's result. Item 14 patches a resource read on its own and the org tree, each one value on a channel of its own. Both catch up from a moment the client holds.
 - **Beside [nebula-accounts-and-apps-have-names.md](nebula-accounts-and-apps-have-names.md)**, whose `meta` node each plane's in-process `onNewOntologyVersion` creates (nebula-galaxy-builds-its-tree.md's D3).
-- **After [nebula-galaxy-builds-its-tree.md](nebula-galaxy-builds-its-tree.md) and before [nebula-app-lifecycle-hooks.md](nebula-app-lifecycle-hooks.md)** (Larry, 2026-11-22). The first gives our Galaxy in-process lifecycle hooks in place of the tree seed. The second moves the ontology into the folder `src/ontology/`, runs the app's `onNewOntologyVersion` when a Star installs a version (D12), and so delivers DI22.
+- **After [nebula-galaxy-builds-its-tree.md](nebula-galaxy-builds-its-tree.md) and before [nebula-app-lifecycle-hooks.md](nebula-app-lifecycle-hooks.md)** (Larry, 2026-11-22). The first gives our Galaxy in-process lifecycle hooks in place of the tree seed, and renames the `turns` node `rounds` and its constant `ROUNDS_NODE_ID`, the names this file uses. The second moves the ontology into the folder `src/ontology/`, runs the app's `onNewOntologyVersion` when a Star installs a version (D12), and so delivers DI22.
 - **Beside the Resource Events proposal**, `proposals/XXXX-resource-events.md` in the `experimental-ext-triggers-events` repo, and its prototype. This task takes their sync model. The proposal is being revised so an event can carry the patch (D4), and this task's push follows what that revision settles.
 
 ## Current state
@@ -104,12 +123,12 @@ Built already:
 
 ## Design intent
 
-- **DI1. Every query names a node, and answers what sits at that node or beneath it.** `nodeId` is required on `QueryDescriptor`, beside `typeName` and `filter`, and is spelled as a create op spells it. "Beneath" follows every path of the DAG, so a list with two parents is under both. `{ typeName: 'Round', nodeId: TURNS_NODE_ID, filter: { message: id } }` answers that message's rounds at `turns` and nothing a member wrote at `messages`. A query over the whole tree names `ROOT_NODE_ID`. A node the tree does not hold refuses the query, as a filter the engine refuses does.
+- **DI1. Every query names a node, and answers what sits at that node or beneath it.** `nodeId` is required on `QueryDescriptor`, beside `typeName` and `filter`, and is spelled as a create op spells it. "Beneath" follows every path of the DAG, so a list with two parents is under both. `{ typeName: 'Round', nodeId: ROUNDS_NODE_ID, filter: { message: id } }` answers that message's rounds at `rounds` and nothing a member wrote at `messages`. A query over the whole tree names `ROOT_NODE_ID`. A node the tree does not hold refuses the query, as a filter the engine refuses does.
 - **DI2. A caller with `read` at the named node is checked once, there.** It reads every result, since a grant reaches every node beneath it (C1), so no result's own node is looked at. The look reads the caller's live claims on a one-time read, and the verdict stored on the subscription row on a push, as today. Dominion over the host passes it as it passes any check.
 - **DI3. A caller without `read` at the node is told, not refused, and reads nothing beneath it.** The answer holds no results and `deniedNodes: [nodeId]`, as a resource subscription answers a caller who cannot read its resource (D6). A subscription still registers, so a grant that reaches the node reaches it too (DI8), and a one-time read still answers. A malformed query is refused, as today.
 - **DI4. No reader filters what a query answered.** Each names its node and keeps everything it gets back:
-  - The round store reads under `turns`, as the agent, and drops its `meta.nodeId` test. A `Round` planted at `messages` then never reaches a turn, which is what the test was for.
-  - Studio's marks read under `turns` and drop the test of who wrote each round. A `Round` at `turns` is the turn's whoever last wrote it, since the tree says who may write there (C6), and a write by anyone else is recorded under their claims on its snapshot (ADR-016).
+  - The round store reads under `rounds`, as the agent, and drops its `meta.nodeId` test. A `Round` planted at `messages` then never reaches a turn, which is what the test was for.
+  - Studio's marks read under `rounds` and drop the test of who wrote each round. A `Round` at `rounds` is the turn's whoever last wrote it, since the tree says who may write there (C6), and a write by anyone else is recorded under their claims on its snapshot (ADR-016).
   - The Galaxy's `#thread()` asks `doQuery` under `messages`, as the agent, instead of `findCurrent` and a read of each `Message`.
   - `findCurrent` takes a descriptor, so the `_InviteStatus` lookup names the node its rows sit at (C7).
 - **DI8. A live query reruns whenever its answer can change.** That answer depends on what sits under its node, and on whether each subscriber reads that node. So:
@@ -134,6 +153,19 @@ Built already:
   - **The client applies a push when `previousMoment` ≤ the moment it holds < the push's moment, and then holds the push's moment.** A push at or before the moment it holds is skipped. A `previousMoment` after it means a push was lost, and the client catches up (DI16). That rule holds over a socket and over a webhook alike, so the socket's own ordering is not relied on (D3).
   - **The plane stores one moment per live query, not one per subscriber.** For a subscriber sent every push of its query, the last push sent to it is the query's last push (C19). So the plane writes the query's last push moment once per push, and the host's latest moment into the subscription row a subscribe writes anyway. Every subscriber that reads is sent every push (D6), so none keeps a last-sent moment of its own. One denied the node is sent nothing and holds no moment until the first read that follows a grant gives it one (DI8).
   - **A first answer and a catch-up name the host's latest moment**, which `LATEST_MOMENT_KEY` holds.
+  - **A push on the wire**, for a deal that changed stage:
+
+    ```ts
+    // Today: { resourceIds: string[], deniedNodes?, more? }, the whole list on every push
+    {
+      moment: '2026-11-20T15:04:05.124Z',           // NEW: this change
+      previousMoment: '2026-11-20T15:03:58.001Z',   // NEW: the push before it
+      patch: {                                      // NEW: only what changed, keyed by resource id
+        '9f2c41aa-…': { value: { stage: 'won' }, meta: { validFrom: '2026-11-20T15:04:05.124Z' } },
+        '51d0e7b3-…': null,                         // left the result
+      },                                            // absent past 256 KiB: catch up instead
+    }
+    ```
 - **DI16. A catch-up names the moment the client holds, and answers only what changed since, in pages of about 2 MB.** A re-subscribe after a reconnect asks for one, and so does a push whose `previousMoment` is after the client's moment.
   - **Each page ends at a moment and never splits one.** The plane reads what was written after the client's moment in write order, keeping a running total of each row's `length(value)`, and stops at the first moment's end past about 2 MB. A moment larger than that is a page of its own, so 2 MB is a target, not a ceiling. A moment is no larger than the transaction that wrote it, which the write already held whole, so nothing larger than a page sits in the Durable Object's memory.
   - **Each page brings the client to a moment that existed.** It is the patch from the result as of the client's moment to the result as of the page's last moment, built from each resource's version at both moments (ADR-004). After any page the client holds the result as it stood then, and asks again from there. A tab that slept through a few new messages receives one small page.
@@ -143,15 +175,44 @@ Built already:
 - **DI17. A first read pages by resource id, as of the moment it began.** A subscribe that names no moment, and a one-time `query`, read the result in pages of about 2 MB, ordered by resource id. Every page names the moment the read began, as the prototype's first read repeats its first page's `nextFrom`, and carries a cursor the server made, which the next request presents unchanged.
   - **A result written after the read began arrives as it stood then.** The page reads its version at that moment by its key, so every page is a slice of one moment's result, and the catch-up from that moment, which follows the last page, brings the client current.
   - **`ready` resolves when the whole result has arrived.** A push that arrives during the read waits until the read and its catch-up end, and is then applied or skipped by DI15's rule, as the proposal's R16 has it.
+  - **The plane computes a page when it is asked for it, and stores none.** The client asks for the first page, each answer carries the cursor for the next, and the client asks again until an answer carries none. The moment the client holds does not move during the read, since every page names the moment the read began, and the cursor is what advances.
+  - **Every subscriber's first read is its own.** A hundred tabs opening one long list each read it. That costs rows read, billed at a thousandth of a write, where storing the pages would cost a write for each page and they would be stale at the next change.
+  - **The requests and answers, for a first read of two pages and a catch-up of two:**
+
+    ```
+    first read   →  { query }                   ←  { moment: M0, results: {…}, cursor: 'c1' }
+                 →  { query, cursor: 'c1' }     ←  { moment: M0, results: {…} }       // no cursor: the last page
+    catch-up     →  { query, moment: M0 }       ←  { moment: M3, patch: {…} }         // not the last (Q11)
+                 →  { query, moment: M3 }       ←  { moment: M5, patch: {…} }         // M5 is the host's latest
+    ```
   - **A page on screen order would fill the screen first, and needs a sort the descriptor no longer has (D2).** Pages of about 2 MB arrive quickly enough that the page waits for `ready`.
 - **DI18. What one subscription holds has no ceiling, and the host never holds more than about a page of it (D7).** A first read and a catch-up page at about 2 MB (DI16, DI17), and a push stops at 256 KiB (DI14). What a long list costs is the person's wait for `ready`: by arithmetic, 10 MB takes about 4 s at 20 Mbit/s. So a first read past about 10 MB logs at `warn`, naming the type, the node and the size, which gives a slow load a stated cause. Host code that reads a whole result into the Durable Object's memory breaks the bound. The Galaxy's `#thread()` is the one that does, a named exception until the chat is compacted (D10).
-- **DI19. A row of a result draws from the result.** `store.resources.<typeName>[id].value` reads the snapshot any live query on the page holds, so app code that reads the store does not change, and a list of any length opens one subscription. `setRenderWindow`, its grace period and `renderGraceMs` go. A resource two live queries hold is one entry in the store. A resource shown alone, such as a detail page, still subscribes to itself.
+- **DI19. A row of a result draws from the result.** `store.resources.<typeName>[id].value` reads the snapshot any live query on the page holds, so app code that reads the store does not change, and a list of any length opens one subscription. `setRenderWindow`, its grace period and `renderGraceMs` go. A resource shown alone, such as a detail page, still subscribes to itself.
+  - **The store holds each resource once, at `store.resources.<typeName>[id]`, as `{ value, meta }`.** That is today's entry, the one a resource subscription fills and an edit writes through. A query's first read and its patches fill the same entries, and the handle keeps the ids of its result.
+  - **A resource can reach a page through two holders:** two live queries, or a query and a `subscribe`. Nothing stops that, and the docs tell a page not to `subscribe` to a resource one of its live queries holds, since each holder is sent every change.
+  - **Two holders must not corrupt the entry, and how is Q10.** A patch is cut from the version its own subscriber holds, and a second holder may already have moved the entry past that version.
 - **DI20. Our own lists hold their whole result, except a long chat's thread.** Studio's landed build is the `ServedBuild` with the latest write among those it holds, so C5's stall goes with the cap. Studio's thread holds the whole chat (D8), the Galaxy's `#thread()` reads the whole chat too (D10), and C4's stall goes with the cap.
 - **DI22. An app's own nodes are created by its own code, each time a Star moves onto a new ontology version (D9, D12), as nebula-app-lifecycle-hooks.md builds.** Their ids are constants exported from `src/ontology/index.ts`, which pages import, and the `onNewOntologyVersion` it exports creates them, with any grant one starts with, such as `anyone` `read` at a public node.
   - **It runs before any call at the new version is answered.** A Star installs a version when the first page built against it makes a call (`Resources.#install`), so every node a page names exists before its first query (ADR-024). A failure stops the install and leaves the Star on its old version.
   - **It runs in a facet, as a local principal holding a protected `admin` at the root,** with only the operations a Client's calls reach (`mesh.md` § *Nebula reaches its resources the way an app does*). Its writes are recorded under that principal.
   - **It must leave a node an admin changed as the admin left it.** `createNode` replays only for the same slug and parent, and throws for a node an admin renamed or moved (C21), so the hook needs a create that skips an existing node. The task DI22 waits on settles which (§ *Relationships*).
   - **The `define-the-cast` skill then creates only nodes for one person or one record,** such as Pat's list. The app's own nodes, such as `lists`, come from the hook.
+- **DI23. This task reads a past version only by its key, and runs no query as of a past moment** (Larry asked, 2026-11-23). Wherever it reads the past, the plane already knows which resources to read:
+  - **A catch-up** first finds the resources written since the client's moment (Q6). It reads each one's version at that moment and at the page's last moment through the table's primary key, `(resourceId, validFrom)`, and tests the filter against each row read, as `#touches` tests a commit's rows today (C12).
+  - **A first read** finds its results among current rows, through the filter's index. It reads an earlier version, by key, only for a result written after the read began (DI17).
+  - **Both read through today's tree.** Whether a version sat under the query's node is asked of the tree as it is now, and a catch-up across a tree change answers the whole result instead (DI16). § *Beyond this task* makes the same reading the default for time series.
+  - **A query as of a past moment also has to find every resource that matched then, with no list of which to look at.** Today's indexes hold only current rows, so that find is a scan of the type's history. It is the part Goal 7 keeps open and this task does not build.
+- **DI24. Code inside a host reads a query once, a page at a time, and holds no subscription** (Larry asked, 2026-11-23). The agent loop runs in the Galaxy, the Durable Object that holds the chat, so it reads when its work needs an answer and nothing is pushed to it.
+  - **It calls the operation a Client's `query` reaches, in process,** under claims Mesh builds (`mesh.md` § *Nebula reaches its resources the way an app does*). A turn's rounds, read as the agent:
+
+    ```ts
+    const { snapshots, cursor } = this.lmz.asAgentPrincipal(NEBULA_SUB, () =>
+      this.#resources.doQuery({ typeName: 'Round', nodeId: ROUNDS_NODE_ID, filter: { message: id } }));
+    // NEW: `nodeId` in the query, and `cursor` in the answer when another page follows
+    // GONE: the test of each snapshot's `meta.nodeId` that followed
+    ```
+  - **`doQuery` answers one page and the cursor for the next,** which is what a Client's `query` is sent for each of its requests. The client's `query` asks until no cursor comes back and resolves with the whole result. Host code that does the same holds the whole result in the Durable Object's memory, which only `#thread()` may (D10).
+  - **A turn's rounds fit in one page,** so the round store reads once, and throws if a cursor comes back.
 
 Claims the design rests on:
 
@@ -160,8 +221,8 @@ Claims the design rests on:
 - **C3.** One statement binds at most 100 values (`MAX_BOUND_PARAMS` in `query/where.ts`, held against the running limit by `test/query/query-sqlite.test.ts`), and a filter's `$in` lists spend them. Item 21 recorded that limit as unchecked; the query engine checked it. `json_each` is on workerd's allow-list for a Durable Object's SQLite, so a subtree bound as one JSON array spends one value however many nodes it lists.
 - **C4.** Past 1,000 `Message`s, the agent answers no new post. `#thread()` reads `findCurrent('Message', { chat })`, whose statement keeps the 1,000 with the earliest latest write, and `waitingPostIds` and `#decisionFor` find the waiting posts in what it returns. A new post has the latest write, so it is the first one left out.
 - **C5.** Studio's landed build stops changing at `.dev`'s 1,000th `ServedBuild`, because `openServedBuilds` renders the last id of an oldest-first list.
-- **C6.** Whoever can write a `Round` at `turns` is the agent, through its protected `write` at `chat`, a holder of dominion over the Galaxy, or someone an admin granted `write` at `chat` or `turns`. An invite to the conversation grants `read` at `chat` (`GALAXY_TREE_SEED`'s `inviteAlso`), never `write`.
-- **C7.** Our own code knows each query's node as a constant: `MESSAGES_NODE_ID` and `TURNS_NODE_ID` in `chat-constants.ts`. An `_InviteStatus` row is created at the node it records.
+- **C6.** Whoever can write a `Round` at `rounds` is the agent, through its protected `write` at `chat`, a holder of dominion over the Galaxy, or someone an admin granted `write` at `chat` or `rounds`. An invite to the conversation grants `read` at `chat` (`GALAXY_TREE_SEED`'s `inviteAlso`), never `write`.
+- **C7.** Our own code knows each query's node as a constant: `MESSAGES_NODE_ID` and `ROUNDS_NODE_ID` in `chat-constants.ts`. An `_InviteStatus` row is created at the node it records.
 - **C8.** The plane holds the whole tree in memory, in `OrgTree`'s cached view, so finding a node's subtree reads no storage.
 - **C9.** A generated app's queries are type-checked against the client's `QueryDescriptor` when it builds, so an app written before this lands fails its next build with an error naming `nodeId`, and the model reads that error in the same turn. An app that calls `setRenderWindow` or reads `more` fails the same way.
 - **C10.** `#askAgain` in `client-resources.ts` re-subscribes a denied query because the host reruns nothing on a tree change, and its JSDoc says each re-subscribe costs the host a billed write.
@@ -234,6 +295,11 @@ Claims the design rests on:
   - **(c) One statement per node of the subtree, merged in the plane.** SQLite in the Durable Object answers many small statements cheaply, where a database across a network would not, but a first read's pages are harder to cut across many statements than within one ordered read. It needs (b)'s index to be cheap.
   - **Larry built this before by binding every descendant into one `OR` or `IN` clause** (2026-11-20). (a) is that, spending one bound value however many nodes the subtree holds (C3).
   - **The experiment measures each answer with `EXPLAIN QUERY PLAN`, rows read and CPU,** for subtrees of a few nodes and of thousands, and for a first read cut into pages. The recommendation before it was (a), with (b) added only if a query reads far more rows than it answers.
+- **Q10. How the client keeps one store entry right when two holders deliver the same resource** (raised 2026-11-23, from Larry's question on the Objective). Holders are in step with the host at different moments: query A applies a push that takes a deal from its second version to its third while query B, which lost a push, is sent a catch-up patch cut from the first version to the third. Applied to the entry A already moved, B's patch is wrong.
+  - **(a) Each live query keeps its own copy of its result and patches only that.** After a patch it hands each changed snapshot to the store whole, as a resource subscription's push is handed today, and the store keeps it only when its `meta.validFrom` is later than the entry's. Nothing can conflict and the wire does not change. A resource is then held twice in the tab, in its query's copy and in the store, so D8's long chat is 8 to 16 MB.
+  - **(b) One copy, in the store, and each patched resource names the `validFrom` it was cut from.** The client applies it only to an entry at that version, skips it for an entry already at the new one, and reads the resource again otherwise. The tab holds each resource once, and each changed resource in a patch carries one more moment.
+  - **Recommendation:** (b). A second copy of every list costs every page, where the base moment costs about 30 bytes for each changed resource and a re-read only when two holders overlap and one fell behind.
+- **Q11. How a catch-up page says another follows** (raised 2026-11-23). A first read's page carries a cursor until the last. A catch-up's next request names only a moment (DI16), so a page that stopped at 2 MB needs to say so. **Recommendation:** each page also names the host's latest moment, and the client asks again while its own is earlier. DI15 already has a catch-up name that moment.
 - **Q3. The spelling of the roster's path, left until the query that returns resources is settled (Larry, 2026-11-21).** The node goes after the type, in the descriptor's order: `store.lmz.querySubscribers.<typeName>[nodeId].<field>[value]`. A node id is a UUID, which no field name can be. **Recommendation:** that spelling.
 - **Q6. How a catch-up finds what was written since a moment. Tabled until an experiment compares the answers below (Larry, 2026-11-20).** A result that left has no current row the filter matches, and the filter's indexes hold only current rows, so they cannot find it.
   - **(a) An index on `Snapshots(typeName, validFrom)` over every row.** What was written since the moment is one range read in write order, which is also the order DI16's pages are cut in. Each resource found is then read at both moments by its key, so a catch-up reads in proportion to the writes it missed. Every write of every type pays one more index row; closing the row before it changes no `validFrom`, so that costs nothing more.
@@ -245,7 +311,7 @@ Claims the design rests on:
 
 ## Doc drafts
 
-The docs the model reads were drafted before the design was built, and they are held here so the docs in the tree teach only what is built. Each block below is a diff against the file as it stood at commit `82ce20b`. The docs phase applies them: save a block to a file and run `git apply --3way` on it, which merges it over whatever has changed in that doc since. They carry D6, D7, D8 and D11 (DI11), and not yet how D12 creates an app's nodes.
+The docs the model reads were drafted before the design was built, and they are held here so the docs in the tree teach only what is built. Each block below is a diff against the file as it stood at commit `82ce20b`. The docs phase applies them: save a block to a file and run `git apply --3way` on it, which merges it over whatever has changed in that doc since. They carry D6, D7, D8 and D11 (DI11), and not yet how D12 creates an app's nodes. Where a draft and the sections above disagree, the sections above are right, and the draft is corrected when its docs phase applies it (Larry, 2026-11-23).
 
 ### `website/docs/nebula/resources.md`
 
