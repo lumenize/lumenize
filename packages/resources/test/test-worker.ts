@@ -167,11 +167,11 @@ export class ResourcesHostDO extends ScopedMeshDO<Env> implements ResourcesHost 
   }
 }
 
-/** A node under the seeded host's root where its local principal holds a protected `write`. */
+/** A node under the seeded host's root where its agent principal holds a protected `write`. */
 export const GRANTED_NODE_ID = '00000000-0000-4000-8000-00000000000a';
 /** A sibling of it where the principal holds nothing. */
 export const BARE_NODE_ID = '00000000-0000-4000-8000-00000000000b';
-/** The seeded host's local principal. */
+/** The seeded host's agent principal. */
 export const SEEDED_PRINCIPAL = 'agent:test';
 
 const SEED: TreeSeed = {
@@ -184,7 +184,7 @@ const SEED: TreeSeed = {
 
 /**
  * A host that declares a seed, as a Galaxy does, with fixtures for what no Client can reach: the
- * rows a construction writes, and a write made as the host's local principal, which no product
+ * rows a construction writes, and a write made as the host's agent principal, which no product
  * path makes until a Galaxy's agent posts as itself. No route names its binding, so a test calls
  * the fixtures on its stub and stamps its name first, as a first mesh entry would.
  */
@@ -193,7 +193,7 @@ export class SeededHostDO extends ResourcesHostDO {
     return SEED;
   }
 
-  /** Stamp the node's name, which `lmz.asLocalPrincipal` builds the principal's claims from. */
+  /** Stamp the node's name, which `lmz.asAgentPrincipal` builds the principal's claims from. */
   initForTest(instanceName: string): void {
     this.lmz.__init({ bindingName: 'SEEDED', instanceName });
   }
@@ -246,16 +246,16 @@ export class SeededHostDO extends ResourcesHostDO {
     };
   }
 
-  /** Create a `Board` at `nodeId` as the host's local principal, through the plane's own write path. */
+  /** Create a `Board` at `nodeId` as the host's agent principal, through the plane's own write path. */
   createAsPrincipal(resourceId: string, nodeId: string): Promise<TransactionResult> {
-    return this.lmz.asLocalPrincipal(SEEDED_PRINCIPAL, () =>
+    return this.lmz.asAgentPrincipal(SEEDED_PRINCIPAL, () =>
       this.plane.doTransaction({ [resourceId]: { op: 'create', typeName: 'Board', nodeId, value: { title: 'by the principal' } } }, ''));
   }
 
-  /** Create a `Board` at `nodeId` as the local principal through `ensureResource`, the write host
+  /** Create a `Board` at `nodeId` as the agent principal through `ensureResource`, the write host
    *  code makes with nobody waiting on its answer. Resolves `'created'`, or the refusal's message. */
   ensureAsPrincipal(resourceId: string, nodeId: string): Promise<string> {
-    return this.lmz.asLocalPrincipal(SEEDED_PRINCIPAL, () =>
+    return this.lmz.asAgentPrincipal(SEEDED_PRINCIPAL, () =>
       this.plane.ensureResource(resourceId, 'Board', nodeId, { title: 'ensured' })
         .then(() => 'created', (error: Error) => error.message));
   }

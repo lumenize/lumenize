@@ -14,7 +14,7 @@ import type { GatewayConnectionInfo } from '../src/gateway-messages';
 import type { CallContext } from '../src/types';
 import { authFacadeFor, meshTestFetch } from './support/test-auth';
 import { defineRoutes } from '../src/routes';
-import { hasDominionOver } from '../src/auth/parse-id';
+import { hasDominionOver, hasPassageInto } from '../src/auth/parse-id';
 
 // Mesh's own auth, which every Client here logs in through (test/support/login.ts).
 export { AuthRegistry, Profile } from './support/test-auth';
@@ -452,32 +452,39 @@ export class TestDO extends UnscopedMeshDO<Env> {
     return this.ctx.storage.kv.get('observed_identity');
   }
 
-  // ── Running a block under claims: `actFor` / `asLocalPrincipal` (claims-forms.test.ts) ──
+  // ── Running a block under claims: `actFor` / `asAgentPrincipal` (claims-forms.test.ts) ──
 
   /** Run one refusal case inside a call that carries claims, and keep what it threw (or 'ran'). */
   @mesh()
-  tryClaimsForm(which: 'forged' | 'uuid-principal'): void {
+  tryClaimsForm(which: 'forged'): void {
     let outcome = 'ran';
     try {
-      if (which === 'forged') {
-        // An object that carries claims and is no record: it has no `sub` of its own.
-        this.lmz.actFor({ originAuth: this.lmz.callContext.originAuth } as any, 'agent:test', () => undefined);
-      } else {
-        this.lmz.asLocalPrincipal(crypto.randomUUID(), () => undefined);
-      }
+      // An object that carries claims and is no record: it has no `sub` of its own.
+      this.lmz.actFor({ originAuth: this.lmz.callContext.originAuth } as any, 'agent:test', () => undefined);
     } catch (e) {
       outcome = (e as Error).message;
     }
     this.ctx.storage.kv.put(`claims_form_${which}`, outcome);
   }
 
-  /** Run as a local principal: keep the claims in-node code reads and whether they would pass the
+  /** What `asAgentPrincipal` does with `principal` on this named node: 'ran', or its refusal. */
+  tryAgentPrincipalName(principal: string): string {
+    this.lmz.__init({ bindingName: 'TEST_DO', instanceName: this.ctx.id.name! });
+    try { return this.lmz.asAgentPrincipal(principal, () => 'ran'); } catch (e) { return (e as Error).message; }
+  }
+
+  /** What `asSystemPrincipal` does on this node: 'ran', or its refusal. */
+  trySystemPrincipal(): string {
+    try { return this.lmz.asSystemPrincipal(() => 'ran'); } catch (e) { return (e as Error).message; }
+  }
+
+  /** Run as an agent principal: keep the claims in-node code reads and whether they would pass the
    *  dominion bypass here, then call `captureContext` on another node from inside the block. */
-  runAsLocalPrincipal(principal: string, binding: string, instance: string): void {
-    this.lmz.asLocalPrincipal(principal, () => {
+  runAsAgentPrincipal(principal: string, binding: string, instance: string): void {
+    this.lmz.asAgentPrincipal(principal, () => {
       const context = this.lmz.callContext;
-      this.ctx.storage.kv.put('local_principal_context', context);
-      this.ctx.storage.kv.put('local_principal_dominion',
+      this.ctx.storage.kv.put('agent_principal_context', context);
+      this.ctx.storage.kv.put('agent_principal_dominion',
         hasDominionOver(context.originAuth?.claims as any, this.lmz.instanceName!));
       this.lmz.call(binding, instance, this.ctn<TestDO>().captureContext(),
         this.ctn<TestDO>().recordCallFailure(), { onErrorOnly: true });
@@ -1373,6 +1380,11 @@ export class OnStartErrorDO extends UnscopedMeshDO<Env> {
 
 // Test Worker class for Worker-to-DO and Worker-to-Worker tests
 export class TestWorker extends MeshWorker<Env> {
+  /** What `asSystemPrincipal` does on a Worker: 'ran', or its refusal. */
+  trySystemPrincipal(): string {
+    try { return this.lmz.asSystemPrincipal(() => 'ran'); } catch (e) { return (e as Error).message; }
+  }
+
   // Store last received envelope for inspection
   lastReceivedEnvelope: any = null;
 
@@ -1911,12 +1923,63 @@ export class ClientHostDO extends ScopedMeshDO<Env> {
     this.pushTo(clientName, value, tag);
   }
 
+  /** What `asSystemPrincipal` does on this node: 'ran', or its refusal. */
+  @rawRpc()
+  trySystemPrincipal(): string {
+    try { return this.lmz.asSystemPrincipal(() => 'ran'); } catch (e) { return (e as Error).message; }
+  }
+
+  /**
+   * Run as this node's system principal, inside a block that runs as an agent principal. Returns
+   * the claims the system block ran under, the verdicts they earn over each scope in `scopes`, and
+   * the `sub` in force once the system block has returned. From inside the system block it calls
+   * `captureContext` on the `TestDO` named `callee`.
+   */
+  @rawRpc()
+  runAsSystemPrincipal(callee: string, scopes: string[]): unknown {
+    return this.lmz.asAgentPrincipal('agent:test', () => {
+      const inside = this.lmz.asSystemPrincipal(() => {
+        const context = this.lmz.callContext;
+        const claims = context.originAuth?.claims as any;
+        this.lmz.call('TEST_DO', callee, this.ctn<TestDO>().captureContext(), this.ctn<ClientHostDO>().keepAnswer('system_call'), { onErrorOnly: true });
+        return {
+          originAuth: context.originAuth,
+          dominion: Object.fromEntries(scopes.map((scope) => [scope, hasDominionOver(claims, scope)])),
+          passage: Object.fromEntries(scopes.map((scope) => [scope, hasPassageInto(claims, scope)])),
+        };
+      });
+      return { ...inside, subAfter: this.lmz.callContext.originAuth?.sub };
+    });
+  }
+
   /** Close every hosted Client's socket with `code`, as a host about to be deleted does. */
   @mesh()
   closeEveryClient(code: number): void {
     this.__clientGateway.closeAll(code, 'test host closing');
   }
 
+}
+
+/**
+ * A scoped node whose `onStart` acts as each of its principals, at a construction no call has
+ * stamped a name on, and keeps the claims each block ran under, or the refusal.
+ */
+export class PrincipalOnStartDO extends ScopedMeshDO<Env> {
+  onStart(): void {
+    const keep = (key: string, run: () => unknown) => {
+      let outcome: unknown;
+      try { outcome = run(); } catch (e) { outcome = `threw: ${(e as Error).message}`; }
+      this.ctx.storage.kv.put(key, outcome);
+    };
+    keep('onstart_stamped', () => this.lmz.instanceName ?? 'none');
+    keep('onstart_system', () => this.lmz.asSystemPrincipal(() => this.lmz.callContext.originAuth?.claims));
+    keep('onstart_agent', () => this.lmz.asAgentPrincipal('agent:test', () => this.lmz.callContext.originAuth?.claims));
+  }
+
+  @rawRpc()
+  kept(key: string): unknown {
+    return this.ctx.storage.kv.get(key);
+  }
 }
 
 /**

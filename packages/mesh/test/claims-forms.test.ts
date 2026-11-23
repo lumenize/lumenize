@@ -2,10 +2,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { preprocess } from '@lumenize/structured-clone';
 import type { CallEnvelope } from '../src/lmz-api';
+import { rawRpcStub } from '../src/raw-rpc';
+import { isPersonSub } from '../src/auth/types';
 
 /**
  * Running a block under claims: `lmz.actFor` (a node acts for a person under a stored record),
- * and `lmz.asLocalPrincipal` (a node's local principal acts as itself).
+ * `lmz.asAgentPrincipal` (a node's agent principal acts as itself), and `lmz.asSystemPrincipal`
+ * (a scoped node acts as its own system principal).
  *
  * These run in Mesh's own lane, on real Durable Objects, where a record of any shape can be
  * handed in: a refusal of a record no product path writes has no other caller. `apps/nebula`'s
@@ -128,42 +131,42 @@ describe('lmz.actFor — a node acts under a stored record', () => {
     expect(without.seen.originRequest).toBeUndefined();
   });
 
-  // MUTATION: drop the shape check on `sub`, and a local principal's own record runs.
-  it('refuses a record a local principal wrote as itself', async () => {
+  // MUTATION: drop the shape check on `sub`, and an agent principal's own record runs.
+  it('refuses a record an agent principal wrote as itself', async () => {
     expect(await recordRefusal('own', { sub: PRINCIPAL, profileId: PRINCIPAL, aud: 'beta.shop', access: { authScope: 'beta.shop' } }))
       .toMatch(/not shaped like a person's id/);
   });
 
   // MUTATION: skip the name check on the principal, and it runs.
   it('refuses a principal named like a person', async () => {
-    expect(await recordRefusal('uuid', RECORD, crypto.randomUUID())).toMatch(/shaped like a person's id/);
+    expect(await recordRefusal('uuid', RECORD, crypto.randomUUID())).toMatch(/takes the form "agent:name"/);
   });
 });
 
-describe('lmz.asLocalPrincipal — a local principal acts as itself', () => {
+describe('lmz.asAgentPrincipal — an agent principal acts as itself', () => {
   // Mutation: give the built claims `scopeAdmin: true` → the dominion bypass passes at the node's
-  // own name → `local_principal_dominion` is true → this reds.
+  // own name → `agent_principal_dominion` is true → this reds.
   it('builds claims from the node name, with no scopeAdmin, so the dominion bypass never fires', async () => {
-    const node = env.TEST_DO.getByName('local_principal_1');
-    await node.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'local_principal_1' });
-    await node.runAsLocalPrincipal(PRINCIPAL, 'TEST_DO', 'local_principal_callee_1');
+    const node = env.TEST_DO.getByName('agent_principal_1');
+    await node.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'agent_principal_1' });
+    await node.runAsAgentPrincipal(PRINCIPAL, 'TEST_DO', 'agent_principal_callee_1');
 
     // The dominion check first, so the mutation above is caught by the verdict and not only by shape.
-    expect(await node.readKv('local_principal_dominion')).toBe(false);
-    const built = await node.readKv('local_principal_context');
+    expect(await node.readKv('agent_principal_dominion')).toBe(false);
+    const built = await node.readKv('agent_principal_context');
     expect(built.originAuth).toEqual({
       sub: PRINCIPAL,
-      claims: { sub: PRINCIPAL, profileId: PRINCIPAL, aud: 'local_principal_1', access: { authScope: 'local_principal_1' } },
+      claims: { sub: PRINCIPAL, profileId: PRINCIPAL, aud: 'agent_principal_1', access: { authScope: 'agent_principal_1' } },
     });
   });
 
-  // Mutation: let `buildOutgoingCallContext` inherit a local principal's context (drop the
-  // `local-principal` arm) → the callee reads `agent:test` as its caller → this reds.
+  // Mutation: let `buildOutgoingCallContext` inherit an agent principal's context (drop the
+  // kind arm) → the callee reads `agent:test` as its caller → this reds.
   it('a call made inside starts a fresh chain with no claims', async () => {
-    const node = env.TEST_DO.getByName('local_principal_2');
-    const callee = env.TEST_DO.getByName('local_principal_callee_2');
-    await node.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'local_principal_2' });
-    await node.runAsLocalPrincipal(PRINCIPAL, 'TEST_DO', 'local_principal_callee_2');
+    const node = env.TEST_DO.getByName('agent_principal_2');
+    const callee = env.TEST_DO.getByName('agent_principal_callee_2');
+    await node.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'agent_principal_2' });
+    await node.runAsAgentPrincipal(PRINCIPAL, 'TEST_DO', 'agent_principal_callee_2');
 
     const seen = await vi.waitFor(async () => {
       const c = await callee.getObservedContext();
@@ -172,11 +175,100 @@ describe('lmz.asLocalPrincipal — a local principal acts as itself', () => {
     });
     expect(seen.originAuth).toBeUndefined();
     expect(seen.callChain).toHaveLength(1);
-    expect(seen.callChain[0]).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'local_principal_2' });
+    expect(seen.callChain[0]).toMatchObject({ bindingName: 'TEST_DO', instanceName: 'agent_principal_2' });
   });
 
-  // Mutation: skip the name check in `asLocalPrincipalShared` → 'ran'.
-  it('refuses a name shaped like a UUID', async () => {
-    expect(await refusalOf('local_principal_uuid_1', 'uuid-principal')).toMatch(/shaped like a person's id/);
+  // Mutations: skip the name check in `asAgentPrincipalShared`, and every row runs. Accept any
+  // `kind:name`, and the `system:` and `webhook:` rows run.
+  it.each([
+    ['a node\'s own system principal', 'system:acme.crm'],
+    ['another kind of principal', 'webhook:stripe'],
+    ['a name with no prefix', 'lumenize'],
+    ['the prefix with no name', 'agent:'],
+    ['the empty string', ''],
+    ['a person\'s id', '7c1e2f3a-4b5c-4d6e-8f70-112233445566'],
+  ])('refuses %s as an agent principal', async (_what, principal) => {
+    const outcome = await env.TEST_DO.getByName('agent_principal_names').tryAgentPrincipalName(principal);
+    expect(outcome).toMatch(/takes the form "agent:name"/);
+    expect(outcome).toContain(JSON.stringify(principal));
+  });
+
+  it('runs a block for a sub of the form agent:name', async () => {
+    expect(await env.TEST_DO.getByName('agent_principal_names').tryAgentPrincipalName('agent:lumenize')).toBe('ran');
+  });
+});
+
+describe('lmz.asSystemPrincipal — a scoped node acts as itself', () => {
+  const SYSTEM = 'system:acme.crm';
+
+  // Mutations: drop `scopeAdmin`, and both dominion verdicts that hold turn false. Build `aud` from
+  // anything but the node's own scope, and the claims no longer equal these.
+  it('builds claims from the node\'s scope, with dominion over it and beneath it, and passage above', async () => {
+    const seen = await rawRpcStub('CLIENT_HOST_DO', 'acme.crm').runAsSystemPrincipal(
+      'system_callee_1', ['acme.crm', 'acme.crm.tenant1', 'acme', 'acme.crm2']) as any;
+    expect(seen.originAuth).toEqual({
+      sub: SYSTEM,
+      claims: { sub: SYSTEM, profileId: SYSTEM, aud: 'acme.crm', access: { authScope: 'acme.crm', scopeAdmin: true } },
+    });
+    expect(seen.dominion).toEqual({ 'acme.crm': true, 'acme.crm.tenant1': true, acme: false, 'acme.crm2': false });
+    expect(seen.passage.acme).toBe(true);
+    expect(seen.passage['acme.crm2']).toBe(false);
+  });
+
+  // Mutations: start a fresh chain for the `'agent'` kind alone, and the callee reads
+  // `system:acme.crm` as its caller's subject. Leave the system claims in place after the block,
+  // and `subAfter` is `system:acme.crm`.
+  it('keeps the claims inside the block: a call made there carries none, and the block before it resumes', async () => {
+    const seen = await rawRpcStub('CLIENT_HOST_DO', 'acme.crm').runAsSystemPrincipal('system_callee_2', []) as any;
+    expect(seen.subAfter).toBe('agent:test');
+    const callee = env.TEST_DO.getByName('system_callee_2');
+    const context = await vi.waitFor(async () => {
+      const c = await callee.getObservedContext();
+      expect(c).toBeDefined();
+      return c;
+    });
+    expect(context.originAuth).toBeUndefined();
+    expect(context.callChain).toHaveLength(1);
+    expect(context.callChain[0]).toMatchObject({ bindingName: 'CLIENT_HOST_DO', instanceName: 'acme.crm' });
+  });
+
+  // `onStart` runs at a node's construction, before any call has stamped a name on it.
+  // Mutation: read the stamped name alone, and both blocks throw for want of one.
+  it('acts as either principal from a first construction, named by ctx.id.name', async () => {
+    const node = rawRpcStub('PRINCIPAL_ONSTART_DO', 'beta.shop');
+    expect(await node.kept('onstart_stamped')).toBe('none');
+    expect(await node.kept('onstart_system')).toEqual(
+      { sub: 'system:beta.shop', profileId: 'system:beta.shop', aud: 'beta.shop', access: { authScope: 'beta.shop', scopeAdmin: true } });
+    expect(await node.kept('onstart_agent')).toEqual(
+      { sub: 'agent:test', profileId: 'agent:test', aud: 'beta.shop', access: { authScope: 'beta.shop' } });
+  });
+
+  // Mutations: decide the refusal by what the name parses as, and the unscoped node named
+  // `acme.crm` runs its block. Derive the scope without `parseId`, and the platform root runs its.
+  it.each([
+    ['a MeshWorker', () => env.TEST_WORKER.trySystemPrincipal(), /this one is a MeshWorker/],
+    ['an UnscopedMeshDO constructed under a scope\'s name', () => env.TEST_DO.getByName('acme.crm').trySystemPrincipal(), /this one is an UnscopedMeshDO/],
+    ['a scoped node named for the platform root', () => rawRpcStub('CLIENT_HOST_DO', '_platform').trySystemPrincipal(), /"_platform" is no scope/],
+  ])('refuses %s', async (_what, attempt, message) => {
+    expect(await attempt()).toMatch(message);
+  });
+});
+
+describe('isPersonSub — a person\'s key is a UUID, and nothing else is', () => {
+  it('answers true for a UUID in either case', () => {
+    expect(isPersonSub('7c1e2f3a-4b5c-4d6e-8f70-112233445566')).toBe(true);
+    expect(isPersonSub('7C1E2F3A-4B5C-4D6E-8F70-112233445566')).toBe(true);
+  });
+
+  // Mutations: test for a missing colon, and `anyone` answers true. Drop the `typeof` check, and
+  // the object answers true, since a RegExp tests an object's string form.
+  it.each([
+    ['an agent principal', 'agent:lumenize'],
+    ['a system principal', 'system:acme.crm'],
+    ['a grantee key with no prefix', 'anyone'],
+    ['the empty string', ''],
+    ['an object whose string form is a UUID', { toString: (): string => '7c1e2f3a-4b5c-4d6e-8f70-112233445566' }],
+  ])('answers false for %s', (_what, sub) => {
+    expect(isPersonSub(sub)).toBe(false);
   });
 });

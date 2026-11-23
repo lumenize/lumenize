@@ -93,7 +93,7 @@ export function buildAccessEntry(
  * RFC 8693 §4.1 chain nesting, written ONCE: prepend `actor` as the NEW OUTERMOST `act` entry,
  * preserving any pre-existing verified chain beneath it. Flattening/overwriting DROPS the
  * delegation chain — the wrong shape this helper exists to make unwritable. Its one caller is
- * `lmz.actFor` (`lmz-api.ts`), which prepends a node's local principal to the claims a stored
+ * `lmz.actFor` (`lmz-api.ts`), which prepends a node's agent principal to the claims a stored
  * record holds. A record is never given an actor of its own: a write records the claims its chain
  * carries (`toRecordedClaims`).
  *
@@ -102,7 +102,7 @@ export function buildAccessEntry(
  * to re-narrow. Prepend an actor into somebody's own session token and they lose their ability to
  * impersonate, for a reason nobody intended. The claims of a chain `lmz.actFor` starts are not a
  * token: nothing mints them, they last one chain, and the gate refusing a caller inside that chain
- * is intended, since a local principal never impersonates. Never start comparing the chain's
+ * is intended, since an agent principal never impersonates. Never start comparing the chain's
  * identity to the subject's, which `security.md` rule (1) forbids outright.
  *
  * The actor arrives as the PAIR — a bare `actorSub` would drop the `profileId` the chain is
@@ -129,7 +129,7 @@ export interface RecordedClaims {
   act?: AuthClaims['act'];
   profileId: string;
   /** Authority as asserted at the write, and never updated: a later demotion does not change it.
-   *  `lmz.actFor` runs a local principal's work for the subject under it. */
+   *  `lmz.actFor` runs an agent principal's work for the subject under it. */
   access?: AuthClaims['access'];
   /** The page the call came from, whose scope bounds how far it reaches (ADR-016). As of the write,
    *  like `access`. */

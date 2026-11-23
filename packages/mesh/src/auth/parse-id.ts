@@ -232,6 +232,9 @@ export type VerdictClaims = Pick<AuthClaims, 'aud'> & { access?: Partial<AccessE
  * the scope it is acting on. Reading `aud` only ever narrows: verification holds `aud` at or below
  * `authScope`, and equal to it for a plain membership.
  *
+ * The bit comes from a membership, or from Mesh for a node's own system principal, whose claims
+ * `lmz.asSystemPrincipal` builds with the node's scope as `aud` (ADR-025).
+ *
  * Fail-closed on an absent claim: no host, no membership, or no bit, no dominion.
  *
  * One predicate, one place to audit (ADR-007) — do not re-inline this conjunction anywhere.

@@ -67,7 +67,7 @@ this.lmz.call('DOCUMENT_DO', documentId,
 // callee: update(content, extraContext1, extraContext2) { ... }   — params come across as-is
 ```
 **The call context has no field for your own data.** Each need that might reach for one has a home of its own:
-- **Raw identity/claims** → `callContext.originAuth`, filled automatically: verified from the origin's JWT on a Client's call, or built by Mesh where a block runs under claims no token carries, by `lmz.actFor` or `lmz.asLocalPrincipal` (`security.md` names them, and the rule that no other code writes `originAuth`).
+- **Raw identity/claims** → `callContext.originAuth`, filled automatically: verified from the origin's JWT on a Client's call, or built by Mesh where a block runs under claims no token carries, by one of the builders `security.md` lists, with the rule that no other code writes `originAuth`.
 - **An authorization decision** MUST be computed in the node it is about — its `onBeforeCall`, a guard, or a gate — from `originAuth` and that node's own storage, and MUST NOT be cached in or carried by the context. Only the guard on a chain's first operation runs, so a cached decision saves nothing, and one carried to another node was computed for a different node. Canonical: `editAsEditor`'s guard in `packages/mesh/test/for-docs/security/team-doc-do.ts`.
 - **Tracing/provenance** → `callContext.callChain`, the immutable `[origin, …, caller]` path, extended every hop. Reset with `CallOptions.newChain: true` when a node should become a fresh origin; a client's calls take no `newChain`, since each starts at the client.
 

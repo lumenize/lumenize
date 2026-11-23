@@ -1,5 +1,5 @@
 /**
- * A host's tree seed, and a write made as the host's local principal.
+ * A host's tree seed, and a write made as the host's agent principal.
  *
  * These run here rather than against a running stack for two reasons. The rows a construction
  * writes are visible only to a counter inside the object, and no product path writes as a local
@@ -47,8 +47,8 @@ describe('a seeded node an admin has since moved', () => {
   });
 });
 
-describe('a write as the host\'s local principal', () => {
-  // Mutation, the first half: build a local principal's claims with `scopeAdmin` → the dominion
+describe('a write as the host\'s agent principal', () => {
+  // Mutation, the first half: build an agent principal's claims with `scopeAdmin` → the dominion
   // bypass admits the write at the bare node → `ok` is true and this reds.
   // Mutation, the second half: skip the seed's grants → the write at the granted node is refused.
   it('is refused where the principal holds no grant, and lands where it holds one', async () => {

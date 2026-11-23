@@ -1057,7 +1057,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    */
   async #recordServedBuild(buildVersion: string): Promise<void> {
     try {
-      await this.lmz.asLocalPrincipal(NEBULA_SUB, () =>
+      await this.lmz.asAgentPrincipal(NEBULA_SUB, () =>
         this.#resources.ensureResource(crypto.randomUUID(), 'ServedBuild', MESSAGES_NODE_ID,
           { chat: DEFAULT_CHAT_ID, star: 'dev', buildVersion }));
     } catch (e) {
@@ -1664,7 +1664,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   async onTabAnswer(message: string, roundId: string, version: string, callId: string, address: string, answer?: unknown): Promise<void> {
     const log = debug('nebula.Galaxy.runInTab');
     try {
-      await this.lmz.asLocalPrincipal(NEBULA_SUB, async () => {
+      await this.lmz.asAgentPrincipal(NEBULA_SUB, async () => {
         const row = this.turnRow();
         if (row?.message !== message) {
           log.warn('a tab answered for a turn that is not running', { instanceName: this.lmz.instanceName, message, address });
@@ -1702,7 +1702,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     } catch (error) {
       log.error('a tab answer could not be written', { instanceName: this.lmz.instanceName, message, error });
       try {
-        await this.lmz.asLocalPrincipal(NEBULA_SUB, () => this.#endTurn(message, 'error',
+        await this.lmz.asAgentPrincipal(NEBULA_SUB, () => this.#endTurn(message, 'error',
           `a tab's answer could not be written: ${error instanceof Error ? error.message : String(error)}`, TURN_FAILED_LINE));
       } catch (e) {
         log.error('a turn whose tab answer failed could not be ended', { instanceName: this.lmz.instanceName, message, error: e });
@@ -1794,7 +1794,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    */
   #thread(): Array<{ id: string; snap: Snapshot }> {
     try {
-      return this.lmz.asLocalPrincipal(NEBULA_SUB, () => {
+      return this.lmz.asAgentPrincipal(NEBULA_SUB, () => {
         const out: Array<{ id: string; snap: Snapshot }> = [];
         for (const { resourceId: id } of this.#resources.findCurrent('Message', { chat: DEFAULT_CHAT_ID })) {
           let snap: Snapshot | null;
@@ -1897,7 +1897,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    */
   async #runTurns(first: TurnBody): Promise<void> {
     try {
-      await this.lmz.asLocalPrincipal(NEBULA_SUB, async () => {
+      await this.lmz.asAgentPrincipal(NEBULA_SUB, async () => {
         let turn: TurnBody | undefined = first;
         while (turn) {
           // No decision follows a turn the deadline cut off, one whose run threw, or a decision
@@ -2352,7 +2352,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * way, under the agent's protected `write` at the `turns` node.
    */
   protected writeAsAgent(ops: Record<string, OperationDescriptor>): Promise<TransactionResult> {
-    return this.lmz.asLocalPrincipal(NEBULA_SUB, () => this.#resources.doTransaction(ops, ''));
+    return this.lmz.asAgentPrincipal(NEBULA_SUB, () => this.#resources.doTransaction(ops, ''));
   }
 
   /**
@@ -2361,7 +2361,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * ephemeral stream by id). Create-if-absent via the capability (a fresh Galaxy-minted
    * id → a create); server-internal, no client delivery.
    *
-   * Attribution: the agent posts as itself. The write runs as the Galaxy's local principal
+   * Attribution: the agent posts as itself. The write runs as the Galaxy's agent principal
    * `agent:lumenize`, so the snapshot records it as the subject with no `act`, and the DAG check
    * passes on the agent's own `write` at `chat`, whatever has happened to the poster's
    * grant since (ADR-025). Its `profileId` is its own name, so an agent message never needs a
@@ -2380,7 +2380,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   ): Promise<void> {
     const value = agentMessageValue({ chat: chatId, content, replyTo, ...opts });
     debug('nebula.Galaxy.stream').debug('commit', { messageId, len: content.length });
-    await this.lmz.asLocalPrincipal(NEBULA_SUB, () =>
+    await this.lmz.asAgentPrincipal(NEBULA_SUB, () =>
       this.#resources.ensureResource(messageId, 'Message', nodeId, value));
   }
 
@@ -2422,7 +2422,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     });
     // The agent's own write, on its own grant. A message that is not there, or that moved on in
     // turn, is left as it is: it is then somebody's edit of the agent's message.
-    await this.lmz.asLocalPrincipal(NEBULA_SUB, async () => {
+    await this.lmz.asAgentPrincipal(NEBULA_SUB, async () => {
       const current = this.#resources.doRead(messageId);
       if (!current) return;
       const was = current.value as { chat: string; content: string; replyTo?: string; answers?: string[]; thought?: string; codegen?: Record<string, unknown> };
@@ -2452,7 +2452,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * the caller's own address and check each op themselves. Chat participants are non-admin, so
    * there is no guard on the door: each op's DAG check at the `messages` node is the gate. A write
    * records the claims its call carries and nothing a caller sends, so no client can write as
-   * the agent: only host code runs as the Galaxy's local principal.
+   * the agent: only host code runs as the Galaxy's agent principal.
    */
   @mesh() // open to a descendant Star's member: each member behind the door checks itself
   get resources(): ResourcesRequests {
@@ -2856,7 +2856,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     };
     return {
       read: async () => {
-        const { snapshots } = this.lmz.asLocalPrincipal(NEBULA_SUB, () => this.#resources.doQuery(roundsOf(message)));
+        const { snapshots } = this.lmz.asAgentPrincipal(NEBULA_SUB, () => this.#resources.doQuery(roundsOf(message)));
         // Only the rounds at the `turns` node are the turn's. A member with `write` at `messages` can
         // write a `Round` there naming a running turn, and a turn that read it would run its calls
         // under the claims of the post the turn took up.

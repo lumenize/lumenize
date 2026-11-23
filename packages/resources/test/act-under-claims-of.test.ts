@@ -112,8 +112,8 @@ describe('Resources.actUnderClaimsOf', { timeout: 60000 }, () => {
     }
   });
 
-  // A local principal's own write is no one to act for: `lmz.actFor` refuses its record.
-  it('throws before the block runs on a resource the host\'s local principal wrote', async () => {
+  // An agent principal's own write is no one to act for: `lmz.actFor` refuses its record.
+  it('throws before the block runs on a resource the host\'s agent principal wrote', async () => {
     const name = `seeded-${crypto.randomUUID().slice(0, 8)}`;
     const host = env.SEEDED.getByName(name) as unknown as DurableObjectStub<SeededHostDO>;
     await host.initForTest(name);

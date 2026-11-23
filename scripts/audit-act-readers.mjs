@@ -43,7 +43,7 @@ const SKIPPED_FILES = new Set(['apps/nebula/src/validator-seeds.ts', 'apps/nebul
  */
 const ALLOWED = [
   { file: 'packages/mesh/src/auth/access-claims.ts', fn: 'toRecordedClaims', kind: 'record', why: 'the one projection every record goes through' },
-  { file: 'packages/mesh/src/lmz-api.ts', fn: 'actForRecord', kind: 'record', why: '`lmz.actFor`: nests a stored record\'s chain beneath the node\'s local principal' },
+  { file: 'packages/mesh/src/lmz-api.ts', fn: 'actForRecord', kind: 'record', why: '`lmz.actFor`: nests a stored record\'s chain beneath the node\'s agent principal' },
   { file: 'packages/resources/src/snapshots.ts', fn: 'toWireRecordedClaims', kind: 'record', why: 'copies a stored record\'s chain onto the wire' },
   { file: 'packages/resources/src/snapshots.ts', fn: 'identityKey', kind: 'record', why: 'compares two records\' chains to tell a caller its own repeat' },
   { file: 'apps/nebula/src/participants.ts', fn: 'deriveParticipants', kind: 'record', why: 'walks a stored record\'s chain for a byline' },

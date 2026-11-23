@@ -11,6 +11,7 @@ import type { ClientGateway } from './client-gateway.js';
 import { PASSAGE_STEP, UNSCOPED_NODE } from './node-kinds.js';
 import { parseId, isPlatformScope } from './auth/parse-id.js';
 import { prependActor, type RecordedClaims } from './auth/access-claims.js';
+import { isPersonSub } from './auth/types.js';
 
 /**
  * Whether a name is a scope's (`acme`, `acme.crm`, `acme.crm.tenant1`), the reserved `_platform` included. Not a string reads as a scope, so a
@@ -140,9 +141,10 @@ export function buildOutgoingCallContext(
 ): CallContext {
   const currentContext = getCurrentCallContext();
 
-  // A local principal's built claims never leave its node: a call made under them is the node
-  // speaking for itself, so it starts a fresh chain whatever `newChain` says.
-  if (options?.newChain || !currentContext || kindOf(currentContext) === 'local-principal') {
+  // Claims Mesh built for an agent principal or for the node's own system principal stay in the
+  // node: a call made under them is the node speaking for itself, so it starts a fresh chain
+  // whatever `newChain` says.
+  if (options?.newChain || !currentContext || kindOf(currentContext) !== undefined) {
     // Start a fresh chain - caller becomes the origin
     // callChain = [caller] (caller is both origin and immediate caller)
     return {
@@ -176,26 +178,28 @@ export function buildOutgoingCallContext(
 // ============================================
 
 /**
- * Marks a context Mesh built for a local principal. The key is a
+ * Marks a context Mesh built for one of a node's principals, and says which. The key is a
  * symbol, so `buildOutgoingCallContext`'s spread carries it within the isolate and no wire carries it:
- * an envelope from another node can neither bring one nor forge one.
+ * an envelope from another node can neither bring one nor forge one. Nothing reads which kind it
+ * is yet: any kind starts a fresh chain.
  */
 const CONTEXT_KIND = Symbol('lmz.contextKind');
-type ContextKind = 'local-principal';
+type ContextKind = 'agent' | 'system';
 
 function kindOf(context: CallContext | undefined): ContextKind | undefined {
   return (context as (CallContext & { [CONTEXT_KIND]?: ContextKind }) | undefined)?.[CONTEXT_KIND];
 }
 
-const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const AGENT_SUB_SHAPE = /^agent:.+/;
 
-/** A local principal's name says what it is (ADR-025), so it can never be a person's random id. */
-function requireLocalPrincipalName(principal: string): void {
-  if (typeof principal !== 'string' || principal.length === 0) {
-    throw new Error('A local principal needs a name, such as "agent:lumenize"');
-  }
-  if (UUID_SHAPE.test(principal)) {
-    throw new Error(`A local principal's name says what it is, and "${principal}" is shaped like a person's id`);
+/**
+ * The prefix of a `sub` says which kind of principal it is (ADR-025), so an agent principal's is
+ * `agent:` and a name. That refuses a person's random id, and `system:acme.crm`, which only
+ * `asSystemPrincipal` builds.
+ */
+function requireAgentPrincipalName(principal: string): void {
+  if (typeof principal !== 'string' || !AGENT_SUB_SHAPE.test(principal)) {
+    throw new Error(`An agent principal's sub takes the form "agent:name", such as "agent:lumenize", and ${JSON.stringify(principal)} does not`);
   }
 }
 
@@ -205,10 +209,10 @@ function requireLocalPrincipalName(principal: string): void {
  * `originRequest.origin`, so a link a callee builds names the stack the node is served on.
  */
 function actForRecord<T>(record: RecordedClaims, principal: string, origin: string | undefined, fn: () => T): T {
-  requireLocalPrincipalName(principal);
-  // A person's id is a UUID and a local principal's name never is, so a record a local principal
+  requireAgentPrincipalName(principal);
+  // A person's id is a UUID and an agent principal's `sub` never is, so a record an agent principal
   // wrote as itself, an agent's own post say, is no one to act for.
-  if (typeof record?.sub !== 'string' || !UUID_SHAPE.test(record.sub)) {
+  if (!isPersonSub(record?.sub)) {
     throw new TypeError(`Cannot act for this record: its sub is not shaped like a person's id`);
   }
   const built = {
@@ -223,19 +227,51 @@ function actForRecord<T>(record: RecordedClaims, principal: string, origin: stri
 }
 
 
-function asLocalPrincipalShared<T>(nodeName: string | undefined, principal: string, fn: () => T): T {
-  requireLocalPrincipalName(principal);
+function asAgentPrincipalShared<T>(nodeName: string | undefined, principal: string, fn: () => T): T {
+  requireAgentPrincipalName(principal);
   if (!nodeName) {
-    throw new Error('A local principal acts in a named node, and this one has no name yet');
+    throw new Error('An agent principal acts in a named node, and this one has no name');
   }
   const built = {
     callChain: [],
     originAuth: {
       sub: principal,
-      // No `scopeAdmin`, ever: a local principal holds grants in its node's orgTree and nothing else.
+      // No `scopeAdmin`, ever: an agent principal holds grants in its node's orgTree and nothing else.
       claims: { sub: principal, profileId: principal, aud: nodeName, access: { authScope: nodeName } },
     },
-    [CONTEXT_KIND]: 'local-principal' as const,
+    [CONTEXT_KIND]: 'agent' as const,
+  } as CallContext;
+  return runWithCallContext(built, fn);
+}
+
+/**
+ * Run `fn` as the node's own system principal. `kind` is what the node is when it has no scope of
+ * its own, and refuses it whatever its name parses as: an `UnscopedMeshDO` can be constructed
+ * under a name shaped like a scope. `parseId` refuses every other name that is no scope, the
+ * platform root's included.
+ */
+function asSystemPrincipalShared<T>(nodeName: string | undefined, kind: 'MeshWorker' | 'UnscopedMeshDO' | undefined, fn: () => T): T {
+  if (kind) {
+    throw new Error(`Only a scoped node has a system principal, and this one is ${kind === 'MeshWorker' ? 'a MeshWorker' : 'an UnscopedMeshDO'}`);
+  }
+  if (!nodeName) {
+    throw new Error('A system principal is named for its node, and this node has no name');
+  }
+  let scope: string;
+  try {
+    scope = parseId(nodeName).raw;
+  } catch (error) {
+    throw new Error(`A system principal is named for its node's scope, and "${nodeName}" is no scope: ${(error as Error).message}`);
+  }
+  const sub = `system:${scope}`;
+  const built = {
+    callChain: [],
+    originAuth: {
+      sub,
+      // `scopeAdmin` over the node's own scope: dominion there and beneath it, and passage above.
+      claims: { sub, profileId: sub, aud: scope, access: { authScope: scope, scopeAdmin: true } },
+    },
+    [CONTEXT_KIND]: 'system' as const,
   } as CallContext;
   return runWithCallContext(built, fn);
 }
@@ -713,7 +749,7 @@ export interface LmzApi {
   ): void;
 
   /**
-   * Run `fn` under a person's claims, with `principal`, this node's local principal, prepended as
+   * Run `fn` under a person's claims, with `principal`, this node's agent principal, prepended as
    * the outermost actor. A call made inside carries them on, so every record the chain leaves names
    * the person and the principal both, and every check reads the person's permission.
    *
@@ -721,19 +757,35 @@ export interface LmzApi {
    * claims of the write that made it. `access` and `aud` are therefore as of that write. A node
    * that hosts Clients also hands the chain its own origin, as `originRequest.origin`.
    *
-   * @throws Error if `principal` is empty or shaped like a UUID; TypeError if the record's `sub` is
-   *   not shaped like a person's id, as a local principal's own is not.
+   * @throws Error if `principal` is not of the form `agent:name`; TypeError if the record's `sub`
+   *   is not shaped like a person's id, as an agent principal's own is not.
    */
   actFor<T>(record: RecordedClaims, principal: string, fn: () => T): T;
 
   /**
-   * Run `fn` under claims Mesh builds for a local principal of this node: `principal` as subject,
-   * this node's name as `aud` and `authScope`, and no `scopeAdmin`. The claims never leave the
-   * node: a call made inside starts a fresh chain with no claims.
+   * Run `fn` under claims Mesh builds for an agent principal of this node: `principal` as subject,
+   * such as `agent:lumenize`, this node's name as `aud` and `authScope`, and no `scopeAdmin`. An
+   * agent principal holds grants in the node's orgTree and nothing else (ADR-025). A call made
+   * inside starts a fresh chain with no claims.
    *
-   * @throws Error if `principal` is empty or shaped like a UUID, or the node has no name yet.
+   * @throws Error if `principal` is not of the form `agent:name`, or the node has no name.
    */
-  asLocalPrincipal<T>(principal: string, fn: () => T): T;
+  asAgentPrincipal<T>(principal: string, fn: () => T): T;
+
+  /**
+   * Run `fn` as this node's own system principal, which Mesh names for the node's scope. In the
+   * node `acme.crm` the claims are `sub` and `profileId` `system:acme.crm`, `aud` and `authScope`
+   * `acme.crm`, and `scopeAdmin` true, so the block holds dominion over `acme.crm` and every scope
+   * beneath it, and passage, not dominion, above. The claims cover what `fn` runs and nothing
+   * after it. A call made inside starts a fresh chain with no claims.
+   *
+   * It is for the node's own bookkeeping, which no person asked for, and never for work a
+   * caller's call asked for (`security.md`).
+   *
+   * @throws Error on a node with no scope of its own: a `MeshWorker`, an `UnscopedMeshDO`, or a
+   *   node whose name is no scope, the platform root's included.
+   */
+  asSystemPrincipal<T>(fn: () => T): T;
 
   /**
    * Send one continuation to many targets — one `call` per target, from this node, at any N.
@@ -854,6 +906,11 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
         `A DO instance cannot change its name.`);
   }
 
+  // A node's first construction runs before any call has stamped a name, and `onStart` runs
+  // there. The name the Durable Object was addressed by is the same name a stamp would write, so a
+  // block that acts as one of the node's principals reads it from `ctx.id.name` until then.
+  const nodeName = (): string | undefined => stored()?.instanceName ?? heldInstanceName ?? ctx.id.name;
+
   return {
     // --- Getters (all readonly) ---
 
@@ -947,8 +1004,12 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       return actForRecord(record, principal, stored()?.origin, fn);
     },
 
-    asLocalPrincipal<T>(principal: string, fn: () => T): T {
-      return asLocalPrincipalShared(this.instanceName, principal, fn);
+    asAgentPrincipal<T>(principal: string, fn: () => T): T {
+      return asAgentPrincipalShared(nodeName(), principal, fn);
+    },
+
+    asSystemPrincipal<T>(fn: () => T): T {
+      return asSystemPrincipalShared(nodeName(), doInstance?.[UNSCOPED_NODE] === true ? 'UnscopedMeshDO' : undefined, fn);
     },
   };
 }
@@ -1027,8 +1088,12 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       return actForRecord(record, principal, undefined, fn);
     },
 
-    asLocalPrincipal<T>(principal: string, fn: () => T): T {
-      return asLocalPrincipalShared(this.instanceName, principal, fn);
+    asAgentPrincipal<T>(principal: string, fn: () => T): T {
+      return asAgentPrincipalShared(this.instanceName, principal, fn);
+    },
+
+    asSystemPrincipal<T>(fn: () => T): T {
+      return asSystemPrincipalShared(undefined, 'MeshWorker', fn);
     },
   };
 }

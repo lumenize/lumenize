@@ -340,7 +340,7 @@ describe('the impersonation mint', () => {
     // principal prepended, the shape `claims-forms.test.ts` pins. The caller here holds dominion and
     // calls from the SUBJECT's own host, so eligibility passes and only the root-identity gate can
     // refuse. Mutation: delete the gate → it mints → this reds.
-    it('rejects a caller inside a chain a local principal acts in', async () => {
+    it('rejects a caller inside a chain an agent principal acts in', async () => {
       const u = uni();
       const admin = await foundUniverse(SELF, u, `admin-${u}@example.com`);
       const user = await inviteAndLogin(SELF, u, admin.access_token, 'user@example.com');

@@ -15,6 +15,10 @@
 // types, org-ops, ontology config.
 export * from './client-index';
 
+// Whether a grantee's key is a person's. Mesh owns it, and it is re-exported here because this
+// is the one Lumenize entry a generated app imports.
+export { isPersonSub } from '@lumenize/mesh/client';
+
 // Vue-reactive factory + helpers (this entry pulls in `vue`).
 export { createNebulaClient } from './frontend/create-nebula-client';
 export type { CreateNebulaClientConfig, FactoryResult, NebulaClientClass, RunAnswer } from './frontend/create-nebula-client';

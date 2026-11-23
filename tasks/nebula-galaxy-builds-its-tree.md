@@ -255,9 +255,10 @@ Each phase leaves the suites green, and a doc changes in the phase that changes 
 **Goal:** Mesh builds `system:{scope}`'s claims for a scoped node from its first construction, names each kind of principal by its prefix, and exports the test that tells a person's key from any other (DI5, DI15, DI16, D21).
 
 - **`lmz.asSystemPrincipal<T>(fn: () => T): T` joins `asAgentPrincipal`** on `LmzApi` and on both implementations in `packages/mesh/src/lmz-api.ts`. For a node named `acme.crm` it runs `fn` through `runWithCallContext` under `sub` and `profileId` `system:acme.crm`, `aud` and `authScope` `acme.crm`, and `scopeAdmin: true`. The scope is `parseId(name).raw`.
-- **`asLocalPrincipal` becomes `asAgentPrincipal`, and takes only `agent:name`** (D21). `requireLocalPrincipalName` becomes `requireAgentPrincipalName` and refuses any `sub` that is not `agent:` and a name, which covers the empty and the UUID-shaped ones it refuses today. `asLocalPrincipalShared` and the context kind `'local-principal'` are renamed with it, the kind to `'agent'`. The rename is checked as `workflow.md` § *Symbol renames* says, every changed comment line is read, and this prints nothing:
+- **`asLocalPrincipal` becomes `asAgentPrincipal`, and takes only `agent:name`** (D21). `requireLocalPrincipalName` becomes `requireAgentPrincipalName` and refuses any `sub` that is not `agent:` and a name, which covers the empty and the UUID-shaped ones it refuses today. `asLocalPrincipalShared` and the context kind `'local-principal'` are renamed with it, the kind to `'agent'`. The rename is checked as `workflow.md` § *Symbol renames* says, every changed comment line is read, and one grep proves it:
 
   ```sh
+  # Prints only ADR-025's Terminology line, which names the term it replaced
   grep -rniE 'local[ -]principals?|LocalPrincipal' "${SRC[@]}"
   ```
 
@@ -446,6 +447,41 @@ Then the whole registry runs locally, since this phase and § *Phase 3* change w
     .claude/rules/security.md .claude/rules/workflow.md docs/adr/015* docs/adr/025* \
     docs/vision/auth.md
   ```
+
+## Build notes
+
+### Phase 1
+
+**For Larry:**
+
+- **The drafts question is unanswered, so `apps/nebula`'s suite ran without its embed drift check.** Every other step of its `npm test` chain ran. § *Phase 2* edits the drafted doc files, so it waits for the answer.
+- **`docs/vision/auth.md` now says the Galaxy creates its orgTree's nodes as `system:acme.crm`,** which is true once § *Phase 4* lands, and not before.
+- **`asAgentPrincipal` refuses a name it accepted before:** any `sub` without the `agent:` prefix. Mesh's own tests used `agent:test` already, and no caller changed.
+
+**Runs:** type-check clean. Mesh 1117 passed and 4 skipped, Resources 263 passed, `apps/nebula` 1325 passed and 2 skipped without its embed check. The local `/live` sweep passed 79 of 79 with 2 parked, in 49.9 minutes.
+
+**Retro notes:**
+
+- All ten new tests passed on first write, so each was mutation-checked before anything else ran, and none survived.
+- Mesh's test Worker gained a class, `PrincipalOnStartDO`, since no scoped node there had an `onStart`. The Durable Object binding types had to be regenerated with `npm run types` before the test compiled.
+- ADR-015 sat at its 13 KB budget before this phase, so its two additions were cut to a clause each.
+
+**Close-out notes:**
+
+- ADR-025's title changed, to *an Agent Principal Holds Grants Only There*. Its file name did not.
+- The sibling task files still say local principal; § *Phase 6* rewrites them, and its closing grep looks for the term.
+
+**Mutations run,** each against `packages/mesh/test/claims-forms.test.ts`, each caught by the tests named:
+
+- Drop `scopeAdmin` from the system claims: the claims test and the first-construction test.
+- Read the stamped name alone: the first-construction test.
+- Start a fresh chain for the `'agent'` kind alone: the test of a call made inside the block.
+- Refuse an unscoped node by what its name parses as: the `UnscopedMeshDO` row.
+- Derive the scope without `parseId`: the platform-root row.
+- Have `isPersonSub` test for a missing colon: the `anyone` and empty-string rows.
+- Drop `isPersonSub`'s `typeof` check: the object row.
+- Accept any `kind:name` as an agent principal: the `system:` and `webhook:` rows.
+- Skip the agent principal's name check: all six refusal rows.
 
 ## Non-goals
 

@@ -99,7 +99,7 @@ export type TransactionResult =
  * Options for {@link Snapshots.transaction}. None of them says who is writing or skips a check:
  * a write records the claims its call carries, and every op passes the tree's permission check
  * under them (ADR-025). Host code that writes as someone other than its caller runs the write
- * under those claims, with `lmz.asLocalPrincipal` or `lmz.actFor`.
+ * under those claims, with `lmz.asAgentPrincipal` or `lmz.actFor`.
  */
 export interface TransactionOpts {
   /** Post-commit hook, invoked with the written snapshots (fanout + query reruns). */

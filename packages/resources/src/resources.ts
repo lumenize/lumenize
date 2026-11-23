@@ -1144,7 +1144,7 @@ export class Resources {
    *
    * It runs under the `callContext` it is called in, which stamps the subject, and takes the
    * ordinary path, with no special-casing: `Snapshots.transaction` →
-   * `OrgTree.requirePermission`. So the Galaxy calls it as its local principal, whose grant on
+   * `OrgTree.requirePermission`. So the Galaxy calls it as its agent principal, whose grant on
    * the `messages` node admits the write. A write the transaction refuses throws, for want of the
    * permission or for a value its type rejects: nothing waits on this call's answer, so a
    * refusal returned as a value would be dropped unseen.
@@ -1239,7 +1239,7 @@ export class Resources {
    * code calls this in-process; it is on neither surface a host hands the wire.
    *
    * @throws ResourceMovedOnError before `fn` runs, when `validFrom` is not the resource's current
-   *   one or the resource is deleted; and whatever `lmz.actFor` refuses, a local principal's own
+   *   one or the resource is deleted; and whatever `lmz.actFor` refuses, an agent principal's own
    *   record among them.
    */
   actUnderClaimsOf<T>(resourceId: string, validFrom: string, principal: string, fn: () => T): T {

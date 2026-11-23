@@ -1,9 +1,9 @@
-# ADR-025: Fine-Grained Access Is the orgTree, and a Local Principal Holds Grants Only There
+# ADR-025: Fine-Grained Access Is the orgTree, and an Agent Principal Holds Grants Only There
 
 **Date**: 2026-10-15
 **Status**: Proposed
 **Deciders**: Larry
-**Evidence**: `requireChatFloor` (`apps/nebula/src/galaxy.ts`), which gates the Galaxy's source and builds with `orgTree.requirePermission(MESSAGES_NODE_ID, 'write')`; `OrgTree.requirePermission` (`packages/resources/src/org-tree.ts`), the one fine-grained check; `TransactionOpts.pinnedAtDoor`, which let the platform's own writes skip that check until the agent became a local principal and it was removed. Decided in `tasks/archive/nebula-agent-posts-as-itself.md` § *Decisions*, whose first draft proposed reading the chat with no check at all.
+**Evidence**: `requireChatFloor` (`apps/nebula/src/galaxy.ts`), which gates the Galaxy's source and builds with `orgTree.requirePermission(MESSAGES_NODE_ID, 'write')`; `OrgTree.requirePermission` (`packages/resources/src/org-tree.ts`), the one fine-grained check; `TransactionOpts.pinnedAtDoor`, which let the platform's own writes skip that check until the agent became an agent principal and it was removed. Decided in `tasks/archive/nebula-agent-posts-as-itself.md` § *Decisions*, whose first draft proposed reading the chat with no check at all.
 
 ## Context
 
@@ -14,16 +14,17 @@
 - **The tree gates operations as well as resources.** Since 2026-09-05, `requireChatFloor` has gated the Galaxy's source and builds by `write` on the chat's `messages` node, though no resource is involved. The vision document described the tree as gating resources, so the gate read as a borrowing, and the fix proposed was a second permission store kept equal to the tree.
 - **The platform acts on its own behalf.** Studio's agent posts to the chat when no person's call is there to post in, and reads the thread to answer it. The first proposals were a server read with no check and a Registry membership for the agent, and `pinnedAtDoor` already let the platform's own writes skip the check.
 
-The rest of this ADR commits the orgTree as a node's one fine-grained access control, and the local principal as the identity that holds grants there and nowhere else.
+The rest of this ADR commits the orgTree as a node's one fine-grained access control, the agent principal as the identity that holds grants there and nowhere else, and the system principal as a node's own.
 
 ## Decision
 
 ### Terminology
 
 - **Membership** — a grant in the Registry: one address in one scope, which every session rests on ([`auth.md`](../vision/auth.md) § *Identity and membership*).
-- **Local principal** — an identity that holds grants in one node's orgTree and no membership. `agent:lumenize` in the Galaxy `acme.crm` is the first: it holds `write` on the Galaxy's `chat` node, over its thread and its turns, and the Registry has no row for it.
+- **Agent principal** — an identity that holds grants in one node's orgTree and no membership. `agent:lumenize` in the Galaxy `acme.crm` is the first: it holds `write` on the Galaxy's `chat` node, over its thread and its turns, and the Registry has no row for it.
+- **System principal** — a scoped node's own identity, named for its scope: `system:acme.crm` in the Galaxy `acme.crm`. It holds dominion over that scope and no grant.
 
-**`local principal` names the pattern, not the agent.** The agent is its first case.
+**The prefix of a `sub` says which kind of principal it is.** `agent:` is an agent principal and `system:` a node's own, and a person's `sub` is a random id with no prefix. Another kind gets a prefix of its own when one is needed. `agent principal` replaced `local principal` on 2026-11-23, when the node's own principal arrived and "local" no longer told the two apart; do not reintroduce it.
 
 ### The orgTree is a node's one fine-grained access control
 
@@ -35,19 +36,30 @@ These things follow:
 - **Dominion's bypass covers operations too**, since the check is the same: an admin whose dominion covers the node needs no grant ([ADR-015](015-passage-and-dominion.md)).
 - **Where a grant sits is what it covers.** A grant on the root covers every node beneath it, so a grant meant for one audience goes on that audience's node, and anything with a different audience gets a node of its own beside it.
 
-### A local principal holds grants in one orgTree and nothing else
+### An agent principal holds grants in one orgTree and nothing else
 
-**A local principal acts on its node's behalf through the same check as anyone.** Mesh builds its claims on the server, only server code runs under them, and every read or write it makes passes the orgTree check against its own grants. `agent:lumenize` reads the Galaxy's chat and posts there because it holds `write` on `chat`, never because a check was skipped.
+**An agent principal acts on its node's behalf through the same check as anyone.** Mesh builds its claims on the server, only server code runs under them, and every read or write it makes passes the orgTree check against its own grants. `agent:lumenize` reads the Galaxy's chat and posts there because it holds `write` on `chat`, never because a check was skipped.
 
 These things follow:
 
 - **Its grant is ordinary data in the tree.** It is seeded when the tree is created, and visible to the tree's members like every grant ([ADR-008](008-full-org-tree-visibility.md)). Studio's agent's grant on `chat` alone cannot be revoked or lowered. It is part of the tree's skeleton, like the root, which no one can delete: refusing either refuses everyone alike, so it vetoes no admin's dominion ([ADR-015](015-passage-and-dominion.md)). The reason it is protected: the agent is the product's way to change a grant, so with its own revoked it could never hear the request to restore it.
 - **Coarse-grained checks grant it nothing.** `hasDominionOver` reads its claims on every orgTree check and finds no admin bit, and the claims never leave its node: a call made under them starts a fresh chain, so the callee sees the node speaking for itself ([ADR-015](015-passage-and-dominion.md)).
-- **It has no session to steal and no subject to impersonate.** A session rests on a membership, and the impersonation mint requires an accepted one; a local principal holds neither.
-- **Its `sub` names what it is**, as `agent:lumenize` does, and is never a UUID. Built claims therefore cannot carry a person's random id, or a persona's, which is random too.
+- **It has no session to steal and no subject to impersonate.** A session rests on a membership, and the impersonation mint requires an accepted one; an agent principal holds neither.
+- **Its `sub` names what it is**, `agent:` and a name, as `agent:lumenize` does. Built claims therefore cannot carry a person's random id, or a persona's, which is random too, or a node's own `system:` name.
 - **Its records name it.** Its own writes carry it as the subject. A write the agent makes for a person runs under the person's claims with the agent prepended as `act`, so its record names the person as the subject and the agent as the actor ([ADR-016](016-record-the-acting-principal.md)).
 
-**A persona is not a local principal.** It is a member of its Star, with a membership in the Registry, and its tab holds a token the impersonation mint issued ([ADR-022](022-every-session-lives-on-the-platform-host.md)). No server code builds a persona's claims.
+### A system principal holds dominion over its node's scope and no grant
+
+**A scoped node does its own bookkeeping as its system principal.** Mesh builds the claims from the node's name: in `acme.crm`, `system:acme.crm` as the subject, `acme.crm` as the scope it acts from, and the admin bit set. [ADR-015](015-passage-and-dominion.md)'s predicates then give it dominion over `acme.crm` and every Star beneath it, and passage, not dominion, into the Universe `acme`.
+
+These things follow:
+
+- **It passes the orgTree check as an admin of its scope does**, through dominion's bypass, so no grant is written for it and none can be revoked.
+- **It is for work no person asked for.** A block run as the system principal never does work a caller's call asked for, or work whose result is shown as someone's; that work runs under the caller's claims or an agent principal's.
+- **A call made under its claims starts a fresh chain**, as one made under an agent principal's does.
+- **A node with no scope of its own has none**: a Worker, an unscoped node, the platform root.
+
+**A persona is not an agent principal.** It is a member of its Star, with a membership in the Registry, and its tab holds a token the impersonation mint issued ([ADR-022](022-every-session-lives-on-the-platform-host.md)). No server code builds a persona's claims.
 
 ## Alternatives considered
 
@@ -58,5 +70,5 @@ These things follow:
 
 ## Consequences
 
-- **Positive.** One check for every identity and every gated operation, so a rule added to it binds them all. A local principal's access is visible where the tree's members already look, and revocable there unless revoking it would remove the only way back, as revoking Studio's agent's grant would. The next case follows the pattern instead of inventing an exception: an app's own assistant posting in a tenant's Star (`tasks/nebula-pre-alpha-fast-follow.md` § *Item 2: App-branded AI persona*).
-- **Negative / accepted.** A local principal's grants pass every operation its node gates by the tree, so the agent meets the gate on source. What bounds that is which server code runs under its claims, and a source write made there is traceable and reversible, which [`_ai-security.md`](../vision/_ai-security.md) § *Reversibility, not agency, is the risk variable* says needs no gate. A grant placed too high covers too much, since grants trickle down; the remedy is a node for the audience, as the Galaxy's `chat` node is.
+- **Positive.** One check for every identity and every gated operation, so a rule added to it binds them all. An agent principal's access is visible where the tree's members already look, and revocable there unless revoking it would remove the only way back, as revoking Studio's agent's grant would. The next case follows the pattern instead of inventing an exception: an app's own assistant posting in a tenant's Star (`tasks/nebula-pre-alpha-fast-follow.md` § *Item 2: App-branded AI persona*).
+- **Negative / accepted.** An agent principal's grants pass every operation its node gates by the tree, so the agent meets the gate on source. What bounds that is which server code runs under its claims, and a source write made there is traceable and reversible, which [`_ai-security.md`](../vision/_ai-security.md) § *Reversibility, not agency, is the risk variable* says needs no gate. A grant placed too high covers too much, since grants trickle down; the remedy is a node for the audience, as the Galaxy's `chat` node is.

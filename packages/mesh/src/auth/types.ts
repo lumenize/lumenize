@@ -378,6 +378,19 @@ export const RESERVED_UNIVERSE_SLUGS: ReadonlySet<string> = new Set([
  */
 export const NEBULA_SUB = 'agent:lumenize';
 
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Whether a `sub` is a person's: a UUID such as `3f2a9c1e-8b7d-4c6a-9e1f-2a3b4c5d6e7f`, which
+ * Mesh's auth layer mints for every person and for a persona. Any other key is no person, whatever
+ * it is: an agent principal's `agent:lumenize`, a node's own `system:acme.crm`, or a grantee key
+ * an app defines. A view that lists who holds a grant asks this before it resolves a profile, and
+ * anything that is not a string answers false.
+ */
+export function isPersonSub(sub: unknown): boolean {
+  return typeof sub === 'string' && UUID_SHAPE.test(sub);
+}
+
 /**
  * The eTag of a profile nobody has written: a Profile answers a read or a subscribe with
  * `{ value: {}, meta: { eTag: NEVER_WRITTEN_ETAG } }` until its first write. It sorts before every
