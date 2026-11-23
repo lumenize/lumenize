@@ -1,6 +1,6 @@
 # Upgrading queries: each names the node it reads under, and its subscriber holds the whole result, kept current by patches
 
-**Status:** Pass 1, drafted 2026-11-19 for Larry's hand review, and reworked on 2026-11-20 around his calls in § *Decisions*; phases are not written. `/task-management` routed it docs-first: `QueryDescriptor` is what every generated app writes its queries against. The docs the model reads are drafted in place and uncommitted, with D6, D7, D8 and D11 (DI11), and not yet with how D12 creates an app's nodes. The embed is not regenerated, so `apps/nebula`'s `npm test` fails its drift check until they are committed or reverted. It took over [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md)'s Item 21 and the [backlog.md](backlog.md) row *A query cannot sort, page or limit* on 2026-11-20, and both left those files, so the descriptor breaks once. Larry may split it later; for now the whole design is on paper. Larry paused it on 2026-11-22 behind [nebula-galaxy-builds-its-tree.md](nebula-galaxy-builds-its-tree.md), and [nebula-app-lifecycle-hooks.md](nebula-app-lifecycle-hooks.md) delivers DI22 after it. It lands before the first invite (§ *Relationships*).
+**Status:** Pass 1, drafted 2026-11-19 for Larry's hand review, and reworked on 2026-11-20 around his calls in § *Decisions*; phases are not written. `/task-management` routed it docs-first: `QueryDescriptor` is what every generated app writes its queries against. The docs the model reads are drafted in § *Doc drafts*, as diffs this file holds until its docs phase applies them (Larry, 2026-11-23), so the docs in the tree and the embed teach only what is built. It took over [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md)'s Item 21 and the [backlog.md](backlog.md) row *A query cannot sort, page or limit* on 2026-11-20, and both left those files, so the descriptor breaks once. Larry may split it later; for now the whole design is on paper. Larry paused it on 2026-11-22 behind [nebula-galaxy-builds-its-tree.md](nebula-galaxy-builds-its-tree.md), and [nebula-app-lifecycle-hooks.md](nebula-app-lifecycle-hooks.md) delivers DI22 after it. It lands before the first invite (§ *Relationships*).
 
 ## Conventions
 
@@ -233,3 +233,311 @@ Claims the design rests on:
   - **(d) An index on `Snapshots(validFrom)` alone, over every row.** It costs a write what (a) does, and one range read serves several types, which matters if a query ever names more than one (§ *Beyond this task*).
   - **The experiment measures each answer deployed, in an `experiment-*` Worker:** rows written per create and per update, and rows read and CPU per catch-up, for one type and for several, read by one statement per type and by one statement across them. The recommendation before it was (a).
   - **Larry suspects an index-only read of the moments may beat a `WHERE` over the value's fields, which an experiment should compare (2026-11-20).** A catch-up needs only each changed resource's id and moment to cut its pages. A `WITHOUT ROWID` table's secondary index carries the primary key, so `(typeName, validFrom)` holds `resourceId` too, and the range read touches no row. The filter and the node are then checked only on the resources found.
+
+## Doc drafts
+
+The docs the model reads were drafted before the design was built, and they are held here so the docs in the tree teach only what is built. Each block below is a diff against the file as it stood at commit `82ce20b`. The docs phase applies them: save a block to a file and run `git apply --3way` on it, which merges it over whatever has changed in that doc since. They carry D6, D7, D8 and D11 (DI11), and not yet how D12 creates an app's nodes.
+
+### `website/docs/nebula/resources.md`
+
+`````diff
+diff --git a/website/docs/nebula/resources.md b/website/docs/nebula/resources.md
+index d714524..b4c2852 100644
+--- a/website/docs/nebula/resources.md
++++ b/website/docs/nebula/resources.md
+@@ -16,7 +16,7 @@ Think of Nebula's resource layer as a document database with inter-resource rela
+ - **Document database** — each resource is a JavaScript object addressed by `(type, id)`.
+ - **With references** — a field typed as another resource is a relationship held **by id** (a foreign key), never an embedded object. Create related resources as separate ops in one atomic `transaction(...)`, each with a client-supplied id, wiring the references explicitly. See [Ontology § References between types](./ontology.md#references-between-types).
+ - **Real-time sync** — clients subscribe to resources they care about; mutations fan out to all subscribers automatically.
+-- **Structural access control** — every resource is attached at create time to a node in your app's **org/permission tree**. Each node has a per-user permissions table; permissions cascade additively from ancestors. See [Access control](./access-control.md).
++- **Structural access control** — every resource is attached at create time to a node in your app's **org/permission tree**. Each node has a per-user permissions table; permissions cascade additively from ancestors. A query names the node it reads under, and answers what sits there and beneath. See [Access control](./access-control.md).
+ 
+ ## Addressing resources
+ 
+@@ -72,14 +72,15 @@ The factory pre-seeds `store.ui` and `store.app` as empty objects (conveniences,
+ - **A list the page keeps showing** — the open deals, a chat's messages — is a [`subscribeQuery`](./api-reference.md#resourcessubscribequery). Every change reaches it until the page lets it go.
+ - **A list the page reads for a moment** — the rows of a report it prints, the history behind a finished order — is a [`query`](./api-reference.md#resourcesquery). It answers the snapshots this person may read, once, and subscribes to nothing.
+ 
+-```js @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
+-const { snapshots, deniedNodes, more } = await client.resources.query({
+-  typeName: 'todo', filter: { status: 'done' }, allowScan: true,
++```js @skip-check
++const { snapshots, deniedNodes } = await client.resources.query({
++  typeName: 'todo', nodeId: listSnap.meta.nodeId,   // the list's node: its todos are there
++  filter: { status: 'done' }, allowScan: true,
+ });
+-const titles = snapshots.map(({ value }) => value.title);   // in the query's order
++const titles = snapshots.map(({ value }) => value.title);   // by latest write, oldest first
+ ```
+ 
+-A query read once takes the same descriptor as a subscription, and is refused for the same reasons, all but one: the cap on how many live queries a type may hold, since a read holds none. Its snapshots do not enter `store.resources`, so nothing in the page updates when one of them changes later.
++Both name the node they read under, and both answer the whole result, each resource's value included; [`subscribeQuery`](./api-reference.md#resourcessubscribequery) has the rules. A query read once takes the same descriptor as a subscription, and is refused for the same reasons, all but one: the cap on how many live queries a type may hold, since a read holds none. Its snapshots do not enter `store.resources`, so nothing in the page updates when one of them changes later.
+ 
+ ## Optimistic concurrency
+ 
+`````
+
+### `website/docs/nebula/api-reference.md`
+
+`````diff
+diff --git a/website/docs/nebula/api-reference.md b/website/docs/nebula/api-reference.md
+index 1e34322..b47f9ce 100644
+--- a/website/docs/nebula/api-reference.md
++++ b/website/docs/nebula/api-reference.md
+@@ -44,7 +44,7 @@ Each surface below carries one tag describing its provenance. The tags captured
+ | `client.resources.resetDevData()` (a dev workspace only) | new-in-v3 | [resources.resetDevData](#resourcesresetdevdata) |
+ | `store.lmz.profiles[profileId].value.{name, nickname, picture}` | new-in-v3 | [store.lmz.profiles](#lmzprofiles) |
+ | `client.subscribeQuerySubscribers(query)` (+ auto-subscribe on read) | new-in-v3 | [subscribeQuerySubscribers](#subscribequerysubscribers) |
+-| `store.lmz.querySubscribers.<typeName>.<field>[value]` (live roster) | new-in-v3 | [store.lmz.querySubscribers](#lmzquerysubscribers) |
++| `store.lmz.querySubscribers.<typeName>[nodeId].<field>[value]` (live roster) | new-in-v3 | [store.lmz.querySubscribers](#lmzquerysubscribers) |
+ | `textMerge(server, local, base)` helper | new-in-v3 | [textMerge](#textmerge) |
+ | Handler `context.bindings` arg | deferred-post-5.3.7 | [Handler bindings](#handler-bindings) |
+ | `TransactionOutcome` discriminated union (top-level, what `transaction()` resolves with) | implemented-in-spike (`'committed'` shape only); new-in-v3 (kinds `'committed'` / `'rejected'` / `'timeout'` / `'infrastructure-error'` / `'ontology-stale'`, `retryable` flag on failures) | [TransactionOutcome](#transactionoutcome) |
+@@ -230,19 +230,24 @@ Auto-subscribe handles the common case (component unmount → grace period → u
+ **Tag**: `new-in-v3`
+ 
+ ```typescript @skip-check
+-subscribeQuery(query: QueryDescriptor, options?: { renderGraceMs?: number }): QuerySubscription;
++subscribeQuery(query: QueryDescriptor): QuerySubscription;
+ ```
+ 
+-Subscribe to a **live query**: the resources of one type that match a filter, kept current as resources are created, changed and deleted. It returns at once (the client computes the query's hash itself and matches pushes to it — ADR-003), so the first result arrives asynchronously: `await handle.ready`. Each push REPLACES the list, so there is no delta to merge.
++Subscribe to a **live query**: the resources of one type, under one node of the [org tree](./access-control.md), that match a filter, kept current as resources are created, changed and deleted. The handle holds the whole result, each resource's value included, and a change reaches it as a patch of just what changed. It returns at once (the client computes the query's hash itself and matches pushes to it — ADR-003), so the result arrives asynchronously: `await handle.ready`.
+ 
+ ```typescript @skip-check
+ interface QueryDescriptor {
+   typeName: string;      // the type being matched, e.g. 'Deal'
++  nodeId: string;        // the node to read under, e.g. DEALS_NODE_ID; its subtree too
+   filter: Filter;        // which of them, e.g. { stage: 'open', amount: { $gt: 1000 } }
+   allowScan?: boolean;   // read every resource of the type; see "A query needs an index" below
+ }
+ ```
+ 
++**A query reads under a node.** It answers the resources attached to `nodeId` or to any node beneath it, through every parent a node has. Name the node the list's resources are created under: `Deal` at `DEALS_NODE_ID`. A node the app's code names is a constant in its source, the id the node was created with, and a node made for one record is that record's `meta.nodeId`. `ROOT_NODE_ID` reads the whole tree. A node the tree does not hold rejects `handle.ready`.
++
++**Who sees what.** A query is checked once, at its node. A person who holds `read` there sees every result, since a grant reaches everything beneath its node. A person who does not sees none, not even what sits under a node beneath it that they can read, and `deniedNodes` is `[nodeId]`. So query a list at the node its audience reads ([Access control § Drawing the tree](./access-control.md#drawing-the-tree-a-node-for-each-audience)), and everyone in that audience gets the whole list. Where people read different parts of one list, as an organizer reads every wishlist and a participant only their own, each person's page queries at the node their own grant is on. [`OrgTreeState`](#orgtreestate)'s `permissions` maps each node to the people granted on it.
++
+ **The filter** is an object of field names and conditions, MongoDB-style. Several fields are ANDed.
+ 
+ | Condition | Meaning |
+@@ -269,24 +274,36 @@ Two ways out, and which is right depends on how many resources the type will hol
+ - **Add `@index` to the field** when the type can grow: Deals, Messages, Orders. An index adds one row to every write of that type, so add one for a filter the app really runs, not for every field.
+ - **Pass `allowScan: true`** when the type will only ever hold a few resources, such as a workspace's five Pipelines. It reads them all each time, which costs nothing at that size and saves the index's write on every change.
+ 
+-`{}` matches every resource of the type and needs neither.
++`{}` matches every resource of the type under the node and needs neither.
++
++**The whole result arrives, however long.** A large result arrives in parts of about 2 MB, and `ready` resolves when the last has landed, so a long list makes the page wait: 10 MB takes about 4 seconds at 20 Mbit/s. Keep a list to what the page shows, with its filter or by querying at a lower node.
++
++**Sort, count and total in the page.** The handle holds every result, so the order a list shows, how many it counts and what it adds up to are the page's own:
++
++```js @skip-check
++const deals = client.resources.subscribeQuery({
++  typeName: 'Deal', nodeId: DEALS_NODE_ID, filter: { stage: 'open' },
++});
++await deals.ready;
++const amountOf = (id) => store.resources.Deal[id].value.amount ?? 0;
++const largestFirst = [...deals.resourceIds].sort((a, b) => amountOf(b) - amountOf(a));
++const pipeline = deals.resourceIds.reduce((sum, id) => sum + amountOf(id), 0);
++```
+ 
+ The handle is a `using`-compatible `QuerySubscription`:
+ 
+ ```typescript @skip-check
+ interface QuerySubscription extends Disposable {
+-  readonly ready: Promise<void>;          // resolves on the first push; rejects if the query is rejected
+-  readonly resourceIds: string[];         // current ordered membership — the ids you may read
+-  readonly deniedNodes: string[];         // node ids you can't reach (drives request-access UI)
+-  readonly more: boolean;                 // the query matched more than the 1,000 ids one push carries
+-  setRenderWindow(resourceIds: string[]): void;  // open content subs for exactly these ids
+-  onChange(cb: () => void): void;          // fired on every membership / denied change
++  readonly ready: Promise<void>;          // resolves once the whole result has arrived; rejects if the query is refused
++  readonly resourceIds: string[];         // every result, by latest write, oldest first; [] if you can't read the node
++  readonly deniedNodes: string[];         // [nodeId] if you can't read the query's node, else [] (drives request-access UI)
++  onChange(cb: () => void): void;          // fired on every change to the results or to deniedNodes
+ }
+ ```
+ 
+-**The query delivers ids, not content.** `resourceIds` is the result in order of each resource's latest write, oldest first, with resources one transaction wrote in id order; it promises no other order, so sort in the page, or keep a list whose order matters in a container resource's array of ids (see [Coding your UI § Lists](./coding-your-ui.md)). A push carries at most 1,000 ids, the first by that order, and `more` is true when the query matched more; narrow the filter rather than paging. Read each resource's value the normal way (`store.resources.<typeName>[id].value.*`), which auto-subscribes it. For large results, call `setRenderWindow(ids)` with just the ids you're actually rendering (e.g. the 25 visible rows of a virtual list) — the factory opens per-resource content subscriptions for exactly those and releases ids that scroll out of view after a grace period. Content subs are refcounted and shared with direct [`subscribe`](#resourcessubscribe).
++**The query delivers each result's value too.** Read it the normal way, `store.resources.<typeName>[id].value.*`: the store already holds it, so reading it opens nothing more, however long the list. `resourceIds` is in order of each resource's latest write, oldest first, with ties broken by id, and promises no other order. A list whose order a person sets by hand, by dragging, is still a container resource's array of ids (see [Coding your UI § Lists](./coding-your-ui.md#lists-with-v-for)).
+ 
+-`deniedNodes` lists nodes the subscriber can't reach; surface a "request access" affordance (climb the org tree to the nearest admin — see [`OrgTreeState`](#orgtreestate)). **A person sees only what they may read.** Two people running the same query get different lists: each result is checked against that person's `read` on the node it sits under. A grant or a revoke writes no resource, so the list changes at the next update to the query; a client watching the org tree, as every `createNebulaClient` client does, re-subscribes a query with denied nodes at each tree change, so a grant reaches it with no write. `[Symbol.dispose]()` is per-handle (refcounted); the server-side `unsubscribeQuery` fires when the last handle releases.
++`deniedNodes` names the query's node when the subscriber can't read it (*Who sees what*, above); surface a "request access" affordance (climb the org tree to the nearest admin — see [`OrgTreeState`](#orgtreestate)). **A change to the tree reaches the list at once.** The query runs again whenever the tree changes what it answers: a grant or a revoke at or above its node, or a node added, moved or removed beneath it. `[Symbol.dispose]()` is per-handle (refcounted); the server-side `unsubscribeQuery` fires when the last handle releases.
+ 
+ To watch **who is subscribed** to a query (its live roster) rather than its data, see [`client.subscribeQuerySubscribers`](#subscribequerysubscribers).
+ 
+@@ -316,19 +333,20 @@ Returns `null` only if the resource was **never created**. A soft-deleted resour
+ 
+ **Tag**: `new-in-v3`
+ 
+-```typescript @skip-check
+-query(query: QueryDescriptor): Promise<QueryReadResult>;
++```typescript @check-example('packages/resources/src/client-resources.ts')
++query: (query: QueryDescriptor): Promise<QueryReadResult>
++```
+ 
++```typescript @skip-check
+ interface QueryReadResult {
+-  snapshots: Array<{ resourceId: string; value: any; meta: SnapshotMeta }>;  // the results you may read, in the query's order
+-  deniedNodes?: string[];   // the nodes holding results you may not read
+-  more?: true;              // the query matched more than the 1,000 results one read carries
++  snapshots: Array<{ resourceId: string; value: any; meta: SnapshotMeta }>;  // every result, by latest write, oldest first; [] if you can't read the node
++  deniedNodes?: string[];   // [nodeId] if you can't read the query's node
+ }
+ ```
+ 
+-A query's current result, **read once**. It takes the same [`QueryDescriptor`](#resourcessubscribequery) as `subscribeQuery`, and answers each result's whole snapshot rather than its id, checked against this person's `read` on the node it sits under, as a subscription's results are. Nothing is subscribed: no later change reaches the page, and the snapshots do not enter the store.
++A query's current result, **read once**. It takes the same [`QueryDescriptor`](#resourcessubscribequery) as `subscribeQuery`, and answers each result's whole snapshot, checked as a subscription's results are. A large result is read in parts, and the Promise resolves once the last has arrived. Nothing is subscribed: no later change reaches the page, and the snapshots do not enter the store.
+ 
+-Subscribe to what stays on screen and can change, and read once what will not change or will not stay. A query a subscription would refuse — a filter the engine refuses, one no index can look up — rejects the Promise with the same message. A page on an old build is answered stale, as [`read`](#resourcesread) is.
++Subscribe to what stays on screen and can change, and read once what will not change or will not stay. A query a subscription would refuse — a filter the engine refuses, or one no index can look up — rejects the Promise with the same message. A page on an old build is answered stale, as [`read`](#resourcesread) is.
+ 
+ ## `client.resources.transaction` {#resourcestransaction}
+ 
+@@ -731,7 +749,7 @@ It rejects on any workspace but `dev`, so a tenant's data cannot be erased this
+ subscribeQuerySubscribers(query: QueryDescriptor): SubscriberListSubscription;
+ ```
+ 
+-Subscribe to a query's **live subscriber-list roster** — the distinct-by-person set of everyone currently subscribed to that query's data — WITHOUT subscribing to the data itself. "Who's here / who's online" for a shared view. The roster is delivered to [`store.lmz.querySubscribers.<typeName>.<field>[value]`](#lmzquerysubscribers) as a reactive array of `{ sub, profileId }`, kept current as people join and leave.
++Subscribe to a query's **live subscriber-list roster** — the distinct-by-person set of everyone currently subscribed to that query's data — WITHOUT subscribing to the data itself. "Who's here / who's online" for a shared view. The roster is delivered to [`store.lmz.querySubscribers.<typeName>[nodeId].<field>[value]`](#lmzquerysubscribers) as a reactive array of `{ sub, profileId }`, kept current as people join and leave.
+ 
+ ```typescript @skip-check
+ interface SubscriberListSubscription extends Disposable {
+@@ -739,7 +757,7 @@ interface SubscriberListSubscription extends Disposable {
+ }
+ ```
+ 
+-As with the other surfaces, you rarely call this directly — **reading the query-in-path `store.lmz.querySubscribers.<typeName>.<field>[value]` auto-subscribes the roster** (the path segments *are* the [`QueryDescriptor`](#resourcessubscribequery)). Resolve each entry's `profileId` to a display name/avatar by reading [`store.lmz.profiles[profileId]`](#lmzprofiles) — window it (subscribe only the profiles for rendered rows) exactly as you window a large query. The roster is advisory/display-only (reachability-gated, uniform — it carries no permission data).
++As with the other surfaces, you rarely call this directly — **reading the query-in-path `store.lmz.querySubscribers.<typeName>[nodeId].<field>[value]` auto-subscribes the roster** (the path segments spell the [`QueryDescriptor`](#resourcessubscribequery)'s type, node and filter). Resolve each entry's `profileId` to a display name/avatar by reading [`store.lmz.profiles[profileId]`](#lmzprofiles) — window it (subscribe only the profiles for rendered rows) exactly as you window a large query. The roster is advisory/display-only (reachability-gated, uniform — it carries no permission data).
+ 
+ ## Reserved state paths
+ 
+@@ -792,11 +810,11 @@ Read-only through the store. Resolve `profileId`s you already hold — `client.c
+ 
+ **Tag**: `new-in-v3`
+ 
+-The live subscriber-list roster of a query, delivered on a dedicated channel. **Reading the query-in-path auto-subscribes** the roster (the path segments *are* the [`QueryDescriptor`](#resourcessubscribequery)).
++The live subscriber-list roster of a query, delivered on a dedicated channel. **Reading the query-in-path auto-subscribes** the roster (the path segments spell the [`QueryDescriptor`](#resourcessubscribequery)'s type, node and filter).
+ 
+ | Path | Type | Notes |
+ | --- | --- | --- |
+-| `store.lmz.querySubscribers.<typeName>.<field>[value]` | `{ sub: string; profileId: string }[]` | Distinct-by-person roster of everyone subscribed to that query's data, kept live. `v-for`-ready. |
++| `store.lmz.querySubscribers.<typeName>[nodeId].<field>[value]` | `{ sub: string; profileId: string }[]` | Distinct-by-person roster of everyone subscribed to that query's data, kept live. `v-for`-ready. |
+ 
+ Advisory / display-only (carries no permission data). Resolve each entry's `profileId` via [`store.lmz.profiles`](#lmzprofiles), windowed to rendered rows. See [`client.subscribeQuerySubscribers`](#subscribequerysubscribers).
+ 
+@@ -804,7 +822,7 @@ Example — a "who's here" roster for a chat session, with each person's avatar
+ 
+ ```vue @skip-check
+ <template>
+-  <li v-for="{ sub, profileId } in store.lmz.querySubscribers.Message.session[sessionId].slice(0, 25)" :key="sub">
++  <li v-for="{ sub, profileId } in store.lmz.querySubscribers.Message[CHAT_NODE_ID].session[sessionId].slice(0, 25)" :key="sub">
+     <img :src="store.lmz.profiles[profileId].value.picture" />
+     <span>{{ store.lmz.profiles[profileId].value.name }}</span>
+   </li>
+`````
+
+### `website/docs/nebula/coding-your-ui.md`
+
+`````diff
+diff --git a/website/docs/nebula/coding-your-ui.md b/website/docs/nebula/coding-your-ui.md
+index b4342db..aa2a8e4 100644
+--- a/website/docs/nebula/coding-your-ui.md
++++ b/website/docs/nebula/coding-your-ui.md
+@@ -402,11 +402,16 @@ export interface Deal {
+ // In a component's <script setup>
+ import { onBeforeUnmount, shallowRef } from 'vue';
+ import { client, store } from './nebula';
++import { DEALS_NODE_ID } from './nodes';   // the ids the app's nodes were created with
+ 
+ const openDeals = shallowRef<string[]>([]);
+-const query = client.resources.subscribeQuery({ typeName: 'Deal', filter: { stage: 'open' } });
+-query.onChange(() => { openDeals.value = [...query.resourceIds]; });
+-query.ready.then(() => { openDeals.value = [...query.resourceIds]; }, (error) => console.error(error.message));
++const query = client.resources.subscribeQuery({
++  typeName: 'Deal', nodeId: DEALS_NODE_ID, filter: { stage: 'open' },
++});
++const amountOf = (id: string) => store.resources.Deal[id].value.amount ?? 0;
++const largestFirst = () => [...query.resourceIds].sort((a, b) => amountOf(b) - amountOf(a));
++query.onChange(() => { openDeals.value = largestFirst(); });
++query.ready.then(() => { openDeals.value = largestFirst(); }, (error) => console.error(error.message));
+ onBeforeUnmount(() => query[Symbol.dispose]());
+ ```
+ 
+@@ -414,8 +419,10 @@ onBeforeUnmount(() => query[Symbol.dispose]());
+ <li v-for="id in openDeals" :key="id">{{ store.resources.Deal[id]?.value?.title }}</li>
+ ```
+ 
+-- **The query delivers ids.** Reading `store.resources.Deal[id]` in the loop subscribes to each Deal's content, as with a container.
+-- **Each person gets their own answer.** The same query returns only the Deals that person may read, and `query.deniedNodes` names the nodes holding ones they may not.
++- **The query delivers each Deal's value too.** Reading `store.resources.Deal[id]` in the loop finds it already held, so a list of any length opens one subscription, unlike a container's ids.
++- **Query at the node the list's resources are created under.** Deals are created at the `deals` node, so the query reads there. `DEALS_NODE_ID` is a constant in the app's source, the id the node was created with, so the page can query as soon as it loads. A node made for one record, such as a list's own node, is that record's `meta.nodeId`.
++- **Everyone who reads the `deals` node gets every open Deal, and anyone else gets none,** with `query.deniedNodes` naming `deals`. A page whose viewers read different parts of a list queries at the node each viewer's grant is on ([`subscribeQuery`](./api-reference.md#resourcessubscribequery) has the rule).
++- **Sort, count and total in the page.** The page holds every open Deal's value, so it orders them largest first itself, and a total or a count is a `reduce` over `query.resourceIds`.
+ - **A filter needs an `@index` on a field it looks up by,** or `allowScan: true` for a type that will only ever hold a few resources. [`subscribeQuery`](./api-reference.md#resourcessubscribequery) has the operators and the rule, and [Ontology § Indexes](./ontology.md#indexes) how to declare one.
+ - **Create a shared resource under a node the team can read,** not under a node only its author holds.
+ 
+`````
+
+### `website/docs/nebula/access-control.md`
+
+`````diff
+diff --git a/website/docs/nebula/access-control.md b/website/docs/nebula/access-control.md
+index 1f33388..b904649 100644
+--- a/website/docs/nebula/access-control.md
++++ b/website/docs/nebula/access-control.md
+@@ -37,7 +37,7 @@ Three properties follow:
+   - **Every node's `label`/`slug` is visible to every client** — the whole node set ships to everyone, not just nodes you can reach (it has to: requesting access to a node you *can't* reach means seeing what it is). So labels, not the opaque grant keys, are the real identity surface — a node labeled `user-alice` whose admin grant is some `sub` lets anyone deduce who that `sub` is. **Accepted known risk:** higher-permissioned users are discoverable, and the protection relied upon is **tenant segmentation** (members already share an organization). Apps that want to reduce it further can use opaque per-person slugs and render human names only to those who should see them — but that's optional hardening, not required.
+   - **The `permissions` map shows DAG grants only — it is not the complete admin picture.** Galaxy- and Universe-level scope admins have effective admin on the whole tree, but that's a property of their JWT (`claims.access.scopeAdmin`), not a node grant, so they do **not** appear in the map. Treat the map as "who was explicitly granted what," and check `claims.access.scopeAdmin` separately for scope admins (see [Coding your UI § Gating admin-only UI](./coding-your-ui.md#gating-admin-only-ui)).
+ - **Permission checks run on every transaction.** The server resolves the effective permission for the calling user against each affected resource's attached node before applying any op. A failed check returns `{ kind: 'permission-denied' }` for that resource in the per-type [`onTransactionResourceResolution`](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler) handler. Tier by op: `create` needs `write` on the target `nodeId`; `put` / `delete` need `write` on the resource's attached node; `move` needs `write` on **both** the source and destination nodes; `read` needs `read` on the attached node. A subscription is the exception: it is told what it cannot read rather than refused (next bullet).
+-- **A subscriber is checked on every update, and told what it cannot read rather than refused.** A subscribe never fails for permission. Each update carries what the subscriber can read, and `deniedNodes` names the nodes it cannot: a resource subscriber's `.snapshot` resolves `null` and its store entry holds `deniedNodes` with no `value`, and a query subscriber gets only the ids it can read. A revoked grant shows at the next update to what the subscriber watches, with nothing from the resource in it. A new grant shows at the next org-tree change for a client watching the tree, as every `createNebulaClient` client does, since that client re-subscribes whatever was denied; any other client sees it at the next update. See [`client.resources.subscribe`](./api-reference.md#resourcessubscribe).
++- **A subscriber is checked on every update, and told what it cannot read rather than refused.** A subscribe never fails for permission. Each update carries what the subscriber can read, and `deniedNodes` names the nodes it cannot. A resource subscriber's `.snapshot` resolves `null` and its store entry holds `deniedNodes` with no `value`. A query subscriber holding `read` at the query's node gets every result, and one without gets none, with `deniedNodes` naming that node. A query runs again whenever the tree changes what it answers, so a grant or a revoke reaches a query subscriber at once. A resource subscriber sees a revoked grant at the resource's next update, with nothing from the resource in it, and a new grant at the next org-tree change for a client watching the tree, as every `createNebulaClient` client does, since that client re-subscribes whatever was denied; any other client sees it at the next update. See [`client.resources.subscribe`](./api-reference.md#resourcessubscribe) and [`subscribeQuery`](./api-reference.md#resourcessubscribequery).
+ 
+ ## Worked example: sharing in a todo-list app
+ 
+@@ -223,4 +223,6 @@ graph TD
+ 
+ - **Grant each tier once, at the node whose audience it is.** Everyone on the team gets `read` at `sales`, which reaches `deals` and `forecasts`. A rep gets `write` at `deals`, and a manager `write` at `forecasts`.
+ - **Each change is then one grant.** Taking a rep off deals is the `write` at `deals`, and they still read both. Taking them off the team is the `read` at `sales`.
++- **Query a list at the node its resources are created under.** The deals page queries `Deal` at `deals`. Every rep and manager holds `read` there, through `sales`, so each is checked once and gets the whole list. A list of forecasts queries at `forecasts` the same way.
++- **Where people read different parts of one list, each queries at the node their own grant is on.** A query checks only the node it names, so a participant who reads their own wishlist's node, and not `lists` above it, gets nothing from a query at `lists`. The organizer's page queries at `lists`, and a participant's at their own list's node.
+ - **When two grants have to agree, the tree is missing a node.** Code that keeps them in step is a second permission system the server never enforces: a revoke that also revokes elsewhere, a permission worked out from another node's grant, a check of who wrote a resource before trusting it. Add the node over the things that share an audience instead, and grant there.
+`````
+
+### `apps/nebula/platform/skills/define-the-cast/SKILL.md`
+
+`````diff
+diff --git a/apps/nebula/platform/skills/define-the-cast/SKILL.md b/apps/nebula/platform/skills/define-the-cast/SKILL.md
+index 511980a..c9d1194 100644
+--- a/apps/nebula/platform/skills/define-the-cast/SKILL.md
++++ b/apps/nebula/platform/skills/define-the-cast/SKILL.md
+@@ -64,15 +64,23 @@ The preview has a tab for the person you are working for, `me`, and a tab for ea
+    - **Several runs go in one step.** Setting each persona's name is one `run_in_tab` call per tab, and they can all be asked for together.
+    - **After a run fails, look before running it again.** Return what the tab holds, `Object.keys(store.resources.Wish ?? {})` and the tree's slugs, and make only what is missing. A stray record is removed with `{ op: 'delete', typeName }` at its id. Wipe only when asked to: a wipe drops every grant too, and the whole cast has to be built again.
+ 
+-4. **Look through another persona's tab.** Read what `ollie` sees and compare it with the decisions in `docs/permissions.md`. A persona who sees what they should not, or cannot see what they should, is a grant to fix:
++4. **Look through another persona's tab.** Read what `ollie` sees and compare it with the decisions in `docs/permissions.md`. The tab already holds every grant in `store.lmz.orgTree`, so find the nodes `ollie` is granted and query at each. A grant `ollie` should not hold, one missing, or a record at the wrong node is something to fix:
+ 
+    ```js
+    // run_in_tab tab: "ollie"
+-   const ROOT = '00000000-0000-4000-8000-000000000000'; // every workspace's root node
+-   const { snapshots, deniedNodes } = await client.resources.query({ typeName: 'Wish', nodeId: ROOT, filter: {}, allowScan: true });
+-   return { wishes: snapshots.map((s) => s.value), deniedNodes };
++   const { nodes, permissions } = store.lmz.orgTree.value;
++   const seen = {};
++   for (const [nodeId, grants] of permissions) {
++     const tier = grants.get(client.claims.sub);
++     if (!tier) continue;
++     const { snapshots } = await client.resources.query({ typeName: 'Wish', nodeId, filter: {}, allowScan: true });
++     seen[nodes.get(nodeId).slug] = { tier, wishes: snapshots.map((s) => s.value.text) };   // includes the nodes beneath it
++   }
++   return seen;
+    ```
+ 
++   A persona who administers the whole workspace holds no grant and reads everything, so query at `ROOT` for them.
++
+ The tool's own description says what a run returns and how to read it. `.platform/docs/api-reference.md` has every call the code may make.
+ 
+ ## Wipe the test data, then build the cast again
+`````
+
