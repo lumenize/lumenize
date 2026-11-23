@@ -337,7 +337,11 @@ Claims the design rests on:
 
 ## Open questions
 
-- **Q12. What a client does when the host's latest moment is earlier than the one it holds** (raised 2026-11-23, from the proposal's R21). A Durable Object restored to an earlier point answers with moments its tabs have already passed, and DI15's rule then skips every push until the host passes them again. The proposal has a restored server mint a moment past every one it might have sent. **Recommendation:** a catch-up that names a moment later than the host's latest is answered with the whole result, and the tab replaces what it held, as the proposal's R23 has a client do after a restore.
+- **Q12. What a tab holds after its host's storage went back in time** (raised 2026-11-23, from the proposal's R21). A Durable Object restored to an earlier point, or wiped, no longer holds versions its tabs do. Its next write is minted at the clock, past every moment a tab holds (`#nextMoment` in `snapshots.ts`), so a catch-up from the tab's moment finds only the new write and the tab keeps versions that no longer exist. No restore is built today.
+  - **(a) The host records the oldest moment it answers a catch-up from.** It is set when the host's storage is first written, and a restore mints a new one, as the proposal's R21 has a restored server do. A catch-up naming an earlier moment is answered whole (DI16), and the tab drops what the answer does not name, as the proposal's R23 has it. A wiped host is covered from its first write. The read of a past moment that DI16 already refuses, one older than the history held, uses the same record.
+  - **(b) A catch-up naming a moment later than the host's latest is answered whole.** It costs no write, and it stops working at the restored host's first write.
+  - **(c) Nothing until a restore is built.**
+  - **Recommendation:** (a). It is one write in a host's life, and the restore that is built later has one rule to follow.
 - **Q3. The spelling of the roster's path, left until the query that returns resources is settled (Larry, 2026-11-21).** The node goes after the type, in the descriptor's order: `store.lmz.querySubscribers.<typeName>[nodeId].<field>[value]`. A node id is a UUID, which no field name can be. **Recommendation:** that spelling.
 
 ## Doc drafts
