@@ -22,7 +22,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/resources';
-import { createNebulaClient, textMerge } from '@lumenize/resources/frontend';
+import { createNebulaClient, isPersonSub, textMerge } from '@lumenize/resources/frontend';
 import { computed } from '@vue/reactivity';
 import { foundAndLogin, adminClientAt, ORIGIN, ownerOf, pageOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
@@ -144,13 +144,19 @@ describe('for-docs runtime examples (real Star)', () => {
     await client.orgTree.setPermission(listNodeId, bobsSub, 'read');
 
     // Who the list is shared with is read back from the tree, never kept in the list's value.
-    const sharedWith = store.lmz.orgTree.value.permissions.get(listNodeId);
+    // A grant's key is a person's `sub`, or names what holds it, as `agent:lumenize` does.
+    const sharedWith = computed(() =>
+      [...(store.lmz.orgTree.value.permissions.get(listNodeId)?.keys() ?? [])].filter(isPersonSub));
     // @end-doc
     expect(listNodeId).toBe(listWorkNodeId);
-    expect(sharedWith).toBeInstanceOf(Map);
+    // The node holds a person's grant and the agent's, and the roster lists the person alone.
+    await client.orgTree.setPermission(listNodeId, 'agent:lumenize', 'read');
     await vi.waitFor(() => {
-      expect(store.lmz.orgTree.value.permissions.get(listNodeId)?.get(bobsSub)).toBe('read');
+      const grants = store.lmz.orgTree.value.permissions.get(listNodeId);
+      expect(grants?.get(bobsSub)).toBe('read');
+      expect(grants?.get('agent:lumenize')).toBe('read');
     });
+    expect(sharedWith.value).toEqual([bobsSub]);
 
     // ── Setup a 'task-42' todo so the put / subscribe examples have a target ──
     const seed = await client.resources.transaction({

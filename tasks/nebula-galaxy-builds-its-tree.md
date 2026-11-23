@@ -601,6 +601,29 @@ Then the whole registry runs locally, since this phase and § *Phase 3* change w
 - Drop the `rounds` create from the start: the scenario's limb 1.
 - In `packages/resources/test/host-builds-its-tree.test.ts`: write a create's grants for a node that exists, and read the stamped host name alone.
 
+### Phase 5
+
+**For Larry:**
+
+- **The doc's roster is a `computed`,** where it was a plain read of the node's grants. A page shows the roster as it changes, and the test could then add the agent's grant after the block and read the list again.
+- **`coding-your-ui.md` says it beside `setPermission`, and its line on `client.claims.sub` is untouched.** That line is about the signed-in person, whose `sub` is always a UUID. The sentence went where a page reads grants back.
+- **The test grants `agent:lumenize` `read` on the list's node by hand.** A Star holds no grant of the agent's until an app gives it one, so the test writes the grant that a Galaxy's `chat` carries.
+
+**Runs:** Nebula 1355 passed and 2 skipped; `npm run test:doc` passed with all 179 examples verified; `gen-platform.mjs --check` in sync. `all --fast` passed 62 of 64, and `--rerun` passed the other two, `rounds-as-they-land` and `signup-to-first-app`: flakes, each a lost mail or a failed mail socket. `studio-guidance-loop` passed 6 of 6 limbs.
+
+**Retro notes:**
+
+- The example checker matches a block as one run of text, so the test could not set a grant inside the block. Making the roster a `computed` let the grant come after it.
+
+**Close-out notes:**
+
+- Larry's re-read of `website/docs/nebula` now covers this phase's edits to `access-control.md`, `api-reference.md` and `coding-your-ui.md` as well; the hash to compare against is still `82ce20b`.
+
+**Mutations run** (each reddened `for-docs.test.ts`, and each was restored):
+
+- Drop the filter from the roster: the list held `agent:lumenize` beside the person.
+- Make `isPersonSub` answer true for any string: the same.
+
 ## Non-goals
 
 - **An app's `onStart` and `onNewOntologyVersion`,** and the facet they run in: nebula-app-lifecycle-hooks.md.

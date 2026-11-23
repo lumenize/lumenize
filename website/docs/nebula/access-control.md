@@ -18,14 +18,15 @@ Both uses get the same mechanics. The "org" in "org tree" reads more as a verb (
 
 ## Permissions table and resolution
 
-Each node carries a per-user permissions table — `sub` (the subject claim from the user's JWT, a bare UUID minted by Mesh's auth layer) → `'admin' | 'write' | 'read'`. Grants are matched by exact string equality against the JWT `sub`. Effective permission for `(sub, nodeId)` is the **highest grant found on any ancestor path** from the resource's attached node up to root.
+Each node carries a permissions table — `sub` → `'admin' | 'write' | 'read'`. A grant's key is one of two things: a person's `sub`, the subject claim from their JWT, which is a bare UUID minted by Mesh's auth layer; or a key that names what holds the grant, as `agent:lumenize` does for Lumenize's own agent. `isPersonSub`, imported from `@lumenize/resources/frontend`, tells them apart. Grants are matched by exact string equality against the caller's `sub`. Effective permission for `(sub, nodeId)` is the **highest grant found on any ancestor path** from the resource's attached node up to root.
 
 ```typescript @skip-check
-// Conceptual — actual API surface lives on client.orgTree. Keys are bare-UUID
-// JWT subs (aliceSub etc. shown as variables for readability).
+// Conceptual — actual API surface lives on client.orgTree. A person's key is a
+// bare-UUID JWT sub (aliceSub etc. shown as variables for readability).
 node.permissions = new Map([
   [aliceSub, 'admin'],
   [bobSub,   'write'],
+  ['agent:lumenize', 'write'],   // not a person: the key names what holds the grant
 ]);
 ```
 
@@ -33,7 +34,7 @@ Three properties follow:
 
 - **Permissions cascade additively.** A grant on a parent applies to every descendant. Lower nodes can grant more, never less. To narrow access, attach the resource to a deeper node where only the right users have grants on the ancestors.
 - **The whole tree — structure *and* the full permissions table — is universally visible.** Every connected client gets the entire tree at `store.lmz.orgTree.value`, including every node's grants (`sub → tier`). Visibility isn't restricted because the permission UX wants every client to resolve, locally, *who to ask*: climb from a node you can't reach to the nearest ancestor with an `admin` grant and request access from them — no server round-trip. Resource **values** are still gated by permission at every read and write; the **structure and the grant table** are universal.
-  - **Grant keys are opaque user IDs** — `sub` is a bare UUID, not a name or email — so the table exposes *who-can-do-what by ID*, not by identity. Mapping a `sub` to a person needs a separate lookup the tree doesn't carry.
+  - **A person's grant key is an opaque user ID** — their `sub` is a bare UUID, not a name or email — so the table exposes *who-can-do-what by ID*, not by identity. Mapping a `sub` to a person needs a separate lookup the tree doesn't carry. A key that is not a person's says what it is, as `agent:lumenize` does.
   - **Every node's `label`/`slug` is visible to every client** — the whole node set ships to everyone, not just nodes you can reach (it has to: requesting access to a node you *can't* reach means seeing what it is). So labels, not the opaque grant keys, are the real identity surface — a node labeled `user-alice` whose admin grant is some `sub` lets anyone deduce who that `sub` is. **Accepted known risk:** higher-permissioned users are discoverable, and the protection relied upon is **tenant segmentation** (members already share an organization). Apps that want to reduce it further can use opaque per-person slugs and render human names only to those who should see them — but that's optional hardening, not required.
   - **The `permissions` map shows DAG grants only — it is not the complete admin picture.** Galaxy- and Universe-level scope admins have effective admin on the whole tree, but that's a property of their JWT (`claims.access.scopeAdmin`), not a node grant, so they do **not** appear in the map. Treat the map as "who was explicitly granted what," and check `claims.access.scopeAdmin` separately for scope admins (see [Coding your UI § Gating admin-only UI](./coding-your-ui.md#gating-admin-only-ui)).
 - **Permission checks run on every transaction.** The server resolves the effective permission for the calling user against each affected resource's attached node before applying any op. A failed check returns `{ kind: 'permission-denied' }` for that resource in the per-type [`onTransactionResourceResolution`](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler) handler. Tier by op: `create` needs `write` on the target `nodeId`; `put` / `delete` need `write` on the resource's attached node; `move` needs `write` on **both** the source and destination nodes; `read` needs `read` on the attached node. A subscription is the exception: it is told what it cannot read rather than refused (next bullet).
@@ -86,10 +87,13 @@ const listNodeId = store.resources.todoList[listWorkId].meta.nodeId;
 await client.orgTree.setPermission(listNodeId, bobsSub, 'read');
 
 // Who the list is shared with is read back from the tree, never kept in the list's value.
-const sharedWith = store.lmz.orgTree.value.permissions.get(listNodeId);
+// A grant's key is a person's `sub`, or names what holds it, as `agent:lumenize` does.
+const sharedWith = computed(() =>
+  [...(store.lmz.orgTree.value.permissions.get(listNodeId)?.keys() ?? [])].filter(isPersonSub));
 ```
 
 - **The tree is the only record of who has access.** Keep no `members` or `sharedWith` field in a resource's value. A second copy drifts from the grants, and it is the grants that are enforced.
+- **A grant's key is a person's only when `isPersonSub` says so.** A view that lists a node's grants shows any other key as what it names, the agent for `agent:lumenize`, and never looks it up as a profile. A count of admins skips it, and so does a climb to the nearest admin to ask for access, since nobody reads a request sent there.
 - **`meta.nodeId` is on every store entry**, a resource the page has just created included, so the page never stores a node's id in a value either.
 - **When you have a person's address and not their `sub`**, `client.resources.invite([{ email, grants: [{ nodeId, tier }] }])` makes the same grant, and makes them a member of the app first if they are not one. One invite can name several nodes for one person, `read` on a list and `write` on its items say, and sends one email.
 
