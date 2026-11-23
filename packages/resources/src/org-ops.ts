@@ -13,7 +13,7 @@ import { SlugTakenError } from './errors'
  * `DEFAULT_CHAT_ID`'s convention in `chat-constants.ts`) so it lives in the
  * same id space as every client-supplied nodeId — distinct from the virtual
  * `__deleted__`/`__orphaned__` tree sentinels (those are underscore-prefixed,
- * a UUID can never equal them). Seeded server-side by `OrgTree.#ensureSeed`,
+ * a UUID can never equal them). Created server-side by `OrgTree.#ensureRoot`,
  * never via `createNode`.
  */
 export const ROOT_NODE_ID = '00000000-0000-4000-8000-000000000000'
@@ -95,24 +95,6 @@ export interface NodeGrant { sub: string; tier: PermissionTier }
  * renamed, moved or deleted, and the call changed nothing.
  */
 export interface CreateNodeResult { outcome: 'created' | 'existing' | 'differs' }
-
-/** Whether `tier` grants less than `floor` does: `read` is below `write`, and `write` below `admin`. */
-export function isBelowTier(tier: PermissionTier, floor: PermissionTier): boolean {
-  return TIER_RANK[tier] < TIER_RANK[floor]
-}
-
-/**
- * The part of a tree its host declares rather than anyone grants: nodes and grants created with the
- * tree, which no request creates. A Galaxy declares its `chat` and `turns` nodes and its agent's `write`
- * on each; a Star declares nothing. They are created once, by `INSERT OR IGNORE`, so a wake writes no rows.
- *
- * A grant marked `protected` is part of the tree's skeleton, like its root: `revokePermission`, and a
- * `setPermission` below its declared `tier`, are refused to everyone alike (ADR-015, ADR-025).
- */
-export interface TreeSeed {
-  nodes?: Array<{ nodeId: string; parentNodeId: string; slug: string; label: string }>
-  grants?: Array<{ nodeId: string; sub: string; tier: PermissionTier; protected?: true }>
-}
 
 // ─── Validation ────────────────────────────────────────────────────
 

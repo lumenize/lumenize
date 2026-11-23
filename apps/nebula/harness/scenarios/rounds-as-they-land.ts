@@ -2,7 +2,7 @@
  * A turn's rounds are stored as the turn runs, each by the agent, before the turn's message.
  *
  * Jennifer founds the app and posts a request that asks for two reads in one reply. Austen, a
- * collaborator with `read` at the `turns` node from her invite, takes the agent message's id from
+ * collaborator whose invite's `read` at `chat` covers the `rounds` node, takes the agent message's id from
  * the first progress chunk and subscribes to that message's rounds, so she sees each round as the
  * Galaxy stores it. The model is the real one, so what it calls is its own choice: each limb gates
  * only on what holds whatever it calls, and says when there was nothing to check.

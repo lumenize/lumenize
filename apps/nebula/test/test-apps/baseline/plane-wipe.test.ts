@@ -193,12 +193,12 @@ describe('a reset of the .dev Star', () => {
 describe('the reset behind a Galaxy\'s `resources` door', () => {
   // The Galaxy composes the same plane, so its door reaches the same member. The app's owner
   // holds dominion there, and the plane's own `.dev` check is what refuses.
-  // Mutation: drop that check → the Galaxy's tree loses its chat and turns nodes.
+  // Mutation: drop that check → the Galaxy's tree loses its chat nodes.
   it('is refused to the app\'s owner, and the Galaxy\'s plane keeps every row', async () => {
     const { galaxy } = newDev();
     const owner = await admin(galaxy, galaxy, CHAT_MESSAGE_ONTOLOGY_VERSION, GALAXY_PAIR(galaxy));
     const before = await planeRows('GALAXY', galaxy);
-    expect(before.Nodes).toBe(4); // the root, `chat`, and `messages` and `turns` under it
+    expect(before.Nodes).toBe(4); // the root, `chat`, and `messages` and `rounds` under it
     await expect(owner.lmz.callAsync('GALAXY', galaxy, owner.ctn<Galaxy>().resources.resetDevData()))
       .rejects.toThrow(/only permitted on the \.dev sandbox Star/);
     expect(await planeRows('GALAXY', galaxy)).toEqual(before);

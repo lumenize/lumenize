@@ -40,14 +40,13 @@ export {
   PermissionDeniedError, isPermissionDeniedError,
   NodeNotFoundError, isNodeNotFoundError,
   SlugTakenError,
-  ProtectedGrantError,
   NoOntologyInstalledError, isNoOntologyInstalledError,
   ResourceMovedOnError,
 } from './errors';
 
 // The org tree
 export { OrgTree } from './org-tree';
-export type { PermissionTier, OrgTreeState, OrgTreeView, OrgTreeNodeData, EdgeKey, TreeSeed, NodeGrant, CreateNodeResult } from './org-ops';
+export type { PermissionTier, OrgTreeState, OrgTreeView, OrgTreeNodeData, EdgeKey, NodeGrant, CreateNodeResult } from './org-ops';
 export type { NodeInviteOutcome } from './resources';
 export {
   ROOT_NODE_ID,

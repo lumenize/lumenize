@@ -48,7 +48,6 @@ export type {
   OrgTreeView,
   OrgTreeNodeData,
   EdgeKey as OrgTreeEdgeKey,
-  TreeSeed,
   NodeGrant,
   CreateNodeResult,
 } from './org-ops';

@@ -50,11 +50,11 @@ import { withHeartbeat } from './turn-heartbeat';
 import { assembleStream } from './model-stream';
 import { TURN_HEARTBEAT_MS } from './turn-liveness';
 import type { BuildReport, StepResult } from './build-report';
-import { Resources } from '@lumenize/resources';
-import type { NodeInviteOutcome, OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from '@lumenize/resources';
+import { Resources, ROOT_NODE_ID } from '@lumenize/resources';
+import type { NodeInviteOutcome, OntologySource, OrgTree, ResourcesHost, ResourcesRequests, ResourcesResults } from '@lumenize/resources';
 import type { QueryDescriptor, TransactionResult, WireOperationDescriptor as OperationDescriptor } from '@lumenize/resources';
 import { chatOntologySeedRow } from './chat-ontology';
-import { DEFAULT_CHAT_ID, MESSAGES_NODE_ID, TURNS_NODE_ID, GALAXY_TREE_SEED, COLLABORATOR_GRANTS, type MessageSnapshot } from './chat-constants';
+import { DEFAULT_CHAT_ID, CHAT_NODE_ID, MESSAGES_NODE_ID, ROUNDS_NODE_ID, COLLABORATOR_GRANTS, type MessageSnapshot } from './chat-constants';
 import { STUDIO_MODEL, STUDIO_MODEL_OPTIONS } from './studio-model';
 import { parseCast, type CastEntry } from './cast';
 import { NO_PREVIEW_ERROR } from './studio-client';
@@ -568,9 +568,55 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       () => this.lmz,
       this.#chatOntologySource(),
       (mutations) => this.#onChatCommitted(mutations),
-      { seed: GALAXY_TREE_SEED, onInviteOutcome: (outcome) => this.#onNodeInviteOutcome(outcome) },
+      { onInviteOutcome: (outcome) => this.#onNodeInviteOutcome(outcome) },
     );
+    this.#buildTree();
+    // Outside the block above, so a turn it continues runs as the agent.
     this.#wake();
+  }
+
+  /**
+   * Create the chat's nodes and restore the agent's grant, on every start, as this Galaxy's own
+   * system principal (`system:acme.crm`, with dominion over the app). Each node is created through
+   * the call a page makes, and only where it is absent, so a start after the first writes nothing
+   * and an admin's rename, move or delete stands.
+   *
+   * Each step is caught by itself and logged at `error`, so one that throws leaves the rest to
+   * run: a slug an admin has since given another node refuses that node's create at every start
+   * until someone moves one of the two. Nothing may escape, since a throw from `onStart` fails
+   * every call to this Galaxy.
+   */
+  #buildTree(): void {
+    const step = (run: () => void) => {
+      try { run(); } catch (error) {
+        debug('nebula.Galaxy.onStart').error('tree setup failed', { name: this.ctx.id.name, error });
+      }
+    };
+    step(() => this.lmz.asSystemPrincipal(() => {
+      const tree = this.#resources.requests.orgTree;
+      step(() => tree.createNode(CHAT_NODE_ID, ROOT_NODE_ID, 'chat', 'Chat'));
+      step(() => tree.createNode(MESSAGES_NODE_ID, CHAT_NODE_ID, 'messages', 'Messages'));
+      step(() => tree.createNode(ROUNDS_NODE_ID, CHAT_NODE_ID, 'rounds', 'Rounds'));
+      step(() => this.#writeAgentGrantBack(tree));
+    }));
+  }
+
+  /**
+   * The agent's `write` at `chat`, written only where it is missing or lower. An admin may revoke
+   * or lower it, since nothing in a tree is closed to an admin, and the agent cannot hear a
+   * request to restore it without it, so the Galaxy writes it back at each start and before each
+   * post. It asks for the tier that reaches `chat` through its ancestors, so a grant from above is
+   * enough and no second row is written. The one write logs who made it, since no person did.
+   * Call it inside `asSystemPrincipal`.
+   */
+  #writeAgentGrantBack(tree: OrgTree): void {
+    if (tree.checkPermission(CHAT_NODE_ID, 'write', NEBULA_SUB)) return;
+    tree.setPermission(CHAT_NODE_ID, NEBULA_SUB, 'write');
+    const claims = this.#claimsIfAny();
+    debug('nebula.Galaxy.agentGrant').info('restored', {
+      name: this.ctx.id.name, nodeId: CHAT_NODE_ID, tier: 'write', grantee: NEBULA_SUB,
+      ...(claims ? { recordedClaims: toRecordedClaims(claims) } : {}),
+    });
   }
 
   /**
@@ -1843,8 +1889,19 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * turn took up: that turn's next tool call finds the post moved on and stops.
    */
   #onChatCommitted(mutations: Map<string, Snapshot>): void {
+    let grantChecked = false;
     for (const [resourceId, snap] of mutations) {
       if (snap.meta.typeName !== 'Message' || snap.meta.nodeId !== MESSAGES_NODE_ID) continue;
+      // Before the thread is read as the agent: a post that finds the agent's grant revoked
+      // writes it back, so the post starts its turn rather than waiting for the next start.
+      if (!grantChecked) {
+        grantChecked = true;
+        try {
+          this.lmz.asSystemPrincipal(() => this.#writeAgentGrantBack(this.#resources.requests.orgTree));
+        } catch (error) {
+          debug('nebula.Galaxy.agentGrant').error('restore failed', { name: this.ctx.id.name, error });
+        }
+      }
       if (!this.waitingPostIds().includes(resourceId)) continue;
       if (this.#turnInFlight) {
         debug('nebula.Galaxy.trigger').info('waiting: a turn is in flight', { resourceId });
@@ -2349,7 +2406,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   /**
    * Write `ops` as the agent, through the plane's own transaction and its checks, and answer what
    * the plane answered: a conflict or a refusal comes back as a value. A turn stores its rounds this
-   * way, under the agent's protected `write` at the `turns` node.
+   * way, under the agent's `write` at `chat`, which covers the `rounds` node.
    */
   protected writeAsAgent(ops: Record<string, OperationDescriptor>): Promise<TransactionResult> {
     return this.lmz.asAgentPrincipal(NEBULA_SUB, () => this.#resources.doTransaction(ops, ''));
@@ -2827,7 +2884,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
   }
 
   /**
-   * Where a turn's rounds are kept: a `Round` Resource at {@link TURNS_NODE_ID} per round, each
+   * Where a turn's rounds are kept: a `Round` Resource at {@link ROUNDS_NODE_ID} per round, each
    * written by the agent as itself under its protected `write` there, and read by `message` as
    * the agent, keeping only those at that node: a `Round` anyone writes elsewhere is never the
    * turn's. A write first checks that the turn's row names this turn, and answers
@@ -2857,17 +2914,17 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
     return {
       read: async () => {
         const { snapshots } = this.lmz.asAgentPrincipal(NEBULA_SUB, () => this.#resources.doQuery(roundsOf(message)));
-        // Only the rounds at the `turns` node are the turn's. A member with `write` at `messages` can
+        // Only the rounds at the `rounds` node are the turn's. A member with `write` at `messages` can
         // write a `Round` there naming a running turn, and a turn that read it would run its calls
         // under the claims of the post the turn took up.
-        return snapshots.filter(({ meta }) => meta.nodeId === TURNS_NODE_ID).map(({ resourceId, value: stored, meta }) => {
+        return snapshots.filter(({ meta }) => meta.nodeId === ROUNDS_NODE_ID).map(({ resourceId, value: stored, meta }) => {
           const { chat: _chat, message: _message, ...round } = stored as StoredRound & { chat: string; message: string };
           return { id: resourceId, version: meta.validFrom, round };
         });
       },
       create: async (round) => {
         if (!mine()) return 'not-this-turn';
-        return written(crypto.randomUUID(), { op: 'create', typeName: 'Round', nodeId: TURNS_NODE_ID, value: value(round) }, round);
+        return written(crypto.randomUUID(), { op: 'create', typeName: 'Round', nodeId: ROUNDS_NODE_ID, value: value(round) }, round);
       },
       update: async (id, round, version) => {
         if (!mine()) return 'not-this-turn';

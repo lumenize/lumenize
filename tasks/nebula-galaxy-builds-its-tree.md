@@ -561,6 +561,46 @@ Then the whole registry runs locally, since this phase and § *Phase 3* change w
 - Not run: a `read` at `chat` written with every invite at `messages`, which would mean restoring deleted code. The messages-alone case asserts the invitee's exact grants once the row reads `sent`.
 - Not run: two sends for one invite. The scenario counts Resend's send ids for the address, and the lane counts the Registry's issued links.
 
+### Phase 4
+
+**For Larry:**
+
+- **The scenario reads the tree directly where the phase had it wait for a pushed one.** A handler set with `onOrgTreeUpdate` on the owner's driver heard no push in 30 s after the revoke, and I did not trace why, so limbs 4 and 5 poll `getState` until the grant has gone and then come back. The log limb is unchanged: one restore record naming `system:{scope}`, and no read refused the agent.
+- **The scenario's app is a fresh signup of its own,** claimed by one `provisionAndLogin` at a tenant Star's scope, which founds the tenant Star its first and last limbs read as well. `ownApp` claims only the app. Its `finally` still writes the agent's grant back.
+- **The restore's record is named `restored` under `nebula.Galaxy.agentGrant`, and the first start logs one too,** since a new Galaxy's grant is written by the same restore. So a Galaxy's first start leaves one `info` record, which is true to what happened: nobody granted it.
+- **`isBelowTier` is deleted with the protected grants,** its only caller.
+- **A `.dev` wipe rebuilds a tree with only its root.** A Star creates no nodes of ours, so nothing is lost today. When an app's hooks create nodes, a wipe will need them run again, which is nebula-app-lifecycle-hooks.md's to say.
+
+**Runs:** type-check clean; Mesh 1117 passed, Resources 265, Nebula 1355 passed and 2 skipped. The full `/live` sweep passed 73 of 79 with 2 parked, and `all --rerun` passed the other six: `revoke-is-total`, `upward-invite-refused`, `node-invite-roundtrip`, `resubscribe-when-lost`, `links-sign-nobody-in` and `shared-lists-turn`. Each is a flake. Four lost the mail socket or the mail, `upward-invite-refused` and `node-invite-roundtrip` within 8 s of boot, and `shared-lists-turn` lost its pipe to the stack under a 15-minute turn.
+
+**Retro notes:**
+
+- The lane test counts the rows a start writes with SQLite triggers on `Nodes`, `Edges` and `Permissions`, created through `runInDurableObject`. That needed no change to the Galaxy and no proxy around its `ctx`, which the Resources fixture uses for the same count. An `INSERT OR IGNORE` that finds its row fires none, so a count of zero means no write.
+- Every lane case passed on first write. Each of the nine mutations then reddened the case written for it.
+- No baseline test had asserted the protected grant: removing it reddened nothing but the scenario. The grant's only coverage had been `/live`.
+- The Resources fixture that declared a seed is now `SelfBuildingHostDO`, which creates its nodes in `onStart` and gives its agent principal a starting grant through `createNode`'s fifth argument, so starting grants have a caller in the suite.
+- The scenario failed its first drive at limb 4, waiting for a tree push that never came.
+
+**Close-out notes:**
+
+- `mesh.md`'s *Today's code differs* block lost its sentences on the seed. Its sentences on `ensureResource` and `findCurrent` stay, which § *Non-goals* leaves to nebula-query-upgrade.md.
+- `tasks/backlog.md` names the scenario by its old name, which § *Phase 6* changes.
+- `calibration.md` § 16's dated account still says `turns`, on purpose: it describes how the node came to be.
+
+**Mutations run,** against `galaxy-builds-its-tree.test.ts` unless named, each caught:
+
+- Call `setPermission` at every start: the four cases that count a start's writes.
+- Drop the restore from the start: the quiet-start, both restore, and taken-slug cases.
+- Ask for `read` in the restore: the lowered case.
+- Drop the restore's log line: both restore cases and the post case.
+- Read the grant at `chat` itself: the grant-from-above case.
+- Put a create back under the block's one `try`, and remove the catch: the taken-slug case.
+- Drop the restore before a post: the post case, and the scenario's limb 5.
+- Restore after the trigger reads the thread: the post case, and the scenario's limb 5.
+- Drop the permission check from `revokePermission`: the scenario's limb 3.
+- Drop the `rounds` create from the start: the scenario's limb 1.
+- In `packages/resources/test/host-builds-its-tree.test.ts`: write a create's grants for a node that exists, and read the stamped host name alone.
+
 ## Non-goals
 
 - **An app's `onStart` and `onNewOntologyVersion`,** and the facet they run in: nebula-app-lifecycle-hooks.md.

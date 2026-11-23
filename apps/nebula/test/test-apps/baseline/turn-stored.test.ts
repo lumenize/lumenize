@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import type { Snapshot, TransactionResult, QueryReadResult } from '@lumenize/resources';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, COLLABORATOR_GRANTS, DEFAULT_CHAT_ID, TURNS_NODE_ID, deriveKind, roundsOf } from '@lumenize/nebula';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, COLLABORATOR_GRANTS, DEFAULT_CHAT_ID, ROUNDS_NODE_ID, deriveKind, roundsOf } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient, turnCallsOf } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';
@@ -90,7 +90,7 @@ describe('a turn is stored as a row and its rounds', { timeout: 90_000 }, () => 
   // row at the commit → its key is still there.
   it('writes the row before the first model call, stores each round as it lands, and keeps only the summary on the message', async () => {
     const a = await app();
-    // A collaborator, invited at the `messages` node, which brings `read` at `chat`, over the turns node.
+    // A collaborator, whose invite names `write` at `messages` and `read` at `chat`, over the `rounds` node.
     const memberEmail = email('collab');
     expect(await a.admin.lmz.callAsync('GALAXY', a.scope, a.admin.ctn<Galaxy>().resources.invite(V, [{ email: memberEmail, grants: COLLABORATOR_GRANTS }])))
       .toEqual({ accepted: 1, errors: [] });
@@ -189,7 +189,7 @@ describe('a turn is stored as a row and its rounds', { timeout: 90_000 }, () => 
 
   // MUTATION: read every `Round` naming the message, wherever it sits → the member's round is
   // dispatched as the build lands, with no model call between, and its invite runs as the admin.
-  it('reads only the rounds at the turns node, so a Round a member writes at chat is never dispatched', async () => {
+  it('reads only the rounds at the rounds node, so a Round a member writes at chat is never dispatched', async () => {
     const a = await app();
     const memberEmail = email('collab');
     expect(await a.admin.lmz.callAsync('GALAXY', a.scope, a.admin.ctn<Galaxy>().resources.invite(V, [{ email: memberEmail, grants: COLLABORATOR_GRANTS }])))
@@ -219,7 +219,7 @@ describe('a turn is stored as a row and its rounds', { timeout: 90_000 }, () => 
     expect(((await a.replyTo(posted)).value as { content: string }).content).toBe('Done, untouched.');
     expect(await a.probe((g) => g.modelCallsForTest())).toBe(2);
     expect(JSON.stringify(await a.probe((g) => g.takeSeenMessagesForTest()))).not.toContain('a round the member wrote');
-    expect((await a.rounds(message)).filter((s) => s.meta.nodeId === TURNS_NODE_ID).map((s) => (s.value as { index: number }).index).sort()).toEqual([1, 2]);
+    expect((await a.rounds(message)).filter((s) => s.meta.nodeId === ROUNDS_NODE_ID).map((s) => (s.value as { index: number }).index).sort()).toEqual([1, 2]);
     member[Symbol.dispose]();
     a.dispose();
   });
@@ -228,7 +228,7 @@ describe('a turn is stored as a row and its rounds', { timeout: 90_000 }, () => 
     const a = await app();
     const other = crypto.randomUUID();
     const ops = Object.fromEntries(Array.from({ length: 1001 }, (_, i) => [crypto.randomUUID(), {
-      op: 'create', typeName: 'Round', nodeId: TURNS_NODE_ID,
+      op: 'create', typeName: 'Round', nodeId: ROUNDS_NODE_ID,
       value: { chat: DEFAULT_CHAT_ID, message: other, index: i + 1, text: `round ${i + 1}`, calls: [] },
     }]));
     expect((await a.probe((g) => g.writeAsAgentForTest(ops)) as TransactionResult).ok).toBe(true);

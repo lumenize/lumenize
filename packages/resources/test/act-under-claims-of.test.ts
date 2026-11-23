@@ -14,8 +14,8 @@ import { Browser } from '@lumenize/testing';
 import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources/client';
 import { PLATFORM } from '../../mesh/test/auth/test-helpers';
 import { loginAt, uniqueScope, type Login } from '../../mesh/test/support/login';
-import { ONTOLOGY_VERSION, GRANTED_NODE_ID, SEEDED_PRINCIPAL } from './test-worker';
-import type { ResourcesHostDO, SeededHostDO } from './test-worker';
+import { ONTOLOGY_VERSION, GRANTED_NODE_ID, HOST_PRINCIPAL } from './test-worker';
+import type { ResourcesHostDO, SelfBuildingHostDO } from './test-worker';
 
 const PRINCIPAL = 'agent:test';
 
@@ -114,12 +114,12 @@ describe('Resources.actUnderClaimsOf', { timeout: 60000 }, () => {
 
   // An agent principal's own write is no one to act for: `lmz.actFor` refuses its record.
   it('throws before the block runs on a resource the host\'s agent principal wrote', async () => {
-    const name = `seeded-${crypto.randomUUID().slice(0, 8)}`;
-    const host = env.SEEDED.getByName(name) as unknown as DurableObjectStub<SeededHostDO>;
+    const name = `built-${crypto.randomUUID().slice(0, 8)}`;
+    const host = env.SELF_BUILDING.getByName(name) as unknown as DurableObjectStub<SelfBuildingHostDO>;
     await host.initForTest(name);
     const id = crypto.randomUUID();
     expect((await host.createAsPrincipal(id, GRANTED_NODE_ID)).ok).toBe(true);
-    expect(await host.recordedSubject(id)).toBe(SEEDED_PRINCIPAL);
+    expect(await host.recordedSubject(id)).toBe(HOST_PRINCIPAL);
 
     const probed = await host.probeActUnder(id, (await host.currentValidFrom(id))!, PRINCIPAL);
     expect(probed.ran).toBe(false);

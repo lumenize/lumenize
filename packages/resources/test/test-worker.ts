@@ -9,7 +9,7 @@
 import { defineRoutes, mesh, ScopedMeshDO } from '@lumenize/mesh';
 import { Resources, ROOT_NODE_ID } from '@lumenize/resources';
 import type {
-  OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults, TransactionResult, TreeSeed,
+  OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults, TransactionResult,
 } from '@lumenize/resources';
 import type { OntologyVersionRow } from '@lumenize/resources/ontology-version';
 import { extractTypeMetadata, generateParseModule } from '@lumenize/ts-runtime-parser-validator/compile';
@@ -62,11 +62,6 @@ function compiledRow(): OntologyVersionRow {
 export class ResourcesHostDO extends ScopedMeshDO<Env> implements ResourcesHost {
   #resources!: Resources;
 
-  /** What this host declares in its tree: nothing, as a Star declares nothing. */
-  protected treeSeed(): TreeSeed {
-    return {};
-  }
-
   protected ontologySource(): OntologySource {
     return {
       current: () => compiledRow(),
@@ -81,7 +76,7 @@ export class ResourcesHostDO extends ScopedMeshDO<Env> implements ResourcesHost 
   }
 
   onStart(): void {
-    this.#resources = new Resources(this.ctx, () => this.lmz, this.ontologySource(), undefined, { seed: this.treeSeed() });
+    this.#resources = new Resources(this.ctx, () => this.lmz, this.ontologySource());
   }
 
   /** The plane's request surface, as `Star`'s one `@mesh()` door returns it. */
@@ -167,69 +162,54 @@ export class ResourcesHostDO extends ScopedMeshDO<Env> implements ResourcesHost 
   }
 }
 
-/** The node {@link SelfBuildingHostDO} creates in its `onStart`. */
-export const STARTED_NODE_ID = '5e1fb01d-0000-4000-8000-000000000001';
+/** A node under the host's root where its agent principal holds `write`, a starting grant. */
+export const GRANTED_NODE_ID = '00000000-0000-4000-8000-00000000000a';
+/** A sibling of it where the principal holds nothing. */
+export const BARE_NODE_ID = '00000000-0000-4000-8000-00000000000b';
+/** The host's agent principal. */
+export const HOST_PRINCIPAL = 'agent:test';
 
 /**
- * A host that creates a node of its tree in `onStart`, as its own system principal, through the
- * call a page makes. It keeps what the create and a query in the same block answered, since both
- * run at a construction no call has stamped a name on.
+ * A host that creates the nodes of its tree in `onStart`, as its own system principal, through the
+ * call a page makes, as a Galaxy does. Its fixtures are for what no Client can reach: the rows a
+ * construction writes, and a write made as the host's agent principal. No route names its binding,
+ * so a test calls the fixtures on its stub, and the first of them is the first thing to reach it.
  */
 export class SelfBuildingHostDO extends ResourcesHostDO {
   override onStart(): void {
     super.onStart();
+    this.#buildTree(this.plane);
+  }
+
+  /** Create this host's nodes in `plane`'s tree, keeping what each create and a query answered. */
+  #buildTree(plane: Resources): void {
     const keep = (key: string, run: () => unknown) => {
       let outcome: unknown;
       try { outcome = run(); } catch (e) { outcome = `threw: ${(e as Error).message}`; }
       this.ctx.storage.kv.put(key, outcome);
     };
     this.lmz.asSystemPrincipal(() => {
-      keep('start_create', () => this.plane.requests.orgTree.createNode(STARTED_NODE_ID, ROOT_NODE_ID, 'started', 'Started'));
-      keep('start_query', () => this.plane.doQuery({ typeName: 'Board', filter: {}, allowScan: true }).snapshots.length);
+      const tree = plane.requests.orgTree;
+      keep('start_granted', () => tree.createNode(GRANTED_NODE_ID, ROOT_NODE_ID, 'granted', 'Granted', [{ sub: HOST_PRINCIPAL, tier: 'write' }]));
+      keep('start_bare', () => tree.createNode(BARE_NODE_ID, ROOT_NODE_ID, 'bare', 'Bare'));
+      keep('start_query', () => plane.doQuery({ typeName: 'Board', filter: {}, allowScan: true }).snapshots.length);
     });
   }
 
-  /** What `onStart` kept under `key`, as JSON, and whether the node it created is in the tree. */
-  startOutcome(key: string): { kept: string; nodeThere: boolean } {
-    const nodeThere = this.ctx.storage.sql.exec('SELECT 1 FROM Nodes WHERE nodeId = ?', STARTED_NODE_ID).toArray().length === 1;
-    return { kept: JSON.stringify(this.ctx.storage.kv.get(key)), nodeThere };
-  }
-}
-
-/** A node under the seeded host's root where its agent principal holds a protected `write`. */
-export const GRANTED_NODE_ID = '00000000-0000-4000-8000-00000000000a';
-/** A sibling of it where the principal holds nothing. */
-export const BARE_NODE_ID = '00000000-0000-4000-8000-00000000000b';
-/** The seeded host's agent principal. */
-export const SEEDED_PRINCIPAL = 'agent:test';
-
-const SEED: TreeSeed = {
-  nodes: [
-    { nodeId: GRANTED_NODE_ID, parentNodeId: ROOT_NODE_ID, slug: 'granted', label: 'Granted' },
-    { nodeId: BARE_NODE_ID, parentNodeId: ROOT_NODE_ID, slug: 'bare', label: 'Bare' },
-  ],
-  grants: [{ nodeId: GRANTED_NODE_ID, sub: SEEDED_PRINCIPAL, tier: 'write', protected: true }],
-};
-
-/**
- * A host that declares a seed, as a Galaxy does, with fixtures for what no Client can reach: the
- * rows a construction writes, and a write made as the host's agent principal, which no product
- * path makes until a Galaxy's agent posts as itself. No route names its binding, so a test calls
- * the fixtures on its stub and stamps its name first, as a first mesh entry would.
- */
-export class SeededHostDO extends ResourcesHostDO {
-  protected override treeSeed(): TreeSeed {
-    return SEED;
+  /** What the last construction kept under `key`, as JSON. */
+  startOutcome(key: string): string {
+    return JSON.stringify(this.ctx.storage.kv.get(key));
   }
 
-  /** Stamp the node's name, which `lmz.asAgentPrincipal` builds the principal's claims from. */
+  /** Stamp the node's name, as a first mesh entry would. */
   initForTest(instanceName: string): void {
-    this.lmz.__init({ bindingName: 'SEEDED', instanceName });
+    this.lmz.__init({ bindingName: 'SELF_BUILDING', instanceName });
   }
 
   /**
-   * Construct the plane again over this object's storage, as a wake does, and count the rows that
-   * construction writes. The counter sits on `sql.exec`, the one way the plane's parts write.
+   * Construct the plane again over this object's storage and build the tree in it, as a wake
+   * does, and count the rows that writes. The counter sits on `sql.exec`, the one way the plane's
+   * parts write, and what each create answered is kept as at a real start.
    */
   rowsWrittenBySecondConstruction(): number {
     let written = 0;
@@ -246,11 +226,16 @@ export class SeededHostDO extends ResourcesHostDO {
     });
     const storage = new Proxy(this.ctx.storage, { get: (target, prop) => prop === 'sql' ? sql : bound(target, prop) });
     const ctx = new Proxy(this.ctx, { get: (target, prop) => prop === 'storage' ? storage : bound(target, prop) });
-    new Resources(ctx, () => this.lmz, this.ontologySource(), undefined, { seed: this.treeSeed() });
+    this.#buildTree(new Resources(ctx, () => this.lmz, this.ontologySource()));
     return written;
   }
 
-  /** Move the seeded `granted` node from under the root to under `bare`, as an admin's move
+  /** Delete the agent principal's grant at `granted` from storage, as an admin's revoke leaves it. */
+  dropStartingGrant(): void {
+    this.ctx.storage.sql.exec('DELETE FROM Permissions WHERE nodeId = ? AND sub = ?', GRANTED_NODE_ID, HOST_PRINCIPAL);
+  }
+
+  /** Move the `granted` node from under the root to under `bare`, as an admin's move
    *  would leave the tree, and answer every edge as stored. */
   moveGrantedUnderBare(): string[] {
     const sql = this.ctx.storage.sql;
@@ -265,8 +250,8 @@ export class SeededHostDO extends ResourcesHostDO {
       .map((r) => `${r.parentNodeId as string}>${r.childNodeId as string}`).sort();
   }
 
-  /** The seeded rows as stored: each node's slug, and each grant. */
-  seededRows(): { slugs: string[]; grants: Array<{ nodeId: string; sub: string; permission: string }> } {
+  /** The tree's rows as stored: each node's slug, and each grant. */
+  treeRows(): { slugs: string[]; grants: Array<{ nodeId: string; sub: string; permission: string }> } {
     const sql = this.ctx.storage.sql;
     return {
       slugs: sql.exec('SELECT slug FROM Nodes ORDER BY slug').toArray().map((r) => r.slug as string),
@@ -277,14 +262,14 @@ export class SeededHostDO extends ResourcesHostDO {
 
   /** Create a `Board` at `nodeId` as the host's agent principal, through the plane's own write path. */
   createAsPrincipal(resourceId: string, nodeId: string): Promise<TransactionResult> {
-    return this.lmz.asAgentPrincipal(SEEDED_PRINCIPAL, () =>
+    return this.lmz.asAgentPrincipal(HOST_PRINCIPAL, () =>
       this.plane.doTransaction({ [resourceId]: { op: 'create', typeName: 'Board', nodeId, value: { title: 'by the principal' } } }, ''));
   }
 
   /** Create a `Board` at `nodeId` as the agent principal through `ensureResource`, the write host
    *  code makes with nobody waiting on its answer. Resolves `'created'`, or the refusal's message. */
   ensureAsPrincipal(resourceId: string, nodeId: string): Promise<string> {
-    return this.lmz.asAgentPrincipal(SEEDED_PRINCIPAL, () =>
+    return this.lmz.asAgentPrincipal(HOST_PRINCIPAL, () =>
       this.plane.ensureResource(resourceId, 'Board', nodeId, { title: 'ensured' })
         .then(() => 'created', (error: Error) => error.message));
   }

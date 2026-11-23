@@ -1,14 +1,11 @@
 /**
  * Chat-identity constants + the platform chat ontology SOURCE.
  *
- * Kept **client-safe** — its one import is `ROOT_NODE_ID` from `@lumenize/resources/client` —
- * so BOTH Studio's page (which reaches it through the `./client` entry and hands
+ * Kept **client-safe**, with no import at all, so BOTH Studio's page (which reaches it through the `./client` entry and hands
  * {@link CHAT_MESSAGE_ONTOLOGY_VERSION} to its client for every chat op) and the server can
  * use them WITHOUT dragging server code into the browser bundle. The COMPILE of {@link CHAT_MESSAGE_TYPES} lives in `./chat-ontology` (it
  * reaches the parser-validator → `cloudflare:workers`); only the pure strings live here.
  */
-import { ROOT_NODE_ID, type TreeSeed } from '@lumenize/resources/client';
-import { NEBULA_SUB } from '@lumenize/mesh/client';
 
 /**
  * The fixed, well-known Chat id for pre-alpha's single chat thread. Client and server
@@ -28,8 +25,14 @@ export interface MessageSnapshot { id: string; validFrom: string }
  * The DAG node the whole conversation hangs from: a node of its own beneath the Galaxy's root, at a
  * fixed id as the root's is, so a grant on it covers the chat and nothing a later node beside it
  * holds. Its children are {@link MESSAGES_NODE_ID}, where the thread lives, and
- * {@link TURNS_NODE_ID}, where each turn's rounds live. A grant here reaches both, so it is where
- * whoever sees the chat gets `read`, and where the agent holds its `write` ({@link GALAXY_TREE_SEED}).
+ * {@link ROUNDS_NODE_ID}, where each turn's rounds live. A grant here reaches both, so it is where
+ * whoever sees the chat gets `read`, and where the agent holds its `write`.
+ *
+ * Nobody's request creates these nodes. The Galaxy creates the three in its own `onStart`, as its
+ * system principal, through the call a page makes, and only where one is absent, so a node an
+ * admin has renamed or moved stays as they left it. The agent holds no membership, so its `write`
+ * here is its only way to read the thread, post and store its rounds (ADR-025). An admin can
+ * revoke it, and the Galaxy writes it back at its next start or at the next post.
  */
 export const CHAT_NODE_ID = '00000000-0000-4000-8000-000000000004';
 
@@ -49,26 +52,7 @@ export const MESSAGES_NODE_ID = '00000000-0000-4000-8000-000000000002';
  * so a member can write a `Round` at `messages`; a turn reads only the rounds here, which is what
  * keeps such a `Round` out of it.
  */
-export const TURNS_NODE_ID = '00000000-0000-4000-8000-000000000003';
-
-/**
- * What the Galaxy declares in its tree: the `chat` node, and beneath it `messages`, where the thread
- * lives, and `turns`, where each turn's rounds live. Nobody's request creates them. The owner
- * reaches the tree through dominion and a collaborator gets a grant by invite, while the agent holds
- * no membership, so its `write` at `chat` is its only way to read the thread, post and store its
- * rounds (ADR-025). That grant is protected: revoked, the agent could not hear the request to
- * restore it.
- */
-export const GALAXY_TREE_SEED: TreeSeed = {
-  nodes: [
-    { nodeId: CHAT_NODE_ID, parentNodeId: ROOT_NODE_ID, slug: 'chat', label: 'Chat' },
-    { nodeId: MESSAGES_NODE_ID, parentNodeId: CHAT_NODE_ID, slug: 'messages', label: 'Messages' },
-    { nodeId: TURNS_NODE_ID, parentNodeId: CHAT_NODE_ID, slug: 'turns', label: 'Turns' },
-  ],
-  grants: [
-    { nodeId: CHAT_NODE_ID, sub: NEBULA_SUB, tier: 'write', protected: true },
-  ],
-};
+export const ROUNDS_NODE_ID = '00000000-0000-4000-8000-000000000003';
 
 /**
  * What an invite to the conversation gives a collaborator: `write` at `messages`, to post, and
@@ -131,7 +115,7 @@ export const CHAT_MESSAGE_ONTOLOGY_VERSION = 'chat-message-v7';
  * subscribes to `ServedBuild where chat == DEFAULT_CHAT_ID`, so every Studio on the app
  * hears every landing. `star` names the Star slug whose host serves it.
  *
- * `Round` is one round of a turn, a Resource of its own at {@link TURNS_NODE_ID}, where the turn
+ * `Round` is one round of a turn, a Resource of its own at {@link ROUNDS_NODE_ID}, where the turn
  * reads it, written by the agent as itself: the model's text and reasoning, each tool call as the provider returned it
  * (`raw`, kept whole, so the arguments are stored once and parsed when read), and each call's
  * result or error with `messageSnapshot`, the person's message it acted for named by its whole key

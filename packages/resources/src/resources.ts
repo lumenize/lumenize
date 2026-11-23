@@ -37,7 +37,7 @@ import { getParserValidatorFacet } from '@lumenize/ts-runtime-parser-validator/r
 import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator/runtime';
 import type { InviteSummary, InviteeError, AuthClaims } from '@lumenize/mesh/auth';
 import { toRecordedClaims } from '@lumenize/mesh/client';
-import type { PermissionTier, TreeSeed } from './org-ops';
+import type { PermissionTier } from './org-ops';
 import { isPermissionTier } from './org-ops';
 import { OrgTree } from './org-tree';
 import { Snapshots } from './snapshots';
@@ -237,7 +237,6 @@ export class Resources {
   #source: OntologySource;
   #onCommitted?: (mutations: Map<string, Snapshot>) => void;
   #onInviteOutcome: ((outcome: NodeInviteOutcome) => void | Promise<void>) | undefined;
-  #seed: TreeSeed;
   #orgTree!: OrgTree;
   #snapshots!: Snapshots;
   #subscriptions!: Subscriptions;
@@ -271,24 +270,21 @@ export class Resources {
    *   everything else here — the plane telling the host — and fires on every commit path
    *   (client transactions and server-internal ensures alike); the host's own predicate decides
    *   what reacts. The Galaxy's codegen trigger hangs here.
-   * @param options - `seed`: the nodes and grants this host declares, created with its tree
-   *   ({@link TreeSeed}), and again after a wipe drops the tree's tables. `onInviteOutcome`: told
-   *   how each node invite ended, once the facade has answered, so a host with somewhere to say
-   *   so can tell the people it concerns. It runs under the inviter's claims, on the response
-   *   leg, and its throw is logged and goes no further.
+   * @param options - `onInviteOutcome`: told how each node invite ended, once the facade has
+   *   answered, so a host with somewhere to say so can tell the people it concerns. It runs under
+   *   the inviter's claims, on the response leg, and its throw is logged and goes no further.
    */
   constructor(
     ctx: DurableObjectState,
     lmz: () => LmzApi,
     source: OntologySource,
     onCommitted?: (mutations: Map<string, Snapshot>) => void,
-    options: { seed?: TreeSeed; onInviteOutcome?: (outcome: NodeInviteOutcome) => void | Promise<void> } = {},
+    options: { onInviteOutcome?: (outcome: NodeInviteOutcome) => void | Promise<void> } = {},
   ) {
     this.#ctx = ctx;
     this.#lmz = lmz;
     this.#source = source;
     this.#onCommitted = onCommitted;
-    this.#seed = options.seed ?? {};
     this.#onInviteOutcome = options.onInviteOutcome;
     this.#build();
     this.requests = this.#buildRequests();
@@ -321,7 +317,7 @@ export class Resources {
     // exists by then. A tree change sends the tree and nothing else: the server re-runs no query
     // on a permission change (a loss shows at the next update, and a client watching the tree
     // re-subscribes what it was denied).
-    this.#orgTree = new OrgTree(this.#ctx, getCallContext, () => this.#broadcastTree(), getHostName, this.#seed);
+    this.#orgTree = new OrgTree(this.#ctx, getCallContext, () => this.#broadcastTree(), getHostName);
     this.#snapshots = new Snapshots(this.#ctx, getCallContext, this.#orgTree);
     this.#subscriptions = new Subscriptions(this.#ctx, getCallContext, this.#snapshots, getHostName);
   }

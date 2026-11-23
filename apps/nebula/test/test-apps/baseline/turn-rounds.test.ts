@@ -1,6 +1,6 @@
 /**
- * A turn's rounds: the `Round` type, the `turns` node only the agent and the app's admins write,
- * the `read` at `chat`, over `turns`, that an invite to the conversation names beside its `write` at
+ * A turn's rounds: the `Round` type, the `rounds` node only the agent and the app's admins write,
+ * the `read` at `chat`, over `rounds`, that an invite to the conversation names beside its `write` at
  * `messages`, and the Workspace's git store as the place a read file's content is kept by its blob id.
  *
  * vitest-plugin for what no Client can make or see: a write as the agent, which only the Galaxy's
@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import type { TransactionResult, WireOperationDescriptor } from '@lumenize/resources';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, MESSAGES_NODE_ID, DEFAULT_CHAT_ID, TURNS_NODE_ID, COLLABORATOR_GRANTS } from '@lumenize/nebula';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, MESSAGES_NODE_ID, DEFAULT_CHAT_ID, ROUNDS_NODE_ID, COLLABORATOR_GRANTS } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';
@@ -63,13 +63,13 @@ async function inviteWith(a: App, grants: Grants, address: string, as: App['admi
   return { client, sub: payload.sub as string };
 }
 
-describe('a turn\'s rounds are stored at the turns node', { timeout: 60000 }, () => {
-  // MUTATION: drop the seed's grant at `turns`, and the agent's create is refused.
+describe('a turn\'s rounds are stored at the rounds node', { timeout: 60000 }, () => {
+  // MUTATION: drop the restore of the agent's grant from the Galaxy's start, and its create is refused.
   it('the agent creates a Round and writes a second snapshot naming the first one\'s validFrom', async () => {
     const a = await app();
     const id = crypto.randomUUID();
     const message = crypto.randomUUID();
-    const created = await a.probe((g) => g.writeAsAgentForTest({ [id]: { op: 'create', typeName: 'Round', nodeId: TURNS_NODE_ID, value: round(message) } }));
+    const created = await a.probe((g) => g.writeAsAgentForTest({ [id]: { op: 'create', typeName: 'Round', nodeId: ROUNDS_NODE_ID, value: round(message) } }));
     expect(created.ok, JSON.stringify(created)).toBe(true);
     const first = (created as Extract<TransactionResult, { ok: true }>).validFrom;
     const answered = round(message, 1, {
@@ -82,7 +82,7 @@ describe('a turn\'s rounds are stored at the turns node', { timeout: 60000 }, ()
     const rows: Array<{ validFrom: string; validTo: string; nodeId: string; sub: string }> =
       await a.probe((g) => g.snapshotRowsForTest(id));
     expect(rows.map((r) => [r.validFrom === first, r.sub, r.nodeId])).toEqual([
-      [true, 'agent:lumenize', TURNS_NODE_ID], [false, 'agent:lumenize', TURNS_NODE_ID],
+      [true, 'agent:lumenize', ROUNDS_NODE_ID], [false, 'agent:lumenize', ROUNDS_NODE_ID],
     ]);
     expect(rows[0].validTo).toBe(rows[1].validFrom);
     a.admin[Symbol.dispose]();
@@ -92,7 +92,7 @@ describe('a turn\'s rounds are stored at the turns node', { timeout: 60000 }, ()
   it('refuses a Round whose index is a string', async () => {
     const a = await app();
     const id = crypto.randomUUID();
-    const refused = await a.probe((g) => g.writeAsAgentForTest({ [id]: { op: 'create', typeName: 'Round', nodeId: TURNS_NODE_ID, value: round(crypto.randomUUID(), '1' as never) } }));
+    const refused = await a.probe((g) => g.writeAsAgentForTest({ [id]: { op: 'create', typeName: 'Round', nodeId: ROUNDS_NODE_ID, value: round(crypto.randomUUID(), '1' as never) } }));
     expect(refused.ok).toBe(false);
     expect((refused as Extract<TransactionResult, { ok: false }>).errors[id].type).toBe('validation');
     a.admin[Symbol.dispose]();
@@ -105,7 +105,7 @@ describe('a turn\'s rounds are stored at the turns node', { timeout: 60000 }, ()
     const id = crypto.randomUUID();
     const message = crypto.randomUUID();
     expect(await a.admin.lmz.callAsync('GALAXY', a.scope, a.admin.ctn<Galaxy>().resources.read(V, message))).toBeNull();
-    const created = await a.probe((g) => g.writeAsAgentForTest({ [id]: { op: 'create', typeName: 'Round', nodeId: TURNS_NODE_ID, value: round(message) } }));
+    const created = await a.probe((g) => g.writeAsAgentForTest({ [id]: { op: 'create', typeName: 'Round', nodeId: ROUNDS_NODE_ID, value: round(message) } }));
     expect(created.ok, JSON.stringify(created)).toBe(true);
     a.admin[Symbol.dispose]();
   });
@@ -116,16 +116,16 @@ describe('a turn\'s rounds are stored at the turns node', { timeout: 60000 }, ()
     const a = await app();
     const member = await inviteWith(a, COLLABORATOR_GRANTS, email('collab'));
     const id = crypto.randomUUID();
-    const created = await a.probe((g) => g.writeAsAgentForTest({ [id]: { op: 'create', typeName: 'Round', nodeId: TURNS_NODE_ID, value: round(crypto.randomUUID()) } }));
+    const created = await a.probe((g) => g.writeAsAgentForTest({ [id]: { op: 'create', typeName: 'Round', nodeId: ROUNDS_NODE_ID, value: round(crypto.randomUUID()) } }));
     const validFrom = (created as Extract<TransactionResult, { ok: true }>).validFrom;
     const transact = (ops: Record<string, WireOperationDescriptor>) =>
       member.client.lmz.callAsync('GALAXY', a.scope, member.client.ctn<Galaxy>().resources.transaction(V, ops)) as Promise<TransactionResult>;
 
     const own = crypto.randomUUID();
-    expect(await transact({ [own]: { op: 'create', typeName: 'Round', nodeId: TURNS_NODE_ID, value: round(crypto.randomUUID()) } }))
-      .toEqual({ ok: false, errors: { [own]: { type: 'permission', requiredTier: 'write', nodeId: TURNS_NODE_ID } } });
+    expect(await transact({ [own]: { op: 'create', typeName: 'Round', nodeId: ROUNDS_NODE_ID, value: round(crypto.randomUUID()) } }))
+      .toEqual({ ok: false, errors: { [own]: { type: 'permission', requiredTier: 'write', nodeId: ROUNDS_NODE_ID } } });
     expect(await transact({ [id]: { op: 'put', ifValidFromMatches: validFrom, value: round(crypto.randomUUID(), 1, { text: 'mine now' }) } }))
-      .toEqual({ ok: false, errors: { [id]: { type: 'permission', requiredTier: 'write', nodeId: TURNS_NODE_ID } } });
+      .toEqual({ ok: false, errors: { [id]: { type: 'permission', requiredTier: 'write', nodeId: ROUNDS_NODE_ID } } });
 
     const read = await member.client.lmz.callAsync('GALAXY', a.scope, member.client.ctn<Galaxy>().resources.read(V, id)) as { value: { text: string }; meta: { recordedClaims: { sub: string } } };
     expect([read.value.text, read.meta.recordedClaims.sub]).toEqual(['I will read the app.', 'agent:lumenize']);
