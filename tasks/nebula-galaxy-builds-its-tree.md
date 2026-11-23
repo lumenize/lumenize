@@ -442,7 +442,8 @@ Then the whole registry runs locally, since this phase and § *Phase 3* change w
   ```sh
   grep -rnE 'GALAXY_TREE_SEED|ProtectedGrantError|NodeIdCollisionError|TreeSeed|system:lumenize|[Ll]ocal[ -]principal|LocalPrincipal|\.asSystem\(' \
     "${SRC[@]}" tasks/nebula-*.md tasks/on-hold \
-    | grep -v '^tasks/nebula-galaxy-builds-its-tree\.md:'
+    | grep -v '^tasks/nebula-galaxy-builds-its-tree\.md:' \
+    | grep -v 'replaced `local principal`'   # ADR-025 names the term it retired
   grep -nE "protected grant|seeds as protected|Galaxy seeds|is seeded when the tree" \
     .claude/rules/security.md .claude/rules/workflow.md docs/adr/015* docs/adr/025* \
     docs/vision/auth.md
@@ -623,6 +624,28 @@ Then the whole registry runs locally, since this phase and § *Phase 3* change w
 
 - Drop the filter from the roster: the list held `agent:lumenize` beside the person.
 - Make `isPersonSub` answer true for any string: the same.
+
+### Phase 6
+
+**For Larry:**
+
+- **`resubscribe-when-lost` failed deployed in each of three runs, in a different place each time,** and passes locally. The first run passed limb 4 and then lost a `fetch` from this machine. The second waited eleven minutes for limb 4's reap line in Workers Logs and never read it. The third passed limb 4 and failed limb 8, where the Profile's reconnect was told `false` and its reap line never came, and took 50 minutes. Every limb passed in at least one run. This build changed one line of the scenario, limb 7's `createNode` call, which passed each time it ran. I could not tell the venue from the build with the runs I had, so the closing deployed pass runs it again, and it stays open until then.
+- **ADR-025's terminology note names `local principal` as the term it retired,** so the first closing grep printed that line. The grep now leaves it out by its wording, as ADR-015's note on `authority` and `admission` would need.
+- **nebula-app-lifecycle-hooks.md now says its review confirms which scope's system principal an app's code runs as.** D17 here expects the Galaxy's, whose claims reach a Star only once a call can carry them (§ *Beyond this task*), so that file cannot build on it as written. It also now defines the object an app's hook receives, since the Galaxy's `onStart` receives none.
+- **nebula-accounts-and-apps-have-names.md's C9 now says the refusal of a tier for `anyone` sits where `setPermission` and `createNode`'s starting grants share a check,** which is `#requireMayGrant` in `org-tree.ts` today.
+- **`tasks/nebula-pre-alpha.md`'s rows are untouched until close-out,** when this file's row and the query upgrade's "paused until" both change with the archive.
+
+**Runs:** the deploy printed `Test worker live and matches HEAD` at `9949cd1`. Deployed, seven of the twelve scenarios passed on their first run: `galaxy-builds-its-tree`, `grant-reveals-denied`, `node-invite-roundtrip`, `passage-not-dominion`, `rounds-as-they-land`, `four-party-chat` and `query-by-filter`. Four more failed and then passed with nothing changed, so each is a flake: `agent-invites` (a call timed out), `cast-from-a-tab` (a teardown line missing from Workers Logs), `persona-tabs` (the sign-up page never showed its confirmation) and `shared-lists-turn` (the turn timed out). `resubscribe-when-lost` is above. `node scripts/issues.mjs --worker test-nebula --since 2026-11-23T19:41:12Z` listed one exception, `scope-deleted`, which its header names as standing, and no new issue. Both closing greps print nothing.
+
+**Retro notes:**
+
+- A Galaxy made on the test target before the rename answers `'differs'` for `rounds` at every start and raised no Issue, since `'differs'` is an answer and not a throw.
+- Five of twelve deployed runs failed on first try and four of those were the venue. A deployed pass of a dozen scenarios wants `all --rerun`'s record of which failures repeat, which a loop over single scenarios does not keep.
+
+**Close-out notes:**
+
+- `tasks/backlog.md`'s row on a create answered wrong on repeat is settled for `createNode`, and its line on the old scenario's fourth limb is closed.
+- nebula-query-upgrade.md, nebula-app-lifecycle-hooks.md, nebula-accounts-and-apps-have-names.md and `tasks/on-hold/nebula-request-access.md` say what this file built.
 
 ## Non-goals
 

@@ -8,7 +8,7 @@ Items carry IDs, numbered in the order they were raised and never reused: `B` is
 
 ## Objective
 
-**An app's own code creates the orgTree nodes its pages name, in every Star, before the Star answers any call at the version that names them. The code lives in the app's `src/ontology/` folder beside its types, as exports named after the lifecycle hooks our hosts implement in-process, and runs in a facet. It does only what a page can do: it calls the operations a page calls, sandboxed, as a local principal that holds `admin` at the tree's root.**
+**An app's own code creates the orgTree nodes its pages name, in every Star, before the Star answers any call at the version that names them. The code lives in the app's `src/ontology/` folder beside its types, as exports named after the lifecycle hooks our hosts implement in-process, and runs in a facet. It does only what a page can do: it calls the operations a page calls, sandboxed, as a system principal such as `system:acme.crm`, which holds dominion over the Star and no grant.**
 
 ```ts
 // src/ontology/types.d.ts — the app's types, the schema the compile reads
@@ -43,7 +43,7 @@ What happens when a page built against version `3f2a9c…` makes its first call 
 
 **An app has no way to create its own nodes.** [nebula-query-upgrade.md](nebula-query-upgrade.md)'s D9 has a page query at a node its source names as a constant, as our Galaxy's pages query at `MESSAGES_NODE_ID`. Something has to create that node in every Star, and nothing an app writes runs on a Star. A page can create one only for a viewer holding `write` at the parent. So the `define-the-cast` skill creates `lists` from the founder's tab with `crypto.randomUUID()`: `.dev` then holds a `lists` node whose id no page knows, and a tenant Star holds none until an admin opens the app.
 
-**Our hosts get the same hooks first, in-process** (nebula-galaxy-builds-its-tree.md's D9). That file builds `onNewOntologyVersion` beside Mesh's `onStart`, the object a hook receives, the idempotent `createNode`, and `system:lumenize` with its grant at the root. This file hands the same call to an app's code across a facet.
+**Our Galaxy does the same work first, in-process** (nebula-galaxy-builds-its-tree.md's D9 and D11). Its `onStart` creates `chat`, `messages` and `rounds` at every start through the idempotent `createNode`, inside `lmz.asSystemPrincipal`, which builds `system:acme.crm` from the node's name with dominion over its scope and no grant. This file gives an app the hooks, `onNewOntologyVersion` and `onStart`, defines the object each receives, and runs them across a facet.
 
 **Larry chose the hook on 2026-11-21 (D1), and the folder that holds it on 2026-11-22 (D2).** The ids a page imports have to exist at runtime, so they live in a `.ts` file. The types stay in a `.d.ts`, which can hold no value.
 
@@ -64,7 +64,7 @@ The sections that follow say what the install step becomes for an app, the claim
 
 ## Relationships
 
-- **After [nebula-galaxy-builds-its-tree.md](nebula-galaxy-builds-its-tree.md)**, whose D4, D6, D8 and D9 this builds on: the principal, the create, the start, and the in-process call an app's facet answers in the same way.
+- **After [nebula-galaxy-builds-its-tree.md](nebula-galaxy-builds-its-tree.md)**, whose D4, D6, D8, D9 and D17 this builds on: the principal and its dominion, the create, the restore at each start, and our Galaxy's in-process form of the same work.
 - **After [nebula-query-upgrade.md](nebula-query-upgrade.md)** (Larry, 2026-11-22). The `query` this file hands an app's code takes the descriptor that task changes. This file delivers that task's DI22, which has every Star create an app's nodes at install. Until it lands, a generated app has no node of its own to name in a query, which costs only our own scenarios, since nobody else builds apps before the first invite.
 - **Before the first invite in [nebula-pre-alpha.md](nebula-pre-alpha.md).** Moving `src/ontology.d.ts` into `src/ontology/` breaks every Workspace that holds it, and before the invite no Workspace belongs to anyone but us.
 
@@ -77,7 +77,7 @@ Built already:
 - **`compileOntologyVersion` and `extractTypeMetadata`.** *Carried over unchanged:* they are handed the types as text, never a path (C7).
 - **`OntologyVersionRow`**: `version`, `types`, `validatorBundle`, `relationships`, `fields`, `indexes`. *Adapted:* it carries the folder's files, so `#land` can hash them again, the bundle of `index.ts`, and whether `index.ts` exports `onStart` (DI11).
 - **The Galaxy's `ONTOLOGY_PATH`, `#readOntology`, `#pendingOntology` and `#land`'s hash check.** *Adapted:* they hash the folder `src/ontology/` (D5).
-- **`Resources.#install`, with the in-process call nebula-galaxy-builds-its-tree.md adds.** *Adapted:* for an app it stages the row, runs the install code in the facet, and only then records it (DI2).
+- **`Resources.#install`,** which records a version's row and calls no code of a host's or an app's. *Adapted:* for an app it stages the row, runs the install code in the facet, and only then records it (DI2).
 - **`#settle` and `#askedAt`**, which answer `checking` while an ask waits. *Carried over:* a call at a version still installing is answered the same way.
 - **`getParserValidatorFacet`**, the precedent for loading a row's bundle as a facet. *Carried over* as the pattern the install code's facet follows.
 - **What reads the ontology's path**: `sfc-check.ts`'s `ontologyTypesDts`, the codegen loop's `ontologyDts` request part, `SKIPPED_FOR_ONTOLOGY`, and ADR-024's version wording. *Adapted:* they read the new path. The global `LumenizeOntology` that `ontologyTypesDts` writes imports `./ontology`, which then finds the folder's `index.ts` and the types it re-exports (C13).
@@ -98,8 +98,8 @@ Built already:
 - **DI3. Install code that throws leaves the Star on the version it had.** The staged row is discarded, the error is logged at `error`, which raises a Workers Issue, and a waiting page's next retry is answered stale. How the model learns of it on `.dev` is Q6.
 - **DI4. The install code runs in a facet and reaches the plane only through what the Star hands it.**
   - **The facet is loaded through the Worker Loader with `globalOutbound: null`,** from the row's bundle, under a bundle id built as the validator's is (C4). It has no network and no binding (C3).
-  - **The Star passes in the object our hosts' hooks receive** (nebula-galaxy-builds-its-tree.md's DI12), with each method answering across the facet.
-  - **Each call crosses a trust boundary, so the Star checks it as it checks a Client's** (`security.md`). It wraps the call in `lmz.asLocalPrincipal` as `system:lumenize`, fixes the version to the staged one, and calls the plane's operation, which validates its arguments and checks the tree under those claims.
+  - **The Star passes in an object holding the operations a page calls,** `createNode` and the tree's other methods, `transaction`, `read` and `query`, with each method answering across the facet. Our Galaxy's `onStart` calls the same operations in-process and receives no such object, so this file defines it.
+  - **Each call crosses a trust boundary, so the Star checks it as it checks a Client's** (`security.md`). It wraps the call in `lmz.asSystemPrincipal`, fixes the version to the staged one, and calls the plane's operation, which validates its arguments and checks the tree under those claims.
 - **DI7. The version is the hash of the folder `src/ontology/`, git's tree id for it** (D5). A change to any file there, or a file added, removed or renamed, is a new version, which every Star installs and runs. The box's bundle step refuses a relative import from outside the folder, so no file the install code runs escapes the hash.
 - **DI9. The guidance says where an app's nodes come from.** `platform/AGENTS.md` lists the folder and both its files. The `define-ontology` skill writes the ids in `index.ts`, and the `define-the-cast` skill creates only nodes for one person or one record, under nodes the install code made. `ontology.md` documents the install code, and its blocks are `@check-example` once a phase makes them real. The embed and the scaffold are regenerated when they land (`studio-guidance.md`).
 - **DI10. A `.dev` wipe is followed by a first install, so the install code makes the app's nodes again** (C9).
@@ -127,7 +127,7 @@ Claims the design rests on:
 - **[ADR-010](../docs/adr/010-random-opaque-keys.md)**: a node the app names is a random id written as a constant, never found by its slug.
 - **[ADR-016](../docs/adr/016-record-the-acting-principal.md)**: every write the install code makes records the claims it ran under.
 - **[ADR-024](../docs/adr/024-two-versions-keep-an-app-in-step.md)**: a call runs only at the version its page was built against, and only once the Star has installed it. ADR-024 names the version as the hash of `src/ontology.d.ts`, and D5 makes it the hash of `src/ontology/`.
-- **[ADR-025](../docs/adr/025-fine-grained-access-is-the-orgtree.md)**: it says only server code runs under a local principal's claims. Install code is the app's, run on the server in a sandbox, so ADR-025 gains that sentence.
+- **[ADR-025](../docs/adr/025-fine-grained-access-is-the-orgtree.md)**: it says a node does its own bookkeeping as its system principal, in a block our own code writes. Install code is the app's, run on the server in a sandbox, so ADR-025 gains that sentence.
 - **`durable-objects.md`**: the run is handed to `ctx.waitUntil`, nothing depends on the Star staying awake, and a bundle id names its host.
 - **`security.md`** § *Trust-boundary crossings*: the facet's calls are checked as a Client's are (DI4).
 - **`live.md`**: a `/live` scenario builds an app whose install code creates a node, renames that node as its admin, builds a new version, and finds the node as the admin left it.
@@ -142,11 +142,11 @@ Claims the design rests on:
 
 ## Decisions
 
-This file also builds on nebula-galaxy-builds-its-tree.md's D3, D4, D6, D7, D8 and D9, which stay there.
+This file also builds on nebula-galaxy-builds-its-tree.md's D3, D4, D6, D7, D8, D9, D17 and D21, which stay there. Its review confirms which scope's system principal an app's code runs as: D17 there expects the Galaxy's, `system:acme.crm`, which holds dominion over every tenant Star, and whose claims reach a Star only once a call can carry them (that file's § *Beyond this task*). The same section leaves this file the member who creates a child under a fixed id before our code or an app's does: that node answers `'differs'` at every install and never lands under its parent.
 
 | Decision | Alternatives weighed |
 |---|---|
-| **D1. An app's own code runs when a Star moves onto a new ontology version, in a facet, as a local principal holding `admin` at the root, with only the operations a Client's calls reach** (Larry, 2026-11-21, recorded as nebula-query-upgrade.md's D12) | A declared list of nodes in the ontology, read by the compile, which would be a second way to create nodes beside the code. Creating the nodes in `onStart`: a version arrives while a Star runs, so its nodes have to exist before calls at it, which only an install comes before, and every app would load its facet on every start. Pages creating the nodes, which only a viewer with `write` at the parent can do |
+| **D1. An app's own code runs when a Star moves onto a new ontology version, in a facet, as a system principal holding dominion over the Star, with only the operations a Client's calls reach** (Larry, 2026-11-21, recorded as nebula-query-upgrade.md's D12) | A declared list of nodes in the ontology, read by the compile, which would be a second way to create nodes beside the code. Creating the nodes in `onStart`: a version arrives while a Star runs, so its nodes have to exist before calls at it, which only an install comes before, and every app would load its facet on every start. Pages creating the nodes, which only a viewer with `write` at the parent can do |
 | **D2. The ontology is the folder `src/ontology/`: `types.d.ts` holds the types, and `index.ts` re-exports them and exports the ids and `onNewOntologyVersion`** (Larry, 2026-11-22; was Q1). Larry: paying for the rename now buys a structure we live with for good, and one file of standard exports leaves no special filename per hook | `src/ontology.ts` beside `src/ontology.d.ts`: tsc leaves the `.d.ts` out, so the store's types become `any` with no error (C13). `src/ontology-version.ts` or `src/star.ts` beside an unchanged `src/ontology.d.ts`: no rename, but pages import from two paths for good. One `src/ontology.ts` holding the types and the ids: the compile would have to refuse a value or an `import`. A file per hook, `src/on-new-ontology-version.ts`: each later hook adds another special file |
 | **D5. The version is the hash of the folder `src/ontology/`, git's tree id for it** (Larry, 2026-11-22; was Q5). The Galaxy takes it from the Workspace before the build, as it takes today's file hash (C14), and `#land` hashes the files the row carries again. The box's bundle step refuses a relative import from outside the folder | `types.d.ts` and the bundle of `index.ts`: the bundle exists only once the box has run, so the Galaxy could not name a version before the build, and a new bundler output would make a new version. The types alone, as today: install code changed on its own would run nowhere |
 

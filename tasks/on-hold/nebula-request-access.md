@@ -34,7 +34,7 @@ It is also **TOCTOU** — liveness is non-monotonic across two DOs, so "B was li
 
 **Where it belongs instead — climb termination, here.** When the client (or server) resolves the nearest-admin set at the top of a request-access climb, it is **already doing async, user-facing work** (deciding whom to notify). That is the natural, non-racy place to filter for *live, reachable* admins:
 
-1. Resolve the terminal admin `sub`s from the (universally visible) permissions table by climbing to the nearest ancestor with an `admin` grant.
+1. Resolve the terminal admin `sub`s from the (universally visible) permissions table by climbing to the nearest ancestor with a person's `admin` grant. A grant whose key `isPersonSub` refuses, `agent:lumenize`'s say, is skipped: nobody reads a request sent there. A node's own principal, `system:acme.crm`, acts through dominion and holds no grant, so it never appears.
 2. Ask nebula-auth which of those `sub`s still exist (async, and this is `apps/nebula` → `nebula-auth`, the allowed direction).
 3. Route the request only to **live** admins.
 4. If **none** are live, surface "this org has no reachable admin — contact support" (and, for an operator, the recovery below).
@@ -56,7 +56,7 @@ The design, if it survives:
 - **`setPermission(ROOT_NODE_ID, sub, level)`** rejects demoting the last admin: `sub` holds `admin` on root, `level` is not `'admin'`, and no other root admin exists. It short-circuits on a non-root node or on `level === 'admin'`.
 - **A typed error, `LastRootAdminError`,** in `packages/resources/src/errors.ts`, on `OntologyStaleError`'s template: `name` plus a discriminating own prop, `nodeId`. `isLastRootAdminError` checks both and never uses `instanceof`, which does not survive a mesh hop. The message carries the fix — add another admin before removing this one — and the client detects it where `nebula-client.ts` already consumes `isOntologyStaleError`.
 - **The count reads the cached permissions view before `transactionSync`.** That is sound only because the mutators are synchronous and the Star is single-threaded, so no grant change interleaves; ADR-005's non-monotonic concern does not apply, and a concurrency-race test would be vacuous.
-- **It counts grants, not live subjects.** A deleted subject's grant still counts, which § *Design note — dead/dangling admin at climb termination* handles at the climb.
+- **It counts a person's grants, not live subjects.** A grant keyed by anything `isPersonSub` refuses, such as `agent:lumenize`, never counts, since no one can be asked through it. A deleted subject's grant still counts, which § *Design note — dead/dangling admin at climb termination* handles at the climb.
 - **Tests, one Star each:** a single root admin can neither revoke nor self-demote; re-asserting `admin` passes; with two root admins, demoting one succeeds; add-before-remove succeeds and then refuses the survivor's removal; the error's `name` and own prop survive the Star-to-client hop; a non-root node may go adminless. `deleteNode(ROOT_NODE_ID)` is already refused, so it needs no guard.
 
 ## Future enhancement — AI-initiated elevation (further out, on-hold-flavored)
