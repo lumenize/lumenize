@@ -1,0 +1,8243 @@
+{
+ "run": "2026-11-23T17-01-41-902Z",
+ "base": "https://experiment-query-subtree-and-catchup.transformation.workers.dev",
+ "startedAt": "2026-11-23T17:01:41.902Z",
+ "config": {
+  "TARGET_MS": 250,
+  "MAX_REPS": 3000,
+  "ROUNDS": 5,
+  "WRITES": 120000,
+  "PAIRED": true
+ },
+ "noops": [
+  {
+   "instance": "all",
+   "seq": 1795453301888001,
+   "workerMs": 385,
+   "workerColo": "CDG",
+   "logs": {
+    "wallMs": 94,
+    "cpuMs": 1,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "all",
+   "seq": 1795453301888002,
+   "workerMs": 20,
+   "workerColo": "EWR",
+   "logs": {
+    "wallMs": 10,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "all",
+   "seq": 1795453301888003,
+   "workerMs": 97,
+   "workerColo": "CDG",
+   "logs": {
+    "wallMs": 88,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "all",
+   "seq": 1795453301888004,
+   "workerMs": 16,
+   "workerColo": "EWR",
+   "logs": {
+    "wallMs": 11,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "all",
+   "seq": 1795453301888005,
+   "workerMs": 97,
+   "workerColo": "CDG",
+   "logs": {
+    "wallMs": 89,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  }
+ ],
+ "records": [
+  {
+   "id": "q2.whole.stage.n1.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n1",
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888101,
+     "round": 0,
+     "reps": 68,
+     "workerMs": 1330,
+     "workerColo": "ARN",
+     "logs": {
+      "wallMs": 1315,
+      "cpuMs": 1173,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888210,
+     "round": 1,
+     "reps": 68,
+     "workerMs": 1274,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1268,
+      "cpuMs": 1077,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888243,
+     "round": 2,
+     "reps": 68,
+     "workerMs": 1372,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1367,
+      "cpuMs": 1165,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888376,
+     "round": 3,
+     "reps": 68,
+     "workerMs": 1300,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1290,
+      "cpuMs": 1225,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888418,
+     "round": 4,
+     "reps": 68,
+     "workerMs": 1305,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1293,
+      "cpuMs": 1218,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888006,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 2418,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:stage (<expr>=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 494,
+    "workerColo": "EWR"
+   },
+   "reps": 68
+  },
+  {
+   "id": "q2.whole.stage.n1.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n1",
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888137,
+     "round": 0,
+     "reps": 3000,
+     "workerMs": 189,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 179,
+      "cpuMs": 161,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888177,
+     "round": 1,
+     "reps": 3000,
+     "workerMs": 335,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 329,
+      "cpuMs": 180,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888267,
+     "round": 2,
+     "reps": 3000,
+     "workerMs": 336,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 333,
+      "cpuMs": 152,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888351,
+     "round": 3,
+     "reps": 3000,
+     "workerMs": 557,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 547,
+      "cpuMs": 491,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888453,
+     "round": 4,
+     "reps": 3000,
+     "workerMs": 219,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 212,
+      "cpuMs": 172,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888007,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 7,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 119,
+    "workerColo": "CDG"
+   },
+   "reps": 3000
+  },
+  {
+   "id": "q2.whole.stage.n1.swap-node",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n1",
+    "arm": "swap-node",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888135,
+     "round": 0,
+     "reps": 3000,
+     "workerMs": 230,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 215,
+      "cpuMs": 179,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888161,
+     "round": 1,
+     "reps": 3000,
+     "workerMs": 313,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 305,
+      "cpuMs": 168,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888279,
+     "round": 2,
+     "reps": 3000,
+     "workerMs": 351,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 342,
+      "cpuMs": 160,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888388,
+     "round": 3,
+     "reps": 3000,
+     "workerMs": 238,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 229,
+      "cpuMs": 187,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888423,
+     "round": 4,
+     "reps": 3000,
+     "workerMs": 224,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 218,
+      "cpuMs": 182,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888008,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 7,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 91,
+    "workerColo": "CDG"
+   },
+   "reps": 3000
+  },
+  {
+   "id": "q2.whole.stage.n4.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n4",
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888147,
+     "round": 0,
+     "reps": 68,
+     "workerMs": 1856,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1847,
+      "cpuMs": 1633,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888172,
+     "round": 1,
+     "reps": 68,
+     "workerMs": 1276,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1266,
+      "cpuMs": 1117,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888300,
+     "round": 2,
+     "reps": 68,
+     "workerMs": 1366,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1359,
+      "cpuMs": 1275,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888341,
+     "round": 3,
+     "reps": 68,
+     "workerMs": 1459,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1450,
+      "cpuMs": 1366,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888402,
+     "round": 4,
+     "reps": 68,
+     "workerMs": 1310,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1325,
+      "cpuMs": 1196,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888009,
+    "rows": 1,
+    "bytes": 492,
+    "rowsRead": 2421,
+    "check": 3603911042,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:stage (<expr>=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 128,
+    "workerColo": "CDG"
+   },
+   "reps": 68
+  },
+  {
+   "id": "q2.whole.stage.n4.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n4",
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888104,
+     "round": 0,
+     "reps": 3000,
+     "workerMs": 373,
+     "workerColo": "ARN",
+     "logs": {
+      "wallMs": 364,
+      "cpuMs": 254,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888204,
+     "round": 1,
+     "reps": 3000,
+     "workerMs": 842,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 824,
+      "cpuMs": 623,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888250,
+     "round": 2,
+     "reps": 3000,
+     "workerMs": 435,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 431,
+      "cpuMs": 251,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888365,
+     "round": 3,
+     "reps": 3000,
+     "workerMs": 320,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 311,
+      "cpuMs": 267,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888431,
+     "round": 4,
+     "reps": 3000,
+     "workerMs": 352,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 315,
+      "cpuMs": 255,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888010,
+    "rows": 1,
+    "bytes": 492,
+    "rowsRead": 24,
+    "check": 3603911042,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 106,
+    "workerColo": "CDG"
+   },
+   "reps": 3000
+  },
+  {
+   "id": "q2.whole.stage.n4.swap-node",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n4",
+    "arm": "swap-node",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888112,
+     "round": 0,
+     "reps": 3000,
+     "workerMs": 292,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 275,
+      "cpuMs": 254,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888212,
+     "round": 1,
+     "reps": 3000,
+     "workerMs": 403,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 399,
+      "cpuMs": 226,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888284,
+     "round": 2,
+     "reps": 3000,
+     "workerMs": 453,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 447,
+      "cpuMs": 265,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888323,
+     "round": 3,
+     "reps": 3000,
+     "workerMs": 349,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 342,
+      "cpuMs": 294,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888420,
+     "round": 4,
+     "reps": 3000,
+     "workerMs": 343,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 325,
+      "cpuMs": 284,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888011,
+    "rows": 1,
+    "bytes": 492,
+    "rowsRead": 24,
+    "check": 3603911042,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 93,
+    "workerColo": "CDG"
+   },
+   "reps": 3000
+  },
+  {
+   "id": "q2.whole.stage.n41.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n41",
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888085,
+     "round": 0,
+     "reps": 67,
+     "workerMs": 1412,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 1402,
+      "cpuMs": 1257,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888182,
+     "round": 1,
+     "reps": 67,
+     "workerMs": 1370,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1362,
+      "cpuMs": 1190,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888276,
+     "round": 2,
+     "reps": 67,
+     "workerMs": 1885,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1884,
+      "cpuMs": 1606,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888370,
+     "round": 3,
+     "reps": 67,
+     "workerMs": 1288,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1279,
+      "cpuMs": 1198,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888424,
+     "round": 4,
+     "reps": 67,
+     "workerMs": 1925,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1915,
+      "cpuMs": 1759,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888012,
+    "rows": 22,
+    "bytes": 7913,
+    "rowsRead": 2458,
+    "check": 1352041750,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:stage (<expr>=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 129,
+    "workerColo": "CDG"
+   },
+   "reps": 67
+  },
+  {
+   "id": "q2.whole.stage.n41.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n41",
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888097,
+     "round": 0,
+     "reps": 604,
+     "workerMs": 1024,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 1016,
+      "cpuMs": 918,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888200,
+     "round": 1,
+     "reps": 604,
+     "workerMs": 1111,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1099,
+      "cpuMs": 914,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888274,
+     "round": 2,
+     "reps": 604,
+     "workerMs": 1102,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1095,
+      "cpuMs": 909,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888359,
+     "round": 3,
+     "reps": 604,
+     "workerMs": 967,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 963,
+      "cpuMs": 905,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888421,
+     "round": 4,
+     "reps": 604,
+     "workerMs": 1032,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1024,
+      "cpuMs": 969,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888013,
+    "rows": 22,
+    "bytes": 7913,
+    "rowsRead": 236,
+    "check": 1352041750,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 121,
+    "workerColo": "CDG"
+   },
+   "reps": 604
+  },
+  {
+   "id": "q2.whole.stage.n41.swap-node",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n41",
+    "arm": "swap-node",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888138,
+     "round": 0,
+     "reps": 604,
+     "workerMs": 959,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 947,
+      "cpuMs": 924,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888222,
+     "round": 1,
+     "reps": 604,
+     "workerMs": 1111,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1099,
+      "cpuMs": 906,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888249,
+     "round": 2,
+     "reps": 604,
+     "workerMs": 1735,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1729,
+      "cpuMs": 1485,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888317,
+     "round": 3,
+     "reps": 604,
+     "workerMs": 940,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 934,
+      "cpuMs": 891,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888406,
+     "round": 4,
+     "reps": 604,
+     "workerMs": 1701,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1703,
+      "cpuMs": 1536,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888014,
+    "rows": 22,
+    "bytes": 7913,
+    "rowsRead": 236,
+    "check": 1352041750,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 113,
+    "workerColo": "CDG"
+   },
+   "reps": 604
+  },
+  {
+   "id": "q2.whole.stage.n411.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n411",
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888128,
+     "round": 0,
+     "reps": 55,
+     "workerMs": 984,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 975,
+      "cpuMs": 952,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888220,
+     "round": 1,
+     "reps": 55,
+     "workerMs": 1203,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1195,
+      "cpuMs": 988,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888287,
+     "round": 2,
+     "reps": 55,
+     "workerMs": 1216,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1206,
+      "cpuMs": 1023,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888390,
+     "round": 3,
+     "reps": 55,
+     "workerMs": 1764,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1756,
+      "cpuMs": 1602,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888451,
+     "round": 4,
+     "reps": 55,
+     "workerMs": 1033,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1007,
+      "cpuMs": 953,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888015,
+    "rows": 242,
+    "bytes": 84522,
+    "rowsRead": 2836,
+    "check": 343184595,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:stage (<expr>=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 138,
+    "workerColo": "CDG"
+   },
+   "reps": 55
+  },
+  {
+   "id": "q2.whole.stage.n411.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n411",
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888117,
+     "round": 0,
+     "reps": 61,
+     "workerMs": 1174,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 1149,
+      "cpuMs": 1098,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888190,
+     "round": 1,
+     "reps": 61,
+     "workerMs": 1231,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1221,
+      "cpuMs": 1071,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888270,
+     "round": 2,
+     "reps": 61,
+     "workerMs": 1331,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1324,
+      "cpuMs": 1089,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888318,
+     "round": 3,
+     "reps": 61,
+     "workerMs": 1056,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1050,
+      "cpuMs": 1009,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888454,
+     "round": 4,
+     "reps": 61,
+     "workerMs": 1148,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1134,
+      "cpuMs": 1077,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888016,
+    "rows": 242,
+    "bytes": 84522,
+    "rowsRead": 2552,
+    "check": 343184595,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 286,
+    "workerColo": "CDG"
+   },
+   "reps": 61
+  },
+  {
+   "id": "q2.whole.stage.n411.swap-node",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n411",
+    "arm": "swap-node",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888151,
+     "round": 0,
+     "reps": 61,
+     "workerMs": 1242,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1240,
+      "cpuMs": 1085,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888170,
+     "round": 1,
+     "reps": 61,
+     "workerMs": 1294,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1287,
+      "cpuMs": 1122,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888292,
+     "round": 2,
+     "reps": 61,
+     "workerMs": 1317,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1312,
+      "cpuMs": 1110,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888349,
+     "round": 3,
+     "reps": 61,
+     "workerMs": 1152,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1143,
+      "cpuMs": 1083,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888432,
+     "round": 4,
+     "reps": 61,
+     "workerMs": 1236,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1229,
+      "cpuMs": 1125,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888017,
+    "rows": 242,
+    "bytes": 84522,
+    "rowsRead": 2552,
+    "check": 343184595,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 121,
+    "workerColo": "CDG"
+   },
+   "reps": 61
+  },
+  {
+   "id": "q2.whole.stage.n4111.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n4111",
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888119,
+     "round": 0,
+     "reps": 21,
+     "workerMs": 1057,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 1018,
+      "cpuMs": 959,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888226,
+     "round": 1,
+     "reps": 21,
+     "workerMs": 953,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 947,
+      "cpuMs": 507,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888280,
+     "round": 2,
+     "reps": 21,
+     "workerMs": 797,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 788,
+      "cpuMs": 542,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888364,
+     "round": 3,
+     "reps": 21,
+     "workerMs": 627,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 621,
+      "cpuMs": 537,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888433,
+     "round": 4,
+     "reps": 21,
+     "workerMs": 619,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 608,
+      "cpuMs": 526,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888018,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 6528,
+    "check": 2004694973,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:stage (<expr>=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 242,
+    "workerColo": "CDG"
+   },
+   "reps": 21
+  },
+  {
+   "id": "q2.whole.stage.n4111.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n4111",
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888102,
+     "round": 0,
+     "reps": 7,
+     "workerMs": 1357,
+     "workerColo": "ARN",
+     "logs": {
+      "wallMs": 1343,
+      "cpuMs": 1069,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888180,
+     "round": 1,
+     "reps": 7,
+     "workerMs": 1460,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1443,
+      "cpuMs": 1125,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888248,
+     "round": 2,
+     "reps": 7,
+     "workerMs": 1298,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1294,
+      "cpuMs": 1036,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888373,
+     "round": 3,
+     "reps": 7,
+     "workerMs": 1261,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1252,
+      "cpuMs": 1142,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888465,
+     "round": 4,
+     "reps": 7,
+     "workerMs": 1100,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1090,
+      "cpuMs": 1003,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888019,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 24104,
+    "check": 2004694973,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 968,
+    "workerColo": "CDG"
+   },
+   "reps": 7
+  },
+  {
+   "id": "q2.whole.stage.n4111.swap-node",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n4111",
+    "arm": "swap-node",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888100,
+     "round": 0,
+     "reps": 7,
+     "workerMs": 1592,
+     "workerColo": "ARN",
+     "logs": {
+      "wallMs": 1297,
+      "cpuMs": 1106,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888206,
+     "round": 1,
+     "reps": 7,
+     "workerMs": 2431,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 2421,
+      "cpuMs": 1803,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888254,
+     "round": 2,
+     "reps": 7,
+     "workerMs": 1354,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1351,
+      "cpuMs": 1041,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888375,
+     "round": 3,
+     "reps": 7,
+     "workerMs": 1180,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1172,
+      "cpuMs": 1074,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888416,
+     "round": 4,
+     "reps": 7,
+     "workerMs": 1265,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1207,
+      "cpuMs": 1133,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888020,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 24104,
+    "check": 2004694973,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 294,
+    "workerColo": "CDG"
+   },
+   "reps": 7
+  },
+  {
+   "id": "q2.whole.owner.n1.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n1",
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:owner\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888132,
+     "round": 0,
+     "reps": 2016,
+     "workerMs": 236,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 224,
+      "cpuMs": 205,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888169,
+     "round": 1,
+     "reps": 2016,
+     "workerMs": 369,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 363,
+      "cpuMs": 222,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888312,
+     "round": 2,
+     "reps": 2016,
+     "workerMs": 256,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 252,
+      "cpuMs": 210,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888372,
+     "round": 3,
+     "reps": 2016,
+     "workerMs": 274,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 265,
+      "cpuMs": 223,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888409,
+     "round": 4,
+     "reps": 2016,
+     "workerMs": 252,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 245,
+      "cpuMs": 207,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888021,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 56,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:owner (<expr>=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 103,
+    "workerColo": "CDG"
+   },
+   "reps": 2016
+  },
+  {
+   "id": "q2.whole.owner.n1.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n1",
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888096,
+     "round": 0,
+     "reps": 3000,
+     "workerMs": 256,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 250,
+      "cpuMs": 164,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888167,
+     "round": 1,
+     "reps": 3000,
+     "workerMs": 318,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 311,
+      "cpuMs": 175,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888253,
+     "round": 2,
+     "reps": 3000,
+     "workerMs": 314,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 309,
+      "cpuMs": 136,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888386,
+     "round": 3,
+     "reps": 3000,
+     "workerMs": 576,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 568,
+      "cpuMs": 513,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888435,
+     "round": 4,
+     "reps": 3000,
+     "workerMs": 217,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 208,
+      "cpuMs": 169,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888022,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 7,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 104,
+    "workerColo": "CDG"
+   },
+   "reps": 3000
+  },
+  {
+   "id": "q2.whole.owner.n1.swap-node",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n1",
+    "arm": "swap-node",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888155,
+     "round": 0,
+     "reps": 3000,
+     "workerMs": 583,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 571,
+      "cpuMs": 437,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888202,
+     "round": 1,
+     "reps": 3000,
+     "workerMs": 626,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 616,
+      "cpuMs": 441,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888308,
+     "round": 2,
+     "reps": 3000,
+     "workerMs": 333,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 326,
+      "cpuMs": 284,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888340,
+     "round": 3,
+     "reps": 3000,
+     "workerMs": 199,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 192,
+      "cpuMs": 155,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888447,
+     "round": 4,
+     "reps": 3000,
+     "workerMs": 182,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 177,
+      "cpuMs": 141,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888023,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 7,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 98,
+    "workerColo": "CDG"
+   },
+   "reps": 3000
+  },
+  {
+   "id": "q2.whole.owner.n4.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n4",
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:owner\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888093,
+     "round": 0,
+     "reps": 1946,
+     "workerMs": 327,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 312,
+      "cpuMs": 215,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888176,
+     "round": 1,
+     "reps": 1946,
+     "workerMs": 671,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 659,
+      "cpuMs": 508,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888265,
+     "round": 2,
+     "reps": 1946,
+     "workerMs": 692,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 683,
+      "cpuMs": 485,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888385,
+     "round": 3,
+     "reps": 1946,
+     "workerMs": 279,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 273,
+      "cpuMs": 231,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888411,
+     "round": 4,
+     "reps": 1946,
+     "workerMs": 280,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 273,
+      "cpuMs": 223,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888024,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 59,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:owner (<expr>=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 102,
+    "workerColo": "CDG"
+   },
+   "reps": 1946
+  },
+  {
+   "id": "q2.whole.owner.n4.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n4",
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888109,
+     "round": 0,
+     "reps": 3000,
+     "workerMs": 279,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 255,
+      "cpuMs": 234,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888235,
+     "round": 1,
+     "reps": 3000,
+     "workerMs": 420,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 421,
+      "cpuMs": 232,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888313,
+     "round": 2,
+     "reps": 3000,
+     "workerMs": 257,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 247,
+      "cpuMs": 211,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888353,
+     "round": 3,
+     "reps": 3000,
+     "workerMs": 284,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 276,
+      "cpuMs": 236,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888429,
+     "round": 4,
+     "reps": 3000,
+     "workerMs": 288,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 281,
+      "cpuMs": 232,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888025,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 24,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 93,
+    "workerColo": "CDG"
+   },
+   "reps": 3000
+  },
+  {
+   "id": "q2.whole.owner.n4.swap-node",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n4",
+    "arm": "swap-node",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888106,
+     "round": 0,
+     "reps": 3000,
+     "workerMs": 357,
+     "workerColo": "ARN",
+     "logs": {
+      "wallMs": 347,
+      "cpuMs": 243,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888191,
+     "round": 1,
+     "reps": 3000,
+     "workerMs": 370,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 360,
+      "cpuMs": 237,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888246,
+     "round": 2,
+     "reps": 3000,
+     "workerMs": 448,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 441,
+      "cpuMs": 257,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888347,
+     "round": 3,
+     "reps": 3000,
+     "workerMs": 294,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 285,
+      "cpuMs": 247,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888415,
+     "round": 4,
+     "reps": 3000,
+     "workerMs": 746,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 737,
+      "cpuMs": 678,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888026,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 24,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 97,
+    "workerColo": "CDG"
+   },
+   "reps": 3000
+  },
+  {
+   "id": "q2.whole.owner.n41.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n41",
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:owner\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888108,
+     "round": 0,
+     "reps": 1359,
+     "workerMs": 321,
+     "workerColo": "ARN",
+     "logs": {
+      "wallMs": 293,
+      "cpuMs": 170,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888194,
+     "round": 1,
+     "reps": 1359,
+     "workerMs": 304,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 297,
+      "cpuMs": 164,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888257,
+     "round": 2,
+     "reps": 1359,
+     "workerMs": 345,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 341,
+      "cpuMs": 167,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888360,
+     "round": 3,
+     "reps": 1359,
+     "workerMs": 232,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 223,
+      "cpuMs": 184,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888452,
+     "round": 4,
+     "reps": 1359,
+     "workerMs": 582,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 595,
+      "cpuMs": 158,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888027,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 96,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:owner (<expr>=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 98,
+    "workerColo": "CDG"
+   },
+   "reps": 1359
+  },
+  {
+   "id": "q2.whole.owner.n41.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n41",
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888159,
+     "round": 0,
+     "reps": 635,
+     "workerMs": 1030,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1019,
+      "cpuMs": 887,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888223,
+     "round": 1,
+     "reps": 635,
+     "workerMs": 1108,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1099,
+      "cpuMs": 914,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888241,
+     "round": 2,
+     "reps": 635,
+     "workerMs": 1107,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1099,
+      "cpuMs": 911,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888328,
+     "round": 3,
+     "reps": 635,
+     "workerMs": 974,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 968,
+      "cpuMs": 925,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888463,
+     "round": 4,
+     "reps": 635,
+     "workerMs": 965,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 956,
+      "cpuMs": 910,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888028,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 236,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 96,
+    "workerColo": "CDG"
+   },
+   "reps": 635
+  },
+  {
+   "id": "q2.whole.owner.n41.swap-node",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n41",
+    "arm": "swap-node",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888141,
+     "round": 0,
+     "reps": 635,
+     "workerMs": 902,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 875,
+      "cpuMs": 857,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888184,
+     "round": 1,
+     "reps": 635,
+     "workerMs": 1070,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1061,
+      "cpuMs": 935,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888268,
+     "round": 2,
+     "reps": 635,
+     "workerMs": 1045,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1037,
+      "cpuMs": 851,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888381,
+     "round": 3,
+     "reps": 635,
+     "workerMs": 1090,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1082,
+      "cpuMs": 1028,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888398,
+     "round": 4,
+     "reps": 635,
+     "workerMs": 1654,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1647,
+      "cpuMs": 1521,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888029,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 236,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 96,
+    "workerColo": "CDG"
+   },
+   "reps": 635
+  },
+  {
+   "id": "q2.whole.owner.n411.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n411",
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:owner\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888111,
+     "round": 0,
+     "reps": 332,
+     "workerMs": 127,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 108,
+      "cpuMs": 89,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888234,
+     "round": 1,
+     "reps": 332,
+     "workerMs": 269,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 258,
+      "cpuMs": 85,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888275,
+     "round": 2,
+     "reps": 332,
+     "workerMs": 379,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 373,
+      "cpuMs": 186,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888320,
+     "round": 3,
+     "reps": 332,
+     "workerMs": 133,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 123,
+      "cpuMs": 83,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888397,
+     "round": 4,
+     "reps": 332,
+     "workerMs": 124,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 113,
+      "cpuMs": 79,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888030,
+    "rows": 1,
+    "bytes": 409,
+    "rowsRead": 474,
+    "check": 1710443451,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:owner (<expr>=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 96,
+    "workerColo": "CDG"
+   },
+   "reps": 332
+  },
+  {
+   "id": "q2.whole.owner.n411.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n411",
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888129,
+     "round": 0,
+     "reps": 65,
+     "workerMs": 1257,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 1208,
+      "cpuMs": 1169,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888203,
+     "round": 1,
+     "reps": 65,
+     "workerMs": 2097,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 2087,
+      "cpuMs": 1788,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888244,
+     "round": 2,
+     "reps": 65,
+     "workerMs": 1395,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1386,
+      "cpuMs": 1169,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888362,
+     "round": 3,
+     "reps": 65,
+     "workerMs": 1272,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1264,
+      "cpuMs": 1202,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888456,
+     "round": 4,
+     "reps": 65,
+     "workerMs": 1251,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1238,
+      "cpuMs": 1173,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888031,
+    "rows": 1,
+    "bytes": 409,
+    "rowsRead": 2552,
+    "check": 1710443451,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 110,
+    "workerColo": "CDG"
+   },
+   "reps": 65
+  },
+  {
+   "id": "q2.whole.owner.n411.swap-node",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n411",
+    "arm": "swap-node",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888149,
+     "round": 0,
+     "reps": 65,
+     "workerMs": 1338,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1334,
+      "cpuMs": 1143,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888188,
+     "round": 1,
+     "reps": 65,
+     "workerMs": 1532,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1522,
+      "cpuMs": 1321,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888251,
+     "round": 2,
+     "reps": 65,
+     "workerMs": 1275,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1268,
+      "cpuMs": 1064,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888329,
+     "round": 3,
+     "reps": 65,
+     "workerMs": 1305,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1295,
+      "cpuMs": 1218,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888410,
+     "round": 4,
+     "reps": 65,
+     "workerMs": 1177,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1161,
+      "cpuMs": 1104,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888032,
+    "rows": 1,
+    "bytes": 409,
+    "rowsRead": 2552,
+    "check": 1710443451,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 116,
+    "workerColo": "CDG"
+   },
+   "reps": 65
+  },
+  {
+   "id": "q2.whole.owner.n4111.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n4111",
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:owner\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888125,
+     "round": 0,
+     "reps": 39,
+     "workerMs": 96,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 77,
+      "cpuMs": 60,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888196,
+     "round": 1,
+     "reps": 39,
+     "workerMs": 441,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 446,
+      "cpuMs": 143,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888289,
+     "round": 2,
+     "reps": 39,
+     "workerMs": 353,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 343,
+      "cpuMs": 49,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888339,
+     "round": 3,
+     "reps": 39,
+     "workerMs": 145,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 138,
+      "cpuMs": 58,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888404,
+     "round": 4,
+     "reps": 39,
+     "workerMs": 100,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 94,
+      "cpuMs": 51,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888033,
+    "rows": 54,
+    "bytes": 20235,
+    "rowsRead": 4166,
+    "check": 1154625749,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:owner (<expr>=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 121,
+    "workerColo": "CDG"
+   },
+   "reps": 39
+  },
+  {
+   "id": "q2.whole.owner.n4111.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n4111",
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888116,
+     "round": 0,
+     "reps": 7,
+     "workerMs": 1896,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 1879,
+      "cpuMs": 1682,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888181,
+     "round": 1,
+     "reps": 7,
+     "workerMs": 1418,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1409,
+      "cpuMs": 1076,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888307,
+     "round": 2,
+     "reps": 7,
+     "workerMs": 1329,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1319,
+      "cpuMs": 1025,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888324,
+     "round": 3,
+     "reps": 7,
+     "workerMs": 1204,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1197,
+      "cpuMs": 1090,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888457,
+     "round": 4,
+     "reps": 7,
+     "workerMs": 1038,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1028,
+      "cpuMs": 974,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888034,
+    "rows": 54,
+    "bytes": 20235,
+    "rowsRead": 24104,
+    "check": 1154625749,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 457,
+    "workerColo": "CDG"
+   },
+   "reps": 7
+  },
+  {
+   "id": "q2.whole.owner.n4111.swap-node",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n4111",
+    "arm": "swap-node",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888118,
+     "round": 0,
+     "reps": 7,
+     "workerMs": 1198,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 1173,
+      "cpuMs": 1117,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888183,
+     "round": 1,
+     "reps": 7,
+     "workerMs": 1457,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1450,
+      "cpuMs": 1129,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888282,
+     "round": 2,
+     "reps": 7,
+     "workerMs": 2044,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 2038,
+      "cpuMs": 1694,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888355,
+     "round": 3,
+     "reps": 7,
+     "workerMs": 1127,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1120,
+      "cpuMs": 1029,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888430,
+     "round": 4,
+     "reps": 7,
+     "workerMs": 1461,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1453,
+      "cpuMs": 1316,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888035,
+    "rows": 54,
+    "bytes": 20235,
+    "rowsRead": 24104,
+    "check": 1154625749,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 353,
+    "workerColo": "CDG"
+   },
+   "reps": 7
+  },
+  {
+   "id": "q2.whole.all.n1.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n1",
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_current WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888153,
+     "round": 0,
+     "reps": 6,
+     "workerMs": 776,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 767,
+      "cpuMs": 623,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888215,
+     "round": 1,
+     "reps": 6,
+     "workerMs": 1240,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1238,
+      "cpuMs": 1023,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888242,
+     "round": 2,
+     "reps": 6,
+     "workerMs": 768,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 759,
+      "cpuMs": 586,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888357,
+     "round": 3,
+     "reps": 6,
+     "workerMs": 603,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 595,
+      "cpuMs": 560,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888419,
+     "round": 4,
+     "reps": 6,
+     "workerMs": 717,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 709,
+      "cpuMs": 657,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888036,
+    "rows": 4,
+    "bytes": 1706,
+    "rowsRead": 30001,
+    "check": 2210063032,
+    "statements": 1,
+    "plan": [
+     "SCAN Snapshots USING INDEX idx_Snapshots_current",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 708,
+    "workerColo": "CDG"
+   },
+   "reps": 6
+  },
+  {
+   "id": "q2.whole.all.n1.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n1",
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888113,
+     "round": 0,
+     "reps": 3000,
+     "workerMs": 115,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 105,
+      "cpuMs": 83,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888186,
+     "round": 1,
+     "reps": 3000,
+     "workerMs": 377,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 372,
+      "cpuMs": 236,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888247,
+     "round": 2,
+     "reps": 3000,
+     "workerMs": 269,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 264,
+      "cpuMs": 88,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888382,
+     "round": 3,
+     "reps": 3000,
+     "workerMs": 152,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 143,
+      "cpuMs": 104,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888392,
+     "round": 4,
+     "reps": 3000,
+     "workerMs": 158,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 151,
+      "cpuMs": 110,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888037,
+    "rows": 4,
+    "bytes": 1706,
+    "rowsRead": 7,
+    "check": 2210063032,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 104,
+    "workerColo": "CDG"
+   },
+   "reps": 3000
+  },
+  {
+   "id": "q2.whole.all.n1.swap-node",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n1",
+    "arm": "swap-node",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888105,
+     "round": 0,
+     "reps": 3000,
+     "workerMs": 222,
+     "workerColo": "ARN",
+     "logs": {
+      "wallMs": 210,
+      "cpuMs": 94,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888171,
+     "round": 1,
+     "reps": 3000,
+     "workerMs": 239,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 233,
+      "cpuMs": 89,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888264,
+     "round": 2,
+     "reps": 3000,
+     "workerMs": 279,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 271,
+      "cpuMs": 91,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888333,
+     "round": 3,
+     "reps": 3000,
+     "workerMs": 120,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 112,
+      "cpuMs": 77,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888449,
+     "round": 4,
+     "reps": 3000,
+     "workerMs": 117,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 109,
+      "cpuMs": 74,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888038,
+    "rows": 4,
+    "bytes": 1706,
+    "rowsRead": 7,
+    "check": 2210063032,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 99,
+    "workerColo": "CDG"
+   },
+   "reps": 3000
+  },
+  {
+   "id": "q2.whole.all.n4.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n4",
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_current WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888095,
+     "round": 0,
+     "reps": 6,
+     "workerMs": 725,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 716,
+      "cpuMs": 616,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888231,
+     "round": 1,
+     "reps": 6,
+     "workerMs": 752,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 746,
+      "cpuMs": 560,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888297,
+     "round": 2,
+     "reps": 6,
+     "workerMs": 855,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 848,
+      "cpuMs": 636,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888379,
+     "round": 3,
+     "reps": 6,
+     "workerMs": 662,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 659,
+      "cpuMs": 614,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888446,
+     "round": 4,
+     "reps": 6,
+     "workerMs": 639,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 630,
+      "cpuMs": 591,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888039,
+    "rows": 12,
+    "bytes": 4596,
+    "rowsRead": 30004,
+    "check": 2609426427,
+    "statements": 1,
+    "plan": [
+     "SCAN Snapshots USING INDEX idx_Snapshots_current",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 192,
+    "workerColo": "CDG"
+   },
+   "reps": 6
+  },
+  {
+   "id": "q2.whole.all.n4.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n4",
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888084,
+     "round": 0,
+     "reps": 2857,
+     "workerMs": 256,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 247,
+      "cpuMs": 158,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888185,
+     "round": 1,
+     "reps": 2857,
+     "workerMs": 279,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 274,
+      "cpuMs": 143,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888238,
+     "round": 2,
+     "reps": 2857,
+     "workerMs": 331,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 327,
+      "cpuMs": 144,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888380,
+     "round": 3,
+     "reps": 2857,
+     "workerMs": 202,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 196,
+      "cpuMs": 158,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888458,
+     "round": 4,
+     "reps": 2857,
+     "workerMs": 188,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 177,
+      "cpuMs": 140,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888040,
+    "rows": 12,
+    "bytes": 4596,
+    "rowsRead": 24,
+    "check": 2609426427,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 103,
+    "workerColo": "CDG"
+   },
+   "reps": 2857
+  },
+  {
+   "id": "q2.whole.all.n4.swap-node",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n4",
+    "arm": "swap-node",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888146,
+     "round": 0,
+     "reps": 2857,
+     "workerMs": 298,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 295,
+      "cpuMs": 148,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888168,
+     "round": 1,
+     "reps": 2857,
+     "workerMs": 300,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 286,
+      "cpuMs": 156,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888255,
+     "round": 2,
+     "reps": 2857,
+     "workerMs": 338,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 330,
+      "cpuMs": 158,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888342,
+     "round": 3,
+     "reps": 2857,
+     "workerMs": 210,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 203,
+      "cpuMs": 165,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888427,
+     "round": 4,
+     "reps": 2857,
+     "workerMs": 203,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 195,
+      "cpuMs": 158,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888041,
+    "rows": 12,
+    "bytes": 4596,
+    "rowsRead": 24,
+    "check": 2609426427,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 107,
+    "workerColo": "CDG"
+   },
+   "reps": 2857
+  },
+  {
+   "id": "q2.whole.all.n41.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n41",
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_current WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888134,
+     "round": 0,
+     "reps": 6,
+     "workerMs": 666,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 659,
+      "cpuMs": 628,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888165,
+     "round": 1,
+     "reps": 6,
+     "workerMs": 1242,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1242,
+      "cpuMs": 1064,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888303,
+     "round": 2,
+     "reps": 6,
+     "workerMs": 1134,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1127,
+      "cpuMs": 1064,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888387,
+     "round": 3,
+     "reps": 6,
+     "workerMs": 673,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 668,
+      "cpuMs": 615,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888440,
+     "round": 4,
+     "reps": 6,
+     "workerMs": 659,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 654,
+      "cpuMs": 616,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888042,
+    "rows": 116,
+    "bytes": 40788,
+    "rowsRead": 30041,
+    "check": 151536629,
+    "statements": 1,
+    "plan": [
+     "SCAN Snapshots USING INDEX idx_Snapshots_current",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 261,
+    "workerColo": "CDG"
+   },
+   "reps": 6
+  },
+  {
+   "id": "q2.whole.all.n41.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n41",
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888121,
+     "round": 0,
+     "reps": 504,
+     "workerMs": 830,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 807,
+      "cpuMs": 781,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888189,
+     "round": 1,
+     "reps": 504,
+     "workerMs": 860,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 849,
+      "cpuMs": 720,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888295,
+     "round": 2,
+     "reps": 504,
+     "workerMs": 902,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 899,
+      "cpuMs": 718,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888356,
+     "round": 3,
+     "reps": 504,
+     "workerMs": 787,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 777,
+      "cpuMs": 741,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888436,
+     "round": 4,
+     "reps": 504,
+     "workerMs": 835,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 824,
+      "cpuMs": 784,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888043,
+    "rows": 116,
+    "bytes": 40788,
+    "rowsRead": 236,
+    "check": 151536629,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 106,
+    "workerColo": "CDG"
+   },
+   "reps": 504
+  },
+  {
+   "id": "q2.whole.all.n41.swap-node",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n41",
+    "arm": "swap-node",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888094,
+     "round": 0,
+     "reps": 504,
+     "workerMs": 893,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 883,
+      "cpuMs": 777,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888219,
+     "round": 1,
+     "reps": 504,
+     "workerMs": 944,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 935,
+      "cpuMs": 747,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888252,
+     "round": 2,
+     "reps": 504,
+     "workerMs": 928,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 912,
+      "cpuMs": 717,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888358,
+     "round": 3,
+     "reps": 504,
+     "workerMs": 1319,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1313,
+      "cpuMs": 1232,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888417,
+     "round": 4,
+     "reps": 504,
+     "workerMs": 1077,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1067,
+      "cpuMs": 1003,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888044,
+    "rows": 116,
+    "bytes": 40788,
+    "rowsRead": 236,
+    "check": 151536629,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 100,
+    "workerColo": "CDG"
+   },
+   "reps": 504
+  },
+  {
+   "id": "q2.whole.all.n411.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n411",
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_current WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888143,
+     "round": 0,
+     "reps": 5,
+     "workerMs": 525,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 518,
+      "cpuMs": 503,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888216,
+     "round": 1,
+     "reps": 5,
+     "workerMs": 709,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 706,
+      "cpuMs": 524,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888266,
+     "round": 2,
+     "reps": 5,
+     "workerMs": 741,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 735,
+      "cpuMs": 533,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888337,
+     "round": 3,
+     "reps": 5,
+     "workerMs": 573,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 564,
+      "cpuMs": 521,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888407,
+     "round": 4,
+     "reps": 5,
+     "workerMs": 586,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 574,
+      "cpuMs": 532,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888045,
+    "rows": 1312,
+    "bytes": 467950,
+    "rowsRead": 30419,
+    "check": 71205714,
+    "statements": 1,
+    "plan": [
+     "SCAN Snapshots USING INDEX idx_Snapshots_current",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 209,
+    "workerColo": "CDG"
+   },
+   "reps": 5
+  },
+  {
+   "id": "q2.whole.all.n411.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n411",
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888139,
+     "round": 0,
+     "reps": 50,
+     "workerMs": 929,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 922,
+      "cpuMs": 900,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888162,
+     "round": 1,
+     "reps": 50,
+     "workerMs": 1879,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1868,
+      "cpuMs": 1616,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888306,
+     "round": 2,
+     "reps": 50,
+     "workerMs": 990,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 985,
+      "cpuMs": 935,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888338,
+     "round": 3,
+     "reps": 50,
+     "workerMs": 945,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 939,
+      "cpuMs": 898,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888467,
+     "round": 4,
+     "reps": 50,
+     "workerMs": 884,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 877,
+      "cpuMs": 839,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888046,
+    "rows": 1312,
+    "bytes": 467950,
+    "rowsRead": 2552,
+    "check": 71205714,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 125,
+    "workerColo": "CDG"
+   },
+   "reps": 50
+  },
+  {
+   "id": "q2.whole.all.n411.swap-node",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n411",
+    "arm": "swap-node",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888123,
+     "round": 0,
+     "reps": 50,
+     "workerMs": 955,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 936,
+      "cpuMs": 912,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888232,
+     "round": 1,
+     "reps": 50,
+     "workerMs": 1053,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1047,
+      "cpuMs": 868,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888301,
+     "round": 2,
+     "reps": 50,
+     "workerMs": 1021,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1013,
+      "cpuMs": 952,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888374,
+     "round": 3,
+     "reps": 50,
+     "workerMs": 1013,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1003,
+      "cpuMs": 946,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888437,
+     "round": 4,
+     "reps": 50,
+     "workerMs": 981,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 972,
+      "cpuMs": 929,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888047,
+    "rows": 1312,
+    "bytes": 467950,
+    "rowsRead": 2552,
+    "check": 71205714,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 123,
+    "workerColo": "CDG"
+   },
+   "reps": 50
+  },
+  {
+   "id": "q2.whole.all.n4111.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n4111",
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_current WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888122,
+     "round": 0,
+     "reps": 4,
+     "workerMs": 569,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 557,
+      "cpuMs": 521,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888160,
+     "round": 1,
+     "reps": 4,
+     "workerMs": 1409,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1404,
+      "cpuMs": 1063,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888239,
+     "round": 2,
+     "reps": 4,
+     "workerMs": 822,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 816,
+      "cpuMs": 500,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888330,
+     "round": 3,
+     "reps": 4,
+     "workerMs": 643,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 635,
+      "cpuMs": 538,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888462,
+     "round": 4,
+     "reps": 4,
+     "workerMs": 1083,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1073,
+      "cpuMs": 972,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888048,
+    "rows": 12000,
+    "bytes": 4336750,
+    "rowsRead": 34111,
+    "check": 1375774002,
+    "statements": 1,
+    "plan": [
+     "SCAN Snapshots USING INDEX idx_Snapshots_current",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 349,
+    "workerColo": "CDG"
+   },
+   "reps": 4
+  },
+  {
+   "id": "q2.whole.all.n4111.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n4111",
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888140,
+     "round": 0,
+     "reps": 5,
+     "workerMs": 852,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 830,
+      "cpuMs": 804,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888175,
+     "round": 1,
+     "reps": 5,
+     "workerMs": 1152,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1141,
+      "cpuMs": 826,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888262,
+     "round": 2,
+     "reps": 5,
+     "workerMs": 1033,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1026,
+      "cpuMs": 774,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888345,
+     "round": 3,
+     "reps": 5,
+     "workerMs": 1562,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1555,
+      "cpuMs": 1393,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888455,
+     "round": 4,
+     "reps": 5,
+     "workerMs": 1020,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1010,
+      "cpuMs": 724,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888049,
+    "rows": 12000,
+    "bytes": 4336750,
+    "rowsRead": 24104,
+    "check": 1375774002,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 316,
+    "workerColo": "CDG"
+   },
+   "reps": 5
+  },
+  {
+   "id": "q2.whole.all.n4111.swap-node",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n4111",
+    "arm": "swap-node",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888156,
+     "round": 0,
+     "reps": 5,
+     "workerMs": 1032,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1018,
+      "cpuMs": 799,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888209,
+     "round": 1,
+     "reps": 5,
+     "workerMs": 1783,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1777,
+      "cpuMs": 1305,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888305,
+     "round": 2,
+     "reps": 5,
+     "workerMs": 890,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 877,
+      "cpuMs": 799,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888361,
+     "round": 3,
+     "reps": 5,
+     "workerMs": 1559,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1548,
+      "cpuMs": 1400,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888405,
+     "round": 4,
+     "reps": 5,
+     "workerMs": 867,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 856,
+      "cpuMs": 815,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888050,
+    "rows": 12000,
+    "bytes": 4336750,
+    "rowsRead": 24104,
+    "check": 1375774002,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 388,
+    "workerColo": "CDG"
+   },
+   "reps": 5
+  },
+  {
+   "id": "q2.paged.all.n411.2000k.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n411",
+    "budgetBytes": 2000000,
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_current WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND resourceId > ? ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888088,
+     "round": 0,
+     "reps": 5,
+     "workerMs": 623,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 617,
+      "cpuMs": 520,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888211,
+     "round": 1,
+     "reps": 5,
+     "workerMs": 942,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 933,
+      "cpuMs": 599,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888277,
+     "round": 2,
+     "reps": 5,
+     "workerMs": 741,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 712,
+      "cpuMs": 525,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888325,
+     "round": 3,
+     "reps": 5,
+     "workerMs": 605,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 593,
+      "cpuMs": 538,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888414,
+     "round": 4,
+     "reps": 5,
+     "workerMs": 580,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 571,
+      "cpuMs": 532,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888051,
+    "rows": 1312,
+    "bytes": 467950,
+    "rowsRead": 30419,
+    "check": 71205714,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 1312,
+      "bytes": 467950,
+      "rowsRead": 30419
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_current (resourceId>?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 309,
+    "workerColo": "CDG"
+   },
+   "reps": 5
+  },
+  {
+   "id": "q2.paged.all.n411.2000k.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n411",
+    "budgetBytes": 2000000,
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888107,
+     "round": 0,
+     "reps": 50,
+     "workerMs": 1662,
+     "workerColo": "ARN",
+     "logs": {
+      "wallMs": 1628,
+      "cpuMs": 1456,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888218,
+     "round": 1,
+     "reps": 50,
+     "workerMs": 1139,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1130,
+      "cpuMs": 922,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888271,
+     "round": 2,
+     "reps": 50,
+     "workerMs": 1181,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1176,
+      "cpuMs": 970,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888344,
+     "round": 3,
+     "reps": 50,
+     "workerMs": 982,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 978,
+      "cpuMs": 934,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888393,
+     "round": 4,
+     "reps": 50,
+     "workerMs": 1093,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1082,
+      "cpuMs": 1020,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888052,
+    "rows": 1312,
+    "bytes": 467950,
+    "rowsRead": 2552,
+    "check": 71205714,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 1312,
+      "bytes": 467950,
+      "rowsRead": 2552
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 133,
+    "workerColo": "CDG"
+   },
+   "reps": 50
+  },
+  {
+   "id": "q2.paged.all.n411.2000k.b-node-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n411",
+    "budgetBytes": 2000000,
+    "arm": "b-node-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888120,
+     "round": 0,
+     "reps": 50,
+     "workerMs": 965,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 941,
+      "cpuMs": 921,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888192,
+     "round": 1,
+     "reps": 50,
+     "workerMs": 1042,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1039,
+      "cpuMs": 901,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888278,
+     "round": 2,
+     "reps": 50,
+     "workerMs": 1924,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1914,
+      "cpuMs": 1637,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888384,
+     "round": 3,
+     "reps": 50,
+     "workerMs": 996,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 970,
+      "cpuMs": 921,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888412,
+     "round": 4,
+     "reps": 50,
+     "workerMs": 1062,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1056,
+      "cpuMs": 1001,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888053,
+    "rows": 1312,
+    "bytes": 467950,
+    "rowsRead": 2552,
+    "check": 71205714,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 1312,
+      "bytes": 467950,
+      "rowsRead": 2552
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 123,
+    "workerColo": "CDG"
+   },
+   "reps": 50
+  },
+  {
+   "id": "q2.paged.all.n411.2000k.swap-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n411",
+    "budgetBytes": 2000000,
+    "arm": "swap-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888144,
+     "round": 0,
+     "reps": 50,
+     "workerMs": 964,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 942,
+      "cpuMs": 917,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888201,
+     "round": 1,
+     "reps": 50,
+     "workerMs": 1102,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1100,
+      "cpuMs": 898,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888288,
+     "round": 2,
+     "reps": 50,
+     "workerMs": 1104,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1098,
+      "cpuMs": 912,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888368,
+     "round": 3,
+     "reps": 50,
+     "workerMs": 950,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 943,
+      "cpuMs": 904,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888400,
+     "round": 4,
+     "reps": 50,
+     "workerMs": 1018,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 937,
+      "cpuMs": 898,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888054,
+    "rows": 1312,
+    "bytes": 467950,
+    "rowsRead": 2552,
+    "check": 71205714,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 1312,
+      "bytes": 467950,
+      "rowsRead": 2552
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 131,
+    "workerColo": "CDG"
+   },
+   "reps": 50
+  },
+  {
+   "id": "q2.paged.all.n411.250k.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n411",
+    "budgetBytes": 250000,
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_current WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND resourceId > ? ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888110,
+     "round": 0,
+     "reps": 5,
+     "workerMs": 814,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 799,
+      "cpuMs": 604,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888213,
+     "round": 1,
+     "reps": 5,
+     "workerMs": 1013,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1005,
+      "cpuMs": 796,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888302,
+     "round": 2,
+     "reps": 5,
+     "workerMs": 562,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 556,
+      "cpuMs": 518,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888319,
+     "round": 3,
+     "reps": 5,
+     "workerMs": 923,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 915,
+      "cpuMs": 865,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888395,
+     "round": 4,
+     "reps": 5,
+     "workerMs": 586,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 579,
+      "cpuMs": 527,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888055,
+    "rows": 1312,
+    "bytes": 467950,
+    "rowsRead": 30853,
+    "check": 71205714,
+    "statements": 2,
+    "pages": [
+     {
+      "rows": 692,
+      "bytes": 250186,
+      "rowsRead": 15822
+     },
+     {
+      "rows": 620,
+      "bytes": 217764,
+      "rowsRead": 15031
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_current (resourceId>?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 210,
+    "workerColo": "CDG"
+   },
+   "reps": 5
+  },
+  {
+   "id": "q2.paged.all.n411.250k.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n411",
+    "budgetBytes": 250000,
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888099,
+     "round": 0,
+     "reps": 34,
+     "workerMs": 995,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 987,
+      "cpuMs": 890,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888205,
+     "round": 1,
+     "reps": 34,
+     "workerMs": 1095,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1088,
+      "cpuMs": 882,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888309,
+     "round": 2,
+     "reps": 34,
+     "workerMs": 1622,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1612,
+      "cpuMs": 1494,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888354,
+     "round": 3,
+     "reps": 34,
+     "workerMs": 952,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 942,
+      "cpuMs": 900,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888439,
+     "round": 4,
+     "reps": 34,
+     "workerMs": 944,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 932,
+      "cpuMs": 892,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888056,
+    "rows": 1312,
+    "bytes": 467950,
+    "rowsRead": 4128,
+    "check": 71205714,
+    "statements": 2,
+    "pages": [
+     {
+      "rows": 701,
+      "bytes": 250050,
+      "rowsRead": 1576
+     },
+     {
+      "rows": 611,
+      "bytes": 217900,
+      "rowsRead": 2552
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 147,
+    "workerColo": "CDG"
+   },
+   "reps": 34
+  },
+  {
+   "id": "q2.paged.all.n411.250k.b-node-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n411",
+    "budgetBytes": 250000,
+    "arm": "b-node-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888157,
+     "round": 0,
+     "reps": 47,
+     "workerMs": 1014,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1009,
+      "cpuMs": 868,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888228,
+     "round": 1,
+     "reps": 47,
+     "workerMs": 1059,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1053,
+      "cpuMs": 870,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888311,
+     "round": 2,
+     "reps": 47,
+     "workerMs": 872,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 859,
+      "cpuMs": 814,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888326,
+     "round": 3,
+     "reps": 47,
+     "workerMs": 926,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 917,
+      "cpuMs": 879,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888438,
+     "round": 4,
+     "reps": 47,
+     "workerMs": 1458,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1444,
+      "cpuMs": 1351,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888057,
+    "rows": 1312,
+    "bytes": 467950,
+    "rowsRead": 2747,
+    "check": 71205714,
+    "statements": 2,
+    "pages": [
+     {
+      "rows": 701,
+      "bytes": 250050,
+      "rowsRead": 1576
+     },
+     {
+      "rows": 611,
+      "bytes": 217900,
+      "rowsRead": 1171
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 126,
+    "workerColo": "CDG"
+   },
+   "reps": 47
+  },
+  {
+   "id": "q2.paged.all.n411.250k.swap-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n411",
+    "budgetBytes": 250000,
+    "arm": "swap-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888092,
+     "round": 0,
+     "reps": 47,
+     "workerMs": 1032,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 1021,
+      "cpuMs": 924,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888207,
+     "round": 1,
+     "reps": 47,
+     "workerMs": 1072,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1062,
+      "cpuMs": 875,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888304,
+     "round": 2,
+     "reps": 47,
+     "workerMs": 930,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 922,
+      "cpuMs": 885,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888369,
+     "round": 3,
+     "reps": 47,
+     "workerMs": 1502,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1489,
+      "cpuMs": 1393,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888401,
+     "round": 4,
+     "reps": 47,
+     "workerMs": 880,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 871,
+      "cpuMs": 820,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888058,
+    "rows": 1312,
+    "bytes": 467950,
+    "rowsRead": 2747,
+    "check": 71205714,
+    "statements": 2,
+    "pages": [
+     {
+      "rows": 701,
+      "bytes": 250050,
+      "rowsRead": 1576
+     },
+     {
+      "rows": 611,
+      "bytes": 217900,
+      "rowsRead": 1171
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 123,
+    "workerColo": "CDG"
+   },
+   "reps": 47
+  },
+  {
+   "id": "q2.paged.all.n4111.2000k.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n4111",
+    "budgetBytes": 2000000,
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_current WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND resourceId > ? ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888126,
+     "round": 0,
+     "reps": 3,
+     "workerMs": 488,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 460,
+      "cpuMs": 427,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888174,
+     "round": 1,
+     "reps": 3,
+     "workerMs": 612,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 611,
+      "cpuMs": 426,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888272,
+     "round": 2,
+     "reps": 3,
+     "workerMs": 967,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 970,
+      "cpuMs": 711,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888352,
+     "round": 3,
+     "reps": 3,
+     "workerMs": 498,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 488,
+      "cpuMs": 400,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888464,
+     "round": 4,
+     "reps": 3,
+     "workerMs": 491,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 480,
+      "cpuMs": 402,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888059,
+    "rows": 12000,
+    "bytes": 4336750,
+    "rowsRead": 42337,
+    "check": 1375774002,
+    "statements": 3,
+    "pages": [
+     {
+      "rows": 5518,
+      "bytes": 2000149,
+      "rowsRead": 17820
+     },
+     {
+      "rows": 5546,
+      "bytes": 2000324,
+      "rowsRead": 18075
+     },
+     {
+      "rows": 936,
+      "bytes": 336277,
+      "rowsRead": 6442
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_current (resourceId>?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 282,
+    "workerColo": "CDG"
+   },
+   "reps": 3
+  },
+  {
+   "id": "q2.paged.all.n4111.2000k.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n4111",
+    "budgetBytes": 2000000,
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888152,
+     "round": 0,
+     "reps": 2,
+     "workerMs": 1020,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1004,
+      "cpuMs": 711,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888214,
+     "round": 1,
+     "reps": 2,
+     "workerMs": 1007,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 999,
+      "cpuMs": 653,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888285,
+     "round": 2,
+     "reps": 2,
+     "workerMs": 1065,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1057,
+      "cpuMs": 679,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888315,
+     "round": 3,
+     "reps": 2,
+     "workerMs": 809,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 799,
+      "cpuMs": 672,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888394,
+     "round": 4,
+     "reps": 2,
+     "workerMs": 855,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 847,
+      "cpuMs": 727,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888060,
+    "rows": 12000,
+    "bytes": 4336750,
+    "rowsRead": 59968,
+    "check": 1375774002,
+    "statements": 3,
+    "pages": [
+     {
+      "rows": 5514,
+      "bytes": 2000249,
+      "rowsRead": 13281
+     },
+     {
+      "rows": 5563,
+      "bytes": 2000078,
+      "rowsRead": 22583
+     },
+     {
+      "rows": 923,
+      "bytes": 336423,
+      "rowsRead": 24104
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 538,
+    "workerColo": "CDG"
+   },
+   "reps": 2
+  },
+  {
+   "id": "q2.paged.all.n4111.2000k.b-node-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n4111",
+    "budgetBytes": 2000000,
+    "arm": "b-node-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888098,
+     "round": 0,
+     "reps": 5,
+     "workerMs": 922,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 913,
+      "cpuMs": 812,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888187,
+     "round": 1,
+     "reps": 5,
+     "workerMs": 1833,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1829,
+      "cpuMs": 1450,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888298,
+     "round": 2,
+     "reps": 5,
+     "workerMs": 1239,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1224,
+      "cpuMs": 831,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888321,
+     "round": 3,
+     "reps": 5,
+     "workerMs": 890,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 879,
+      "cpuMs": 794,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888448,
+     "round": 4,
+     "reps": 5,
+     "workerMs": 883,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 875,
+      "cpuMs": 795,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888061,
+    "rows": 12000,
+    "bytes": 4336750,
+    "rowsRead": 26649,
+    "check": 1375774002,
+    "statements": 3,
+    "pages": [
+     {
+      "rows": 5514,
+      "bytes": 2000249,
+      "rowsRead": 13281
+     },
+     {
+      "rows": 5563,
+      "bytes": 2000078,
+      "rowsRead": 11539
+     },
+     {
+      "rows": 923,
+      "bytes": 336423,
+      "rowsRead": 1829
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 326,
+    "workerColo": "CDG"
+   },
+   "reps": 5
+  },
+  {
+   "id": "q2.paged.all.n4111.2000k.swap-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n4111",
+    "budgetBytes": 2000000,
+    "arm": "swap-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888131,
+     "round": 0,
+     "reps": 5,
+     "workerMs": 1460,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 1440,
+      "cpuMs": 1344,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888166,
+     "round": 1,
+     "reps": 5,
+     "workerMs": 1049,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1037,
+      "cpuMs": 831,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888291,
+     "round": 2,
+     "reps": 5,
+     "workerMs": 1668,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1663,
+      "cpuMs": 1323,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888346,
+     "round": 3,
+     "reps": 5,
+     "workerMs": 1125,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1117,
+      "cpuMs": 820,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888450,
+     "round": 4,
+     "reps": 5,
+     "workerMs": 1071,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1062,
+      "cpuMs": 766,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888062,
+    "rows": 12000,
+    "bytes": 4336750,
+    "rowsRead": 26649,
+    "check": 1375774002,
+    "statements": 3,
+    "pages": [
+     {
+      "rows": 5514,
+      "bytes": 2000249,
+      "rowsRead": 13281
+     },
+     {
+      "rows": 5563,
+      "bytes": 2000078,
+      "rowsRead": 11539
+     },
+     {
+      "rows": 923,
+      "bytes": 336423,
+      "rowsRead": 1829
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 341,
+    "workerColo": "CDG"
+   },
+   "reps": 5
+  },
+  {
+   "id": "q2.paged.all.n4111.250k.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n4111",
+    "budgetBytes": 250000,
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_current WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND resourceId > ? ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888086,
+     "round": 0,
+     "reps": 1,
+     "workerMs": 350,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 334,
+      "cpuMs": 176,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888229,
+     "round": 1,
+     "reps": 1,
+     "workerMs": 405,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 398,
+      "cpuMs": 155,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888237,
+     "round": 2,
+     "reps": 1,
+     "workerMs": 593,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 583,
+      "cpuMs": 175,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888366,
+     "round": 3,
+     "reps": 1,
+     "workerMs": 266,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 258,
+      "cpuMs": 172,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888422,
+     "round": 4,
+     "reps": 1,
+     "workerMs": 253,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 245,
+      "cpuMs": 164,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888063,
+    "rows": 12000,
+    "bytes": 4336750,
+    "rowsRead": 104052,
+    "check": 1375774002,
+    "statements": 18,
+    "pages": [
+     {
+      "rows": 690,
+      "bytes": 250380,
+      "rowsRead": 5767
+     },
+     {
+      "rows": 672,
+      "bytes": 250460,
+      "rowsRead": 5742
+     },
+     {
+      "rows": 701,
+      "bytes": 250150,
+      "rowsRead": 5824
+     },
+     {
+      "rows": 697,
+      "bytes": 250238,
+      "rowsRead": 5822
+     },
+     {
+      "rows": 684,
+      "bytes": 250126,
+      "rowsRead": 5745
+     },
+     {
+      "rows": 695,
+      "bytes": 250169,
+      "rowsRead": 5962
+     },
+     {
+      "rows": 694,
+      "bytes": 250165,
+      "rowsRead": 5887
+     },
+     {
+      "rows": 690,
+      "bytes": 250221,
+      "rowsRead": 5880
+     },
+     {
+      "rows": 696,
+      "bytes": 250399,
+      "rowsRead": 5825
+     },
+     {
+      "rows": 696,
+      "bytes": 250116,
+      "rowsRead": 5831
+     },
+     {
+      "rows": 693,
+      "bytes": 250317,
+      "rowsRead": 5829
+     },
+     {
+      "rows": 698,
+      "bytes": 250142,
+      "rowsRead": 5986
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_current (resourceId>?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 403,
+    "workerColo": "CDG"
+   },
+   "reps": 1
+  },
+  {
+   "id": "q2.paged.all.n4111.250k.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n4111",
+    "budgetBytes": 250000,
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888145,
+     "round": 0,
+     "reps": 1,
+     "workerMs": 2261,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1960,
+      "cpuMs": 1438,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888208,
+     "round": 1,
+     "reps": 1,
+     "workerMs": 1925,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1914,
+      "cpuMs": 1327,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888310,
+     "round": 2,
+     "reps": 1,
+     "workerMs": 2234,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 2225,
+      "cpuMs": 1963,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888335,
+     "round": 3,
+     "reps": 1,
+     "workerMs": 1462,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1458,
+      "cpuMs": 1347,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888442,
+     "round": 4,
+     "reps": 1,
+     "workerMs": 1568,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1553,
+      "cpuMs": 1389,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888064,
+    "rows": 12000,
+    "bytes": 4336750,
+    "rowsRead": 270688,
+    "check": 1375774002,
+    "statements": 18,
+    "pages": [
+     {
+      "rows": 698,
+      "bytes": 250272,
+      "rowsRead": 5292
+     },
+     {
+      "rows": 687,
+      "bytes": 250395,
+      "rowsRead": 6452
+     },
+     {
+      "rows": 689,
+      "bytes": 250061,
+      "rowsRead": 7574
+     },
+     {
+      "rows": 704,
+      "bytes": 250086,
+      "rowsRead": 8740
+     },
+     {
+      "rows": 686,
+      "bytes": 250186,
+      "rowsRead": 9871
+     },
+     {
+      "rows": 685,
+      "bytes": 250085,
+      "rowsRead": 11022
+     },
+     {
+      "rows": 690,
+      "bytes": 250269,
+      "rowsRead": 12176
+     },
+     {
+      "rows": 678,
+      "bytes": 250123,
+      "rowsRead": 13286
+     },
+     {
+      "rows": 698,
+      "bytes": 250189,
+      "rowsRead": 14471
+     },
+     {
+      "rows": 709,
+      "bytes": 250265,
+      "rowsRead": 15675
+     },
+     {
+      "rows": 706,
+      "bytes": 250163,
+      "rowsRead": 16836
+     },
+     {
+      "rows": 687,
+      "bytes": 250444,
+      "rowsRead": 17972
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 1812,
+    "workerColo": "CDG"
+   },
+   "reps": 1
+  },
+  {
+   "id": "q2.paged.all.n4111.250k.b-node-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n4111",
+    "budgetBytes": 250000,
+    "arm": "b-node-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888154,
+     "round": 0,
+     "reps": 3,
+     "workerMs": 863,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 855,
+      "cpuMs": 523,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888221,
+     "round": 1,
+     "reps": 3,
+     "workerMs": 715,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 710,
+      "cpuMs": 509,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888283,
+     "round": 2,
+     "reps": 3,
+     "workerMs": 870,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 864,
+      "cpuMs": 589,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888378,
+     "round": 3,
+     "reps": 3,
+     "workerMs": 839,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 825,
+      "cpuMs": 527,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888426,
+     "round": 4,
+     "reps": 3,
+     "workerMs": 613,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 606,
+      "cpuMs": 559,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888065,
+    "rows": 12000,
+    "bytes": 4336750,
+    "rowsRead": 57661,
+    "check": 1375774002,
+    "statements": 18,
+    "pages": [
+     {
+      "rows": 698,
+      "bytes": 250272,
+      "rowsRead": 5292
+     },
+     {
+      "rows": 687,
+      "bytes": 250395,
+      "rowsRead": 5032
+     },
+     {
+      "rows": 689,
+      "bytes": 250061,
+      "rowsRead": 4742
+     },
+     {
+      "rows": 704,
+      "bytes": 250086,
+      "rowsRead": 4561
+     },
+     {
+      "rows": 686,
+      "bytes": 250186,
+      "rowsRead": 4288
+     },
+     {
+      "rows": 685,
+      "bytes": 250085,
+      "rowsRead": 4083
+     },
+     {
+      "rows": 690,
+      "bytes": 250269,
+      "rowsRead": 3843
+     },
+     {
+      "rows": 678,
+      "bytes": 250123,
+      "rowsRead": 3560
+     },
+     {
+      "rows": 698,
+      "bytes": 250189,
+      "rowsRead": 3415
+     },
+     {
+      "rows": 709,
+      "bytes": 250265,
+      "rowsRead": 3184
+     },
+     {
+      "rows": 706,
+      "bytes": 250163,
+      "rowsRead": 2892
+     },
+     {
+      "rows": 687,
+      "bytes": 250444,
+      "rowsRead": 2631
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 334,
+    "workerColo": "CDG"
+   },
+   "reps": 3
+  },
+  {
+   "id": "q2.paged.all.n4111.250k.swap-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "all",
+    "subtree": "n4111",
+    "budgetBytes": 250000,
+    "arm": "swap-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888127,
+     "round": 0,
+     "reps": 3,
+     "workerMs": 556,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 540,
+      "cpuMs": 511,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888225,
+     "round": 1,
+     "reps": 3,
+     "workerMs": 1007,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 999,
+      "cpuMs": 585,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888245,
+     "round": 2,
+     "reps": 3,
+     "workerMs": 791,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 778,
+      "cpuMs": 507,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888322,
+     "round": 3,
+     "reps": 3,
+     "workerMs": 1156,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1139,
+      "cpuMs": 1038,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888391,
+     "round": 4,
+     "reps": 3,
+     "workerMs": 671,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 664,
+      "cpuMs": 576,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888066,
+    "rows": 12000,
+    "bytes": 4336750,
+    "rowsRead": 57661,
+    "check": 1375774002,
+    "statements": 18,
+    "pages": [
+     {
+      "rows": 698,
+      "bytes": 250272,
+      "rowsRead": 5292
+     },
+     {
+      "rows": 687,
+      "bytes": 250395,
+      "rowsRead": 5032
+     },
+     {
+      "rows": 689,
+      "bytes": 250061,
+      "rowsRead": 4742
+     },
+     {
+      "rows": 704,
+      "bytes": 250086,
+      "rowsRead": 4561
+     },
+     {
+      "rows": 686,
+      "bytes": 250186,
+      "rowsRead": 4288
+     },
+     {
+      "rows": 685,
+      "bytes": 250085,
+      "rowsRead": 4083
+     },
+     {
+      "rows": 690,
+      "bytes": 250269,
+      "rowsRead": 3843
+     },
+     {
+      "rows": 678,
+      "bytes": 250123,
+      "rowsRead": 3560
+     },
+     {
+      "rows": 698,
+      "bytes": 250189,
+      "rowsRead": 3415
+     },
+     {
+      "rows": 709,
+      "bytes": 250265,
+      "rowsRead": 3184
+     },
+     {
+      "rows": 706,
+      "bytes": 250163,
+      "rowsRead": 2892
+     },
+     {
+      "rows": 687,
+      "bytes": 250444,
+      "rowsRead": 2631
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 429,
+    "workerColo": "CDG"
+   },
+   "reps": 3
+  },
+  {
+   "id": "q2.paged.stage.n411.2000k.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n411",
+    "budgetBytes": 2000000,
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND resourceId > ? ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888133,
+     "round": 0,
+     "reps": 55,
+     "workerMs": 1051,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 1003,
+      "cpuMs": 977,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888197,
+     "round": 1,
+     "reps": 55,
+     "workerMs": 1126,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1108,
+      "cpuMs": 979,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888259,
+     "round": 2,
+     "reps": 55,
+     "workerMs": 1161,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1154,
+      "cpuMs": 956,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888327,
+     "round": 3,
+     "reps": 55,
+     "workerMs": 1431,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1421,
+      "cpuMs": 1318,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888461,
+     "round": 4,
+     "reps": 55,
+     "workerMs": 1053,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1059,
+      "cpuMs": 1001,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888067,
+    "rows": 242,
+    "bytes": 84522,
+    "rowsRead": 2836,
+    "check": 343184595,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 242,
+      "bytes": 84522,
+      "rowsRead": 2836
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:stage (<expr>=? AND resourceId>?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 111,
+    "workerColo": "CDG"
+   },
+   "reps": 55
+  },
+  {
+   "id": "q2.paged.stage.n411.2000k.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n411",
+    "budgetBytes": 2000000,
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888091,
+     "round": 0,
+     "reps": 61,
+     "workerMs": 1218,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 1210,
+      "cpuMs": 1108,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888230,
+     "round": 1,
+     "reps": 61,
+     "workerMs": 1228,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1221,
+      "cpuMs": 1014,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888256,
+     "round": 2,
+     "reps": 61,
+     "workerMs": 1417,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1410,
+      "cpuMs": 1186,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888348,
+     "round": 3,
+     "reps": 61,
+     "workerMs": 1199,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1190,
+      "cpuMs": 1127,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888445,
+     "round": 4,
+     "reps": 61,
+     "workerMs": 1146,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1140,
+      "cpuMs": 1081,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888068,
+    "rows": 242,
+    "bytes": 84522,
+    "rowsRead": 2552,
+    "check": 343184595,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 242,
+      "bytes": 84522,
+      "rowsRead": 2552
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 147,
+    "workerColo": "CDG"
+   },
+   "reps": 61
+  },
+  {
+   "id": "q2.paged.stage.n411.2000k.b-node-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n411",
+    "budgetBytes": 2000000,
+    "arm": "b-node-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888083,
+     "round": 0,
+     "reps": 61,
+     "workerMs": 1301,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 1292,
+      "cpuMs": 1169,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888179,
+     "round": 1,
+     "reps": 61,
+     "workerMs": 1923,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1918,
+      "cpuMs": 1666,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888240,
+     "round": 2,
+     "reps": 61,
+     "workerMs": 1336,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1319,
+      "cpuMs": 1117,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888389,
+     "round": 3,
+     "reps": 61,
+     "workerMs": 1833,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1820,
+      "cpuMs": 1671,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888403,
+     "round": 4,
+     "reps": 61,
+     "workerMs": 1894,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1882,
+      "cpuMs": 1718,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888069,
+    "rows": 242,
+    "bytes": 84522,
+    "rowsRead": 2552,
+    "check": 343184595,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 242,
+      "bytes": 84522,
+      "rowsRead": 2552
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 142,
+    "workerColo": "CDG"
+   },
+   "reps": 61
+  },
+  {
+   "id": "q2.paged.stage.n411.2000k.swap-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n411",
+    "budgetBytes": 2000000,
+    "arm": "swap-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888090,
+     "round": 0,
+     "reps": 61,
+     "workerMs": 1177,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 1164,
+      "cpuMs": 1056,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888198,
+     "round": 1,
+     "reps": 61,
+     "workerMs": 1625,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1319,
+      "cpuMs": 1100,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888281,
+     "round": 2,
+     "reps": 61,
+     "workerMs": 1273,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1268,
+      "cpuMs": 1067,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888377,
+     "round": 3,
+     "reps": 61,
+     "workerMs": 1253,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1246,
+      "cpuMs": 1178,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888443,
+     "round": 4,
+     "reps": 61,
+     "workerMs": 1095,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1084,
+      "cpuMs": 1038,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888070,
+    "rows": 242,
+    "bytes": 84522,
+    "rowsRead": 2552,
+    "check": 343184595,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 242,
+      "bytes": 84522,
+      "rowsRead": 2552
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 124,
+    "workerColo": "CDG"
+   },
+   "reps": 61
+  },
+  {
+   "id": "q2.paged.stage.n411.250k.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n411",
+    "budgetBytes": 250000,
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND resourceId > ? ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888087,
+     "round": 0,
+     "reps": 55,
+     "workerMs": 1798,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 1789,
+      "cpuMs": 1604,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888233,
+     "round": 1,
+     "reps": 55,
+     "workerMs": 1193,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1185,
+      "cpuMs": 1000,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888273,
+     "round": 2,
+     "reps": 55,
+     "workerMs": 1198,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1190,
+      "cpuMs": 994,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888316,
+     "round": 3,
+     "reps": 55,
+     "workerMs": 1059,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1051,
+      "cpuMs": 1005,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888425,
+     "round": 4,
+     "reps": 55,
+     "workerMs": 1103,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1091,
+      "cpuMs": 1041,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888071,
+    "rows": 242,
+    "bytes": 84522,
+    "rowsRead": 2836,
+    "check": 343184595,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 242,
+      "bytes": 84522,
+      "rowsRead": 2836
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:stage (<expr>=? AND resourceId>?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 117,
+    "workerColo": "CDG"
+   },
+   "reps": 55
+  },
+  {
+   "id": "q2.paged.stage.n411.250k.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n411",
+    "budgetBytes": 250000,
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888142,
+     "round": 0,
+     "reps": 61,
+     "workerMs": 1146,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 1131,
+      "cpuMs": 1097,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888193,
+     "round": 1,
+     "reps": 61,
+     "workerMs": 1270,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1263,
+      "cpuMs": 1104,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888299,
+     "round": 2,
+     "reps": 61,
+     "workerMs": 1284,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1276,
+      "cpuMs": 1083,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888363,
+     "round": 3,
+     "reps": 61,
+     "workerMs": 1244,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1239,
+      "cpuMs": 1173,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888408,
+     "round": 4,
+     "reps": 61,
+     "workerMs": 1236,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1230,
+      "cpuMs": 1163,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888072,
+    "rows": 242,
+    "bytes": 84522,
+    "rowsRead": 2552,
+    "check": 343184595,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 242,
+      "bytes": 84522,
+      "rowsRead": 2552
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 139,
+    "workerColo": "CDG"
+   },
+   "reps": 61
+  },
+  {
+   "id": "q2.paged.stage.n411.250k.b-node-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n411",
+    "budgetBytes": 250000,
+    "arm": "b-node-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888114,
+     "round": 0,
+     "reps": 61,
+     "workerMs": 1141,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 1132,
+      "cpuMs": 1101,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888163,
+     "round": 1,
+     "reps": 61,
+     "workerMs": 1425,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1418,
+      "cpuMs": 1214,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888260,
+     "round": 2,
+     "reps": 61,
+     "workerMs": 1282,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1275,
+      "cpuMs": 1076,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888383,
+     "round": 3,
+     "reps": 61,
+     "workerMs": 1198,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1197,
+      "cpuMs": 1126,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888466,
+     "round": 4,
+     "reps": 61,
+     "workerMs": 1067,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1060,
+      "cpuMs": 1018,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888073,
+    "rows": 242,
+    "bytes": 84522,
+    "rowsRead": 2552,
+    "check": 343184595,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 242,
+      "bytes": 84522,
+      "rowsRead": 2552
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 122,
+    "workerColo": "CDG"
+   },
+   "reps": 61
+  },
+  {
+   "id": "q2.paged.stage.n411.250k.swap-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n411",
+    "budgetBytes": 250000,
+    "arm": "swap-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888150,
+     "round": 0,
+     "reps": 61,
+     "workerMs": 1285,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1278,
+      "cpuMs": 1112,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888195,
+     "round": 1,
+     "reps": 61,
+     "workerMs": 1226,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1217,
+      "cpuMs": 1066,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888258,
+     "round": 2,
+     "reps": 61,
+     "workerMs": 1277,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1272,
+      "cpuMs": 1065,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888336,
+     "round": 3,
+     "reps": 61,
+     "workerMs": 1094,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1081,
+      "cpuMs": 1036,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888441,
+     "round": 4,
+     "reps": 61,
+     "workerMs": 1826,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1817,
+      "cpuMs": 1688,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888074,
+    "rows": 242,
+    "bytes": 84522,
+    "rowsRead": 2552,
+    "check": 343184595,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 242,
+      "bytes": 84522,
+      "rowsRead": 2552
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 119,
+    "workerColo": "CDG"
+   },
+   "reps": 61
+  },
+  {
+   "id": "q2.paged.stage.n4111.2000k.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n4111",
+    "budgetBytes": 2000000,
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND resourceId > ? ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888148,
+     "round": 0,
+     "reps": 21,
+     "workerMs": 841,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 831,
+      "cpuMs": 519,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888227,
+     "round": 1,
+     "reps": 21,
+     "workerMs": 743,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 733,
+      "cpuMs": 498,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888294,
+     "round": 2,
+     "reps": 21,
+     "workerMs": 1050,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1040,
+      "cpuMs": 574,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888331,
+     "round": 3,
+     "reps": 21,
+     "workerMs": 624,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 612,
+      "cpuMs": 528,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888460,
+     "round": 4,
+     "reps": 21,
+     "workerMs": 603,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 595,
+      "cpuMs": 519,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888075,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 6528,
+    "check": 2004694973,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 2416,
+      "bytes": 867136,
+      "rowsRead": 6528
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:stage (<expr>=? AND resourceId>?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 249,
+    "workerColo": "CDG"
+   },
+   "reps": 21
+  },
+  {
+   "id": "q2.paged.stage.n4111.2000k.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n4111",
+    "budgetBytes": 2000000,
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888124,
+     "round": 0,
+     "reps": 7,
+     "workerMs": 1136,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 1111,
+      "cpuMs": 1065,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888164,
+     "round": 1,
+     "reps": 7,
+     "workerMs": 1580,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1573,
+      "cpuMs": 1104,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888290,
+     "round": 2,
+     "reps": 7,
+     "workerMs": 1397,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1390,
+      "cpuMs": 1029,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888350,
+     "round": 3,
+     "reps": 7,
+     "workerMs": 1505,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1492,
+      "cpuMs": 1121,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888413,
+     "round": 4,
+     "reps": 7,
+     "workerMs": 1196,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1187,
+      "cpuMs": 1102,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888076,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 24104,
+    "check": 2004694973,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 2416,
+      "bytes": 867136,
+      "rowsRead": 24104
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 441,
+    "workerColo": "CDG"
+   },
+   "reps": 7
+  },
+  {
+   "id": "q2.paged.stage.n4111.2000k.b-node-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n4111",
+    "budgetBytes": 2000000,
+    "arm": "b-node-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888136,
+     "round": 0,
+     "reps": 7,
+     "workerMs": 1241,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 1220,
+      "cpuMs": 1149,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888224,
+     "round": 1,
+     "reps": 7,
+     "workerMs": 1375,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1365,
+      "cpuMs": 1075,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888296,
+     "round": 2,
+     "reps": 7,
+     "workerMs": 1277,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1271,
+      "cpuMs": 1035,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888371,
+     "round": 3,
+     "reps": 7,
+     "workerMs": 1371,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1360,
+      "cpuMs": 1233,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888444,
+     "round": 4,
+     "reps": 7,
+     "workerMs": 1331,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1319,
+      "cpuMs": 1019,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888077,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 24104,
+    "check": 2004694973,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 2416,
+      "bytes": 867136,
+      "rowsRead": 24104
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 359,
+    "workerColo": "CDG"
+   },
+   "reps": 7
+  },
+  {
+   "id": "q2.paged.stage.n4111.2000k.swap-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n4111",
+    "budgetBytes": 2000000,
+    "arm": "swap-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888158,
+     "round": 0,
+     "reps": 7,
+     "workerMs": 1286,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1277,
+      "cpuMs": 1033,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888236,
+     "round": 1,
+     "reps": 7,
+     "workerMs": 1607,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1597,
+      "cpuMs": 1169,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888269,
+     "round": 2,
+     "reps": 7,
+     "workerMs": 1425,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1432,
+      "cpuMs": 1124,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888343,
+     "round": 3,
+     "reps": 7,
+     "workerMs": 2017,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 2008,
+      "cpuMs": 1777,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888428,
+     "round": 4,
+     "reps": 7,
+     "workerMs": 1220,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 1209,
+      "cpuMs": 1101,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888078,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 24104,
+    "check": 2004694973,
+    "statements": 1,
+    "pages": [
+     {
+      "rows": 2416,
+      "bytes": 867136,
+      "rowsRead": 24104
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 291,
+    "workerColo": "CDG"
+   },
+   "reps": 7
+  },
+  {
+   "id": "q2.paged.stage.n4111.250k.a",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n4111",
+    "budgetBytes": 250000,
+    "arm": "a",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND resourceId > ? ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888103,
+     "round": 0,
+     "reps": 8,
+     "workerMs": 673,
+     "workerColo": "ARN",
+     "logs": {
+      "wallMs": 662,
+      "cpuMs": 399,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888173,
+     "round": 1,
+     "reps": 8,
+     "workerMs": 623,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 617,
+      "cpuMs": 430,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888293,
+     "round": 2,
+     "reps": 8,
+     "workerMs": 453,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 450,
+      "cpuMs": 234,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888334,
+     "round": 3,
+     "reps": 8,
+     "workerMs": 320,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 313,
+      "cpuMs": 226,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888434,
+     "round": 4,
+     "reps": 8,
+     "workerMs": 533,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 527,
+      "cpuMs": 231,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888079,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 18864,
+    "check": 2004694973,
+    "statements": 4,
+    "pages": [
+     {
+      "rows": 706,
+      "bytes": 250063,
+      "rowsRead": 4818
+     },
+     {
+      "rows": 698,
+      "bytes": 250237,
+      "rowsRead": 4810
+     },
+     {
+      "rows": 693,
+      "bytes": 250052,
+      "rowsRead": 4805
+     },
+     {
+      "rows": 319,
+      "bytes": 116784,
+      "rowsRead": 4431
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:stage (<expr>=? AND resourceId>?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 244,
+    "workerColo": "CDG"
+   },
+   "reps": 8
+  },
+  {
+   "id": "q2.paged.stage.n4111.250k.b-node-nodeorder",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n4111",
+    "budgetBytes": 250000,
+    "arm": "b-node-nodeorder",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888089,
+     "round": 0,
+     "reps": 2,
+     "workerMs": 968,
+     "workerColo": "CDG",
+     "logs": {
+      "wallMs": 959,
+      "cpuMs": 761,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888178,
+     "round": 1,
+     "reps": 2,
+     "workerMs": 1119,
+     "workerColo": "GRU",
+     "logs": {
+      "wallMs": 1106,
+      "cpuMs": 810,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888286,
+     "round": 2,
+     "reps": 2,
+     "workerMs": 1135,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1127,
+      "cpuMs": 745,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888367,
+     "round": 3,
+     "reps": 2,
+     "workerMs": 858,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 847,
+      "cpuMs": 774,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888399,
+     "round": 4,
+     "reps": 2,
+     "workerMs": 888,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 875,
+      "cpuMs": 778,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888080,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 71218,
+    "check": 2004694973,
+    "statements": 4,
+    "pages": [
+     {
+      "rows": 699,
+      "bytes": 250211,
+      "rowsRead": 9943
+     },
+     {
+      "rows": 694,
+      "bytes": 250092,
+      "rowsRead": 15874
+     },
+     {
+      "rows": 700,
+      "bytes": 250221,
+      "rowsRead": 21297
+     },
+     {
+      "rows": 323,
+      "bytes": 116612,
+      "rowsRead": 24104
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 563,
+    "workerColo": "CDG"
+   },
+   "reps": 2
+  },
+  {
+   "id": "q2.paged.stage.n4111.250k.b-node-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n4111",
+    "budgetBytes": 250000,
+    "arm": "b-node-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_node WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888130,
+     "round": 0,
+     "reps": 5,
+     "workerMs": 776,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 766,
+      "cpuMs": 733,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888199,
+     "round": 1,
+     "reps": 5,
+     "workerMs": 1780,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1769,
+      "cpuMs": 1318,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888261,
+     "round": 2,
+     "reps": 5,
+     "workerMs": 1024,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1018,
+      "cpuMs": 766,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888314,
+     "round": 3,
+     "reps": 5,
+     "workerMs": 886,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 883,
+      "cpuMs": 784,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888459,
+     "round": 4,
+     "reps": 5,
+     "workerMs": 874,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 866,
+      "cpuMs": 785,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888081,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 29306,
+    "check": 2004694973,
+    "statements": 4,
+    "pages": [
+     {
+      "rows": 699,
+      "bytes": 250211,
+      "rowsRead": 9943
+     },
+     {
+      "rows": 694,
+      "bytes": 250092,
+      "rowsRead": 8854
+     },
+     {
+      "rows": 700,
+      "bytes": 250221,
+      "rowsRead": 7117
+     },
+     {
+      "rows": 323,
+      "bytes": 116612,
+      "rowsRead": 3392
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 321,
+    "workerColo": "CDG"
+   },
+   "reps": 5
+  },
+  {
+   "id": "q2.paged.stage.n4111.250k.swap-rest",
+   "q": "Q2",
+   "instance": "all",
+   "meta": {
+    "q": "Q2",
+    "shape": "paged",
+    "filter": "stage",
+    "subtree": "n4111",
+    "budgetBytes": 250000,
+    "arm": "swap-rest",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY idx_Snapshots_typeNode WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) AND (nodeId, resourceId) > (?, ?) ORDER BY nodeId, resourceId",
+   "timed": [
+    {
+     "seq": 1795453301888115,
+     "round": 0,
+     "reps": 5,
+     "workerMs": 864,
+     "workerColo": "EWR",
+     "logs": {
+      "wallMs": 857,
+      "cpuMs": 810,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888217,
+     "round": 1,
+     "reps": 5,
+     "workerMs": 1898,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1889,
+      "cpuMs": 1387,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888263,
+     "round": 2,
+     "reps": 5,
+     "workerMs": 1050,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1041,
+      "cpuMs": 766,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888332,
+     "round": 3,
+     "reps": 5,
+     "workerMs": 881,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 874,
+      "cpuMs": 786,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453301888396,
+     "round": 4,
+     "reps": 5,
+     "workerMs": 886,
+     "workerColo": "DFW",
+     "logs": {
+      "wallMs": 881,
+      "cpuMs": 792,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453301888082,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 29306,
+    "check": 2004694973,
+    "statements": 4,
+    "pages": [
+     {
+      "rows": 699,
+      "bytes": 250211,
+      "rowsRead": 9943
+     },
+     {
+      "rows": 694,
+      "bytes": 250092,
+      "rowsRead": 8854
+     },
+     {
+      "rows": 700,
+      "bytes": 250221,
+      "rowsRead": 7117
+     },
+     {
+      "rows": 323,
+      "bytes": 116612,
+      "rowsRead": 3392
+     }
+    ],
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_typeNode (typeName=? AND nodeId=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:"
+    ],
+    "reps": 1,
+    "workerMs": 316,
+    "workerColo": "CDG"
+   },
+   "reps": 5
+  }
+ ],
+ "finishedAt": "2026-11-23T17:11:39.809Z",
+ "logsJoinedAt": "2026-11-23T17:14:06.083Z"
+}

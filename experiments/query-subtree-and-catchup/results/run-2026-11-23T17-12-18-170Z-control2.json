@@ -1,0 +1,1500 @@
+{
+ "run": "2026-11-23T17-12-18-170Z",
+ "base": "https://experiment-query-subtree-and-catchup.transformation.workers.dev",
+ "startedAt": "2026-11-23T17:12:18.170Z",
+ "config": {
+  "TARGET_MS": 250,
+  "MAX_REPS": 3000,
+  "ROUNDS": 5,
+  "WRITES": 120000,
+  "PAIRED": false
+ },
+ "noops": [
+  {
+   "instance": "base",
+   "seq": 1795453938156001,
+   "workerMs": 448,
+   "workerColo": "NRT",
+   "logs": {
+    "wallMs": 152,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "base",
+   "seq": 1795453938156002,
+   "workerMs": 419,
+   "workerColo": "MAD",
+   "logs": {
+    "wallMs": 126,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "base",
+   "seq": 1795453938156003,
+   "workerMs": 152,
+   "workerColo": "NRT",
+   "logs": {
+    "wallMs": 148,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "base",
+   "seq": 1795453938156004,
+   "workerMs": 135,
+   "workerColo": "MAD",
+   "logs": {
+    "wallMs": 127,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "base",
+   "seq": 1795453938156005,
+   "workerMs": 160,
+   "workerColo": "NRT",
+   "logs": {
+    "wallMs": 149,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "node",
+   "seq": 1795453938156006,
+   "workerMs": 135,
+   "workerColo": "MAD",
+   "logs": {
+    "wallMs": 116,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "node",
+   "seq": 1795453938156007,
+   "workerMs": 174,
+   "workerColo": "NRT",
+   "logs": {
+    "wallMs": 169,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "node",
+   "seq": 1795453938156008,
+   "workerMs": 111,
+   "workerColo": "MAD",
+   "logs": {
+    "wallMs": 103,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "node",
+   "seq": 1795453938156009,
+   "workerMs": 156,
+   "workerColo": "NRT",
+   "logs": {
+    "wallMs": 153,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "node",
+   "seq": 1795453938156010,
+   "workerMs": 99,
+   "workerColo": "MAD",
+   "logs": {
+    "wallMs": 96,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "tm",
+   "seq": 1795453938156011,
+   "workerMs": 472,
+   "workerColo": "NRT",
+   "logs": {
+    "wallMs": 158,
+    "cpuMs": 1,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "tm",
+   "seq": 1795453938156012,
+   "workerMs": 407,
+   "workerColo": "MAD",
+   "logs": {
+    "wallMs": 124,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "tm",
+   "seq": 1795453938156013,
+   "workerMs": 153,
+   "workerColo": "NRT",
+   "logs": {
+    "wallMs": 147,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "tm",
+   "seq": 1795453938156014,
+   "workerMs": 129,
+   "workerColo": "MAD",
+   "logs": {
+    "wallMs": 123,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "tm",
+   "seq": 1795453938156015,
+   "workerMs": 157,
+   "workerColo": "NRT",
+   "logs": {
+    "wallMs": 152,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "m",
+   "seq": 1795453938156016,
+   "workerMs": 170,
+   "workerColo": "MAD",
+   "logs": {
+    "wallMs": 133,
+    "cpuMs": 1,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "m",
+   "seq": 1795453938156017,
+   "workerMs": 157,
+   "workerColo": "NRT",
+   "logs": {
+    "wallMs": 151,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "m",
+   "seq": 1795453938156018,
+   "workerMs": 140,
+   "workerColo": "MAD",
+   "logs": {
+    "wallMs": 124,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "m",
+   "seq": 1795453938156019,
+   "workerMs": 169,
+   "workerColo": "NRT",
+   "logs": {
+    "wallMs": 151,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "m",
+   "seq": 1795453938156020,
+   "workerMs": 135,
+   "workerColo": "MAD",
+   "logs": {
+    "wallMs": 123,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "swap",
+   "seq": 1795453938156021,
+   "workerMs": 178,
+   "workerColo": "NRT",
+   "logs": {
+    "wallMs": 315,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "swap",
+   "seq": 1795453938156022,
+   "workerMs": 143,
+   "workerColo": "MAD",
+   "logs": {
+    "wallMs": 123,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "swap",
+   "seq": 1795453938156023,
+   "workerMs": 160,
+   "workerColo": "NRT",
+   "logs": {
+    "wallMs": 156,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "swap",
+   "seq": 1795453938156024,
+   "workerMs": 139,
+   "workerColo": "MAD",
+   "logs": {
+    "wallMs": 122,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "swap",
+   "seq": 1795453938156025,
+   "workerMs": 163,
+   "workerColo": "NRT",
+   "logs": {
+    "wallMs": 159,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "all",
+   "seq": 1795453938156026,
+   "workerMs": 383,
+   "workerColo": "MAD",
+   "logs": {
+    "wallMs": 114,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "all",
+   "seq": 1795453938156027,
+   "workerMs": 175,
+   "workerColo": "NRT",
+   "logs": {
+    "wallMs": 168,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "all",
+   "seq": 1795453938156028,
+   "workerMs": 121,
+   "workerColo": "MAD",
+   "logs": {
+    "wallMs": 109,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "all",
+   "seq": 1795453938156029,
+   "workerMs": 172,
+   "workerColo": "NRT",
+   "logs": {
+    "wallMs": 170,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "instance": "all",
+   "seq": 1795453938156030,
+   "workerMs": 124,
+   "workerColo": "MAD",
+   "logs": {
+    "wallMs": 115,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  }
+ ],
+ "records": [
+  {
+   "id": "control.range.base",
+   "q": "control",
+   "instance": "base",
+   "meta": {
+    "q": "control",
+    "what": "range",
+    "instance": "base"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453938156046,
+     "round": 0,
+     "reps": 43,
+     "workerMs": 1087,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1081,
+      "cpuMs": 928,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156057,
+     "round": 1,
+     "reps": 43,
+     "workerMs": 1099,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1095,
+      "cpuMs": 941,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156074,
+     "round": 2,
+     "reps": 43,
+     "workerMs": 1089,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1083,
+      "cpuMs": 927,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156085,
+     "round": 3,
+     "reps": 43,
+     "workerMs": 1071,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1064,
+      "cpuMs": 904,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156093,
+     "round": 4,
+     "reps": 43,
+     "workerMs": 1064,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1060,
+      "cpuMs": 908,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453938156031,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 2417,
+    "check": 2004694973,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 927,
+    "workerColo": "NRT"
+   },
+   "reps": 43
+  },
+  {
+   "id": "control.point.base",
+   "q": "control",
+   "instance": "base",
+   "meta": {
+    "q": "control",
+    "what": "point",
+    "instance": "base"
+   },
+   "sql": "SELECT resourceId, validFrom, value FROM Snapshots WHERE resourceId = ? ORDER BY validFrom DESC LIMIT 1",
+   "timed": [
+    {
+     "seq": 1795453938156048,
+     "round": 0,
+     "reps": 29,
+     "workerMs": 471,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 463,
+      "cpuMs": 301,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156064,
+     "round": 1,
+     "reps": 29,
+     "workerMs": 451,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 444,
+      "cpuMs": 292,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156077,
+     "round": 2,
+     "reps": 29,
+     "workerMs": 436,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 429,
+      "cpuMs": 273,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156079,
+     "round": 3,
+     "reps": 29,
+     "workerMs": 505,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 498,
+      "cpuMs": 339,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156098,
+     "round": 4,
+     "reps": 29,
+     "workerMs": 413,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 393,
+      "cpuMs": 239,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453938156032,
+    "rows": 200,
+    "bytes": 80590,
+    "rowsRead": 200,
+    "check": 2684835805,
+    "statements": 200,
+    "pageCount": 1,
+    "plan": [
+     "SEARCH Snapshots USING PRIMARY KEY (resourceId=?)"
+    ],
+    "reps": 1,
+    "workerMs": 325,
+    "workerColo": "NRT"
+   },
+   "reps": 29
+  },
+  {
+   "id": "control.range.node",
+   "q": "control",
+   "instance": "node",
+   "meta": {
+    "q": "control",
+    "what": "range",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453938156044,
+     "round": 0,
+     "reps": 43,
+     "workerMs": 1006,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1003,
+      "cpuMs": 842,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156066,
+     "round": 1,
+     "reps": 43,
+     "workerMs": 1044,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1041,
+      "cpuMs": 868,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156072,
+     "round": 2,
+     "reps": 43,
+     "workerMs": 1045,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1041,
+      "cpuMs": 871,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156081,
+     "round": 3,
+     "reps": 43,
+     "workerMs": 1467,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1464,
+      "cpuMs": 1257,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156096,
+     "round": 4,
+     "reps": 43,
+     "workerMs": 1471,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1468,
+      "cpuMs": 1263,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453938156033,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 2417,
+    "check": 2004694973,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 858,
+    "workerColo": "NRT"
+   },
+   "reps": 43
+  },
+  {
+   "id": "control.point.node",
+   "q": "control",
+   "instance": "node",
+   "meta": {
+    "q": "control",
+    "what": "point",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, validFrom, value FROM Snapshots WHERE resourceId = ? ORDER BY validFrom DESC LIMIT 1",
+   "timed": [
+    {
+     "seq": 1795453938156053,
+     "round": 0,
+     "reps": 29,
+     "workerMs": 405,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 397,
+      "cpuMs": 223,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156065,
+     "round": 1,
+     "reps": 29,
+     "workerMs": 641,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 636,
+      "cpuMs": 452,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156075,
+     "round": 2,
+     "reps": 29,
+     "workerMs": 394,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 391,
+      "cpuMs": 216,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156084,
+     "round": 3,
+     "reps": 29,
+     "workerMs": 376,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 370,
+      "cpuMs": 196,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156102,
+     "round": 4,
+     "reps": 29,
+     "workerMs": 352,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 347,
+      "cpuMs": 191,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453938156034,
+    "rows": 200,
+    "bytes": 80590,
+    "rowsRead": 200,
+    "check": 2684835805,
+    "statements": 200,
+    "pageCount": 1,
+    "plan": [
+     "SEARCH Snapshots USING PRIMARY KEY (resourceId=?)"
+    ],
+    "reps": 1,
+    "workerMs": 296,
+    "workerColo": "NRT"
+   },
+   "reps": 29
+  },
+  {
+   "id": "control.range.tm",
+   "q": "control",
+   "instance": "tm",
+   "meta": {
+    "q": "control",
+    "what": "range",
+    "instance": "tm"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453938156043,
+     "round": 0,
+     "reps": 43,
+     "workerMs": 2032,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 2024,
+      "cpuMs": 1764,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156055,
+     "round": 1,
+     "reps": 43,
+     "workerMs": 1697,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1689,
+      "cpuMs": 1455,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156068,
+     "round": 2,
+     "reps": 43,
+     "workerMs": 1671,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1666,
+      "cpuMs": 1455,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156089,
+     "round": 3,
+     "reps": 43,
+     "workerMs": 2489,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 2481,
+      "cpuMs": 2117,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156100,
+     "round": 4,
+     "reps": 43,
+     "workerMs": 1964,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1961,
+      "cpuMs": 1727,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453938156035,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 2417,
+    "check": 2004694973,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 258,
+    "workerColo": "NRT"
+   },
+   "reps": 43
+  },
+  {
+   "id": "control.point.tm",
+   "q": "control",
+   "instance": "tm",
+   "meta": {
+    "q": "control",
+    "what": "point",
+    "instance": "tm"
+   },
+   "sql": "SELECT resourceId, validFrom, value FROM Snapshots WHERE resourceId = ? ORDER BY validFrom DESC LIMIT 1",
+   "timed": [
+    {
+     "seq": 1795453938156045,
+     "round": 0,
+     "reps": 29,
+     "workerMs": 916,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 912,
+      "cpuMs": 742,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156062,
+     "round": 1,
+     "reps": 29,
+     "workerMs": 611,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 601,
+      "cpuMs": 435,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156076,
+     "round": 2,
+     "reps": 29,
+     "workerMs": 615,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 611,
+      "cpuMs": 455,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156087,
+     "round": 3,
+     "reps": 29,
+     "workerMs": 677,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 668,
+      "cpuMs": 494,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156099,
+     "round": 4,
+     "reps": 29,
+     "workerMs": 587,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 579,
+      "cpuMs": 413,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453938156036,
+    "rows": 200,
+    "bytes": 80590,
+    "rowsRead": 200,
+    "check": 2684835805,
+    "statements": 200,
+    "pageCount": 1,
+    "plan": [
+     "SEARCH Snapshots USING PRIMARY KEY (resourceId=?)"
+    ],
+    "reps": 1,
+    "workerMs": 211,
+    "workerColo": "NRT"
+   },
+   "reps": 29
+  },
+  {
+   "id": "control.range.m",
+   "q": "control",
+   "instance": "m",
+   "meta": {
+    "q": "control",
+    "what": "range",
+    "instance": "m"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453938156047,
+     "round": 0,
+     "reps": 43,
+     "workerMs": 1564,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1557,
+      "cpuMs": 1369,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156063,
+     "round": 1,
+     "reps": 43,
+     "workerMs": 1543,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1539,
+      "cpuMs": 1344,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156067,
+     "round": 2,
+     "reps": 43,
+     "workerMs": 2130,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 2122,
+      "cpuMs": 1834,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156082,
+     "round": 3,
+     "reps": 43,
+     "workerMs": 1734,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1729,
+      "cpuMs": 1524,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156092,
+     "round": 4,
+     "reps": 43,
+     "workerMs": 1669,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1665,
+      "cpuMs": 1464,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453938156037,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 2417,
+    "check": 2004694973,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 1085,
+    "workerColo": "NRT"
+   },
+   "reps": 43
+  },
+  {
+   "id": "control.point.m",
+   "q": "control",
+   "instance": "m",
+   "meta": {
+    "q": "control",
+    "what": "point",
+    "instance": "m"
+   },
+   "sql": "SELECT resourceId, validFrom, value FROM Snapshots WHERE resourceId = ? ORDER BY validFrom DESC LIMIT 1",
+   "timed": [
+    {
+     "seq": 1795453938156054,
+     "round": 0,
+     "reps": 29,
+     "workerMs": 611,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 608,
+      "cpuMs": 454,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156058,
+     "round": 1,
+     "reps": 29,
+     "workerMs": 601,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 597,
+      "cpuMs": 443,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156071,
+     "round": 2,
+     "reps": 29,
+     "workerMs": 577,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 570,
+      "cpuMs": 416,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156088,
+     "round": 3,
+     "reps": 29,
+     "workerMs": 596,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 588,
+      "cpuMs": 435,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156094,
+     "round": 4,
+     "reps": 29,
+     "workerMs": 559,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 551,
+      "cpuMs": 399,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453938156038,
+    "rows": 200,
+    "bytes": 80590,
+    "rowsRead": 200,
+    "check": 2684835805,
+    "statements": 200,
+    "pageCount": 1,
+    "plan": [
+     "SEARCH Snapshots USING PRIMARY KEY (resourceId=?)"
+    ],
+    "reps": 1,
+    "workerMs": 244,
+    "workerColo": "NRT"
+   },
+   "reps": 29
+  },
+  {
+   "id": "control.range.swap",
+   "q": "control",
+   "instance": "swap",
+   "meta": {
+    "q": "control",
+    "what": "range",
+    "instance": "swap"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453938156051,
+     "round": 0,
+     "reps": 43,
+     "workerMs": 990,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 983,
+      "cpuMs": 832,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156059,
+     "round": 1,
+     "reps": 43,
+     "workerMs": 1069,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1066,
+      "cpuMs": 900,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156078,
+     "round": 2,
+     "reps": 43,
+     "workerMs": 1072,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1068,
+      "cpuMs": 909,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156090,
+     "round": 3,
+     "reps": 43,
+     "workerMs": 1032,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1027,
+      "cpuMs": 859,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156095,
+     "round": 4,
+     "reps": 43,
+     "workerMs": 986,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 978,
+      "cpuMs": 818,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453938156039,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 2417,
+    "check": 2004694973,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 198,
+    "workerColo": "NRT"
+   },
+   "reps": 43
+  },
+  {
+   "id": "control.point.swap",
+   "q": "control",
+   "instance": "swap",
+   "meta": {
+    "q": "control",
+    "what": "point",
+    "instance": "swap"
+   },
+   "sql": "SELECT resourceId, validFrom, value FROM Snapshots WHERE resourceId = ? ORDER BY validFrom DESC LIMIT 1",
+   "timed": [
+    {
+     "seq": 1795453938156050,
+     "round": 0,
+     "reps": 29,
+     "workerMs": 336,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 331,
+      "cpuMs": 175,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156056,
+     "round": 1,
+     "reps": 29,
+     "workerMs": 335,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 330,
+      "cpuMs": 172,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156070,
+     "round": 2,
+     "reps": 29,
+     "workerMs": 349,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 339,
+      "cpuMs": 165,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156080,
+     "round": 3,
+     "reps": 29,
+     "workerMs": 534,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 528,
+      "cpuMs": 365,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156097,
+     "round": 4,
+     "reps": 29,
+     "workerMs": 337,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 326,
+      "cpuMs": 176,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453938156040,
+    "rows": 200,
+    "bytes": 80590,
+    "rowsRead": 200,
+    "check": 2684835805,
+    "statements": 200,
+    "pageCount": 1,
+    "plan": [
+     "SEARCH Snapshots USING PRIMARY KEY (resourceId=?)"
+    ],
+    "reps": 1,
+    "workerMs": 192,
+    "workerColo": "NRT"
+   },
+   "reps": 29
+  },
+  {
+   "id": "control.range.all",
+   "q": "control",
+   "instance": "all",
+   "meta": {
+    "q": "control",
+    "what": "range",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots INDEXED BY \"idx_Snapshots_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795453938156052,
+     "round": 0,
+     "reps": 43,
+     "workerMs": 1112,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1111,
+      "cpuMs": 935,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156060,
+     "round": 1,
+     "reps": 43,
+     "workerMs": 1178,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1173,
+      "cpuMs": 980,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156069,
+     "round": 2,
+     "reps": 43,
+     "workerMs": 1206,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1203,
+      "cpuMs": 1021,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156083,
+     "round": 3,
+     "reps": 43,
+     "workerMs": 1135,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1130,
+      "cpuMs": 958,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156091,
+     "round": 4,
+     "reps": 43,
+     "workerMs": 1174,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 1171,
+      "cpuMs": 985,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453938156041,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 2417,
+    "check": 2004694973,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 306,
+    "workerColo": "NRT"
+   },
+   "reps": 43
+  },
+  {
+   "id": "control.point.all",
+   "q": "control",
+   "instance": "all",
+   "meta": {
+    "q": "control",
+    "what": "point",
+    "instance": "all"
+   },
+   "sql": "SELECT resourceId, validFrom, value FROM Snapshots WHERE resourceId = ? ORDER BY validFrom DESC LIMIT 1",
+   "timed": [
+    {
+     "seq": 1795453938156049,
+     "round": 0,
+     "reps": 29,
+     "workerMs": 435,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 420,
+      "cpuMs": 240,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156061,
+     "round": 1,
+     "reps": 29,
+     "workerMs": 456,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 446,
+      "cpuMs": 267,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156073,
+     "round": 2,
+     "reps": 29,
+     "workerMs": 691,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 683,
+      "cpuMs": 504,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156086,
+     "round": 3,
+     "reps": 29,
+     "workerMs": 431,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 424,
+      "cpuMs": 248,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795453938156101,
+     "round": 4,
+     "reps": 29,
+     "workerMs": 790,
+     "workerColo": "NRT",
+     "logs": {
+      "wallMs": 783,
+      "cpuMs": 579,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "first": {
+    "seq": 1795453938156042,
+    "rows": 200,
+    "bytes": 80590,
+    "rowsRead": 200,
+    "check": 2684835805,
+    "statements": 200,
+    "pageCount": 1,
+    "plan": [
+     "SEARCH Snapshots USING PRIMARY KEY (resourceId=?)"
+    ],
+    "reps": 1,
+    "workerMs": 187,
+    "workerColo": "NRT"
+   },
+   "reps": 29
+  }
+ ],
+ "finishedAt": "2026-11-23T17:13:50.538Z",
+ "logsJoinedAt": "2026-11-23T17:15:10.387Z"
+}

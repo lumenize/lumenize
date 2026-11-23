@@ -23,7 +23,8 @@
     "experiments/tail-abort",
     "experiments/do-read-cache",
     "experiments/do-alarm-retry",
-    "experiments/merge-patch-sql"
+    "experiments/merge-patch-sql",
+    "experiments/query-subtree-and-catchup"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
