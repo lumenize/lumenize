@@ -1,7 +1,7 @@
 /**
  * A turn's rounds: the `Round` type, the `turns` node only the agent and the app's admins write,
- * the `read` at `chat`, over `turns`, that an invite at `messages` brings with it, and the Workspace's git store as the
- * place a read file's content is kept by its blob id.
+ * the `read` at `chat`, over `turns`, that an invite to the conversation names beside its `write` at
+ * `messages`, and the Workspace's git store as the place a read file's content is kept by its blob id.
  *
  * vitest-plugin for what no Client can make or see: a write as the agent, which only the Galaxy's
  * own code makes; a snapshot's earlier rows, since the plane has no history read; the grants an
@@ -11,9 +11,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { ROOT_NODE_ID } from '@lumenize/resources';
 import type { TransactionResult, WireOperationDescriptor } from '@lumenize/resources';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, MESSAGES_NODE_ID, DEFAULT_CHAT_ID, TURNS_NODE_ID } from '@lumenize/nebula';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, MESSAGES_NODE_ID, DEFAULT_CHAT_ID, TURNS_NODE_ID, COLLABORATOR_GRANTS } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';
@@ -50,17 +49,18 @@ async function app() {
 
 type App = Awaited<ReturnType<typeof app>>;
 
-/** Invite `address` at `nodeId` through the plane's own node invite, as `chat-cast.ts` sends it at
- *  `chat`, and log them in once the invite's grants are written. */
-async function inviteAt(a: App, nodeId: string, address: string) {
-  const ack = await a.admin.lmz.callAsync('GALAXY', a.scope,
-    a.admin.ctn<Galaxy>().resources.invite(V, nodeId, [{ email: address, tier: 'write' }]));
+type Grants = Array<{ nodeId: string; tier: 'read' | 'write' | 'admin' }>;
+
+/** Invite `address` with `grants` through the plane's own node invite, as `chat-cast.ts` sends a
+ *  collaborator's, and log them in once the invite's grants are written. */
+async function inviteWith(a: App, grants: Grants, address: string, as: App['admin'] = a.admin) {
+  const ack = await as.lmz.callAsync('GALAXY', a.scope, as.ctn<Galaxy>().resources.invite(V, [{ email: address, grants }]));
   expect(ack).toEqual({ accepted: 1, errors: [] });
   const { client, payload } = await createInvitedClient(
     NebulaClientTest, new Browser(), a.scope, a.scope, address, V, { resourceHostBinding: 'GALAXY' },
   );
   await vi.waitFor(async () => expect((await a.probe((g) => g.grantsForTest(payload.sub))).length).toBeGreaterThan(0));
-  return { client, sub: payload.sub };
+  return { client, sub: payload.sub as string };
 }
 
 describe('a turn\'s rounds are stored at the turns node', { timeout: 60000 }, () => {
@@ -110,11 +110,11 @@ describe('a turn\'s rounds are stored at the turns node', { timeout: 60000 }, ()
     a.admin[Symbol.dispose]();
   });
 
-  // MUTATION: have an invite at `messages` grant `write` at `chat`, and the member's create and their
+  // MUTATION: have a collaborator's invite name `write` at `chat`, and the member's create and their
   // write over the agent's round both land.
-  it('refuses a member with write at messages a Round of their own and a write over the agent\'s, and lets them read it', async () => {
+  it('refuses a collaborator a Round of their own and a write over the agent\'s, and lets them read it', async () => {
     const a = await app();
-    const member = await inviteAt(a, MESSAGES_NODE_ID, email('collab'));
+    const member = await inviteWith(a, COLLABORATOR_GRANTS, email('collab'));
     const id = crypto.randomUUID();
     const created = await a.probe((g) => g.writeAsAgentForTest({ [id]: { op: 'create', typeName: 'Round', nodeId: TURNS_NODE_ID, value: round(crypto.randomUUID()) } }));
     const validFrom = (created as Extract<TransactionResult, { ok: true }>).validFrom;
@@ -134,26 +134,28 @@ describe('a turn\'s rounds are stored at the turns node', { timeout: 60000 }, ()
   });
 });
 
-describe('an invite at messages also grants read at chat, over turns', { timeout: 60000 }, () => {
+describe('an invite to the conversation names its read at chat beside its write at messages', { timeout: 60000 }, () => {
   const entries: Array<{ namespace: string; message: string; data?: Record<string, unknown> }> = [];
   beforeEach(() => { entries.length = 0; setDebugSink((entry) => { entries.push(entry as never); }); });
   afterEach(() => clearDebugSink());
   const issuedTo = (address: string) => entries.filter((e) =>
     e.namespace === 'nebula-auth.Registry.invite.issued' && e.data?.email === address);
+  const BOTH = [
+    { nodeId: MESSAGES_NODE_ID, permission: 'write' }, { nodeId: CHAT_NODE_ID, permission: 'read' },
+  ].sort((x, y) => x.nodeId.localeCompare(y.nodeId));
 
-  // MUTATION: drop the seed's `inviteAlso`, and the invitee holds nothing at `chat`.
+  // MUTATION: write only an invite's first grant, and the invitee holds nothing at `chat`.
   it('through the plane\'s own invite, with one link sent', async () => {
     const a = await app();
     const address = email('collab');
-    const member = await inviteAt(a, MESSAGES_NODE_ID, address);
-    expect(await a.probe((g) => g.grantsForTest(member.sub))).toEqual([
-      { nodeId: MESSAGES_NODE_ID, permission: 'write' }, { nodeId: CHAT_NODE_ID, permission: 'read' },
-    ].sort((x, y) => x.nodeId.localeCompare(y.nodeId)));
+    const member = await inviteWith(a, COLLABORATOR_GRANTS, address);
+    await vi.waitFor(async () => expect(await a.probe((g) => g.grantsForTest(member.sub))).toEqual(BOTH));
     expect(issuedTo(address).map((e) => e.data?.universeGalaxyStarId)).toEqual([a.scope]);
     member.client[Symbol.dispose]();
     a.admin[Symbol.dispose]();
   });
 
+  // MUTATION: have `Galaxy.invite` name `messages` alone, and the invitee holds one grant.
   it('through Galaxy.invite, the agent\'s tool, with one link sent', async () => {
     const a = await app();
     const address = email('collab');
@@ -161,21 +163,45 @@ describe('an invite at messages also grants read at chat, over turns', { timeout
     const { client, payload } = await createInvitedClient(
       NebulaClientTest, new Browser(), a.scope, a.scope, address, V, { resourceHostBinding: 'GALAXY' },
     );
-    await vi.waitFor(async () => expect(await a.probe((g) => g.grantsForTest(payload.sub))).toHaveLength(2));
-    expect(await a.probe((g) => g.grantsForTest(payload.sub))).toEqual([
-      { nodeId: MESSAGES_NODE_ID, permission: 'write' }, { nodeId: CHAT_NODE_ID, permission: 'read' },
-    ].sort((x, y) => x.nodeId.localeCompare(y.nodeId)));
+    await vi.waitFor(async () => expect(await a.probe((g) => g.grantsForTest(payload.sub))).toEqual(BOTH));
     expect(issuedTo(address).map((e) => e.data?.universeGalaxyStarId)).toEqual([a.scope]);
     client[Symbol.dispose]();
     a.admin[Symbol.dispose]();
   });
 
-  // MUTATION: write the declared grants for an invite at any node, and the root invite writes two.
-  it('and an invite at a node the seed declares nothing for writes its one grant', async () => {
+  // No grant is written that the invite did not name. MUTATION: write `read` at `chat` with every
+  // invite at `messages`, as the tree's seed once declared, and the invitee holds two.
+  it('and an invite naming messages alone leaves the invitee nothing at chat', async () => {
     const a = await app();
-    const member = await inviteAt(a, ROOT_NODE_ID, email('root'));
-    expect(await a.probe((g) => g.grantsForTest(member.sub))).toEqual([{ nodeId: ROOT_NODE_ID, permission: 'write' }]);
+    const member = await inviteWith(a, [{ nodeId: MESSAGES_NODE_ID, tier: 'write' }], email('poster'));
+    // The row at `messages` reads `sent` once every grant the invite named has been written.
+    await vi.waitFor(async () => expect(await a.probe((g) => g.inviteStatesForTest(MESSAGES_NODE_ID))).toEqual(['sent']));
+    expect(await a.probe((g) => g.grantsForTest(member.sub))).toEqual([{ nodeId: MESSAGES_NODE_ID, permission: 'write' }]);
     member.client[Symbol.dispose]();
+    a.admin[Symbol.dispose]();
+  });
+
+  // A collaborator the owner made `admin` of both nodes passes the invite's door, and the facade
+  // then refuses them, since only dominion invites into an app. MUTATION: flip only the first
+  // node's row when the facade refuses, and the second stays `pending`.
+  it('and a submission the facade refuses fails the row at every node, with its message', async () => {
+    const a = await app();
+    const collaborator = await inviteWith(a, COLLABORATOR_GRANTS, email('collab'));
+    await vi.waitFor(async () => expect(await a.probe((g) => g.grantsForTest(collaborator.sub))).toEqual(BOTH));
+    for (const { nodeId } of COLLABORATOR_GRANTS) await a.admin.orgTree.setPermission(nodeId, collaborator.sub, 'admin');
+
+    const ack = await collaborator.client.lmz.callAsync('GALAXY', a.scope,
+      collaborator.client.ctn<Galaxy>().resources.invite(V, [{ email: email('refused'), grants: COLLABORATOR_GRANTS }]));
+    expect(ack).toEqual({ accepted: 1, errors: [] });
+    const failed = (nodeId: string) => a.probe((g) => g.inviteFailuresForTest(nodeId)) as Promise<string[]>;
+    await vi.waitFor(async () => {
+      expect(await failed(MESSAGES_NODE_ID)).toHaveLength(1);
+      expect(await failed(CHAT_NODE_ID)).toHaveLength(1);
+    });
+    const [atMessages] = await failed(MESSAGES_NODE_ID);
+    expect(atMessages.length).toBeGreaterThan(0);
+    expect(await failed(CHAT_NODE_ID)).toEqual([atMessages]);
+    collaborator.client[Symbol.dispose]();
     a.admin[Symbol.dispose]();
   });
 });

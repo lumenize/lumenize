@@ -125,7 +125,7 @@ export async function run(stack: DevStack): Promise<void> {
     // Gerry is invited onto the Acme team's node alone.
     waiter = waitForEmail({ testToken, instance: star, to: gerryEmail, timeout: 60_000 });
     const ack = await sally.client.lmz.callAsync(
-      'STAR', star, sally.client.ctn<Star>().resources.invite(version, acmeTeam, [{ email: gerryEmail, tier: 'read' }]),
+      'STAR', star, sally.client.ctn<Star>().resources.invite(version, [{ email: gerryEmail, grants: [{ nodeId: acmeTeam, tier: 'read' }] }]),
     ) as NodeInviteAck;
     assert.deepEqual(ack, { accepted: 1, errors: [] }, `node invite ack: ${JSON.stringify(ack)}`);
     const mail = await waiter.emailPromise;

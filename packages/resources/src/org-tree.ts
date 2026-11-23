@@ -27,15 +27,6 @@ import type { PermissionTier, OrgTreeState, OrgTreeView, EdgeKey, OrgTreeNodeDat
 import { PermissionDeniedError, NodeNotFoundError, ProtectedGrantError } from './errors';
 import { hasDominionOverHost } from './host-dominion';
 
-/**
- * Write the grants `tree`'s seed declares with an invite at `inviteNodeId` for `sub`, and answer
- * the node ids that gained one. Only the plane's node invite calls it, once the facade has minted
- * the invitee, so the check at the invite's door is the one that admitted it. A module function
- * rather than a method: every member of an `OrgTree` is reachable past the `resources` door, and
- * an unchecked grant writer there would let any caller grant themselves what the seed declares.
- */
-export let writeInviteAlsoGrants: (tree: OrgTree, inviteNodeId: string, sub: string) => string[]
-
 /** Refuse `grants` that are not an array of `{ sub, tier }`, before anything is written. */
 function requireNodeGrants(grants: unknown): asserts grants is NodeGrant[] {
   if (!Array.isArray(grants)) {
@@ -113,31 +104,6 @@ export class OrgTree {
 
       CREATE INDEX IF NOT EXISTS idx_Permissions_sub ON Permissions(sub);
     `)
-  }
-
-  // Sets the module's `writeInviteAlsoGrants` from inside the class, where it reaches the private
-  // writer, so no member of the class carries the write onto the wire.
-  static {
-    writeInviteAlsoGrants = (tree, inviteNodeId, sub) => tree.#writeInviteAlso(inviteNodeId, sub)
-  }
-
-  /** {@link writeInviteAlsoGrants}'s body. `INSERT OR IGNORE`, so a grant already held at the node,
-   *  of any tier, is left as it is. */
-  #writeInviteAlso(inviteNodeId: string, sub: string): string[] {
-    const declared = (this.#seed.inviteAlso ?? []).filter((d) => d.at === inviteNodeId)
-    if (declared.length === 0) return []
-    const written: string[] = []
-    this.#ctx.storage.transactionSync(() => {
-      for (const { grant } of declared) {
-        this.#requireNodeExists(grant.nodeId)
-        const r = this.#ctx.storage.sql.exec(
-          'INSERT OR IGNORE INTO Permissions (nodeId, sub, permission) VALUES (?, ?, ?)', grant.nodeId, sub, grant.tier)
-        if (r.rowsWritten > 0) written.push(grant.nodeId)
-      }
-      if (written.length > 0) this.#invalidate()
-    })
-    if (written.length > 0) this.#onChanged()
-    return written
   }
 
   /**

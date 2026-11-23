@@ -91,7 +91,7 @@ const sharedWith = store.lmz.orgTree.value.permissions.get(listNodeId);
 
 - **The tree is the only record of who has access.** Keep no `members` or `sharedWith` field in a resource's value. A second copy drifts from the grants, and it is the grants that are enforced.
 - **`meta.nodeId` is on every store entry**, a resource the page has just created included, so the page never stores a node's id in a value either.
-- **When you have a person's address and not their `sub`**, `client.resources.invite(nodeId, [{ email, tier }])` makes the same grant, and makes them a member of the app first if they are not one.
+- **When you have a person's address and not their `sub`**, `client.resources.invite([{ email, grants: [{ nodeId, tier }] }])` makes the same grant, and makes them a member of the app first if they are not one. One invite can name several nodes for one person, `read` on a list and `write` on its items say, and sends one email.
 
 Now Alice wants to share `list-shopping` with Bob. There are **two ways** to express that — each illustrates a property of the underlying structure.
 

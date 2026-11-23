@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import type { Snapshot, TransactionResult, QueryReadResult } from '@lumenize/resources';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, DEFAULT_CHAT_ID, TURNS_NODE_ID, deriveKind, roundsOf } from '@lumenize/nebula';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, COLLABORATOR_GRANTS, DEFAULT_CHAT_ID, TURNS_NODE_ID, deriveKind, roundsOf } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient, turnCallsOf } from '../../test-helpers';
 import { NebulaClientTest, StudioClientTest } from './index';
@@ -92,7 +92,7 @@ describe('a turn is stored as a row and its rounds', { timeout: 90_000 }, () => 
     const a = await app();
     // A collaborator, invited at the `messages` node, which brings `read` at `chat`, over the turns node.
     const memberEmail = email('collab');
-    expect(await a.admin.lmz.callAsync('GALAXY', a.scope, a.admin.ctn<Galaxy>().resources.invite(V, MESSAGES_NODE_ID, [{ email: memberEmail, tier: 'write' }])))
+    expect(await a.admin.lmz.callAsync('GALAXY', a.scope, a.admin.ctn<Galaxy>().resources.invite(V, [{ email: memberEmail, grants: COLLABORATOR_GRANTS }])))
       .toEqual({ accepted: 1, errors: [] });
     const { client: member } = await createInvitedClient(NebulaClientTest, new Browser(), a.scope, a.scope, memberEmail, V, { resourceHostBinding: 'GALAXY' });
 
@@ -192,7 +192,7 @@ describe('a turn is stored as a row and its rounds', { timeout: 90_000 }, () => 
   it('reads only the rounds at the turns node, so a Round a member writes at chat is never dispatched', async () => {
     const a = await app();
     const memberEmail = email('collab');
-    expect(await a.admin.lmz.callAsync('GALAXY', a.scope, a.admin.ctn<Galaxy>().resources.invite(V, MESSAGES_NODE_ID, [{ email: memberEmail, tier: 'write' }])))
+    expect(await a.admin.lmz.callAsync('GALAXY', a.scope, a.admin.ctn<Galaxy>().resources.invite(V, [{ email: memberEmail, grants: COLLABORATOR_GRANTS }])))
       .toEqual({ accepted: 1, errors: [] });
     const { client: member } = await createInvitedClient(NebulaClientTest, new Browser(), a.scope, a.scope, memberEmail, V, { resourceHostBinding: 'GALAXY' });
     await a.probe((g) => g.seedChatScriptForTest([

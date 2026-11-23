@@ -72,7 +72,7 @@ describe('a client with no ontology version', () => {
 
     const list = caught(() => client.resources.subscribeQuery(query));
     const roster = caught(() => client.subscribeQuerySubscribers(query));
-    const invite = await client.resources.invite(ROOT_NODE_ID, [{ email: 'x@example.com', tier: 'read' }])
+    const invite = await client.resources.invite([{ email: 'x@example.com', grants: [{ nodeId: ROOT_NODE_ID, tier: 'read' }] }])
       .then(() => undefined, (err: unknown) => err);
     for (const [thrown, operation] of [[list, 'subscribeQuery'], [roster, 'subscribeQuerySubscribers'], [invite, 'invite']] as const) {
       expect(isNoOntologyInstalledError(thrown), `expected NoOntologyInstalledError from ${operation}, got ${thrown}`).toBe(true);

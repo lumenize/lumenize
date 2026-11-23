@@ -39,13 +39,15 @@ The preview has a tab for the person you are working for, `me`, and a tab for ea
    await client.orgTree.createNode(lists, ROOT, 'lists', 'Lists');
    const pats = crypto.randomUUID();
    await client.orgTree.createNode(pats, lists, 'pat', "Pat's lists");
-   // One invite for each node, naming only the people that node is for.
-   const all = await client.resources.invite(lists, [{ email: await client.personaAddress('ollie'), tier: 'admin' }]);
-   const own = await client.resources.invite(pats, [{ email: await client.personaAddress('pat'), tier: 'admin' }]);
-   return { lists, pats, all, own };
+   // One invite, each persona naming only the node that is theirs.
+   const invited = await client.resources.invite([
+     { email: await client.personaAddress('ollie'), grants: [{ nodeId: lists, tier: 'admin' }] },
+     { email: await client.personaAddress('pat'), grants: [{ nodeId: pats, tier: 'admin' }] },
+   ]);
+   return { lists, pats, invited };
    ```
 
-   A grant reaches everything beneath its node. So a persona invited onto a node that holds other people's nodes can do the same to all of theirs: where each person has a space of their own, invite each onto their own node, never onto the parent they share. An invite makes the persona a member of the workspace and grants the tier on that node. Inviting a persona who is already a member onto another node adds that grant. To find a node made in an earlier run, read the tree: `[...store.lmz.orgTree.value.nodes].find(([, node]) => node.slug === 'lists')[0]`.
+   A grant reaches everything beneath its node. So a persona invited onto a node that holds other people's nodes can do the same to all of theirs: where each person has a space of their own, invite each onto their own node, never onto the parent they share. An invite makes the persona a member of the workspace and gives each grant it names. Inviting a persona who is already a member onto another node adds that grant. To find a node made in an earlier run, read the tree: `[...store.lmz.orgTree.value.nodes].find(([, node]) => node.slug === 'lists')[0]`.
    - **A persona who administers the whole workspace**, as the app's owner does, is invited into the workspace itself with the admin bit: `await client.invite(client.claims.aud, [{ email: await client.personaAddress('manny'), scopeAdmin: true }])`.
 2. **From each persona's own tab, set their name.** `await client.patchMyProfile({ name: 'Ollie Organizer' }); return client.claims.sub;`, run with tab `ollie`. The patch changes only the field it names, so the nickname the invite gave them, their slug, stays. If the run says the persona is not a member yet, run it again.
 3. **Make each record from the tab of the persona who would have made it.** The record then names that persona, so what the others see of it is what the app's real users would see. A node is named by its id, never its slug, so find it in the tree first, and return the transaction's outcome:

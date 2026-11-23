@@ -1059,15 +1059,15 @@ export class ClientResources {
     },
 
     /**
-     * Invite people onto a NODE of this host's org tree — a DAG grant at `nodeId`, never
-     * `scopeAdmin`. The caller needs `admin` at the node. Distinct from the Client's own `invite`,
-     * which reaches the Registry and invites into a SCOPE; the first argument's kind and the
-     * `resources.` prefix tell them apart. Resolves with the submission ack; each invitee's row
+     * Invite people onto nodes of this host's org tree. Each invitee names every grant the invite
+     * gives them, `{ email, grants: [{ nodeId, tier }] }`: DAG grants, never `scopeAdmin`. The
+     * caller needs `admin` at each node named. Distinct from the Client's own `invite`, which
+     * reaches the Registry and invites into a SCOPE; the `resources.` prefix tells them apart. Resolves with the submission ack; each invitee's row
      * reaches the members panel through its query subscription. Retried while the host installs its
      * ontology, which it answers before writing anything.
      */
-    invite: (nodeId: string, invitees: NodeInvitee[]): Promise<NodeInviteAck> =>
-      this.#inviteToNode(nodeId, invitees),
+    invite: (invitees: NodeInvitee[]): Promise<NodeInviteAck> =>
+      this.#inviteToNodes(invitees),
 
     /**
      * Erase a `.dev` Star's test data: every Resource, node, grant and subscription, and the
@@ -1087,10 +1087,10 @@ export class ClientResources {
     return outcome.value;
   }
 
-  async #inviteToNode(nodeId: string, invitees: NodeInvitee[]): Promise<NodeInviteAck> {
+  async #inviteToNodes(invitees: NodeInvitee[]): Promise<NodeInviteAck> {
     const version = this.requireOntologyVersion('invite');
     const outcome = await this.#versioned(() => this.#hostCallAsync<NodeInviteAck>(
-      this.#client.ctn<ResourcesHostNode>().resources.invite(version, nodeId, invitees)));
+      this.#client.ctn<ResourcesHostNode>().resources.invite(version, invitees)));
     if ('stale' in outcome) throw outcome.stale;
     return outcome.value;
   }

@@ -1,5 +1,5 @@
 /**
- * Node invites — `Star.resources.invite(nodeId, invitees)` writes BOTH planes at invite time: the DAG
+ * Node invites — `Star.resources.invite(invitees)` writes BOTH planes at invite time: the DAG
  * grant here (via the traveling result handler) and the membership through the facade → Registry.
  * The invitee's first login finds everything in place; the live submission state rides
  * `_InviteStatus` rows (a platform-fixed Resources type, org-visible at the node per ADR-008).
@@ -18,11 +18,12 @@
  * the ordinary Resources pipeline, so the host Star must hold an INSTALLED ontology (true of every
  * resource write; a production Star always has its app's). `callStarInstallOntology` installs one.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/resources';
 import type { Star } from '@lumenize/nebula';
-import type { NodeInviteAck, NebulaClient } from '@lumenize/resources';
+import type { NodeInviteAck, NebulaClient, OrgTreeState } from '@lumenize/resources';
+import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { adminClientAt, createPlatformAdminClient, createInvitedClient, createSubject, uniqueStar } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
@@ -31,12 +32,18 @@ const TEST_TYPES = 'interface TestResource { title: string }';
 
 function em(tag: string): string { return `${tag}-${crypto.randomUUID().slice(0, 8)}@example.com`; }
 
-/** The `callAsync` path a production caller uses (the eventual UI affordance is app code). */
-function nodeInvite(client: NebulaClient, nodeId: string, invitees: unknown): Promise<NodeInviteAck> {
+/** The `callAsync` path a production caller uses (the eventual UI affordance is app code).
+ *  `invitees` goes as given, so a test can send what the types refuse. */
+function invite(client: NebulaClient, invitees: unknown): Promise<NodeInviteAck> {
   return client.lmz.callAsync(
     'STAR', client.claims.aud,
-    client.ctn<Star>().resources.invite(ONTOLOGY_VERSION, nodeId, invitees as any),
+    client.ctn<Star>().resources.invite(ONTOLOGY_VERSION, invitees as any),
   );
+}
+
+/** An invite whose every invitee gets one grant, at `nodeId`. */
+function nodeInvite(client: NebulaClient, nodeId: string, invitees: Array<{ email: unknown; tier: unknown }>): Promise<NodeInviteAck> {
+  return invite(client, invitees.map(({ email, tier }) => ({ email, grants: [{ nodeId, tier }] })));
 }
 
 /** Admin at `star` with the test ontology installed (_InviteStatus rides any version — it is
@@ -196,11 +203,8 @@ describe('Star.resources.invite — the validation boundary', () => {
     const { client: admin } = await starWithOntology(star);
     const good = em('good');
     try {
-      const ack = await nodeInvite(admin, ROOT_NODE_ID, [
-        { email: good, tier: 'read' },
-        { email: 'not-an-email', tier: 'read' },
-        42,
-      ]);
+      const grants = [{ nodeId: ROOT_NODE_ID, tier: 'read' }];
+      const ack = await invite(admin, [{ email: good, grants }, { email: 'not-an-email', grants }, 42]);
       expect(ack.accepted).toBe(1);
       expect(ack.errors).toHaveLength(2);
       expect(ack.errors[0].error).toBe('Invalid email format');
@@ -320,3 +324,194 @@ describe('_InviteStatus — org-visible live state', () => {
     }
   });
 });
+
+describe('Star.resources.invite — one invite names every grant it gives', () => {
+  const warned: Array<{ namespace: string; message: string; data?: Record<string, unknown> }> = [];
+  beforeEach(() => { warned.length = 0; setDebugSink((entry) => { warned.push(entry as never); }); });
+  afterEach(() => clearDebugSink());
+
+  const treeOf = (client: NebulaClient): Promise<OrgTreeState> =>
+    client.lmz.callAsync('STAR', client.claims.aud, client.ctn<Star>().resources.orgTree.getState());
+  /** A node under the root, created by `admin`. */
+  async function node(admin: NebulaClient, slug: string, parent: string = ROOT_NODE_ID): Promise<string> {
+    const id = crypto.randomUUID();
+    expect(await admin.orgTree.createNode(id, parent, slug, slug)).toEqual({ outcome: 'created' });
+    return id;
+  }
+  /** Every grant `sub` holds in the tree, as `nodeId → tier`. */
+  async function grantsOf(admin: NebulaClient, sub: string): Promise<Record<string, string>> {
+    const tree = await treeOf(admin);
+    return Object.fromEntries([...tree.permissions].flatMap(([nodeId, held]) => held.has(sub) ? [[nodeId, held.get(sub)!]] : []));
+  }
+  /** The `sub` the invite minted for `address`, read from the one grantee at `nodeId` the tree gained. */
+  async function mintedAt(admin: NebulaClient, nodeId: string, known: string[] = []): Promise<string> {
+    return vi.waitFor(async () => {
+      const subs = [...((await treeOf(admin)).permissions.get(nodeId)?.keys() ?? [])].filter((sub) => !known.includes(sub));
+      expect(subs).toHaveLength(1);
+      return subs[0]!;
+    });
+  }
+  /** A member of `star` who holds only the DAG grants `admin` gives them. */
+  async function memberOf(star: string, browser: Browser, accessToken: string) {
+    const address = em('member');
+    await createSubject(browser, star, accessToken, address);
+    const session = await createInvitedClient(NebulaClientTest, new Browser(), star, star, address);
+    return { client: session.client as NebulaClient, sub: session.payload.sub as string };
+  }
+
+  // MUTATIONS: write only the first grant, and the invitee holds nothing at the second node. Flip
+  // only the first node's rows, and the second stays `pending`.
+  it('writes a row and a grant at each node one address is given', async () => {
+    const star = uniqueStar();
+    const { client: admin } = await starWithOntology(star);
+    try {
+      const [list, items] = [await node(admin, 'list'), await node(admin, 'items')];
+      const invitee = em('two-nodes');
+      expect(await invite(admin, [{ email: invitee, grants: [{ nodeId: list, tier: 'read' }, { nodeId: items, tier: 'write' }] }]))
+        .toEqual({ accepted: 1, errors: [] });
+      await vi.waitFor(async () => {
+        expect((await inviteStatuses(admin, list))[invitee]).toEqual({ state: 'sent', tier: 'read' });
+        expect((await inviteStatuses(admin, items))[invitee]).toEqual({ state: 'sent', tier: 'write' });
+      });
+      expect(await grantsOf(admin, await mintedAt(admin, list))).toEqual({ [list]: 'read', [items]: 'write' });
+    } finally {
+      admin.disconnect();
+    }
+  });
+
+  // MUTATION: give every invitee the first invitee's grants, and both hold `read`.
+  it('gives two addresses in one call each their own tier', async () => {
+    const star = uniqueStar();
+    const { client: admin } = await starWithOntology(star);
+    try {
+      const [a, b] = [await node(admin, 'a'), await node(admin, 'b')];
+      const [reader, writer] = [em('reader'), em('writer')];
+      expect(await invite(admin, [
+        { email: reader, grants: [{ nodeId: a, tier: 'read' }] },
+        { email: writer, grants: [{ nodeId: b, tier: 'write' }] },
+      ])).toEqual({ accepted: 2, errors: [] });
+      expect(await grantsOf(admin, await mintedAt(admin, a))).toEqual({ [a]: 'read' });
+      expect(await grantsOf(admin, await mintedAt(admin, b))).toEqual({ [b]: 'write' });
+    } finally {
+      admin.disconnect();
+    }
+  });
+
+  // MUTATION: check `admin` for the first invitee's nodes only, and the invite lands.
+  it('refuses the whole invite when the inviter lacks admin at any node it names, and writes no row', async () => {
+    const star = uniqueStar();
+    const { browser, client: admin, accessToken } = await starWithOntology(star);
+    const inviter = await memberOf(star, browser, accessToken);
+    try {
+      const [mine, theirs] = [await node(admin, 'mine'), await node(admin, 'theirs')];
+      await admin.orgTree.setPermission(mine, inviter.sub, 'admin');
+      await admin.orgTree.setPermission(theirs, inviter.sub, 'write');
+      const [first, second] = [em('first'), em('second')];
+      const refused = await invite(inviter.client, [
+        { email: first, grants: [{ nodeId: mine, tier: 'read' }] },
+        { email: second, grants: [{ nodeId: theirs, tier: 'read' }] },
+      ]).then(() => undefined, (error: Error) => error);
+      expect(refused?.name).toBe('PermissionDeniedError');
+      expect(refused?.message).toBe(`admin permission required on node ${theirs}`);
+      expect(await inviteStatuses(admin, mine)).toEqual({});
+      expect(await inviteStatuses(admin, theirs)).toEqual({});
+    } finally {
+      admin.disconnect();
+      inviter.client.disconnect();
+    }
+  });
+
+  // The inviter gives up `admin` at the second node on the same socket, right behind the invite.
+  // The invite's door has passed by then, and its facade call has not gone out, so the answer
+  // finds the grant gone. MUTATIONS: let a refused grant end the handler, or let a row that
+  // cannot be flipped end the flips, and the `kept` row stays `pending`.
+  it('writes the grants it can when the inviter loses admin at one node before the facade answers', async () => {
+    const star = uniqueStar();
+    const { browser, client: admin, accessToken } = await starWithOntology(star);
+    const inviter = await memberOf(star, browser, accessToken);
+    try {
+      // `lost` is named first, so a handler that stopped at its refusal would never reach `kept`.
+      const [lost, kept] = [await node(admin, 'lost'), await node(admin, 'kept')];
+      await admin.orgTree.setPermission(kept, inviter.sub, 'admin');
+      await admin.orgTree.setPermission(lost, inviter.sub, 'admin');
+      const invitee = em('half');
+      const sent = invite(inviter.client, [{ email: invitee, grants: [{ nodeId: lost, tier: 'read' }, { nodeId: kept, tier: 'read' }] }]);
+      const revoked = inviter.client.orgTree.revokePermission(lost, inviter.sub);
+      expect(await sent).toEqual({ accepted: 1, errors: [] });
+      await revoked;
+      await vi.waitFor(async () => {
+        expect((await inviteStatuses(admin, kept))[invitee]).toEqual({ state: 'sent', tier: 'read' });
+      });
+      // The inviter holds nothing at `lost` now, so the flip of its row, made under their claims,
+      // is refused too, and the row stays as the invite left it.
+      expect((await inviteStatuses(admin, lost))[invitee]).toEqual({ state: 'pending', tier: 'read' });
+      expect(await grantsOf(admin, await mintedAt(admin, kept, [inviter.sub]))).toEqual({ [kept]: 'read' });
+      expect(warned.filter((e) => e.namespace === 'nebula.Resources.invite' && e.message === 'a node invite grant was refused')
+        .map((e) => e.data?.nodeId)).toEqual([lost]);
+    } finally {
+      admin.disconnect();
+      inviter.client.disconnect();
+    }
+  });
+
+  // MUTATIONS: write every grant unconditionally, and the first re-invite lowers `admin` to `read`.
+  // Compare against the grant at the node alone, and the invite at `child` writes a row there.
+  it('never lowers a grant, raises one, and writes none that an ancestor already covers', async () => {
+    const star = uniqueStar();
+    const { client: admin } = await starWithOntology(star);
+    try {
+      const parent = await node(admin, 'parent');
+      const child = await node(admin, 'child', parent);
+      const person = em('held');
+      const settled = async (nodeId: string, tier: string) => vi.waitFor(async () =>
+        expect((await inviteStatuses(admin, nodeId))[person]).toEqual({ state: 'sent', tier }));
+
+      await nodeInvite(admin, parent, [{ email: person, tier: 'read' }]);
+      const sub = await mintedAt(admin, parent);
+      await nodeInvite(admin, parent, [{ email: person, tier: 'write' }]);
+      await settled(parent, 'write');
+      expect(await grantsOf(admin, sub)).toEqual({ [parent]: 'write' });
+
+      await nodeInvite(admin, parent, [{ email: person, tier: 'admin' }]);
+      await settled(parent, 'admin');
+      await nodeInvite(admin, parent, [{ email: person, tier: 'read' }]);
+      await settled(parent, 'read');
+      expect(await grantsOf(admin, sub)).toEqual({ [parent]: 'admin' });
+
+      await nodeInvite(admin, child, [{ email: person, tier: 'write' }]);
+      await settled(child, 'write');
+      expect(await grantsOf(admin, sub)).toEqual({ [parent]: 'admin' });
+    } finally {
+      admin.disconnect();
+    }
+  });
+
+  // MUTATION: drop any one check, and its row's invite lands or fails on another message.
+  // The two-cases row names the upper-case spelling first: compare the addresses as they were sent,
+  // and only that order gets past the check.
+  const g = (nodeId: string, tier: unknown = 'read') => ({ nodeId, tier });
+  it.each([
+    ['invitees that are no array', (a: string) => ({ email: a, grants: [g(ROOT_NODE_ID)] }), /invitees must be an array/],
+    ['a node id where the invitees go, as the call was before', () => ROOT_NODE_ID, /invite now takes only invitees, each naming its grants/],
+    ['an invitee with no grants', (a: string) => [{ email: a }], /each invitee names its grants/],
+    ['an invitee with an empty grants list', (a: string) => [{ email: a, grants: [] }], /each invitee names its grants/],
+    ['a grant whose node is no string', (a: string) => [{ email: a, grants: [g(42 as never)] }], /each grant names its node/],
+    ['a tier outside the vocabulary', (a: string) => [{ email: a, grants: [g(ROOT_NODE_ID, 'owner')] }], /tier "owner" is not one of/],
+    ['one address named twice, in two cases', (a: string) => [{ email: a.toUpperCase(), grants: [g(ROOT_NODE_ID)] }, { email: a, grants: [g(ROOT_NODE_ID)] }], /is named twice/],
+    ['one node named twice for one address', (a: string) => [{ email: a, grants: [g(ROOT_NODE_ID), g(ROOT_NODE_ID, 'write')] }], /names node .* twice/],
+  ])('refuses the whole call for %s, before any row is written', async (_what, build, message) => {
+    const star = uniqueStar();
+    const { client: admin } = await starWithOntology(star);
+    try {
+      const address = em('shape');
+      await expect(invite(admin, build(address))).rejects.toThrow(message);
+      // A well-formed invite afterwards lands, and its row is the address's first.
+      expect(await inviteStatuses(admin, ROOT_NODE_ID)).toEqual({});
+      expect(await nodeInvite(admin, ROOT_NODE_ID, [{ email: address, tier: 'read' }])).toEqual({ accepted: 1, errors: [] });
+      await vi.waitFor(async () => expect((await inviteStatuses(admin, ROOT_NODE_ID))[address]?.state).toBe('sent'));
+    } finally {
+      admin.disconnect();
+    }
+  });
+});
+

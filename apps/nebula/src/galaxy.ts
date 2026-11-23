@@ -54,7 +54,7 @@ import { Resources } from '@lumenize/resources';
 import type { NodeInviteOutcome, OntologySource, ResourcesHost, ResourcesRequests, ResourcesResults } from '@lumenize/resources';
 import type { QueryDescriptor, TransactionResult, WireOperationDescriptor as OperationDescriptor } from '@lumenize/resources';
 import { chatOntologySeedRow } from './chat-ontology';
-import { DEFAULT_CHAT_ID, MESSAGES_NODE_ID, TURNS_NODE_ID, GALAXY_TREE_SEED, type MessageSnapshot } from './chat-constants';
+import { DEFAULT_CHAT_ID, MESSAGES_NODE_ID, TURNS_NODE_ID, GALAXY_TREE_SEED, COLLABORATOR_GRANTS, type MessageSnapshot } from './chat-constants';
 import { STUDIO_MODEL, STUDIO_MODEL_OPTIONS } from './studio-model';
 import { parseCast, type CastEntry } from './cast';
 import { NO_PREVIEW_ERROR } from './studio-client';
@@ -1534,8 +1534,8 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
    * and ask someone who can.
    *
    * Each kind goes where its collaborator does. A collaborator goes through the Resources
-   * plane's node invite, which writes the pending row, calls the facade, and grants `write` at
-   * the `messages` node when it answers, with the `read` at `chat` the seed pairs with it. An admin goes straight to the facade, with the bit. Either
+   * plane's node invite, naming {@link COLLABORATOR_GRANTS}: it writes the pending rows, calls the
+   * facade, and when it answers grants `write` at the `messages` node and `read` at `chat`. An admin goes straight to the facade, with the bit. Either
    * way the membership, and whether the mail went out, land after the turn, so what the turn
    * could not know is posted to the chat by the handler: a failure on either path, and an admin
    * invite's result ({@link onAdminInviteResult}, {@link #onNodeInviteOutcome}).
@@ -1554,7 +1554,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
       );
       return { invited: email, as: 'admin', note: 'The invite is being sent. Its result will be posted to the chat.' };
     }
-    const ack = await this.#resources.invite(MESSAGES_NODE_ID, [{ email, tier: 'write' }]);
+    const ack = await this.#resources.invite([{ email, grants: COLLABORATOR_GRANTS }]);
     if (ack.errors.length > 0) throw new Error(`could not invite ${email}: ${ack.errors.map((e) => e.error).join('; ')}`);
     return { invited: email, as: 'collaborator', note: 'The invite is being sent. A failure will be posted to the chat.' };
   }

@@ -38,7 +38,8 @@ import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator/runt
 import type { InviteSummary, InviteeError, AuthClaims } from '@lumenize/mesh/auth';
 import { toRecordedClaims } from '@lumenize/mesh/client';
 import type { PermissionTier, TreeSeed } from './org-ops';
-import { OrgTree, writeInviteAlsoGrants } from './org-tree';
+import { isPermissionTier } from './org-ops';
+import { OrgTree } from './org-tree';
 import { Snapshots } from './snapshots';
 import { Subscriptions } from './subscriptions';
 import type { DroppedAddress, QuerySubscriberRow } from './subscriptions';
@@ -87,17 +88,21 @@ export interface InstalledOntology {
  */
 export const MAX_LIVE_QUERIES_PER_TYPE = 200;
 
-/** One requested node invitee: the address, and the DAG tier to grant at the node. */
-export interface NodeInvitee { email: string; tier: PermissionTier }
+/** One grant an invite gives: the node, and the tier there. */
+export interface NodeInviteGrant { nodeId: string; tier: PermissionTier }
+
+/** One requested node invitee: the address, and every grant the invite gives them. */
+export interface NodeInvitee { email: string; grants: NodeInviteGrant[] }
 
 /** {@link Resources.invite}'s synchronous ack — SUBMISSION outcomes only (a true delivery
  *  failure is out-of-band and arrives hours later, when no tab is listening); everything downstream
  *  lands in `_InviteStatus` rows the members panel query-subscribes. */
 export interface NodeInviteAck { accepted: number; errors: InviteeError[] }
 
-/** How one node invite ended, once the facade answered: the addresses whose membership and grant
- *  now exist, and those the submission failed for, each with why. */
-export interface NodeInviteOutcome { nodeId: string; sent: string[]; failed: InviteeError[] }
+/** How one node invite ended, once the facade answered: the addresses whose membership and every
+ *  grant now exist, and those something failed for, each with why. An invite can span nodes, so
+ *  the outcome names none. */
+export interface NodeInviteOutcome { sent: string[]; failed: InviteeError[] }
 
 /**
  * The request-leg surface — the whole of what a host's `@mesh() get resources` hands the wire.
@@ -129,7 +134,7 @@ export interface ResourcesRequests {
   subscribeQuerySubscribers(ontologyVersion: string, query: QueryDescriptor): void;
   unsubscribeQuerySubscribers(queryHash: string): void;
   /** Throws a stale version's `OntologyStaleError`. */
-  invite(ontologyVersion: string, nodeId: string, invitees: NodeInvitee[]): Promise<NodeInviteAck>;
+  invite(ontologyVersion: string, invitees: NodeInvitee[]): Promise<NodeInviteAck>;
   /** The org tree, whose own methods check each op; a getter, so the chain reads `resources.orgTree.setPermission(…)`. */
   readonly orgTree: OrgTree;
   subscribeTree(): void;
@@ -147,7 +152,6 @@ export interface ResourcesRequests {
 /** The DAG tier vocabulary, as a runtime gate — mesh args are compile-time typed but
  *  runtime-unchecked, and `invite`'s eventual caller is Studio-GENERATED app code (ADR-001: the
  *  mesh method is the validation boundary). */
-const PERMISSION_TIERS: ReadonlySet<string> = new Set(['admin', 'write', 'read']);
 
 /** Structural email gate — non-empty local part, `@`, non-empty domain (the same hand-rolled shape
  *  the Registry re-checks; a failure here is a per-invitee error, never a whole-batch one). */
@@ -200,8 +204,9 @@ const PLANE_KEYS = ['__sql_migrations_Subscriptions'] as const;
  * the plane, like {@link ResourcesRequests}.
  */
 export interface ResourcesResults {
-  /** The node invite's facade answer: writes the grants, then flips each `_InviteStatus` row. */
-  onInviteResult(nodeId: string, tiers: Record<string, PermissionTier>, result?: unknown): Promise<void>;
+  /** The node invite's facade answer: writes the grants, keyed here by address, then flips each
+   *  `_InviteStatus` row. */
+  onInviteResult(grants: Record<string, NodeInviteGrant[]>, result?: unknown): Promise<void>;
   /** A source's answer — a Star's `getCurrentOntology()` fire-back. Installs a row it has not. */
   onOntologyPulled(result?: unknown): void;
   /** The reapers: each drops the row of the tab its host node reports gone — the tab from
@@ -426,10 +431,10 @@ export class Resources {
       },
       unsubscribeQuerySubscribers: (queryHash) =>
         this.removeQuerySubscriberListWatcher(queryHash, this.#caller()),
-      invite: async (ontologyVersion, nodeId, invitees) => {
+      invite: async (ontologyVersion, invitees) => {
         const stale = this.#gateClientOp(ontologyVersion);
         if (stale) throw stale;
-        return this.invite(nodeId, invitees);
+        return this.invite(invitees);
       },
       get orgTree() { return tree(); },
       subscribeTree: () => {
@@ -458,7 +463,7 @@ export class Resources {
       return result.name === 'ClientDisconnectedError' ? clientAddress : undefined;
     };
     return {
-      onInviteResult: (nodeId, tiers, result) => this.#onInviteResult(nodeId, tiers, result),
+      onInviteResult: (grants, result) => this.#onInviteResult(grants, result),
       onOntologyPulled: (result) => this.#onOntologyPulled(result),
       onBroadcastResult: (resourceId, sentAt, result) => {
         const clientAddress = gone(result);
@@ -753,25 +758,29 @@ export class Resources {
   // ─── Node invites (two-plane: the DAG grant here, the membership via the facade) ────────
 
   /**
-   * Invite people onto a NODE — the two-plane operation, written ONCE for every host
-   * (Star + Galaxy) so the security logic cannot fork: it initiates here, where the
-   * inviter's authority lives (`requirePermission`: `admin` at `nodeId` — the only authz
-   * decision on this path, because the facade cannot evaluate a DAG grant by design),
-   * writes `pending` `_InviteStatus` rows locally, fires the membership mint at the facade,
-   * and returns the ack. The result handler (`results.onInviteResult`) writes the
-   * `setPermission` grants and flips each row to `sent`/`submission-failed` — so the two
-   * planes are both written at INVITE time, and the invitee's first login finds everything in
-   * place (no login-time sequencing). The facade call goes out only when at least one invitee
-   * survived validation, and its outcome returns through the host's `resourcesResults`
-   * ({@link ResourcesHost}).
+   * Invite people onto nodes of this host's tree — the two-plane operation, written ONCE for every
+   * host (Star + Galaxy) so the security logic cannot fork. Each invitee names every grant the
+   * invite gives them:
+   * `invite([{ email, grants: [{ nodeId: LIST, tier: 'read' }, { nodeId: ITEMS, tier: 'write' }] }])`.
+   * It initiates here, where the inviter's authority lives: `admin` at every node any grant names,
+   * the only authz decision on this path, because the facade cannot evaluate a DAG grant by design.
+   * It writes a `pending` `_InviteStatus` row for each address and node, fires the membership mint
+   * at the facade once for each address, and returns the ack. The result handler
+   * (`results.onInviteResult`) writes the grants and flips each row to `sent` or
+   * `submission-failed`, so both planes are written at INVITE time and the invitee's first login
+   * finds everything in place. The facade call goes out only when at least one invitee survived
+   * validation, and its outcome returns through the host's `resourcesResults` ({@link ResourcesHost}).
    *
-   * Batch semantics: one `nodeId` per call (one `requirePermission` licenses the whole
-   * batch), `tier` per invitee, a malformed email joins the per-invitee errors without
-   * failing the batch — but an out-of-vocabulary `tier` refuses the WHOLE call before any
-   * side effect (a grant vocabulary error is a caller bug, not a per-address condition).
+   * What refuses the WHOLE call, before any side effect, since each is a caller's bug and not a
+   * condition of one address: invitees that are no array, an invitee with no grants, a grant whose
+   * node is no string or whose tier is outside the vocabulary, an address named twice, and a node
+   * named twice for one address. A malformed address joins the per-invitee errors and the rest go on.
+   *
+   * An invite never lowers a grant, and writes none that changes nothing: a grant is written only
+   * where it raises what the invitee already holds at that node, through the node's ancestors.
    *
    * The facade call NEVER requests a `scopeAdmin` bit — the cap rule in its degenerate form: a
-   * node inviter's authority is a DAG grant, and the `tier` parameter governs the DAG grant only.
+   * node inviter's authority is a DAG grant, and a `tier` governs the DAG grant only.
    * On a Galaxy the Registry still co-mints the invitee's `{galaxy}.dev` workspace membership,
    * with the admin bit, so a collaborator can work in the preview; `four-party-chat` asserts it.
    * That is why only dominion invites into a Galaxy: the facade refuses an inviter without it,
@@ -784,52 +793,75 @@ export class Resources {
    * the ordinary Resources pipeline, so this fails closed (before the facade fires) on a
    * host that has never had one.
    */
-  async invite(nodeId: string, invitees: NodeInvitee[]): Promise<NodeInviteAck> {
+  async invite(invitees: NodeInvitee[]): Promise<NodeInviteAck> {
     // ── The ADR-001 boundary: shape-check what the wire cannot. Whole-call refusals carry their
     // own messages, each distinguishable from the DAG refusal (`PermissionDeniedError`'s
     // "admin permission required on node …") and from every facade refusal.
-    if (typeof nodeId !== 'string' || nodeId.length === 0) {
-      throw new Error('Invalid node invite: nodeId must be a node id string');
+    if (typeof invitees === 'string') {
+      // The call took a node id first until an invite could span nodes; code written then sends one.
+      throw new Error('Invalid node invite: the first argument is a node id, and invite now takes only invitees, each naming its grants: invite([{ email, grants: [{ nodeId, tier }] }])');
     }
     if (!Array.isArray(invitees)) {
       throw new Error('Invalid node invite: invitees must be an array');
     }
     const errors: InviteeError[] = [];
     const valid: NodeInvitee[] = [];
+    const nodes = new Set<string>();
+    const addresses = new Set<string>();
     for (const entry of invitees) {
       if (entry === null || typeof entry !== 'object') {
         errors.push({ email: '', error: 'Invalid invitee entry' });
         continue;
       }
-      const { email, tier } = entry as { email: unknown; tier: unknown };
-      if (!PERMISSION_TIERS.has(tier as string)) {
-        // BEFORE any mint or send side effect, deliberately whole-call — see the JSDoc.
-        throw new Error(`Invalid node invite: tier "${String(tier)}" is not one of admin | write | read`);
+      const { email, grants } = entry as { email: unknown; grants: unknown };
+      if (!Array.isArray(grants) || grants.length === 0) {
+        throw new Error('Invalid node invite: each invitee names its grants, as a non-empty array of { nodeId, tier }');
+      }
+      const named = new Set<string>();
+      for (const grant of grants as Array<{ nodeId?: unknown; tier?: unknown } | null>) {
+        if (typeof grant?.nodeId !== 'string' || grant.nodeId.length === 0) {
+          throw new Error('Invalid node invite: each grant names its node, as a node id string');
+        }
+        if (!isPermissionTier(grant.tier)) {
+          throw new Error(`Invalid node invite: tier "${String(grant.tier)}" is not one of admin | write | read`);
+        }
+        if (named.has(grant.nodeId)) {
+          throw new Error(`Invalid node invite: one invitee names node ${grant.nodeId} twice`);
+        }
+        named.add(grant.nodeId);
+        nodes.add(grant.nodeId);
       }
       if (!isValidInviteEmail(email)) {
         errors.push({ email: typeof email === 'string' ? email : '', error: 'Invalid email format' });
         continue;
       }
-      // Normalize exactly as the Registry does — the handler's tier lookup keys on the summary's
-      // normalized address, so the two sides must agree.
-      valid.push({ email: email.toLowerCase().trim(), tier: tier as PermissionTier });
+      // Normalize exactly as the Registry does — the handler's lookup keys on the summary's
+      // normalized address, so the two sides must agree, and two spellings of one address are one.
+      const address = email.toLowerCase().trim();
+      if (addresses.has(address)) {
+        throw new Error(`Invalid node invite: ${address} is named twice`);
+      }
+      addresses.add(address);
+      valid.push({ email: address, grants: (grants as NodeInviteGrant[]).map(({ nodeId, tier }) => ({ nodeId, tier })) });
     }
 
-    // The DAG gate at the door — one check licenses the whole batch.
-    this.#orgTree.requirePermission(nodeId, 'admin');
+    // The DAG gate at the door: `admin` at every node any invitee's grants name, before any write.
+    for (const nodeId of nodes) this.#orgTree.requirePermission(nodeId, 'admin');
 
     if (valid.length > 0) {
-      // `pending` rows, converged on (email, node) — through the ordinary transaction path, so
-      // validation, `recordedClaims` attribution (the inviter, `act` chain included) and subscriber
-      // fan-out all apply. Server-side write → no originating client to exclude ('').
+      // `pending` rows, converged on (email, node), all in one transaction — through the ordinary
+      // transaction path, so validation, `recordedClaims` attribution (the inviter, `act` chain
+      // included) and subscriber fan-out all apply. Server-side write → no originating client ('').
       const ops: Record<string, OperationDescriptor> = {};
       for (const v of valid) {
-        const existing = this.#findInviteStatus(nodeId, v.email);
-        const value = { node: nodeId, email: v.email, tier: v.tier, state: 'pending' };
-        if (existing) {
-          ops[existing.resourceId] = { op: 'put', ifValidFromMatches: existing.meta.validFrom, value };
-        } else {
-          ops[crypto.randomUUID()] = { op: 'create', nodeId, typeName: '_InviteStatus', value };
+        for (const { nodeId, tier } of v.grants) {
+          const existing = this.#findInviteStatus(nodeId, v.email);
+          const value = { node: nodeId, email: v.email, tier, state: 'pending' };
+          if (existing) {
+            ops[existing.resourceId] = { op: 'put', ifValidFromMatches: existing.meta.validFrom, value };
+          } else {
+            ops[crypto.randomUUID()] = { op: 'create', nodeId, typeName: '_InviteStatus', value };
+          }
         }
       }
       let written: TransactionResult;
@@ -847,18 +879,18 @@ export class Resources {
         throw new Error(`node invite could not record its pending state: ${JSON.stringify(written.errors)}`);
       }
 
-      // Fire the membership mint through the ONE issuing entry, receiving the outcome in the
-      // host's TRAVELING handler (two one-way calls): the slow email I/O runs on the CPU-billed
-      // facade Worker while the host DO's input gates stay closed, and the handler runs on a
-      // cold, storage-restored host if this one was evicted. `callContext` (the inviter's
-      // verified claims) propagates across the hop, so the facade's eligibility + the
+      // Fire the membership mint through the ONE issuing entry, once for each address, receiving
+      // the outcome in the host's TRAVELING handler (two one-way calls): the slow email I/O runs
+      // on the CPU-billed facade Worker while the host DO's input gates stay closed, and the
+      // handler runs on a cold, storage-restored host if this one was evicted. `callContext` (the
+      // inviter's verified claims) propagates across the hop, so the facade's eligibility + the
       // Registry's ADR-016 record see the real acting principal. A call to another node keeps
       // the caller's identity; only a subscription update speaks for the node alone.
       const lmz = this.#lmz();
       lmz.call(
         'AUTH_FACADE', undefined,
         this.#ctn<AuthFacade>().invite(lmz.instanceName!, valid.map(({ email }) => ({ email }))),
-        this.#ctn<ResourcesHost>().resourcesResults.onInviteResult(nodeId, Object.fromEntries(valid.map((v) => [v.email, v.tier]))),
+        this.#ctn<ResourcesHost>().resourcesResults.onInviteResult(Object.fromEntries(valid.map((v) => [v.email, v.grants]))),
       );
     }
     return { accepted: valid.length, errors };
@@ -867,56 +899,77 @@ export class Resources {
   /**
    * The node invite's result handler — the body behind `results.onInviteResult`, which the facade
    * call above names as its traveling continuation (never awaited), so it survives the host's
-   * eviction and the inviter's disconnect. Writes the second plane: `setPermission` at the node for
-   * every minted `sub` (already-member outcomes included — that is what heals the one reachable
-   * two-plane inconsistency, a membership without its grant), with whatever grants the host's seed
-   * declares beside an invite at that node (`TreeSeed.inviteAlso`), then flips each `_InviteStatus` row
-   * to `sent`/`submission-failed`. It runs at the host's fire-back door, `__handleResponse`, where
-   * the member-level check is off and the scope check on. The whole body is wrapped: an uncaught
+   * eviction and the inviter's disconnect. Writes the second plane: for every minted `sub`
+   * (already-member outcomes included — that is what heals the one reachable two-plane
+   * inconsistency, a membership without its grant), each grant the invite named, where it raises
+   * what that `sub` holds there. Then it flips each `_InviteStatus` row to `sent` or
+   * `submission-failed`. It runs at the host's fire-back door, `__handleResponse`, where the
+   * member-level check is off and the scope check on. The whole body is wrapped: an uncaught
    * throw in a fire-back handler is silently lost, so failures are logged with identifiers only.
    */
-  async #onInviteResult(
-    nodeId: string, tiers: Record<string, PermissionTier>, result?: unknown,
-  ): Promise<void> {
+  async #onInviteResult(grants: Record<string, NodeInviteGrant[]>, result?: unknown): Promise<void> {
     const log = debug('nebula.Resources.invite');
+    type Flip = { nodeId: string; email: string; state: 'sent' | 'submission-failed'; error?: string };
+    const every = (email: string, flip: (grant: NodeInviteGrant) => Flip): Flip[] => (grants[email] ?? []).map(flip);
     try {
       if (result instanceof Error) {
         // The whole submission failed, so every pending row flips: the facade refused it, or the
         // infrastructure failed. On a Galaxy the refusal has a producer: an inviter holding DAG
         // `admin` at the node and no dominion over the app, whom only the facade's rule stops,
         // since `requirePermission` at the door admitted them.
-        await this.#flipInviteStatuses(nodeId, Object.keys(tiers).map((email) =>
-          ({ email, state: 'submission-failed', error: result.message })));
-        log.warn('node invite submission failed', { nodeId, error: result });
-        await this.#onInviteOutcome?.({ nodeId, sent: [], failed: Object.keys(tiers).map((email) => ({ email, error: result.message })) });
+        const emails = Object.keys(grants);
+        await this.#flipInviteStatuses(emails.flatMap((email) =>
+          every(email, ({ nodeId }) => ({ nodeId, email, state: 'submission-failed', error: result.message }))));
+        log.warn('node invite submission failed', { error: result });
+        await this.#onInviteOutcome?.({ sent: [], failed: emails.map((email) => ({ email, error: result.message })) });
         return;
       }
       const summary = result as InviteSummary;
       // The grants FIRST — they are the operation's point; the flips are reporting. Runs under the
       // response-leg callContext (the inviter's claims), so `setPermission`'s own `admin` gate
       // re-checks the same principal `requirePermission` admitted at the door.
+      const flips: Flip[] = [];
+      const failed: InviteeError[] = [...summary.errors];
+      const sent: string[] = [];
       for (const r of summary.results) {
-        const tier = tiers[r.email];
-        if (!tier) {
+        const named = grants[r.email];
+        if (!named) {
           // A summary row for an address this call never sent — an invariant breach, not a grant.
-          log.error('node invite summary named an unrequested address — no grant written', { nodeId });
+          log.error('node invite summary named an unrequested address — no grant written');
           continue;
         }
-        this.#orgTree.setPermission(nodeId, r.sub, tier);
-        // What the host's seed declares with an invite here, with no second check and no second mail.
-        const also = writeInviteAlsoGrants(this.#orgTree, nodeId, r.sub);
-        if (also.length > 0) log.debug('declared grants written with the invite', { nodeId, sub: r.sub, nodes: also });
+        // Every grant is weighed against what the invitee holds before any is written, so a
+        // grant on a parent written a moment ago cannot make the one beneath it look redundant
+        // or needed. `checkPermission` answers through the node's ancestors: a grant is written
+        // only where it raises the tier that reaches the node.
+        const raises = named.map((grant) => {
+          try { return !this.#orgTree.checkPermission(grant.nodeId, grant.tier, r.sub); } catch { return true; }
+        });
+        let refusal: string | undefined;
+        named.forEach((grant, i) => {
+          try {
+            if (raises[i]) this.#orgTree.setPermission(grant.nodeId, r.sub, grant.tier);
+            flips.push({ nodeId: grant.nodeId, email: r.email, state: 'sent' });
+          } catch (err) {
+            // One grant's refusal is its own: an inviter who lost `admin` at this node since the
+            // door, or a node deleted meanwhile. The other grants go on.
+            const error = err instanceof Error ? err.message : String(err);
+            refusal ??= error;
+            flips.push({ nodeId: grant.nodeId, email: r.email, state: 'submission-failed', error });
+            log.warn('a node invite grant was refused', { nodeId: grant.nodeId, error: err });
+          }
+        });
+        if (refusal === undefined) sent.push(r.email);
+        else failed.push({ email: r.email, error: refusal });
       }
-      await this.#flipInviteStatuses(nodeId, [
-        ...summary.results.map((r) => ({ email: r.email, state: 'sent' as const })),
-        ...summary.errors.map((e) => ({ email: e.email, state: 'submission-failed' as const, error: e.error })),
-      ]);
-      await this.#onInviteOutcome?.({ nodeId, sent: summary.results.map((r) => r.email), failed: summary.errors });
+      for (const e of summary.errors) {
+        flips.push(...every(e.email, ({ nodeId }) => ({ nodeId, email: e.email, state: 'submission-failed', error: e.error })));
+      }
+      await this.#flipInviteStatuses(flips);
+      await this.#onInviteOutcome?.({ sent, failed });
     } catch (err) {
       // Never rethrow — a fire-back handler's throw vanishes. Identifiers only.
-      log.error('node invite result handling failed', {
-        nodeId, error: err,
-      });
+      log.error('node invite result handling failed', { error: err });
     }
   }
 
@@ -936,27 +989,34 @@ export class Resources {
    *  a single stale version (a concurrent re-invite converging that address mid-flight) void the
    *  SIBLING invitees' flips, stranding them at `pending` with only a warn to show for it. A row
    *  that vanished or moved on (converged by a newer writer) is skipped: that writer owns its
-   *  state. */
+   *  state. Each flip is caught by itself for the same reason. */
   async #flipInviteStatuses(
-    nodeId: string,
-    flips: Array<{ email: string; state: 'sent' | 'submission-failed'; error?: string }>,
+    flips: Array<{ nodeId: string; email: string; state: 'sent' | 'submission-failed'; error?: string }>,
   ): Promise<void> {
     for (const flip of flips) {
-      const existing = this.#findInviteStatus(nodeId, flip.email);
-      if (!existing) continue;
-      const value = {
-        ...(existing.value as Record<string, unknown>),
-        state: flip.state,
-        ...(flip.error !== undefined ? { error: flip.error } : {}),
-      };
-      if (flip.error === undefined) delete (value as Record<string, unknown>).error;
-      const written = await this.doTransaction({
-        [existing.resourceId]: { op: 'put', ifValidFromMatches: existing.meta.validFrom, value },
-      }, '');
-      if (!written.ok) {
-        debug('nebula.Resources.invite').warn('an _InviteStatus flip did not apply (a newer writer owns the row)', {
-          nodeId, resourceId: existing.resourceId,
-        });
+      const { nodeId } = flip;
+      try {
+        const existing = this.#findInviteStatus(nodeId, flip.email);
+        if (!existing) continue;
+        const value = {
+          ...(existing.value as Record<string, unknown>),
+          state: flip.state,
+          ...(flip.error !== undefined ? { error: flip.error } : {}),
+        };
+        if (flip.error === undefined) delete (value as Record<string, unknown>).error;
+        const written = await this.doTransaction({
+          [existing.resourceId]: { op: 'put', ifValidFromMatches: existing.meta.validFrom, value },
+        }, '');
+        if (!written.ok) {
+          debug('nebula.Resources.invite').warn('an _InviteStatus flip did not apply (a newer writer owns the row)', {
+            nodeId, resourceId: existing.resourceId,
+          });
+        }
+      } catch (err) {
+        // The flips run under the inviter's claims, so one who has lost every grant at a node
+        // since the door can no longer read or write its row there. That row stays `pending`,
+        // and the rest go on.
+        debug('nebula.Resources.invite').warn('an _InviteStatus row could not be flipped', { nodeId, error: err });
       }
     }
   }

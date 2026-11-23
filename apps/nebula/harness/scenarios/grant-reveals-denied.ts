@@ -99,7 +99,7 @@ export async function run(stack: DevStack): Promise<void> {
     // The member is invited to `pub` only — a sibling of `priv`, so no grant reaches it.
     waiter = waitForEmail({ testToken, instance: star, to: memberEmail, timeout: 60_000 });
     const ack = await admin.client.lmz.callAsync(
-      'STAR', star, admin.client.ctn<Star>().resources.invite(version, pub, [{ email: memberEmail, tier: 'read' }]),
+      'STAR', star, admin.client.ctn<Star>().resources.invite(version, [{ email: memberEmail, grants: [{ nodeId: pub, tier: 'read' }] }]),
     ) as NodeInviteAck;
     assert.deepEqual(ack, { accepted: 1, errors: [] }, `node invite ack: ${JSON.stringify(ack)}`);
     const mail = await waiter.emailPromise;

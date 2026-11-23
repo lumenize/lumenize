@@ -112,13 +112,6 @@ export function isBelowTier(tier: PermissionTier, floor: PermissionTier): boolea
 export interface TreeSeed {
   nodes?: Array<{ nodeId: string; parentNodeId: string; slug: string; label: string }>
   grants?: Array<{ nodeId: string; sub: string; tier: PermissionTier; protected?: true }>
-  /**
-   * Grants that go with an invite at a node: when a node invite at `at` is answered, each `grant`
-   * is written for the invitee beside the invite's own, with no check of its own, since the host
-   * declared it. A Galaxy declares `read` at its `chat` node with every invite at `messages`. One
-   * never lowers or replaces a grant the invitee already holds there.
-   */
-  inviteAlso?: Array<{ at: string; grant: { nodeId: string; tier: PermissionTier } }>
 }
 
 // ─── Validation ────────────────────────────────────────────────────

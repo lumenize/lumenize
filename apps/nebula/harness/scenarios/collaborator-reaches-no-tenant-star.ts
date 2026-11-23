@@ -30,7 +30,7 @@ import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { ROOT_NODE_ID } from '@lumenize/resources/client';
 import type { NodeInviteAck, OrgTreeState } from '@lumenize/resources';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID } from '@lumenize/nebula/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, COLLABORATOR_GRANTS } from '@lumenize/nebula/client';
 import type { Galaxy, Star } from '@lumenize/nebula';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
@@ -76,7 +76,7 @@ export async function run(stack: DevStack): Promise<void> {
     let cookies: string[];
     try {
       const ack = await ownerOnApp.client.lmz.callAsync('GALAXY', APP,
-        ownerOnApp.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, [{ email, tier: 'write' }])) as NodeInviteAck;
+        ownerOnApp.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, [{ email, grants: COLLABORATOR_GRANTS }])) as NodeInviteAck;
       assert.deepEqual(ack, { accepted: 1, errors: [] }, `invite ack: ${JSON.stringify(ack)}`);
       const mail = await waiter.emailPromise;
       const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(mail.html ?? '')?.[1];

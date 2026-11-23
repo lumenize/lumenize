@@ -541,7 +541,7 @@ describe('the upward arm is bounded by the callee, not by the barrier (the host 
         [crypto.randomUUID()]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'x' } },
       }));
       expect(JSON.stringify(tx)).toContain('"permission"');
-      expect(await call('GALAXY', galaxy, g().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, ROOT_NODE_ID, [{ email: 'x@example.com', tier: 'read' }])))
+      expect(await call('GALAXY', galaxy, g().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, [{ email: 'x@example.com', grants: [{ nodeId: ROOT_NODE_ID, tier: 'read' }] }])))
         .toBe(`admin permission required on node ${ROOT_NODE_ID}`);
       expect(await call('GALAXY', galaxy, g().resources.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'n', 'N')))
         .toBe(`write permission required on node ${ROOT_NODE_ID}`);

@@ -523,6 +523,44 @@ Then the whole registry runs locally, since this phase and § *Phase 3* change w
 - Read the stamped name alone in the plane: `packages/resources/test/tree-seed.test.ts`, where the `onStart` create was refused.
 - Not run as written: grants inserted after the node's transaction. The twice-named test asserts the node is absent, which is what that mutation would break.
 
+### Phase 3
+
+**For Larry:**
+
+- **A status row at a node its inviter can no longer reach stays `pending`.** The phase said a refused grant's row flips to `submission-failed`. The flips run under the inviter's claims, so an inviter who has lost every grant at that node is refused the read and the write of its row too. Before this phase that one refusal ended every remaining flip, which the new test found. Each flip is now caught by itself: the other rows flip, the address is reported in `failed`, and that one row stays `pending`. Flipping it would take a write made as the host's system principal, which is a new use of `asSystemPrincipal` for a row people see, so it is yours to decide.
+- **`NodeInviteGrant` is a new exported type,** `{ nodeId, tier }`, beside `NodeInvitee`.
+- **`access-control.md`'s shared-list example still grants with `setPermission`,** since it has the person's `sub`. The line beside it that teaches the invite now shows one invite naming two nodes, which is what the phase wanted taught.
+
+**Runs:** type-check clean. Resources 264 passed. `apps/nebula` 1346 passed, 2 skipped and 1 failed, which was `waiting-posts.test.ts`'s refused node invite: its fixture held `admin` at `messages` alone, and the door now asks it at `chat` too. With the fixture holding both, the file passes. `npm run test:doc` passed. `drive.ts all --fast` passed 64 of 64 after a rerun, and `node-invite-roundtrip`, `persona-tabs`, `grant-reveals-denied` and `query-by-filter` passed.
+
+**A real red in the sweep:** `agent-invites` failed for the same reason as that test, and passes with the same fixture change.
+
+**Flakes:** `resubscribe-when-lost`, `refresh-reads-the-host` and `studio-app-settings` (a mail lost after delivery), `claim-lifecycle` and `invites-land-on-their-host` (the mail socket closed first) and `galaxy-cap` (a WebSocket connection timeout) each failed once and passed on the rerun with nothing changed. With § *Phase 2*'s three, every flake of this build has been a lost mail or a dropped socket, and `refresh-reads-the-host` has now done it twice.
+
+**Retro notes:**
+
+- Twenty-one callers took the scripted rewrite, in tests, scenarios and the harness's `chat-cast.ts`. The rest were multi-line, sent a literal version or went through a test's helper, and were changed by hand, the last of them named by the type-checker.
+- One mutation survived on first run: comparing duplicate addresses as they were sent. The two-cases row named the lower-case spelling first, which is already the normalized one, so the check held either way. The row now names the upper-case spelling first.
+- The lost-`admin` case is made in order by sending the inviter's own revoke on the same socket, right behind the invite. The invite's door has passed by then and its facade call has not gone out.
+- A facade refusal of a whole invite needs a Galaxy, where only dominion may invite, so that case lives in `turn-rounds.test.ts` beside the collaborator's grants. It reads the rows through two storage probes on the test Galaxy, `inviteStatesForTest` and `inviteFailuresForTest`.
+
+**Close-out notes:**
+
+- `TreeSeed` keeps its nodes and its protected grant until § *Phase 4*.
+- The four model-driven container scenarios this phase's rewrite touched, `dev-star-follows-the-build`, `build-reaches-every-studio`, `shared-lists-turn` and `cast-from-a-tab`, type-check and wait for the full sweep after § *Phase 4*.
+
+**Mutations run,** against `node-invite.test.ts` unless named, each caught:
+
+- Check `admin` at the first node only: the refused-invite test, and the scenario's limb, where the collaborator's invite landed.
+- Write every grant unconditionally: the never-lowers test.
+- Write only the first grant: the two-nodes test, `turn-rounds.test.ts`'s collaborator cases, and the scenario's limb.
+- Flip only the first node's rows on success: the two-nodes test. On a refusal: `turn-rounds.test.ts`'s facade case.
+- Let a refused grant end the handler, and let an unflippable row end the flips: the lost-`admin` test.
+- Have `Galaxy.invite` name `messages` alone: `turn-rounds.test.ts`'s `Galaxy.invite` case.
+- Drop each whole-call check: its own row, with the address duplicate checked both as dropped and as compared unnormalized.
+- Not run: a `read` at `chat` written with every invite at `messages`, which would mean restoring deleted code. The messages-alone case asserts the invitee's exact grants once the row reads `sent`.
+- Not run: two sends for one invite. The scenario counts Resend's send ids for the address, and the lane counts the Registry's issued links.
+
 ## Non-goals
 
 - **An app's `onStart` and `onNewOntologyVersion`,** and the facet they run in: nebula-app-lifecycle-hooks.md.

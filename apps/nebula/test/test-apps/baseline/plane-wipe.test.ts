@@ -264,7 +264,7 @@ describe('a transaction or invite held at the validator across a wipe writes not
     const held = `held-${uuid().slice(0, 6)}`;
     await install(a, dev, { version: held, types: V1 }, HOLD_MS);
     const holder = await admin(galaxy, dev);
-    const pending = answer(holder.lmz.callAsync('STAR', dev, door(holder).invite(held, ROOT_NODE_ID, [{ email: 'held@example.com', tier: 'read' }]),
+    const pending = answer(holder.lmz.callAsync('STAR', dev, door(holder).invite(held, [{ email: 'held@example.com', grants: [{ nodeId: ROOT_NODE_ID, tier: 'read' }] }]),
       { timeoutMs: 30_000 }));
     await vi.waitFor(() => expect(marks('nebula.Resources.ontology', 'facet cold load').some((e) => e.data?.version === held)).toBe(true));
     await resetDev(a, dev);

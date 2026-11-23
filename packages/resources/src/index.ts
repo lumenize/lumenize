@@ -10,7 +10,7 @@
 // The plane a node composes, and the two surfaces it hands the wire
 export { Resources, MAX_LIVE_QUERIES_PER_TYPE } from './resources';
 export type {
-  OntologySource, InstalledOntology, ResourcesHost, ResourcesRequests, ResourcesResults, NodeInvitee, NodeInviteAck,
+  OntologySource, InstalledOntology, ResourcesHost, ResourcesRequests, ResourcesResults, NodeInvitee, NodeInviteGrant, NodeInviteAck,
 } from './resources';
 
 // The ontology a plane installs — TYPES only; the compiler stays out of every Worker's graph

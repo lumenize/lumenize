@@ -21,28 +21,30 @@
  *  3. **Lowering it to `read` is refused** the same way. Mutation: drop the check in
  *     `setPermission`, and the grant reads `read`.
  *  4. **What the refusal does not cover still works.** Setting the agent's grant to `write` again
- *     passes. A real invite at `messages` grants the collaborator `write` there and `read` at
- *     `chat`; a revoke at `messages` takes the first and leaves the second, which a revoke at `chat`
- *     then takes. Mutations: refuse every `setPermission` naming the agent, and the first reds;
- *     drop the seed's `inviteAlso`, and the `read` at `chat` is missing; treat every grant on `chat`
- *     as protected, and its revoke reds.
+ *     passes. One real invite names the collaborator's `write` at `messages` and `read` at `chat`,
+ *     and brings one mail. The collaborator, made `admin` at `messages`, is refused an invite of
+ *     their own that names `chat` too. A revoke at `messages` takes the first grant and leaves the
+ *     second, which a revoke at `chat` then takes. Mutations: refuse every `setPermission` naming
+ *     the agent, and the first reds; write only an invite's first grant, and the `read` at `chat`
+ *     is missing; check `admin` at an invite's first node only, and the collaborator's invite
+ *     lands; treat every grant on `chat` as protected, and its revoke reds.
  *  5. **A create says what it found.** In the tenant Star the owner's create answers `'created'`,
  *     its repeat `'existing'`, and the same create after a rename `'differs'`, and a create under a
  *     slug a sibling holds is refused as `SlugTakenError`. Mutations: answer `'existing'` for every
  *     id found, and the rename case reds; throw a plain error for a taken slug, and its name reds.
  */
 import assert from 'node:assert/strict';
-import { uniqueTestEmail } from '@lumenize/email-test/client';
+import { uniqueTestEmail, waitForEmail } from '@lumenize/email-test/client';
 import { NEBULA_SUB } from '@lumenize/mesh/client';
 import { ROOT_NODE_ID, makeEdgeKey } from '@lumenize/resources/client';
 import type { NodeInviteAck, OrgTreeState } from '@lumenize/resources';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, MESSAGES_NODE_ID, TURNS_NODE_ID } from '@lumenize/nebula/client';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, CHAT_NODE_ID, MESSAGES_NODE_ID, COLLABORATOR_GRANTS, TURNS_NODE_ID } from '@lumenize/nebula/client';
 import type { Galaxy, Star } from '@lumenize/nebula';
 import type { DevStack, Driver } from '../lib/harness';
 import { connectDriver, readDevVar } from '../lib/harness';
 import { sharedApp } from '../lib/shared-app';
 import { testSlug } from '../lib/test-scopes';
-import { provisionAndLogin, refreshAccessToken } from '../../test/lib/email-login';
+import { provisionAndLogin, refreshAccessToken, consumeLink, setCookieHeaders, refreshTokenForScope } from '../../test/lib/email-login';
 
 /** Auth and the orgTree only, never a build, so the boot skips Docker. */
 export const needsContainer = false;
@@ -144,24 +146,46 @@ export async function run(stack: DevStack): Promise<void> {
       await owner.client.orgTree.setPermission(CHAT_NODE_ID, NEBULA_SUB, 'write');
       assert.equal(await agentTier(), 'write');
 
-      // A collaborator's grant, written the way production writes one: the node invite mints the
-      // person and grants them at the node. Nobody needs to accept for the grant to exist.
-      const collaborator = uniqueTestEmail();
-      const others = (tree: OrgTreeState): string[] =>
-        [...(tree.permissions.get(MESSAGES_NODE_ID)?.keys() ?? [])].filter((sub) => sub !== NEBULA_SUB);
-      // The shared app's chat may hold other scenarios' collaborators, so the new one is told apart.
-      const before = others(await galaxyTree());
-      const ack = await owner.client.lmz.callAsync('GALAXY', galaxy,
-        owner.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, [{ email: collaborator, tier: 'write' }])) as NodeInviteAck;
-      assert.deepEqual(ack, { accepted: 1, errors: [] }, `invite ack: ${JSON.stringify(ack)}`);
-      const added = (tree: OrgTreeState): string[] => others(tree).filter((sub) => !before.includes(sub));
-      // The invite's grant at `messages` and the `read` at `chat` the seed pairs with it are waited for together.
-      const granted = await until(galaxyTree, (tree) => added(tree).length === 1
-        && tree.permissions.get(CHAT_NODE_ID)?.has(added(tree)[0]!) === true, 'the collaborator\'s grants at messages and chat');
-      const [collaboratorSub] = added(granted);
-      assert.equal(granted.permissions.get(MESSAGES_NODE_ID)?.get(collaboratorSub), 'write');
+      // A collaborator's grants, written the way production writes them: one node invite naming
+      // both, which mints the person, grants them at each node and sends one mail.
+      const collaboratorEmail = uniqueTestEmail();
+      const waiter = waitForEmail({ testToken, instance: galaxy, to: collaboratorEmail, timeout: 60_000 });
+      let collaborator: Driver;
+      try {
+        const ack = await owner.client.lmz.callAsync('GALAXY', galaxy,
+          owner.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, [{ email: collaboratorEmail, grants: COLLABORATOR_GRANTS }])) as NodeInviteAck;
+        assert.deepEqual(ack, { accepted: 1, errors: [] }, `invite ack: ${JSON.stringify(ack)}`);
+        const mail = await waiter.emailPromise;
+        const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(mail.html ?? '')?.[1];
+        assert.ok(href, 'the invite email carried no accept link');
+        const clicked = await consumeLink(href!.replace(/&amp;/g, '&'), fetch, { nickname: 'Collaborator' });
+        const refreshToken = refreshTokenForScope(setCookieHeaders(clicked), galaxy);
+        assert.ok(refreshToken, `acceptance set no cookie for the app (${clicked.status})`);
+        const session = await refreshAccessToken(origin, { refreshToken: refreshToken!, authScope: galaxy }, galaxy, fetch);
+        collaborator = await connectDriver(stack, { scope: galaxy, session, ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION });
+        drivers.push(collaborator);
+        // Two grants, one mail: Resend reports each send it made to this address under an id of
+        // its own, and by now both grants are written, so a second send would have been made.
+        await until(galaxyTree, (tree) => tree.permissions.get(CHAT_NODE_ID)?.has(session.sub) === true, 'the collaborator\'s read at chat');
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+        const sends = new Set(waiter.deliveryEvents.map((event) => event.emailId));
+        assert.equal(sends.size, 1, `one invite must send one mail, and Resend reports ${sends.size} sends to this address`);
+      } finally {
+        waiter.cleanup();
+      }
+      const collaboratorSub = collaborator.client.claims.sub;
+      const granted = await galaxyTree();
+      assert.equal(granted.permissions.get(MESSAGES_NODE_ID)?.get(collaboratorSub), 'write', 'the invite must grant write at messages');
+      assert.equal(granted.permissions.get(CHAT_NODE_ID)?.get(collaboratorSub), 'read', 'the invite must grant read at chat, which it names');
 
-      assert.equal(granted.permissions.get(CHAT_NODE_ID)?.get(collaboratorSub), 'read', 'an invite at messages must bring read at chat');
+      // The door asks `admin` at every node an invite names. The owner makes the collaborator
+      // `admin` at `messages`, and their own invite naming `chat` too is refused there.
+      await owner.client.orgTree.setPermission(MESSAGES_NODE_ID, collaboratorSub, 'admin');
+      const refused = await refusal(collaborator.client.lmz.callAsync('GALAXY', galaxy,
+        collaborator.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, [{ email: uniqueTestEmail(), grants: COLLABORATOR_GRANTS }])),
+        'an invite naming a node its inviter does not administer');
+      assert.equal(refused.name, 'PermissionDeniedError', `the invite was refused as ${refused.name}: ${refused.message}`);
+      assert.equal(refused.message, `admin permission required on node ${CHAT_NODE_ID}`);
 
       // A revoke at `messages` takes posting away and leaves the reading, which a revoke at `chat` ends.
       await owner.client.orgTree.revokePermission(MESSAGES_NODE_ID, collaboratorSub);
@@ -173,7 +197,7 @@ export async function run(stack: DevStack): Promise<void> {
       assert.equal((await galaxyTree()).permissions.get(CHAT_NODE_ID)?.get(collaboratorSub), undefined,
         'a collaborator\'s read at chat must be revocable');
       assert.equal(await agentTier(), 'write', 'the agent\'s grant is untouched by the collaborator\'s revokes');
-      console.error('  ✓ limb 4 — re-setting the agent\'s write passed, and the collaborator\'s grants at messages and then chat were revoked');
+      console.error('  ✓ limb 4 — re-setting the agent\'s write passed, one invite brought both grants and one mail, an invite past its inviter\'s nodes was refused, and both grants were revoked');
     }
 
     // ── LIMB 5: a create says what it found ───────────────────────────────────────────────────

@@ -27,6 +27,6 @@ requests.subscribeQuerySubscribers('v1', query);
 // @ts-expect-error — a roster subscription without the page's version
 requests.subscribeQuerySubscribers(undefined, query);
 
-void requests.invite('v1', 'node-1', invitees);
+void requests.invite('v1', invitees);
 // @ts-expect-error — a node invite without the page's version
-void requests.invite(undefined, 'node-1', invitees);
+void requests.invite(undefined, invitees);

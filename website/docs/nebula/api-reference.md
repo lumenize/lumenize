@@ -36,7 +36,7 @@ Each surface below carries one tag describing its provenance. The tags captured 
 | `ROOT_NODE_ID` (sentinel UUID) constant | new-in-v3 | [OrgTreeState](#orgtreestate) |
 | Reserved state paths (`store.resources.*`, `store.lmz.*`) | implemented-in-spike | [Reserved state paths](#reserved-state-paths) |
 | `store.lmz.connection.{state, connected, lastConnectedAt}` | implemented-in-spike | [lmz.connection](#lmzconnection) |
-| `client.resources.invite(nodeId, invitees)` (a person onto a node, at a tier) | new-in-v3 | [resources.invite](#resourcesinvite) |
+| `client.resources.invite(invitees)` (a person onto one node or several, at a tier each) | new-in-v3 | [resources.invite](#resourcesinvite) |
 | `client.invite(scope, invitees)` (a person into a scope) | inherited from `MeshClient` | [client.invite](#clientinvite) |
 | `client.subscribeProfile(id)` (+ auto-subscribe on read) | new-in-v3 | [subscribeProfile](#subscribeprofile) |
 | `client.patchMyProfile(patch)` (a merge patch: `null` removes a field) | inherited from `MeshClient` | [patchMyProfile](#patchmyprofile) |
@@ -637,19 +637,34 @@ interface OrgTreeState {
 
 ```typescript @skip-check
 client.resources.invite(
-  nodeId: string,
-  invitees: Array<{ email: string; tier: 'admin' | 'write' | 'read' }>,
+  invitees: Array<{
+    email: string;
+    grants: Array<{ nodeId: string; tier: 'admin' | 'write' | 'read' }>;
+  }>,
 ): Promise<{ accepted: number; errors: Array<{ email: string; error: string }> }>;
 ```
 
-Invite people onto a **node** of the org tree. Each invitee becomes a member of the page's scope, if they are not one already, and is granted `tier` on `nodeId`, which cascades to everything beneath it. The caller needs `admin` on the node.
+Invite people onto **nodes** of the org tree. Each invitee names every grant the invite gives them: a node and a tier there, which cascades to everything beneath it. Each becomes a member of the page's scope, if they are not one already, and gets one email however many grants they are given. The caller needs `admin` on every node named, and an invite that names a node where they lack it is refused whole.
 
-The Promise resolves once the invites are submitted, with how many were accepted and why any was not. The membership, the grant and the email land a moment later. Inviting someone who is already a member onto another node adds that grant and sends them no new link.
+The Promise resolves once the invites are submitted, with how many were accepted and why any was not. The membership, the grants and the email land a moment later. Inviting someone who is already a member adds the grants and sends them no new link. An invite never lowers a grant: where the person already holds the tier, or a higher one, at the node or above it, nothing is written there.
 
 ```typescript @skip-check
-const ack = await client.resources.invite(listsNodeId, [{ email: 'pat@example.com', tier: 'write' }]);
+// One person, one node.
+const ack = await client.resources.invite([
+  { email: 'pat@example.com', grants: [{ nodeId: listsNodeId, tier: 'write' }] },
+]);
 // { accepted: 1, errors: [] }
+
+// One person, two nodes: read the list, and write its items.
+await client.resources.invite([
+  { email: 'sam@example.com', grants: [
+    { nodeId: listNodeId, tier: 'read' },
+    { nodeId: itemsNodeId, tier: 'write' },
+  ] },
+]);
 ```
+
+A malformed address is reported in `errors` and the other invitees go on. The call is refused whole for an invitee with no grants, a tier outside the three, an address named twice, or one node named twice for one address.
 
 ## `client.invite` {#clientinvite}
 

@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
-import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import { MESSAGES_NODE_ID, COLLABORATOR_GRANTS, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { NodeInviteAck } from '@lumenize/resources';
 import type { Snapshot } from '@lumenize/resources/client';
@@ -123,7 +123,7 @@ export async function run(stack: DevStack): Promise<void> {
     const waiter = waitForEmail({ testToken, instance: app.galaxy, to: collaboratorEmail, timeout: 60_000 });
     try {
       const ack = await client.lmz.callAsync('GALAXY', app.galaxy, client.ctn<Galaxy>().resources.invite(
-        CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, [{ email: collaboratorEmail, tier: 'write' }])) as NodeInviteAck;
+        CHAT_MESSAGE_ONTOLOGY_VERSION, [{ email: collaboratorEmail, grants: COLLABORATOR_GRANTS }])) as NodeInviteAck;
       assert.deepEqual(ack, { accepted: 1, errors: [] }, `invite ack: ${JSON.stringify(ack)}`);
       const mail = await waiter.emailPromise;
       const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(mail.html ?? '')?.[1];

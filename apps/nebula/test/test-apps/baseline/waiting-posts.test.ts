@@ -22,7 +22,7 @@ import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { NEBULA_SUB, REGISTRY_INSTANCE_NAME } from '@lumenize/mesh/auth';
 import type { AuthFacade } from '@lumenize/mesh/auth/facade';
-import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
+import { MESSAGES_NODE_ID, COLLABORATOR_GRANTS, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/resources';
 import { universeAdminClient, createSubject, createInvitedClient, turnCallsOf } from '../../test-helpers';
@@ -915,7 +915,10 @@ describe('the agent invites, under the claims of the post its turn took up', () 
   it('a member of the app is refused at the facade, and a node invite the facade refuses is posted to the chat', async () => {
     const scope = uniqueScope();
     const c = await cast(scope);
-    await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<Galaxy>().resources.orgTree.setPermission(MESSAGES_NODE_ID, c.aSub, 'admin'));
+    // `admin` at every node the invite names, which is what its own door asks.
+    for (const { nodeId } of COLLABORATOR_GRANTS) {
+      await c.j.lmz.callAsync('GALAXY', scope, c.j.ctn<Galaxy>().resources.orgTree.setPermission(nodeId, c.aSub, 'admin'));
+    }
     using sub = c.j.resources.subscribeQuery(chatQuery); await sub.ready;
     const [direct, viaNode] = [someone(), someone()];
     const refusal = `Inviting into the app "${scope}" needs dominion over it, which a member of it does not hold: ask one of its admins`;
@@ -925,10 +928,10 @@ describe('the agent invites, under the claims of the post its turn took up', () 
       .rejects.toThrow(refusal);
     expect(await membershipsOf(direct)).toEqual([]);
 
-    // Through the node invite, whose own gate is DAG `admin` at the node, which Austen holds: it
+    // Through the node invite, whose own gate is DAG `admin` at each node it names, which Austen holds: it
     // acknowledges, the facade refuses afterwards, and the Galaxy posts that as the agent.
     const ack = await c.a.lmz.callAsync('GALAXY', scope,
-      c.a.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, [{ email: viaNode, tier: 'write' }]));
+      c.a.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, [{ email: viaNode, grants: COLLABORATOR_GRANTS }]));
     expect(ack).toEqual({ accepted: 1, errors: [] });
     await vi.waitFor(async () => expect((await agentMessages(c.j, sub.resourceIds)).size).toBe(1), { timeout: 15_000 });
     const [[text, posted]] = [...(await agentMessages(c.j, sub.resourceIds))];

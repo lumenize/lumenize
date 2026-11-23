@@ -216,7 +216,7 @@ describe('the source is asked only on a mismatch', () => {
     await install(admin, star, 'v1', TYPES_V1);
     sink = [];
     const read = await answer(admin.lmz.callAsync('STAR', star, door(admin).read(undefined, uuid())));
-    const invite = await answer(admin.lmz.callAsync('STAR', star, door(admin).invite(undefined, ROOT_NODE_ID, [{ email: 'x@example.com', tier: 'read' }])));
+    const invite = await answer(admin.lmz.callAsync('STAR', star, door(admin).invite(undefined, [{ email: 'x@example.com', grants: [{ nodeId: ROOT_NODE_ID, tier: 'read' }] }])));
     for (const e of [read, invite]) {
       expect(e?.name).toBe('OntologyStaleError');
       expect((e as any).checking).toBeFalsy();
@@ -328,7 +328,7 @@ describe('every op on an empty host takes the same path', () => {
       [uuid()]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'x' } },
     })));
     const read = await answer(admin.lmz.callAsync('STAR', star, door(admin).read('v1', uuid())));
-    const invite = await answer(admin.lmz.callAsync('STAR', star, door(admin).invite('v1', ROOT_NODE_ID, [{ email: 'x@example.com', tier: 'read' }])));
+    const invite = await answer(admin.lmz.callAsync('STAR', star, door(admin).invite('v1', [{ email: 'x@example.com', grants: [{ nodeId: ROOT_NODE_ID, tier: 'read' }] }])));
     for (const e of [txn, read, invite]) {
       expect(e?.name).toBe('OntologyStaleError');
       expect((e as any).checking).toBe(true);

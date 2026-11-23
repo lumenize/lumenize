@@ -184,7 +184,10 @@ export async function run(stack: DevStack): Promise<void> {
       await client.orgTree.createNode(node, ${JSON.stringify(ROOT_NODE_ID)}, 'deals', 'Deals');
       const gerry = await client.personaAddress('gerry');
       const sally = await client.personaAddress('sally');
-      const ack = await client.resources.invite(node, [{ email: gerry, tier: 'write' }, { email: sally, tier: 'read' }]);
+      const ack = await client.resources.invite([
+        { email: gerry, grants: [{ nodeId: node, tier: 'write' }] },
+        { email: sally, grants: [{ nodeId: node, tier: 'read' }] },
+      ]);
       return { node, gerry, sally, ack, me: client.claims.sub };
     `);
     assert.equal(built.ok, true, `the me tab could not build the cast: ${built.error}`);

@@ -42,7 +42,7 @@ import { waitForEmail } from '@lumenize/email-test/client';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { NEBULA_SUB } from '@lumenize/mesh/client';
 import type { Snapshot, NodeInviteAck } from '@lumenize/resources';
-import { DEFAULT_CHAT_ID, MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
+import { DEFAULT_CHAT_ID, MESSAGES_NODE_ID, COLLABORATOR_GRANTS, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
@@ -190,11 +190,12 @@ export async function run(stack: DevStack): Promise<void> {
     console.error("  ✓ limb 5 — Austen's own invite into the app was refused by the app rule");
 
     // ── LIMB 6: a node invite the facade refuses is posted to the chat ──
-    await jennifer.client.orgTree.setPermission(MESSAGES_NODE_ID, cast.austenSub, 'admin');
+    // `admin` at every node the invite names, which is what its own door asks.
+    for (const { nodeId } of COLLABORATOR_GRANTS) await jennifer.client.orgTree.setPermission(nodeId, cast.austenSub, 'admin');
     const viaNode = address('node');
     const ack = await austen.client.lmz.callAsync('GALAXY', SCOPE,
-      austen.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, [{ email: viaNode, tier: 'write' }])) as NodeInviteAck;
-    assert.deepEqual(ack, { accepted: 1, errors: [] }, 'the node invite acknowledges: its own gate is admin at the node, which Austen holds');
+      austen.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, [{ email: viaNode, grants: COLLABORATOR_GRANTS }])) as NodeInviteAck;
+    assert.deepEqual(ack, { accepted: 1, errors: [] }, 'the node invite acknowledges: its own gate is admin at each node it names, which Austen holds');
     const failure = await postSaying("the refused node invite", (content) => content.includes(viaNode));
     assert.match((failure.snap.value as Value).content ?? '', /^I could not invite .* needs dominion over it/);
     assert.equal((failure.snap.value as Value).replyTo, undefined);

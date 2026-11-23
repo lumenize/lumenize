@@ -58,7 +58,8 @@ import {
   Galaxy,
   StudioClient,
 } from '@lumenize/nebula';
-import { NebulaClient, ROOT_NODE_ID } from '@lumenize/resources';
+import { NebulaClient, ROOT_NODE_ID, END_OF_TIME } from '@lumenize/resources';
+import { parse } from '@lumenize/structured-clone';
 // The compile fn left the barrel with the Worker's compilers — a test Worker may
 // still carry it (this app never deploys), imported from the leaf directly.
 import { compileOntologyVersion } from '../../../src/ontology-compile';
@@ -947,6 +948,24 @@ export class GalaxyTest extends Galaxy {
     return this.ctx.storage.sql.exec<{ nodeId: string; permission: string }>(
       'SELECT nodeId, permission FROM Permissions WHERE sub = ? ORDER BY nodeId', sub,
     ).toArray().map((r) => ({ nodeId: r.nodeId, permission: r.permission }));
+  }
+
+  /** The `state` of each `_InviteStatus` row at `nodeId`, read from storage. */
+  @mesh(requireDominionHere)
+  inviteStatesForTest(nodeId: string): string[] {
+    return this.#inviteRowsForTest(nodeId).map((row) => row.state);
+  }
+
+  /** The `error` of each `_InviteStatus` row at `nodeId` that reads `submission-failed`. */
+  @mesh(requireDominionHere)
+  inviteFailuresForTest(nodeId: string): string[] {
+    return this.#inviteRowsForTest(nodeId).filter((row) => row.state === 'submission-failed').map((row) => row.error ?? '');
+  }
+
+  #inviteRowsForTest(nodeId: string): Array<{ state: string; error?: string }> {
+    return this.ctx.storage.sql.exec<{ value: string }>(
+      `SELECT value FROM Snapshots WHERE typeName = '_InviteStatus' AND nodeId = ? AND validTo = ? AND deleted = 0`, nodeId, END_OF_TIME,
+    ).toArray().map((r) => parse(r.value) as { state: string; error?: string });
   }
 
   /** The agent's `invite` tool, under this caller's own claims. */

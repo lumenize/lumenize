@@ -50,7 +50,7 @@ import assert from 'node:assert/strict';
 import { Browser } from '@lumenize/testing';
 import { uniqueTestEmail, waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 import { NebulaClient } from '@lumenize/resources/client';
-import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, StudioClient } from '@lumenize/nebula/client';
+import { MESSAGES_NODE_ID, COLLABORATOR_GRANTS, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, StudioClient } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { NodeInviteAck, Snapshot } from '@lumenize/resources';
 import { NEBULA_SUB } from '@lumenize/mesh/client';
@@ -243,7 +243,7 @@ export async function run(stack: DevStack): Promise<void> {
       });
       disposers.push(() => { try { inviter[Symbol.dispose](); } catch { /* already disposed */ } ctx.close(); });
       const ack = await inviter.lmz.callAsync('GALAXY', galaxy,
-        inviter.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, [{ email: pEmail, tier: 'write' }]),
+        inviter.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, [{ email: pEmail, grants: COLLABORATOR_GRANTS }]),
         { timeoutMs: 30_000 }) as NodeInviteAck;
       assert.deepEqual(ack, { accepted: 1, errors: [] }, `invite ack: ${JSON.stringify(ack)}`);
       inviteLink = extractMagicLink(await waiter.emailPromise);

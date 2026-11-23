@@ -13,7 +13,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import type { Snapshot, QueryReadResult } from '@lumenize/resources';
-import { CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula';
+import { CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, COLLABORATOR_GRANTS, DEFAULT_CHAT_ID, deriveKind } from '@lumenize/nebula';
 import type { Galaxy } from '@lumenize/nebula';
 import { roundsOf } from '../../../src/participants';
 import { INTERRUPTED_CALL_ERROR, INTERRUPTED_ROUND_NOTE, type StoredRound } from '../../../src/codegen-loop';
@@ -87,7 +87,7 @@ async function app() {
   /** A collaborator who can post, on the Galaxy's page in Studio. */
   const collaborator = async () => {
     const address = email('collab');
-    expect(await probe(() => admin.ctn<Galaxy>().resources.invite(V, MESSAGES_NODE_ID, [{ email: address, tier: 'write' }])))
+    expect(await probe(() => admin.ctn<Galaxy>().resources.invite(V, [{ email: address, grants: COLLABORATOR_GRANTS }])))
       .toEqual({ accepted: 1, errors: [] });
     return (await createInvitedClient(StudioClientTest, new Browser(), scope, scope, address, V,
       { resourceHostBinding: 'GALAXY', chatHostBinding: 'GALAXY', chatScope: scope })).client;

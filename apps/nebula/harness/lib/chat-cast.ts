@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { waitForEmail } from '@lumenize/email-test/client';
 import type { NodeInviteAck } from '@lumenize/resources';
-import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, StudioClient } from '@lumenize/nebula/client';
+import { MESSAGES_NODE_ID, COLLABORATOR_GRANTS, CHAT_MESSAGE_ONTOLOGY_VERSION, StudioClient } from '@lumenize/nebula/client';
 import type { Galaxy } from '@lumenize/nebula';
 import type { DevStack, Driver } from './harness';
 import { connectDriver } from './harness';
@@ -38,7 +38,7 @@ export async function chatCast(stack: DevStack, scope: string, testToken: string
     let austenRefresh: string;
     try {
       const ack = await jennifer.client.lmz.callAsync('GALAXY', scope,
-        jennifer.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, MESSAGES_NODE_ID, [{ email: austenEmail, tier: 'write' }])) as NodeInviteAck;
+        jennifer.client.ctn<Galaxy>().resources.invite(CHAT_MESSAGE_ONTOLOGY_VERSION, [{ email: austenEmail, grants: COLLABORATOR_GRANTS }])) as NodeInviteAck;
       assert.deepEqual(ack, { accepted: 1, errors: [] }, `invite ack: ${JSON.stringify(ack)}`);
       const mail = await waiter.emailPromise;
       const href = /href="([^"]*\/auth\/magic-link\?token=[^"]*)"/.exec(mail.html ?? '')?.[1];

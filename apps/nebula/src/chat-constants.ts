@@ -58,10 +58,6 @@ export const TURNS_NODE_ID = '00000000-0000-4000-8000-000000000003';
  * no membership, so its `write` at `chat` is its only way to read the thread, post and store its
  * rounds (ADR-025). That grant is protected: revoked, the agent could not hear the request to
  * restore it.
- *
- * An invite at `messages` also grants `read` at `chat`, so whoever is invited to the conversation
- * reads all of it, the calls each turn made included. A revoke at `messages` takes away what the
- * invite granted there, posting included, and leaves the reading, which a revoke at `chat` ends.
  */
 export const GALAXY_TREE_SEED: TreeSeed = {
   nodes: [
@@ -72,8 +68,17 @@ export const GALAXY_TREE_SEED: TreeSeed = {
   grants: [
     { nodeId: CHAT_NODE_ID, sub: NEBULA_SUB, tier: 'write', protected: true },
   ],
-  inviteAlso: [{ at: MESSAGES_NODE_ID, grant: { nodeId: CHAT_NODE_ID, tier: 'read' } }],
 };
+
+/**
+ * What an invite to the conversation gives a collaborator: `write` at `messages`, to post, and
+ * `read` at `chat`, to read each turn's rounds as well as the thread. One invite names both, so a
+ * revoke at `messages` ends the posting and leaves the reading, which a revoke at `chat` ends.
+ */
+export const COLLABORATOR_GRANTS: Array<{ nodeId: string; tier: 'read' | 'write' }> = [
+  { nodeId: MESSAGES_NODE_ID, tier: 'write' },
+  { nodeId: CHAT_NODE_ID, tier: 'read' },
+];
 
 /**
  * The platform chat ontology's version LABEL — the value a chat client sends on every
