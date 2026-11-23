@@ -52,7 +52,8 @@ async function privateChild() {
   const star = `${uniqueUniverse()}.app.tenant-a`;
   const { client: a, accessToken } = await admin(star);
   const P = crypto.randomUUID();
-  const priv = await a.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'priv', 'Priv');
+  const priv = crypto.randomUUID();
+  await a.orgTree.createNode(priv, ROOT_NODE_ID, 'priv', 'Priv');
   const c1 = crypto.randomUUID();
   await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: priv, value: { parent: P, label: 'c1' } } });
   const adminBrowser = new Browser();

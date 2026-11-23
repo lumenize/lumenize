@@ -165,15 +165,15 @@ export function isNodeNotFoundError(err: unknown): err is NodeNotFoundError {
 }
 
 /**
- * Thrown by `OrgTree.createNode` when the caller-supplied `nodeId` already
- * exists but under a different parent/slug than the request — a reused UUID
- * or client bug, NOT an idempotent replay (which returns the existing node).
- * Loud by design: never a silent `INSERT OR IGNORE` of a mismatched create.
+ * Thrown when a create, a rename or a move would give a node a slug that another node under the
+ * same parent already holds. Detect it by `name` across the wire, as its neighbours are: a page
+ * that creates a node at a fixed id reads it to tell "someone else uses this name here" from any
+ * other failure.
  */
-export class NodeIdCollisionError extends Error {
-  override name = 'NodeIdCollisionError';
-  constructor(public readonly nodeId: string) {
-    super(`Node id '${nodeId}' already exists with a different parent or slug (reused UUID?)`);
+export class SlugTakenError extends Error {
+  override name = 'SlugTakenError';
+  constructor(public readonly slug: string, public readonly parentNodeId: string) {
+    super(`Slug '${slug}' already exists under parent ${parentNodeId}`);
   }
 }
 

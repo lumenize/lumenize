@@ -108,8 +108,10 @@ export async function run(stack: DevStack): Promise<void> {
 
     const write = (ops: Record<string, unknown>) => whileInstalling(() =>
       sally!.client.lmz.callAsync('STAR', star, sally!.client.ctn<Star>().resources.transaction(version, ops as never)) as Promise<TransactionResult>);
-    const acmeTeam = await sally.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'acme-team', 'Acme team');
-    const globexTeam = await sally.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'globex-team', 'Globex team');
+    const acmeTeam = crypto.randomUUID();
+    await sally.client.orgTree.createNode(acmeTeam, ROOT_NODE_ID, 'acme-team', 'Acme team');
+    const globexTeam = crypto.randomUUID();
+    await sally.client.orgTree.createNode(globexTeam, ROOT_NODE_ID, 'globex-team', 'Globex team');
     const acme = crypto.randomUUID();
     const globex = crypto.randomUUID();
     const lead = crypto.randomUUID();

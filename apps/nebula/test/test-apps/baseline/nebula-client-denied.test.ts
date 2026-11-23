@@ -61,8 +61,10 @@ async function starWithMember() {
   const { client: admin, accessToken } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   admin.callStarInstallOntology(star, { version: VERSION, types: TYPES });
   await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
-  const pub = await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'pub', 'Pub');
-  const priv = await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'priv', 'Priv');
+  const pub = uuid();
+  await admin.orgTree.createNode(pub, ROOT_NODE_ID, 'pub', 'Pub');
+  const priv = uuid();
+  await admin.orgTree.createNode(priv, ROOT_NODE_ID, 'priv', 'Priv');
   const open = uuid();
   const closed = uuid();
   const committedAt = await commit(admin, star, {
@@ -211,7 +213,8 @@ describe('a subscriber who cannot read a resource is told, not refused — the c
     const { client: admin, accessToken } = await universeAdminClient(
       NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', CHAT_MESSAGE_ONTOLOGY_VERSION, resourcePair);
     const chat = uuid();
-    const nodeB = await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'b', 'B');
+    const nodeB = uuid();
+    await admin.orgTree.createNode(nodeB, ROOT_NODE_ID, 'b', 'B');
     const m = uuid();
     expect((await admin.resources.transaction({
       [m]: { op: 'create', typeName: 'Message', nodeId: nodeB, value: { chat, content: 'm' } },

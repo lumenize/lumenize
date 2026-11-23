@@ -131,8 +131,10 @@ describe('child2 query subscription e2e (Galaxy, public client.resources.subscri
     const S = crypto.randomUUID();
 
     // Two SIBLING nodes under ROOT (no inheritance between them), a Message of S on each.
-    const nodeA = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'a', 'A');
-    const nodeB = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'b', 'B');
+    const nodeA = crypto.randomUUID();
+    await admin.orgTree.createNode(nodeA, ROOT_NODE_ID, 'a', 'A');
+    const nodeB = crypto.randomUUID();
+    await admin.orgTree.createNode(nodeB, ROOT_NODE_ID, 'b', 'B');
     const tA = crypto.randomUUID(), tB = crypto.randomUUID();
     await admin.resources.transaction({
       [tA]: { op: 'create', typeName: 'Message', nodeId: nodeA, value: { chat: S, content: 'a' } },

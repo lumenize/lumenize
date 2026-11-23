@@ -167,6 +167,35 @@ export class ResourcesHostDO extends ScopedMeshDO<Env> implements ResourcesHost 
   }
 }
 
+/** The node {@link SelfBuildingHostDO} creates in its `onStart`. */
+export const STARTED_NODE_ID = '5e1fb01d-0000-4000-8000-000000000001';
+
+/**
+ * A host that creates a node of its tree in `onStart`, as its own system principal, through the
+ * call a page makes. It keeps what the create and a query in the same block answered, since both
+ * run at a construction no call has stamped a name on.
+ */
+export class SelfBuildingHostDO extends ResourcesHostDO {
+  override onStart(): void {
+    super.onStart();
+    const keep = (key: string, run: () => unknown) => {
+      let outcome: unknown;
+      try { outcome = run(); } catch (e) { outcome = `threw: ${(e as Error).message}`; }
+      this.ctx.storage.kv.put(key, outcome);
+    };
+    this.lmz.asSystemPrincipal(() => {
+      keep('start_create', () => this.plane.requests.orgTree.createNode(STARTED_NODE_ID, ROOT_NODE_ID, 'started', 'Started'));
+      keep('start_query', () => this.plane.doQuery({ typeName: 'Board', filter: {}, allowScan: true }).snapshots.length);
+    });
+  }
+
+  /** What `onStart` kept under `key`, as JSON, and whether the node it created is in the tree. */
+  startOutcome(key: string): { kept: string; nodeThere: boolean } {
+    const nodeThere = this.ctx.storage.sql.exec('SELECT 1 FROM Nodes WHERE nodeId = ?', STARTED_NODE_ID).toArray().length === 1;
+    return { kept: JSON.stringify(this.ctx.storage.kv.get(key)), nodeThere };
+  }
+}
+
 /** A node under the seeded host's root where its agent principal holds a protected `write`. */
 export const GRANTED_NODE_ID = '00000000-0000-4000-8000-00000000000a';
 /** A sibling of it where the principal holds nothing. */

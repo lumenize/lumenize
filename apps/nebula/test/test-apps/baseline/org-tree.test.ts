@@ -228,13 +228,13 @@ describe('org-tree', () => {
       const nodeId = crypto.randomUUID();
 
       client.callStarCreateNodeWithId(star, nodeId, ROOT_NODE_ID, 'eng', 'Engineering');
-      await vi.waitFor(() => expect(client.lastResult).toBe(nodeId));
+      await vi.waitFor(() => expect(client.lastCreateOutcome).toBe('created'));
 
-      // Replay: identical create with the SAME id → success (returns the id), NOT an
-      // error. A non-idempotent impl errors on slug-uniqueness / PK conflict → red.
+      // The same create again answers 'existing', with no error. An implementation that inserted
+      // again would fail on the slug or the primary key.
       client.callStarCreateNodeWithId(star, nodeId, ROOT_NODE_ID, 'eng', 'Engineering');
       await vi.waitFor(() => {
-        expect(client.lastResult).toBe(nodeId);
+        expect(client.lastCreateOutcome).toBe('existing');
         expect(client.lastError).toBeUndefined();
       });
 
@@ -289,18 +289,9 @@ describe('org-tree', () => {
       writer[Symbol.dispose]();
     });
 
-    it('collision & shape: reused id with a different slug throws loudly; malformed id throws', async () => {
+    it('shape: a malformed id and a missing label are refused', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const nodeId = crypto.randomUUID();
-
-      client.callStarCreateNodeWithId(star, nodeId, ROOT_NODE_ID, 'slug-a', 'A');
-      await vi.waitFor(() => expect(client.lastResult).toBe(nodeId));
-
-      // Same id, DIFFERENT slug → NodeIdCollisionError, never a silent OR-IGNORE no-op.
-      // Mutation: return the existing node on mismatch → no error → red.
-      client.callStarCreateNodeWithId(star, nodeId, ROOT_NODE_ID, 'slug-b', 'B');
-      await vi.waitFor(() => expect(client.lastError).toContain('already exists'));
 
       // Malformed (non-UUID) id → validateNodeId rejects it (the server does not trust
       // the client to send a well-formed id). Mutation: drop validateNodeId → no error → red.
@@ -311,6 +302,168 @@ describe('org-tree', () => {
       client.callStarCreateNodeWithId(star, crypto.randomUUID(), ROOT_NODE_ID, 'slug-d', undefined as unknown as string);
       await vi.waitFor(() => expect(client.lastError).toContain('A node needs a label'));
 
+      client[Symbol.dispose]();
+    });
+  });
+
+  // ─── createNode says what it found ────────────────────────────────
+
+  describe('createNode answers created, existing or differs, and writes only when the id is absent', () => {
+    /** Run one create and answer what came back, once the call has completed. */
+    async function create(
+      client: NebulaClientTest, star: string, nodeId: string, parentId: string, slug: string,
+      grants?: Array<{ sub: string; tier: 'read' | 'write' | 'admin' }>,
+    ) {
+      client.callStarCreateNodeWithId(star, nodeId, parentId, slug, slug.toUpperCase(), grants);
+      await vi.waitFor(() => expect(client.callCompleted).toBe(true));
+      return { outcome: client.lastCreateOutcome, error: client.lastError, name: client.lastErrorObject?.name };
+    }
+    async function settle(client: NebulaClientTest) {
+      await vi.waitFor(() => expect(client.callCompleted).toBe(true));
+      expect(client.lastError).toBeUndefined();
+    }
+    async function treeOf(client: NebulaClientTest, star: string): Promise<OrgTreeState> {
+      client.callStarOrgTreeGetState(star);
+      await vi.waitFor(() => expect(client.lastResult).toBeDefined());
+      return client.lastResult as OrgTreeState;
+    }
+
+    // MUTATIONS: answer 'existing' for every id found, and the rename, move and delete cases red.
+    // Compare the label too, and the relabel case answers 'differs'.
+    it('a repeat leaves the tree as it stands, whatever an admin has done to the node since', async () => {
+      const star = uniqueStar();
+      const { client } = await adminClient(star);
+      const other = crypto.randomUUID();
+      expect((await create(client, star, other, ROOT_NODE_ID, 'other')).outcome).toBe('created');
+
+      const node = crypto.randomUUID();
+      expect((await create(client, star, node, ROOT_NODE_ID, 'team')).outcome).toBe('created');
+      const asCreated = await treeOf(client, star);
+      expect((await create(client, star, node, ROOT_NODE_ID, 'team')).outcome).toBe('existing');
+      expect(await treeOf(client, star)).toEqual(asCreated);
+
+      client.callStarRelabelNode(star, node, 'The Team');
+      await settle(client);
+      expect((await create(client, star, node, ROOT_NODE_ID, 'team')).outcome).toBe('existing');
+
+      client.callStarRenameNode(star, node, 'crew');
+      await settle(client);
+      const renamed = await treeOf(client, star);
+      expect((await create(client, star, node, ROOT_NODE_ID, 'team')).outcome).toBe('differs');
+      expect(await treeOf(client, star)).toEqual(renamed);
+
+      // Named as it was again, then moved under another parent.
+      client.callStarRenameNode(star, node, 'team');
+      await settle(client);
+      client.callStarReparentNode(star, node, ROOT_NODE_ID, other);
+      await settle(client);
+      const moved = await treeOf(client, star);
+      expect((await create(client, star, node, ROOT_NODE_ID, 'team')).outcome).toBe('differs');
+      expect(await treeOf(client, star)).toEqual(moved);
+      expect((await create(client, star, node, other, 'team')).outcome).toBe('existing');
+
+      client.callStarDeleteNode(star, node);
+      await settle(client);
+      const deleted = await treeOf(client, star);
+      expect((await create(client, star, node, other, 'team')).outcome).toBe('differs');
+      expect(await treeOf(client, star)).toEqual(deleted);
+
+      client[Symbol.dispose]();
+    });
+
+    // MUTATION: keep the plain Error for a taken slug, and both names red.
+    it('a slug a sibling holds is refused by name, on a create and on a rename', async () => {
+      const star = uniqueStar();
+      const { client } = await adminClient(star);
+      const first = crypto.randomUUID();
+      expect((await create(client, star, first, ROOT_NODE_ID, 'sales')).outcome).toBe('created');
+
+      const second = crypto.randomUUID();
+      const taken = await create(client, star, second, ROOT_NODE_ID, 'sales');
+      expect(taken.name).toBe('SlugTakenError');
+      expect((await treeOf(client, star)).nodes.has(second)).toBe(false);
+
+      expect((await create(client, star, second, ROOT_NODE_ID, 'support')).outcome).toBe('created');
+      client.callStarRenameNode(star, second, 'sales');
+      await vi.waitFor(() => expect(client.callCompleted).toBe(true));
+      expect(client.lastErrorObject?.name).toBe('SlugTakenError');
+
+      client[Symbol.dispose]();
+    });
+
+    // MUTATIONS: ask only `write` when grants are given, and the writer's node lands with its
+    // grant. Ask for `admin` only once the node is found absent, and the refusal for a node that
+    // exists turns into 'existing'. Write `grants` for a node that exists, and the revoked grant
+    // comes back.
+    it('starting grants take admin at the parent, and are written only with the node', async () => {
+      const star = uniqueStar();
+      const { client: admin } = await adminClient(star);
+      const { client: user, payload } = await userClient(star, '', 'grantor@example.com');
+      const GRANTEE = 'agent:helper';
+      const parent = crypto.randomUUID();
+      expect((await create(admin, star, parent, ROOT_NODE_ID, 'dept')).outcome).toBe('created');
+      const there = crypto.randomUUID();
+      expect((await create(admin, star, there, parent, 'there')).outcome).toBe('created');
+
+      // No grant at all: refused whether or not the id exists.
+      for (const id of [there, crypto.randomUUID()]) {
+        const refused = await create(user, star, id, parent, 'there');
+        expect(refused.name).toBe('PermissionDeniedError');
+        expect(refused.error).toContain('write permission required');
+      }
+
+      admin.callStarSetPermission(star, parent, payload.sub, 'write');
+      await settle(admin);
+      const withGrant = crypto.randomUUID();
+      for (const [id, slug] of [[withGrant, 'granted'], [there, 'there']]) {
+        const refused = await create(user, star, id, parent, slug, [{ sub: GRANTEE, tier: 'read' }]);
+        expect(refused.name).toBe('PermissionDeniedError');
+        expect(refused.error).toContain('admin permission required');
+      }
+      expect((await treeOf(admin, star)).nodes.has(withGrant)).toBe(false);
+      expect((await create(user, star, crypto.randomUUID(), parent, 'plain', [])).outcome).toBe('created');
+
+      admin.callStarSetPermission(star, parent, payload.sub, 'admin');
+      await settle(admin);
+      expect((await create(user, star, withGrant, parent, 'granted', [{ sub: GRANTEE, tier: 'read' }])).outcome).toBe('created');
+      expect((await treeOf(admin, star)).permissions.get(withGrant)?.get(GRANTEE)).toBe('read');
+
+      admin.callStarRevokePermission(star, withGrant, GRANTEE);
+      await settle(admin);
+      expect((await create(user, star, withGrant, parent, 'granted', [{ sub: GRANTEE, tier: 'read' }])).outcome).toBe('existing');
+      expect((await treeOf(admin, star)).permissions.get(withGrant)?.get(GRANTEE)).toBeUndefined();
+
+      admin[Symbol.dispose]();
+      user[Symbol.dispose]();
+    });
+
+    // MUTATION: drop any one shape check, and its row creates the node or fails on another message.
+    it.each([
+      ['grants that are no array', 'everyone', /this is no array/],
+      ['a grant with no sub', [{ tier: 'read' }], /names who holds it/],
+      ['a grant with an empty sub', [{ sub: '', tier: 'read' }], /names who holds it/],
+      ['a tier outside the vocabulary', [{ sub: 'agent:helper', tier: 'owner' }], /"owner" is none of them/],
+    ])('refuses %s, and creates no node', async (_what, grants, message) => {
+      const star = uniqueStar();
+      const { client } = await adminClient(star);
+      const node = crypto.randomUUID();
+      const refused = await create(client, star, node, ROOT_NODE_ID, 'team', grants as any);
+      expect(refused.error).toMatch(message);
+      expect((await treeOf(client, star)).nodes.has(node)).toBe(false);
+      client[Symbol.dispose]();
+    });
+
+    // MUTATION: write the grants after the node's transaction, and the node is left behind.
+    it('grants that name one sub twice fail the whole create', async () => {
+      const star = uniqueStar();
+      const { client } = await adminClient(star);
+      const node = crypto.randomUUID();
+      const refused = await create(client, star, node, ROOT_NODE_ID, 'team',
+        [{ sub: 'agent:helper', tier: 'read' }, { sub: 'agent:helper', tier: 'write' }]);
+      expect(refused.error).toContain('name "agent:helper" twice');
+      const tree = await treeOf(client, star);
+      expect(tree.nodes.has(node)).toBe(false);
+      expect(tree.permissions.has(node)).toBe(false);
       client[Symbol.dispose]();
     });
   });
@@ -998,11 +1151,14 @@ describe('org-tree', () => {
     ])('%s returns a COPY — editing it moves no verdict and no later answer', async (_name, edit) => {
       const star = uniqueStar();
       const { client: admin, accessToken } = await adminClient(star);
-      const a = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'a', 'A');
-      const b = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'b', 'B');
+      const a = crypto.randomUUID();
+      await admin.orgTree.createNode(a, ROOT_NODE_ID, 'a', 'A');
+      const b = crypto.randomUUID();
+      await admin.orgTree.createNode(b, ROOT_NODE_ID, 'b', 'B');
       // A child under A, so A's descendants are a set the tree keeps — an empty answer would be
       // built fresh whatever the read returned, and could not show an edit landing.
-      const c = await admin.orgTree.createNode(crypto.randomUUID(), a, 'c', 'C');
+      const c = crypto.randomUUID();
+      await admin.orgTree.createNode(c, a, 'c', 'C');
       const { client: user, payload } = await userClient(star, accessToken);
       await admin.orgTree.setPermission(a, payload.sub, 'admin');
 

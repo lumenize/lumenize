@@ -1066,6 +1066,7 @@ const withClientTestCaptures = <TBase extends new (...args: any[]) => NebulaClie
   handleResult(value: any): void {
     if (value instanceof Error) {
       this.lastError = value.message;
+      this.lastErrorObject = value;
       this.lastResult = undefined;
     } else {
       this.lastResult = value;
@@ -1182,17 +1183,28 @@ const withClientTestCaptures = <TBase extends new (...args: any[]) => NebulaClie
   }
 
   callStarCreateNode(starName: string, parentId: string, slug: string, label: string): void {
-    // The client mints the id (client-supplied nodeId, a v4 UUID) and passes it in
-    // the continuation — the faithful client-supplied-id flow; the server echoes it
-    // back into `lastResult`. Use `callStarCreateNodeWithId` when a test must control
-    // the id (idempotency/replay/collision).
+    // The client mints the id, a v4 UUID, as a page does. Use `callStarCreateNodeWithId` when a
+    // test must control the id, to repeat a create or to name starting grants.
     this.callStarCreateNodeWithId(starName, crypto.randomUUID(), parentId, slug, label);
   }
 
-  callStarCreateNodeWithId(starName: string, nodeId: string, parentId: string, slug: string, label: string): void {
+  /** What the last `createNode` answered: `'created'`, `'existing'` or `'differs'`. */
+  lastCreateOutcome: string | undefined = undefined;
+
+  callStarCreateNodeWithId(
+    starName: string, nodeId: string, parentId: string, slug: string, label: string,
+    grants?: Array<{ sub: string; tier: 'read' | 'write' | 'admin' }>,
+  ): void {
     this.resetResults();
-    const remote = this.ctn<Star>().resources.orgTree.createNode(nodeId, parentId, slug, label);
-    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+    this.lastCreateOutcome = undefined;
+    const remote = this.ctn<Star>().resources.orgTree.createNode(nodeId, parentId, slug, label, grants);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleCreateNode(nodeId, remote));
+  }
+
+  /** Keeps the id this client minted as `lastResult`, as the tests read it, and the answer beside it. */
+  handleCreateNode(nodeId: string, value: any): void {
+    this.handleResult(value instanceof Error ? value : nodeId);
+    this.lastCreateOutcome = value instanceof Error ? undefined : value?.outcome;
   }
 
   /**

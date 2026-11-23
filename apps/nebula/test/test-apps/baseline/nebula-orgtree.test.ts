@@ -160,7 +160,9 @@ describe('orgTree dedicated channel (P8 server)', () => {
     const star = uniqueStar();
     const { a } = await twoAdminClients(star);
 
-    const nodeId = await a.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'team', 'Team');
+    const nodeId = crypto.randomUUID();
+
+    await a.client.orgTree.createNode(nodeId, ROOT_NODE_ID, 'team', 'Team');
     expect(typeof nodeId).toBe('string'); // client-supplied UUID, echoed back
     expect(nodeId).not.toBe(ROOT_NODE_ID);
 
@@ -199,7 +201,9 @@ describe('orgTree dedicated channel (P8 server)', () => {
     await vi.waitFor(() => expect(a.client.orgTreeUpdateCount).toBeGreaterThan(0));
     const before = a.client.orgTreeUpdateCount; // orgTree.* is a public 4-arg call (NOT a resetting initiator)
 
-    const nodeId = await a.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'team2', 'Team2');
+    const nodeId = crypto.randomUUID();
+
+    await a.client.orgTree.createNode(nodeId, ROOT_NODE_ID, 'team2', 'Team2');
     await vi.waitFor(() => {
       expect(a.client.orgTreeUpdateCount).toBeGreaterThan(before);
       const tree = a.client.lastOrgTree as TreeState;

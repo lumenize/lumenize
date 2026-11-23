@@ -66,7 +66,7 @@ interface GalaxyMethods {
     transaction(ontologyVersion: string, ops: Record<string, unknown>): unknown;
     subscribeTree(): void;
     subscribeQuerySubscribers(ontologyVersion: string, query: unknown): void;
-    orgTree: { createNode(nodeId: string, parentNodeId: string, slug: string, label: string): string };
+    orgTree: { createNode(nodeId: string, parentNodeId: string, slug: string, label: string): { outcome: string } };
   };
 }
 interface StarMethods {

@@ -248,7 +248,8 @@ export async function run(stack: DevStack): Promise<void> {
     const email6 = uniqueTestEmail();
     const member6 = await invitedMember(owner, browser6, galaxy, email6);
     const tab6 = await openTab(browser6, galaxy, member6);
-    const adminsNode = await owner.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'admins', 'Admins');
+    const adminsNode = crypto.randomUUID();
+    await owner.client.orgTree.createNode(adminsNode, ROOT_NODE_ID, 'admins', 'Admins');
     const adminChat = crypto.randomUUID();
     await owner.client.resources.transaction({
       [adminChat]: { op: 'create', typeName: 'Chat', nodeId: adminsNode, value: { title: 'admins only' } },

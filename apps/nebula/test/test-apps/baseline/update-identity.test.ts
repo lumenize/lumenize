@@ -77,8 +77,10 @@ describe('no subscription update carries the identity of the caller whose call c
     const { client: admin, accessToken } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     admin.callStarInstallOntology(star, { version: VERSION, types: TYPES });
     await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
-    const nodeA = await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'a', 'A');
-    const nodeB = await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'b', 'B');
+    const nodeA = uuid();
+    await admin.orgTree.createNode(nodeA, ROOT_NODE_ID, 'a', 'A');
+    const nodeB = uuid();
+    await admin.orgTree.createNode(nodeB, ROOT_NODE_ID, 'b', 'B');
     const readable = uuid(); // a Parent every child of which the probe can read
     const partial = uuid();  // a Parent with one child the probe cannot read
     const hidden = uuid();   // a Parent the probe cannot read at all

@@ -21,9 +21,10 @@ import {
   buildOrgTreeView,
   makeEdgeKey,
   isBelowTier,
+  isPermissionTier,
 } from './org-ops';
-import type { PermissionTier, OrgTreeState, OrgTreeView, EdgeKey, OrgTreeNodeData, TreeSeed } from './org-ops';
-import { PermissionDeniedError, NodeNotFoundError, NodeIdCollisionError, ProtectedGrantError } from './errors';
+import type { PermissionTier, OrgTreeState, OrgTreeView, EdgeKey, OrgTreeNodeData, TreeSeed, NodeGrant, CreateNodeResult } from './org-ops';
+import { PermissionDeniedError, NodeNotFoundError, ProtectedGrantError } from './errors';
 import { hasDominionOverHost } from './host-dominion';
 
 /**
@@ -34,6 +35,21 @@ import { hasDominionOverHost } from './host-dominion';
  * an unchecked grant writer there would let any caller grant themselves what the seed declares.
  */
 export let writeInviteAlsoGrants: (tree: OrgTree, inviteNodeId: string, sub: string) => string[]
+
+/** Refuse `grants` that are not an array of `{ sub, tier }`, before anything is written. */
+function requireNodeGrants(grants: unknown): asserts grants is NodeGrant[] {
+  if (!Array.isArray(grants)) {
+    throw new Error('createNode\'s grants are an array of { sub, tier }, and this is no array')
+  }
+  for (const grant of grants) {
+    if (typeof grant?.sub !== 'string' || grant.sub === '') {
+      throw new Error('Each of createNode\'s grants names who holds it, as a non-empty `sub`')
+    }
+    if (!isPermissionTier(grant.tier)) {
+      throw new Error(`A grant's tier is 'read', 'write' or 'admin', and ${JSON.stringify(grant.tier)} is none of them`)
+    }
+  }
+}
 
 export class OrgTree {
   #ctx: DurableObjectState
@@ -273,51 +289,64 @@ export class OrgTree {
 
   // ─── Tree Structure Mutations ─────────────────────────────────────
 
-  createNode(nodeId: string, parentNodeId: string, slug: string, label: string): string {
-    // Permission runs FIRST — before the id-presence check — because the replay
-    // path returns node CONTENT (slug + label), so it must be gated exactly like
-    // a fresh create. A retry by a caller who has since lost write legitimately
-    // fails (ADR-005: the non-monotonic permission check stays authoritative
-    // per-attempt). This deliberately differs from the void idempotent no-ops
-    // (addEdge/deleteNode below), which short-circuit BEFORE requirePermission
-    // precisely because they return nothing and disclose nothing.
+  /**
+   * Create the node `nodeId` under `parentNodeId`, only where that id is absent, and say what was
+   * found ({@link CreateNodeResult}). The caller mints the id, a constant in source for a node its
+   * code names, so the same call can run at every start: a node that exists is left as it stands,
+   * whatever an admin has since renamed, moved or revoked.
+   *
+   * `grants` are written with the node, in its transaction, and never for a node that exists.
+   * Granting takes more than creating does, so a caller that passes any is checked as
+   * `setPermission` checks, at the parent, whether or not the node exists.
+   *
+   * @throws PermissionDeniedError without `write` at the parent, or without `admin` there when
+   *   `grants` is non-empty; SlugTakenError when another node under the parent holds the slug.
+   */
+  createNode(nodeId: string, parentNodeId: string, slug: string, label: string, grants: NodeGrant[] = []): CreateNodeResult {
+    // Every check runs before the id is looked up, so a caller who may not create here learns
+    // nothing from the answer, and a repeat by a caller who has since lost `write` is refused.
     this.#requireNodeExists(parentNodeId)
     this.requirePermission(parentNodeId, 'write')
     validateNodeId(nodeId)
     if (typeof label !== 'string' || label === '') {
       throw new Error(`A node needs a label, the name people see, and '${slug}' has none`)
     }
+    requireNodeGrants(grants)
+    if (grants.length > 0) this.#requireMayGrant(parentNodeId)
 
-    // Replay vs conflict — read the committed cache, after the permission gate.
-    // The id-existence check discloses only Star-wide-visible structure (ADR-008).
-    if (this.#cached.nodes.has(nodeId)) {
-      const existing = this.#cached.nodes.get(nodeId)!
-      const edgeMatches = this.#cached.edges.has(makeEdgeKey(parentNodeId, nodeId))
-      if (existing.slug === slug && edgeMatches) {
-        return nodeId // idempotent replay: same node — return it, skip slug-uniqueness
-      }
-      // Reused id under a different parent/slug — a client bug, never a silent no-op.
-      throw new NodeIdCollisionError(nodeId)
+    const existing = this.#cached.nodes.get(nodeId)
+    if (existing) {
+      const asAsked = !existing.deleted && existing.slug === slug
+        && this.#cached.edges.has(makeEdgeKey(parentNodeId, nodeId))
+      return { outcome: asAsked ? 'existing' : 'differs' }
     }
 
     validateSlug(slug)
     checkSlugUniqueness(this.#view, parentNodeId, slug)
 
     this.#ctx.storage.transactionSync(() => {
-      // Both inserts OR IGNORE so a partial replay (node landed but not the edge,
-      // or vice versa) converges on retry.
-      this.#ctx.storage.sql.exec(
-        'INSERT OR IGNORE INTO Nodes (nodeId, slug, label, deleted) VALUES (?, ?, ?, 0)',
-        nodeId, slug, label,
-      )
-      this.#ctx.storage.sql.exec(
-        'INSERT OR IGNORE INTO Edges (parentNodeId, childNodeId) VALUES (?, ?)',
-        parentNodeId, nodeId,
-      )
       this.#invalidate()
+      this.#ctx.storage.sql.exec(
+        'INSERT INTO Nodes (nodeId, slug, label, deleted) VALUES (?, ?, ?, 0)', nodeId, slug, label)
+      this.#ctx.storage.sql.exec(
+        'INSERT INTO Edges (parentNodeId, childNodeId) VALUES (?, ?)', parentNodeId, nodeId)
+      const granted = new Set<string>()
+      for (const { sub, tier } of grants) {
+        // A plain insert: a `sub` named twice would otherwise keep whichever tier came last.
+        if (granted.has(sub)) throw new Error(`createNode's grants name "${sub}" twice`)
+        granted.add(sub)
+        this.#ctx.storage.sql.exec(
+          'INSERT INTO Permissions (nodeId, sub, permission) VALUES (?, ?, ?)', nodeId, sub, tier)
+      }
     })
     this.#onChanged()
-    return nodeId
+    return { outcome: 'created' }
+  }
+
+  /** What a caller must hold to write a grant at `nodeId`: one check, for `setPermission` and for
+   *  a create that names starting grants, so a rule added here binds both. */
+  #requireMayGrant(nodeId: string): void {
+    this.requirePermission(nodeId, 'admin')
   }
 
   addEdge(parentNodeId: string, childNodeId: string): void {
@@ -492,7 +521,7 @@ export class OrgTree {
 
   setPermission(nodeId: string, targetSub: string, level: PermissionTier): void {
     this.#requireNodeExists(nodeId)
-    this.requirePermission(nodeId, 'admin')
+    this.#requireMayGrant(nodeId)
     // After the permission check, so a caller without `admin` hears that and nothing else.
     const protectedTier = this.#protectedTier(nodeId, targetSub)
     if (protectedTier && isBelowTier(level, protectedTier)) {

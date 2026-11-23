@@ -6,6 +6,7 @@
  */
 
 import { isValidSlug, MAX_SLUG_LENGTH } from '@lumenize/mesh/client'
+import { SlugTakenError } from './errors'
 
 /**
  * Reserved sentinel id for the root orgTree node. A v4-shaped UUID (matching
@@ -80,6 +81,21 @@ const NODE_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 
 const TIER_RANK: Record<PermissionTier, number> = { read: 1, write: 2, admin: 3 }
 
+/** Whether `tier` is one of the three a grant can carry. */
+export function isPermissionTier(tier: unknown): tier is PermissionTier {
+  return typeof tier === 'string' && Object.hasOwn(TIER_RANK, tier)
+}
+
+/** A grant written with its node when `createNode` creates it: who holds it, and at which tier. */
+export interface NodeGrant { sub: string; tier: PermissionTier }
+
+/**
+ * What `createNode` found. `'created'`: the id was absent and the node now exists. `'existing'`:
+ * the node is there, under the slug and the parent asked for. `'differs'`: the node is there
+ * renamed, moved or deleted, and the call changed nothing.
+ */
+export interface CreateNodeResult { outcome: 'created' | 'existing' | 'differs' }
+
 /** Whether `tier` grants less than `floor` does: `read` is below `write`, and `write` below `admin`. */
 export function isBelowTier(tier: PermissionTier, floor: PermissionTier): boolean {
   return TIER_RANK[tier] < TIER_RANK[floor]
@@ -134,7 +150,7 @@ export function checkSlugUniqueness(view: OrgTreeView, parentNodeId: string, slu
     if (excludeNodeId !== undefined && childId === excludeNodeId) continue
     const child = view.state.nodes.get(childId)
     if (child && child.slug === slug) {
-      throw new Error(`Slug '${slug}' already exists under parent ${parentNodeId}`)
+      throw new SlugTakenError(slug, parentNodeId)
     }
   }
 }

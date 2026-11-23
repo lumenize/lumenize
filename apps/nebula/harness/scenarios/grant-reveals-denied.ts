@@ -84,8 +84,11 @@ export async function run(stack: DevStack): Promise<void> {
     const version = await servedOntologyVersion(stack, star);
     assert.ok(version, 'the `.dev` page should carry the version the build landed');
 
-    const pub = await admin.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'pub', 'Pub');
-    const priv = await admin.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'priv', 'Priv');
+    const pub = crypto.randomUUID();
+
+    await admin.client.orgTree.createNode(pub, ROOT_NODE_ID, 'pub', 'Pub');
+    const priv = crypto.randomUUID();
+    await admin.client.orgTree.createNode(priv, ROOT_NODE_ID, 'priv', 'Priv');
     const item = crypto.randomUUID();
     const created = await whileInstalling(() => admin!.client.lmz.callAsync('STAR', star, admin!.client.ctn<Star>().resources.transaction(
       version,

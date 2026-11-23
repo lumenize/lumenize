@@ -451,7 +451,9 @@ describe('the commit IS the codegen trigger (Phase 4)', () => {
     const { client } = await devClient(scope);
     await seedScript(client, scope, [round('should never generate')]);
 
-    const nodeId = await client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'side', 'Side');
+    const nodeId = crypto.randomUUID();
+
+    await client.orgTree.createNode(nodeId, ROOT_NODE_ID, 'side', 'Side');
     entries = [];
     const out = await client.resources.transaction({
       [crypto.randomUUID()]: {

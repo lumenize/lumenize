@@ -20,6 +20,8 @@
       { "name": "STAR", "class_name": "ResourcesHostDO" },
       // A host that declares a tree seed, as a Galaxy does. No route names it: its tests call its stub.
       { "name": "SEEDED", "class_name": "SeededHostDO" },
+      // A host that creates a node in `onStart` as its own system principal. Its test calls its stub.
+      { "name": "SELF_BUILDING", "class_name": "SelfBuildingHostDO" },
       // Mesh's auth: the Registry every login goes through, and the Profile.
       { "name": "AUTH_REGISTRY", "class_name": "AuthRegistry" },
       { "name": "PROFILE", "class_name": "Profile" }
@@ -28,6 +30,7 @@
   "exports": {
     "ResourcesHostDO": { "type": "durable-object", "storage": "sqlite" },
     "SeededHostDO": { "type": "durable-object", "storage": "sqlite" },
+    "SelfBuildingHostDO": { "type": "durable-object", "storage": "sqlite" },
     "AuthRegistry": { "type": "durable-object", "storage": "sqlite" },
     "Profile": { "type": "durable-object", "storage": "sqlite" }
   },

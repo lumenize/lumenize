@@ -545,7 +545,7 @@ Mutations to the app's **org/permission tree** (the DAG that resources attach to
 
 **While disconnected:** there is no connection-gating here (unlike the resource write path — tree mutations hold no optimistic store state to roll back, and the await-site handles the reject). A call issued while offline is queued and sent on reconnect (or rejects on timeout); a call already in flight when the socket drops is **not** auto-resubmitted — it times out and rejects.
 
-Every method requires the caller to hold a permission on the relevant node, resolved by the same cascading rules as resource access (`admin` on the node grants everything below it). Node ids are **client-supplied UUID strings** (`crypto.randomUUID()`); `sub` is a JWT subject claim — a bare UUID as minted by Mesh's auth layer (the current user's is `client.claims.sub`; grants are matched by exact string equality against the JWT `sub`). `ROOT_NODE_ID` (a reserved sentinel node) cannot be deleted, undeleted, or renamed. `createNode` is deliberately **not** one of the before-permission short-circuits below — its replay returns node content (slug/label), so it checks `write` on the parent *first*, then does the id-presence check. (One nuance: an **idempotent no-op** — adding an edge that exists, removing one that doesn't, revoking an absent grant, deleting an already-deleted node, or undeleting a live one — short-circuits to success *before* the permission check, so it neither mutates nor requires permission. This short-circuit is non-disclosing **only because** the tree is universally visible (M7) — a caller can already see every edge/grant, so "exists" (success) vs "absent" (permission-checked) reveals nothing new. If tree visibility is ever scoped per-branch, these short-circuits must move *after* the permission check, or they become an existence oracle for unauthorized callers.)
+Every method requires the caller to hold a permission on the relevant node, resolved by the same cascading rules as resource access (`admin` on the node grants everything below it). Node ids are **client-supplied UUID strings** (`crypto.randomUUID()`); `sub` is a JWT subject claim — a bare UUID as minted by Mesh's auth layer (the current user's is `client.claims.sub`; grants are matched by exact string equality against the JWT `sub`). `ROOT_NODE_ID` (a reserved sentinel node) cannot be deleted, undeleted, or renamed. `createNode` is deliberately **not** one of the before-permission short-circuits below — its answer says whether the node exists, so it checks `write` on the parent *first*, then looks the id up. (One nuance: an **idempotent no-op** — adding an edge that exists, removing one that doesn't, revoking an absent grant, deleting an already-deleted node, or undeleting a live one — short-circuits to success *before* the permission check, so it neither mutates nor requires permission. This short-circuit is non-disclosing **only because** the tree is universally visible (M7) — a caller can already see every edge/grant, so "exists" (success) vs "absent" (permission-checked) reveals nothing new. If tree visibility is ever scoped per-branch, these short-circuits must move *after* the permission check, or they become an existence oracle for unauthorized callers.)
 
 ### Structural mutations (require `write`)
 
@@ -553,9 +553,17 @@ Every method requires the caller to hold a permission on the relevant node, reso
 // Create a child node. `slug` follows the scope grammar — at most 30 characters of
 // lowercase letters, digits and single hyphens, with no leading or trailing hyphen —
 // and is unique among siblings. The CALLER supplies the node's id (a v4 UUID,
-// `crypto.randomUUID()`); createNode is idempotent — a retry with the same id
-// returns the same node (a reused id with a different slug throws loudly).
-createNode(nodeId: string, parentNodeId: string, slug: string, label: string): Promise<string>;
+// `crypto.randomUUID()`, or a constant in your source for a node your code names).
+// It creates the node only where that id is absent, and says what it found:
+//   'created'   the id was absent, and the node now exists
+//   'existing'  the node is there, under this slug and this parent
+//   'differs'   the node is there, but renamed, moved or deleted since; nothing changed
+// `grants` are written with the node, and only when it is created. Passing any
+// requires `admin` on the parent, as setPermission does.
+createNode(
+  nodeId: string, parentNodeId: string, slug: string, label: string,
+  grants?: Array<{ sub: string; tier: 'read' | 'write' | 'admin' }>,
+): Promise<{ outcome: 'created' | 'existing' | 'differs' }>;
 
 // Add a second parent edge (the co-ownership pattern — see Resources §
 // Access control for the two-party share-accept flow). Requires `write` on
@@ -590,7 +598,7 @@ relabelNode(nodeId: string, newLabel: string): Promise<void>;
 
 The `write` permission is checked on the node being changed — for `createNode`/`removeEdge` that's the parent; for the node-targeting methods it's the node itself. Both edge-*adding* operations also require **`admin` on the child** because they widen who has cascaded access to it: `addEdge` checks `write` on the new parent **plus `admin` on the child**, and `reparentNode` checks `write` on **both** parents **plus `admin` on the child** (see the comments above).
 
-**`createNode` is idempotent** — the caller supplies the node's id (a v4 UUID), so a retry with the same id returns the same node rather than creating a duplicate. This closes the old ambiguous-disconnect gap: because the client already holds the id it minted, it can always address the node it may have created, even if the response was lost. A reused id with a *different* parent/slug throws a loud `NodeIdCollisionError` (never a silent no-op). One boundary remains: the client call is still an awaited request whose pending Promise is bound to the WebSocket, so an **in-session** WS drop leaves it hanging until timeout — that delivery strand is handled separately by the mesh continuation layer; interim recovery is reload → `store.lmz.orgTree` re-sync.
+**`createNode` is safe to repeat** — the caller supplies the node's id, so a repeat with the same id answers `'existing'` rather than creating a duplicate, and code can call it every time it starts. Because the client already holds the id it minted, it can always address the node it may have created, even if the response was lost. A node an admin has since renamed, moved or deleted answers `'differs'` and is left as it stands: the id names the node's role in your code, and its slug and label are what people see and may change. A slug another node under the same parent already holds rejects with an error named `SlugTakenError`, on a create, a rename or a move. One boundary remains: the client call is still an awaited request whose pending Promise is bound to the WebSocket, so an **in-session** WS drop leaves it hanging until timeout — that delivery strand is handled separately by the mesh continuation layer; interim recovery is reload → `store.lmz.orgTree` re-sync.
 
 ### Permission management (require `admin`)
 

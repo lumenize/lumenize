@@ -39,7 +39,7 @@ export {
   WipedMidTransactionError,
   PermissionDeniedError, isPermissionDeniedError,
   NodeNotFoundError, isNodeNotFoundError,
-  NodeIdCollisionError,
+  SlugTakenError,
   ProtectedGrantError,
   NoOntologyInstalledError, isNoOntologyInstalledError,
   ResourceMovedOnError,
@@ -47,7 +47,7 @@ export {
 
 // The org tree
 export { OrgTree } from './org-tree';
-export type { PermissionTier, OrgTreeState, OrgTreeView, OrgTreeNodeData, EdgeKey, TreeSeed } from './org-ops';
+export type { PermissionTier, OrgTreeState, OrgTreeView, OrgTreeNodeData, EdgeKey, TreeSeed, NodeGrant, CreateNodeResult } from './org-ops';
 export type { NodeInviteOutcome } from './resources';
 export {
   ROOT_NODE_ID,

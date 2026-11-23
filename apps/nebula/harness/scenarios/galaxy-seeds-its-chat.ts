@@ -26,6 +26,10 @@
  *     then takes. Mutations: refuse every `setPermission` naming the agent, and the first reds;
  *     drop the seed's `inviteAlso`, and the `read` at `chat` is missing; treat every grant on `chat`
  *     as protected, and its revoke reds.
+ *  5. **A create says what it found.** In the tenant Star the owner's create answers `'created'`,
+ *     its repeat `'existing'`, and the same create after a rename `'differs'`, and a create under a
+ *     slug a sibling holds is refused as `SlugTakenError`. Mutations: answer `'existing'` for every
+ *     id found, and the rename case reds; throw a plain error for a taken slug, and its name reds.
  */
 import assert from 'node:assert/strict';
 import { uniqueTestEmail } from '@lumenize/email-test/client';
@@ -170,6 +174,23 @@ export async function run(stack: DevStack): Promise<void> {
         'a collaborator\'s read at chat must be revocable');
       assert.equal(await agentTier(), 'write', 'the agent\'s grant is untouched by the collaborator\'s revokes');
       console.error('  ✓ limb 4 — re-setting the agent\'s write passed, and the collaborator\'s grants at messages and then chat were revoked');
+    }
+
+    // ── LIMB 5: a create says what it found ───────────────────────────────────────────────────
+    {
+      // In the tenant Star, which is this run's own, so the nodes disturb no other scenario.
+      const atTenant = await on(tenant);
+      const tree = atTenant.client.orgTree;
+      const node = crypto.randomUUID();
+      assert.deepEqual(await tree.createNode(node, ROOT_NODE_ID, 'team', 'Team'), { outcome: 'created' });
+      assert.deepEqual(await tree.createNode(node, ROOT_NODE_ID, 'team', 'Team'), { outcome: 'existing' },
+        'a repeat of the same create must find the node there');
+      await tree.renameNode(node, 'crew');
+      assert.deepEqual(await tree.createNode(node, ROOT_NODE_ID, 'team', 'Team'), { outcome: 'differs' },
+        'a create of a node an admin renamed must say it differs');
+      const error = await refusal(tree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'crew', 'Crew'), 'a create under a taken slug');
+      assert.equal(error.name, 'SlugTakenError', `the create was refused as ${error.name}: ${error.message}`);
+      console.error('  ✓ limb 5 — a create answered created, then existing, then differs after a rename, and a taken slug was refused by name');
     }
   } finally {
     for (const driver of drivers) driver.dispose();

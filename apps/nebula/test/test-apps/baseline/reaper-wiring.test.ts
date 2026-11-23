@@ -199,8 +199,10 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
 
   it('5 (Star): a query update to a subscriber missing some results reaps it (onQueryBroadcastResult)', async () => {
     const { star, admin, accessToken, parent, query } = await starWithParent();
-    const nodeA = await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'a', 'A');
-    const nodeB = await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'b', 'B');
+    const nodeA = uuid();
+    await admin.orgTree.createNode(nodeA, ROOT_NODE_ID, 'a', 'A');
+    const nodeB = uuid();
+    await admin.orgTree.createNode(nodeB, ROOT_NODE_ID, 'b', 'B');
     await commit(admin, star, { [uuid()]: child(parent, nodeA), [uuid()]: child(parent, nodeB) });
 
     await createSubject(new Browser(), star, accessToken, 'member@example.com');
@@ -226,8 +228,10 @@ describe('every update that names a reaper reaps a closed tab — one limb per w
     const chat = uuid();
     const query: QueryDescriptor = { typeName: 'Message', filter: { chat: chat } };
     const message = (nodeId: string) => ({ op: 'create' as const, typeName: 'Message', nodeId, value: { chat, content: 'm' } });
-    const nodeA = await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'a', 'A');
-    const nodeB = await admin.orgTree.createNode(uuid(), ROOT_NODE_ID, 'b', 'B');
+    const nodeA = uuid();
+    await admin.orgTree.createNode(nodeA, ROOT_NODE_ID, 'a', 'A');
+    const nodeB = uuid();
+    await admin.orgTree.createNode(nodeB, ROOT_NODE_ID, 'b', 'B');
     expect((await admin.resources.transaction({ [uuid()]: message(nodeA), [uuid()]: message(nodeB) })).kind).toBe('committed');
 
     const adminBrowser = new Browser();

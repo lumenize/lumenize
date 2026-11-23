@@ -108,7 +108,8 @@ describe('a reset of the .dev Star', () => {
     await install(a, dev, { version: 'v1', types: V1 });
     // A row in every plane table first — a node and its edge, a grant, a snapshot, a subscription —
     // so leaving any one table out of the drop leaves a row behind.
-    const gone = await a.orgTree.createNode(uuid(), ROOT_NODE_ID, 'gone', 'Gone');
+    const gone = uuid();
+    await a.orgTree.createNode(gone, ROOT_NODE_ID, 'gone', 'Gone');
     await a.orgTree.setPermission(gone, 'grantee-sub', 'read');
     const { out } = await create(a, dev, 'v1');
     expect(out.ok).toBe(true);
@@ -209,7 +210,8 @@ describe('installing a version never wipes', () => {
   it('a fresh .dev Star keeps an org tree built before its first install', async () => {
     const { galaxy, dev } = newDev();
     const a = await admin(galaxy, dev);
-    const kept = await a.orgTree.createNode(uuid(), ROOT_NODE_ID, 'kept', 'Kept');
+    const kept = uuid();
+    await a.orgTree.createNode(kept, ROOT_NODE_ID, 'kept', 'Kept');
     await install(a, dev, { version: 'v1', types: V1 });
     const state = await a.lmz.callAsync('STAR', dev, door(a).orgTree.getState()) as { nodes: Map<string, unknown> };
     expect(state.nodes.has(kept)).toBe(true);
@@ -222,7 +224,8 @@ describe('installing a version never wipes', () => {
     const { galaxy, dev } = newDev();
     const a = await admin(galaxy, dev);
     await install(a, dev, { version: 'v1', types: V1 });
-    const node = await a.orgTree.createNode(uuid(), ROOT_NODE_ID, 'kept', 'Kept');
+    const node = uuid();
+    await a.orgTree.createNode(node, ROOT_NODE_ID, 'kept', 'Kept');
     await a.orgTree.setPermission(node, 'grantee-sub', 'read');
     const { rid, out } = await create(a, dev, 'v1');
     expect(out.ok).toBe(true);

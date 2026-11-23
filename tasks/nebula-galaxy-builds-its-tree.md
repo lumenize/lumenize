@@ -1,6 +1,6 @@
 # The Galaxy builds its own tree in `onStart`, and the tree seed goes
 
-**Status:** Pass 1, drafted 2026-11-21, split from [nebula-app-lifecycle-hooks.md](nebula-app-lifecycle-hooks.md) on 2026-11-22, and reshaped the same day by two `/review-task` Stage 1 passes. Larry read Pass 1 in full on 2026-11-23, the phases were written that day, and `/review-task` Stage 2 then raised Q17 to Q19, which Larry answered that day as D19 to D21. Routed task-file-first, though `/task-management`'s question, whether this changes how a developer uses the package, answers yes (D10, D12, D13): the signatures are pinned here with their alternatives weighed, and the docs that carry them hold [nebula-query-upgrade.md](nebula-query-upgrade.md)'s uncommitted drafts, so they change in a phase once those drafts are set aside. It comes before nebula-query-upgrade.md, and nebula-app-lifecycle-hooks.md gives an app its hooks after that task (§ *Relationships*).
+**Status:** Pass 1, drafted 2026-11-21, split from [nebula-app-lifecycle-hooks.md](nebula-app-lifecycle-hooks.md) on 2026-11-22, and reshaped the same day by two `/review-task` Stage 1 passes. Larry read Pass 1 in full on 2026-11-23, the phases were written that day, and `/review-task` Stage 2 then raised Q17 to Q19, which Larry answered that day as D19 to D21. Routed task-file-first, though `/task-management`'s question, whether this changes how a developer uses the package, answers yes (D10, D12, D13): the signatures are pinned here with their alternatives weighed, and the docs that carry them change in the phase that builds each. It comes before nebula-query-upgrade.md, and nebula-app-lifecycle-hooks.md gives an app its hooks after that task (§ *Relationships*).
 
 ## Conventions
 
@@ -233,7 +233,7 @@ Each phase leaves the suites green, and a doc changes in the phase that changes 
 
 ### Before the first phase
 
-- **Ask Larry whether to set aside nebula-query-upgrade.md's uncommitted drafts** in `website/docs/nebula/*.md` and the `define-the-cast` skill. `apps/nebula`'s `npm test` fails its embed drift check while they sit in the tree, and § *Phase 2*, § *Phase 3* and § *Phase 5* edit those files. The embed is never regenerated over the drafts, since that would teach the model query APIs that do not exist.
+- **nebula-query-upgrade.md's doc drafts are out of the tree** (Larry, 2026-11-23). They sat uncommitted in `website/docs/nebula/*.md` and the `define-the-cast` skill, and failed `apps/nebula`'s embed drift check. That file's § *Doc drafts* now holds them as diffs, so this build edits and embeds the docs as they are built.
 - **Every phase ends the same way:**
   - `npm run type-check` passes, and so does `npm test` in each package the phase touched. In `apps/nebula` that is `npm test`, never a bare vitest run.
   - A phase that edits `website/docs/nebula/` or `apps/nebula/platform/` runs `node scripts/gen-platform.mjs` in `apps/nebula`, commits the embed with the edit, and runs `npm run test:doc`.
@@ -482,6 +482,46 @@ Then the whole registry runs locally, since this phase and § *Phase 3* change w
 - Drop `isPersonSub`'s `typeof` check: the object row.
 - Accept any `kind:name` as an agent principal: the `system:` and `webhook:` rows.
 - Skip the agent principal's name check: all six refusal rows.
+
+### Phase 2
+
+**For Larry:**
+
+- **Only `api-reference.md` changed among the docs.** Every other example already mints its id and never reads `createNode`'s answer, the `define-the-cast` skill's included.
+- **A `sub` named twice in `grants` is refused by a check of its own, inside the node's transaction,** so the message names the `sub`. The phase had the plain `INSERT` fail by itself, whose message would have been SQLite's.
+- **`NodeGrant` and `CreateNodeResult` are exported types,** from `@lumenize/resources` and its `/client` entry, for the fifth argument and the answer.
+
+- **The query-upgrade drafts moved into that task file's § *Doc drafts* during this phase,** on your call, after a stash held them for its doc edit. § *Phase 1* ran with them in the tree and without the embed check.
+- **A full `/live` sweep no longer follows every phase,** on your call: each phase runs `--fast` and the container scenarios it touches, and one full sweep follows § *Phase 4*, with the closing one after it.
+
+**Runs:** type-check clean. Resources 264 passed. `apps/nebula` 1333 passed and 2 skipped, with the embed in sync. `npm run test:doc` passed. Of the `/live` registry, 64 passed on this tree, the container-free ones and the container ones a stopped full sweep had reached, with `grant-reveals-denied` and `query-by-filter`.
+
+**Flakes:** `client-routes` (a mail lost after delivery), `refresh-reads-the-host` (a WebSocket connection timeout) and `hosts-and-frames` (`write EPIPE`) each failed once in one run and passed on the rerun with nothing changed. None touches what this phase changed, and the three came together, which points at the machine under load.
+
+**Retro notes:**
+
+- Thirty-one callers kept the answer as the node's id, in fifteen test and scenario files. One scripted rewrite moved each to mint the id first, and the type-checker named them all, as C26 said it would.
+- The baseline test client reads a create's id from `lastResult` in about seventy places. Its create initiator now keeps the id it minted there and the answer in `lastCreateOutcome`, so those tests did not change.
+- A query inside the `onStart` block runs and finds nothing in the Resources fixture, whose ontology is installed by then. It cannot tell dominion from none there, since an empty plane answers nothing either way, so the create is what holds the host-name reader.
+- `OrgTree.getState` asks for a caller, so a test probe called on the stub reads the tree's rows from storage instead.
+
+**Close-out notes:**
+
+- `tasks/backlog.md`'s row on a create answered wrong on repeat is settled for `createNode`. § *Phase 6* updates the row.
+- `SelfBuildingHostDO` in the Resources test Worker creates a node in `onStart`. § *Phase 4* moves the seeded host to the same shape, and the two fixtures become one there.
+
+**Mutations run,** against `apps/nebula/test/test-apps/baseline/org-tree.test.ts` unless named, each caught:
+
+- Answer `'existing'` for every id found: the repeat test, at its rename case. Also caught by the scenario's new limb.
+- Compare the label too: the repeat test, at its relabel case.
+- Ignore the deleted flag, and ignore the edge: the repeat test, at its delete and move cases.
+- Ask only `write` when grants are given: the starting-grants test.
+- Write grants for a node that exists: the starting-grants test, where the revoked grant came back.
+- Throw a plain error for a taken slug: the name test, and the scenario's limb.
+- Drop each of the three shape checks: its own row.
+- Drop the twice-named check and write with `INSERT OR REPLACE`: the twice-named test.
+- Read the stamped name alone in the plane: `packages/resources/test/tree-seed.test.ts`, where the `onStart` create was refused.
+- Not run as written: grants inserted after the node's transaction. The twice-named test asserts the node is absent, which is what that mutation would break.
 
 ## Non-goals
 

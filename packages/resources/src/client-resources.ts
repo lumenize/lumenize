@@ -40,7 +40,7 @@ import type { QueueSubmission } from './frontend/debounce';
 import type { OperationDescriptor as WireOp, TransactionResult, Snapshot } from './snapshots';
 import type { QueryUpdatePayload, QueryDescriptor, QueryReadResult, SubscriberEntry, SubscriberRosterPayload } from './query-hash';
 import { canonicalQueryHash } from './query-hash';
-import type { OrgTreeState, PermissionTier } from './org-ops';
+import type { OrgTreeState, PermissionTier, NodeGrant, CreateNodeResult } from './org-ops';
 import type { NodeInvitee, NodeInviteAck, ResourcesRequests } from './resources';
 // Type-only: the Client this composes into, whose forwarders every result handler is rooted at.
 import type { NebulaClient } from './nebula-client';
@@ -1107,12 +1107,12 @@ export class ClientResources {
    * local Promise over one-way fire + re-resolvable fire-back, NOT a socket-bound
    * awaited RPC); a lost RESULT rejects on `callAsync`'s default timeout rather
    * than hanging, and a full reload/discard triggers orgTree-resync. Idempotent/retry-safe.
-   * `createNode` takes a **client-supplied** nodeId (a v4 UUID), so it is
-   * server-idempotent too: a dropped/replayed call returns the same node.
+   * `createNode` takes a **client-supplied** nodeId (a v4 UUID) and creates the node only where
+   * that id is absent, so a dropped or repeated call is safe: its answer says what it found.
    */
   readonly orgTree = {
-    createNode: (nodeId: string, parentNodeId: string, slug: string, label: string): Promise<string> =>
-      this.#orgTreeMutate(this.#client.ctn<ResourcesHostNode>().resources.orgTree.createNode(nodeId, parentNodeId, slug, label)),
+    createNode: (nodeId: string, parentNodeId: string, slug: string, label: string, grants?: NodeGrant[]): Promise<CreateNodeResult> =>
+      this.#orgTreeMutate(this.#client.ctn<ResourcesHostNode>().resources.orgTree.createNode(nodeId, parentNodeId, slug, label, grants)),
     addEdge: (parentNodeId: string, childNodeId: string): Promise<void> =>
       this.#orgTreeMutate(this.#client.ctn<ResourcesHostNode>().resources.orgTree.addEdge(parentNodeId, childNodeId)),
     removeEdge: (parentNodeId: string, childNodeId: string): Promise<void> =>

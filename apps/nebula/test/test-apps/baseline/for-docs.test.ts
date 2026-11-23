@@ -84,8 +84,10 @@ describe('for-docs runtime examples (real Star)', () => {
     });
 
     // ── coding-your-ui § Mutating the org/permission tree ──
-    const userAliceNodeId = await client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'user-alice', 'Alice');
-    const userBobNodeId = await client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'user-bob', 'Bob');
+    const userAliceNodeId = crypto.randomUUID();
+    await client.orgTree.createNode(userAliceNodeId, ROOT_NODE_ID, 'user-alice', 'Alice');
+    const userBobNodeId = crypto.randomUUID();
+    await client.orgTree.createNode(userBobNodeId, ROOT_NODE_ID, 'user-bob', 'Bob');
     const bobsSub = crypto.randomUUID();
     const nodeId = userAliceNodeId;
 

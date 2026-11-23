@@ -81,3 +81,15 @@ describe('a write as the host\'s agent principal', () => {
     expect(await host.recordedSubject(landedId)).toBe(SEEDED_PRINCIPAL);
   });
 });
+
+describe('a host that creates a node in onStart, as its own system principal', () => {
+  // The first call on the stub is the first thing to reach the host, so `onStart` ran at a
+  // construction with no stamped name. Mutation: have the plane read the stamped name alone → the
+  // host name is absent, the dominion bypass grants nothing, and the create is refused.
+  it('finds the node on its first call, created with dominion and no grant', async () => {
+    const host = env.SELF_BUILDING.getByName(`acme-${crypto.randomUUID().slice(0, 8)}.crm`);
+    expect(await host.startOutcome('start_create')).toEqual({ kept: '{"outcome":"created"}', nodeThere: true });
+    // A query in the same block runs too, and finds nothing: it reads the host's name the same way.
+    expect((await host.startOutcome('start_query')).kept).toBe('0');
+  });
+});

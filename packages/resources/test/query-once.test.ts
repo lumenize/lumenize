@@ -54,8 +54,10 @@ async function twoNodes(perNode = 1) {
   const universe = uniqueScope('q');
   const adminLogin = await loginAt(universe);
   const admin = await pageClient(adminLogin);
-  const a = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'a', 'A');
-  const b = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'b', 'B');
+  const a = crypto.randomUUID();
+  await admin.orgTree.createNode(a, ROOT_NODE_ID, 'a', 'A');
+  const b = crypto.randomUUID();
+  await admin.orgTree.createNode(b, ROOT_NODE_ID, 'b', 'B');
   const atA: string[] = [];
   const atB: string[] = [];
   for (let i = 0; i < perNode; i++) {

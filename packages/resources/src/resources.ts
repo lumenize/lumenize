@@ -291,6 +291,16 @@ export class Resources {
   }
 
   /**
+   * The host's name, the scope `hasDominionOverHost` confines the admin bypass to. A host's first
+   * construction runs `onStart` before any call has stamped a name, so until one is stamped this
+   * reads the name the Durable Object was addressed by, which is the name a stamp would write.
+   * Without it a host acting as its own system principal in `onStart` would hold no dominion.
+   */
+  #hostName(): string | undefined {
+    return this.#lmz().instanceName ?? this.#ctx.id.name;
+  }
+
+  /**
    * Construct the parts — at construction, and again after a wipe drops their tables. The parts
    * get narrow thunks, never the handle: `orgTree` is handed to the wire behind the host's gate,
    * so whatever an `OrgTree` holds is reachable from it. Thunks, never captured values — this runs
@@ -301,7 +311,7 @@ export class Resources {
    */
   #build(): void {
     const getCallContext = () => this.#lmz().callContext;
-    const getHostName = () => this.#lmz().instanceName;
+    const getHostName = () => this.#hostName();
     // Fires only AFTER construction — on a real tree mutation — so the registry, assigned below,
     // exists by then. A tree change sends the tree and nothing else: the server re-runs no query
     // on a permission change (a loss shows at the next update, and a client watching the tree
@@ -1288,7 +1298,7 @@ export class Resources {
   doQuery(query: QueryDescriptor): QueryReadResult {
     const auth = this.#lmz().callContext.originAuth;
     if (!auth?.sub) throw new Error('Authentication required');
-    const dominion = hasDominionOverHost(auth.claims as unknown as AuthClaims, this.#lmz().instanceName);
+    const dominion = hasDominionOverHost(auth.claims as unknown as AuthClaims, this.#hostName());
     const compiled = this.#compile(query);
     if (compiled.scans) {
       debug('nebula.Resources.query').info('query scans', {

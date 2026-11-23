@@ -103,7 +103,8 @@ describe('Galaxy resources e2e (real NebulaClient, resourceHostBinding: GALAXY)'
     const { client: admin, accessToken } = await devAdmin(scope);
 
     // Admin (scope-admin bypass) makes a private node + a Message on it.
-    const nodeId = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'private', 'Private');
+    const nodeId = crypto.randomUUID();
+    await admin.orgTree.createNode(nodeId, ROOT_NODE_ID, 'private', 'Private');
     const existingTurn = crypto.randomUUID();
     const seed = await admin.resources.transaction({
       [existingTurn]: { op: 'create', typeName: 'Message', nodeId, value: { chat: 'chat-x', content: 'secret' } },

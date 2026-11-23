@@ -49,6 +49,8 @@ export type {
   OrgTreeNodeData,
   EdgeKey as OrgTreeEdgeKey,
   TreeSeed,
+  NodeGrant,
+  CreateNodeResult,
 } from './org-ops';
 
 // A query, and what a one-time read of one answers (`client.resources.query`).
