@@ -15,6 +15,11 @@ import { isPersonSub } from '../src/auth/types';
  * `waiting-posts.test.ts` drives `actFor` through the Galaxy, under records the server stamped.
  * A call that carries claims is sent the way a Client's host node sends one, as an envelope whose
  * `callContext.originAuth` is filled in.
+ *
+ * The system principal's cases are here because they are about what Mesh builds from a node's
+ * name alone, for any scoped node, and its refusals name kinds of node no product path runs it
+ * on; `apps/nebula`'s `galaxy-builds-its-tree` scenario reads it on the running Galaxy.
+ * `isPersonSub` is a pure predicate over a string, so it needs no running system.
  */
 
 const PERSON = { sub: 'person-1', profileId: 'profile-1', aud: 'acme.crm', access: { authScope: 'acme', scopeAdmin: true } };

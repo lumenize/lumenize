@@ -617,7 +617,7 @@ export async function createInvitedClient<T extends NebulaClient, C extends Nebu
 /**
  * The calls of the turn that committed `messageId`, read once from that turn's rounds as `client`
  * may read them: an app admin through dominion, a collaborator through the `read` at `chat` that an
- * invite at `messages` brings.
+ * invite to the conversation names.
  */
 export async function turnCallsOf(client: NebulaClient, scope: string, messageId: string): Promise<TurnCall[]> {
   const read = await client.lmz.callAsync('GALAXY', scope,

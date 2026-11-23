@@ -30,7 +30,8 @@
  *     node only, and their invite lands.
  *  4. **An admin's revoke lands.** The owner revokes the agent's grant and the tree shows none.
  *     Mutation: refuse a revoke of the agent's grant, as the tree once did, and the call throws.
- *  5. **The owner's next post restores it.** The tree shows the agent's `write` again,
+ *  5. **The owner's next post restores it.** The tree pushed to the owner's open tab, whose
+ *     listener was set before it connected, shows the agent's `write` again,
  *     the Galaxy logged one restore naming its system principal, and no read was refused the agent.
  *     Mutations: drop the restore from the post's trigger, and the grant never comes back; restore
  *     after the trigger reads the thread, and the agent's refused read is logged.
@@ -84,9 +85,9 @@ export async function run(stack: DevStack): Promise<void> {
   // page comes from that page's own refresh.
   const login = await provisionAndLogin({ baseUrl: origin, scope: tenant, testToken });
   const drivers: Driver[] = [];
-  const on = async (scope: string): Promise<Driver> => {
+  const on = async (scope: string, onTree?: (tree: OrgTreeState) => void): Promise<Driver> => {
     const session = await refreshAccessToken(origin, login.session, scope);
-    const driver = await connectDriver(stack, { scope, session, ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION });
+    const driver = await connectDriver(stack, { scope, session, ontologyVersion: CHAT_MESSAGE_ONTOLOGY_VERSION, ...(onTree ? { onTree } : {}) });
     drivers.push(driver);
     return driver;
   };
@@ -96,7 +97,10 @@ export async function run(stack: DevStack): Promise<void> {
 
   let owner: Driver | undefined;
   try {
-    owner = await on(galaxy);
+    // Every tree the Galaxy pushes the owner's tab, in the order they arrived.
+    const pushed: OrgTreeState[] = [];
+    owner = await on(galaxy, (tree) => { pushed.push(tree); });
+    const agentTierIn = (tree: OrgTreeState) => tree.permissions.get(CHAT_NODE_ID)?.get(NEBULA_SUB);
     const galaxyTree = (): Promise<OrgTreeState> => owner!.client.lmz.callAsync('GALAXY', galaxy,
       owner!.client.ctn<Galaxy>().resources.orgTree.getState());
     const agentTier = async () => (await galaxyTree()).permissions.get(CHAT_NODE_ID)?.get(NEBULA_SUB);
@@ -202,24 +206,35 @@ export async function run(stack: DevStack): Promise<void> {
     // ── LIMB 4: an admin's revoke lands ───────────────────────────────────────────────────────
     const restoresBefore = ours(debugLines(stack.logs()), 'nebula.Galaxy.agentGrant', 'restored');
     {
+      const pushedBefore = pushed.length;
       await owner.client.orgTree.revokePermission(CHAT_NODE_ID, NEBULA_SUB);
       assert.equal(await agentTier(), undefined, 'the owner\'s revoke of the agent\'s grant must land');
+      await until(() => pushed.slice(pushedBefore), (trees) => trees.some((tree) => agentTierIn(tree) === undefined),
+        'a pushed tree without the agent\'s grant');
       console.error('  ✓ limb 4 — the owner revoked the agent\'s grant, and the tree shows none');
     }
 
     // ── LIMB 5: the owner's next post restores it ─────────────────────────────────────────────
     {
+      const pushedAtPost = pushed.length;
       const post = crypto.randomUUID();
       const posted = await owner.client.resources.transaction({
         [post]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content: 'Are you there? Change no code.' } },
       });
       assert.equal(posted.kind, 'committed', `the owner's post must commit: ${JSON.stringify(posted)}`);
-      await until(agentTier, (tier) => tier === 'write', 'the agent\'s write at chat to come back');
+      // The restore runs as the Galaxy's system principal, so its tree leaves on a chain with no
+      // claims, and the owner's open tab still hears it.
+      await until(() => pushed.slice(pushedAtPost), (trees) => trees.some((tree) => agentTierIn(tree) === 'write'),
+        'a pushed tree with the agent\'s write at chat back');
+      assert.equal(await agentTier(), 'write', 'the agent\'s write at chat must be back in the tree');
 
-      const all = await waitForDebugLines(stack, (lines) => ours(lines, 'nebula.Galaxy.agentGrant', 'restored').length > restoresBefore.length,
-        'the restore\'s record');
-      const restored = ours(all, 'nebula.Galaxy.agentGrant', 'restored').slice(restoresBefore.length);
-      assert.equal(restored.length, 1, `one post must restore the grant once, and the Galaxy logged ${restored.length}`);
+      // Lines are told apart by when they were logged: a deployed capture can deliver one twice.
+      const barrier = restoresBefore.at(-1)!;
+      const since = (lines: DebugLine[]) => ours(lines, 'nebula.Galaxy.agentGrant', 'restored').filter((line) => line.at > barrier.at);
+      const all = await waitForDebugLines(stack, (lines) => since(lines).length > 0, 'the restore\'s record');
+      const restored = since(all);
+      const restores = new Set(restored.map((line) => line.at)).size;
+      assert.equal(restores, 1, `one post must restore the grant once, and the Galaxy logged ${restores}`);
       assert.equal(restored[0]!.data.recordedClaims?.sub, `system:${galaxy}`, 'the restore must name the Galaxy\'s system principal');
       assert.equal(restored[0]!.data.grantee, NEBULA_SUB);
       // The agent reads the thread only after the restore, so no read of its is refused. The

@@ -1444,7 +1444,7 @@ export class ClientResources {
   /**
    * Fire an `orgTree.*` mutation via `callAsync` — the Mesh client primitive that returns a Promise
    * settled by the re-resolvable RESULT: resolves with the mutation's value (`createNode`
-   * → nodeId; other mutators → undefined) or rejects with its Error (e.g. permission denied). Resilient
+   * → `{ outcome }`; other mutators → undefined) or rejects with its Error (e.g. permission denied). Resilient
    * by construction (survives WS reconnect + tab freeze) and bounded by `callAsync`'s default timeout,
    * so a lost RESULT rejects rather than hanging. No per-call `requestId` / settler handler — the
    * primitive owns correlation + dedup.

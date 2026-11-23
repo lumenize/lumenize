@@ -336,7 +336,7 @@ describe('the impersonation mint', () => {
       expect(refusalOf(await mint(actBearing.access_token, user.parsed.sub))).toMatch(/root identity/);
     });
 
-    // A chain a node starts with `lmz.actFor` carries a stored record's claims with the node's local
+    // A chain a node starts with `lmz.actFor` carries a stored record's claims with the node's agent
     // principal prepended, the shape `claims-forms.test.ts` pins. The caller here holds dominion and
     // calls from the SUBJECT's own host, so eligibility passes and only the root-identity gate can
     // refuse. Mutation: delete the gate → it mints → this reds.

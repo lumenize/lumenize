@@ -21,7 +21,7 @@
 
 | # | Item | Specified in | Gate |
 |---|---|---|---|
-| — | **The Galaxy builds its own tree in `onStart`, and the tree seed goes** — the Galaxy creates its chat nodes and writes the agent's grant back in `onStart`, `createNode` becomes idempotent, an invite carries every grant it gives, and `protected` goes | [nebula-galaxy-builds-its-tree.md](nebula-galaxy-builds-its-tree.md), in review (its Status says where) | deploy |
+| — | **The Galaxy builds its own tree in `onStart`, and the tree seed goes** — the Galaxy creates its chat nodes and writes the agent's grant back in `onStart`, `createNode` becomes idempotent, an invite carries every grant it gives, and `protected` goes | [nebula-galaxy-builds-its-tree.md](nebula-galaxy-builds-its-tree.md), built 2026-11-23, at its hand-off | deploy |
 | — | **Queries upgraded** — a query reads under the node it names and is checked once there, and its subscriber holds the whole result, kept current by patches, so a chat past 1,000 messages still reaches the agent | [nebula-query-upgrade.md](nebula-query-upgrade.md), paused until our hosts' lifecycle hooks land (Larry, 2026-11-22) | deploy |
 | — | **An app's code creates its nodes** — an app's ontology becomes the folder `src/ontology/`, and the `onNewOntologyVersion` and `onStart` it exports run in a facet, so its pages can name their nodes in every Star | [nebula-app-lifecycle-hooks.md](nebula-app-lifecycle-hooks.md), Pass 1, reviewed once the query change lands | deploy |
 | — | **Shared pages** — a new founder names the account and its first app on the account's page after accepting, Galaxy create asks for each later app's name, Studio shows each account's and app's name and picture, and each page decides whether an app forwards to ours or runs its own | § *Shared pages*. The names are [nebula-accounts-and-apps-have-names.md](nebula-accounts-and-apps-have-names.md), waiting on Larry's read of its Pass 1 | deploy |
@@ -108,7 +108,7 @@ These change:
 
 ### Scope full names
 
-**[nebula-accounts-and-apps-have-names.md](nebula-accounts-and-apps-have-names.md) holds the design.** An account's or app's name, picture and description are one Resource, on a node the seed slugs `meta` by convention, which everyone with passage reads through a grant to `anyone` there. Its gate is `deploy`: the seed reaches trees that already exist, and a page that finds no name asks the next admin who opens it, so a scope created before it is named the same way as a new one.
+**[nebula-accounts-and-apps-have-names.md](nebula-accounts-and-apps-have-names.md) holds the design.** An account's or app's name, picture and description are one Resource, on a node slugged `meta` by convention, which each host's `onStart` creates, which everyone with passage reads through a grant to `anyone` there. Its gate is `deploy`: a start creates the node in a tree that already exists, and a page that finds no name asks the next admin who opens it, so a scope created before it is named the same way as a new one.
 
 ## ⑥ The wipe
 

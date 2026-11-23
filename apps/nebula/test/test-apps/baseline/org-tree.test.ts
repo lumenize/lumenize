@@ -150,7 +150,7 @@ describe('org-tree', () => {
   // ─── Tree Construction ────────────────────────────────────────────
 
   describe('tree construction', () => {
-    it('createNode returns new nodeId, stores slug and label', async () => {
+    it('createNode stores the node under the id the caller minted, with its slug and label', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
 
@@ -344,7 +344,10 @@ describe('org-tree', () => {
 
       client.callStarRelabelNode(star, node, 'The Team');
       await settle(client);
+      const relabeled = await treeOf(client, star);
+      expect(relabeled.nodes.get(node)?.label).toBe('The Team');
       expect((await create(client, star, node, ROOT_NODE_ID, 'team')).outcome).toBe('existing');
+      expect(await treeOf(client, star)).toEqual(relabeled);
 
       client.callStarRenameNode(star, node, 'crew');
       await settle(client);

@@ -529,7 +529,7 @@ Mount the recursive component from any parent at a known root id: `<TreeNode :no
 
 The tree itself is mutable through `client.orgTree.*` methods. Each method requires the caller to hold a specific permission on the target node — `admin` for permission grants, `write` for structural changes (create, reparent, delete, rename, relabel; edge ops check the parent). The one hybrid is `addEdge`, which also requires `admin` on the *child*: adding a parent edge widens who has access to the child's subtree, so the child side demands `setPermission`'s tier. Failures reject the returned Promise.
 
-A grant you write is keyed by a person's `sub`, a bare UUID. A grant you read back from the tree can also be keyed by what holds it, as `agent:lumenize` is, so a view that lists grants filters with `isPersonSub` (see [Access control § Permissions table and resolution](./access-control.md#permissions-table-and-resolution)).
+A grant you write is keyed by a person's `sub`, a bare UUID. A grant you read back from the tree can also be keyed by what holds it, as `agent:lumenize` is, so a view asks `isPersonSub` before it treats a key as a person: a roster of who something is shared with keeps the people, and a view of every grant shows any other key as what it names (see [Access control § Permissions table and resolution](./access-control.md#permissions-table-and-resolution)).
 
 ```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 // Grant a permission. `sub` is a JWT subject claim — a bare UUID (the current

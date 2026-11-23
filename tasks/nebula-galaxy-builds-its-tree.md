@@ -647,6 +647,35 @@ Then the whole registry runs locally, since this phase and § *Phase 3* change w
 - `tasks/backlog.md`'s row on a create answered wrong on repeat is settled for `createNode`, and its line on the old scenario's fourth limb is closed.
 - nebula-query-upgrade.md, nebula-app-lifecycle-hooks.md, nebula-accounts-and-apps-have-names.md and `tasks/on-hold/nebula-request-access.md` say what this file built.
 
+### After the verifier panel
+
+**The panel's verdicts:** phases 1, 2 and 5 conform, each with minor notes. Phases 3, 4 and 6 did not, and what follows is what was fixed and what stays open.
+
+**Fixed:**
+
+- **Limbs 4 and 5 of `galaxy-builds-its-tree` wait for a pushed tree, as the phase asked.** The owner's driver heard no push because a Client subscribes the tree only at a connection made while a listener is set. `connectDriver` now takes `onTree` and registers it before the first connection, and `onOrgTreeUpdate`'s JSDoc says a listener set on a connected client hears nothing until its next reconnect.
+- **Limb 5 tells the restore's record from earlier ones by when each was logged,** since a deployed capture can deliver one line twice.
+- **A new lane test covers a refused grant whose row can still be written.** The inviter lowers their own grant at one node to `write` behind the invite: that node's grant is refused, and its row reads `submission-failed` with the refusal. The first test, where the inviter loses the grant whole and the row stays `pending`, is kept.
+- **Two comments still said `local principal` across a line break,** in `resources.ts` and `impersonation-mint.test.ts`, where a line-based grep could not see them. A multi-line search over source, tests and docs now finds none.
+- **Stale text the phases left:** `#orgTreeMutate`'s JSDoc on what `createNode` resolves with, the Galaxy's JSDoc that called the agent's `write` protected, two comments naming `#ensureSeed`, three that put a collaborator's invite at `messages` alone, a test title, `TURNS_NODE_ID` in nebula-accounts-and-apps-have-names.md, `#ensureSeed` in `tasks/on-hold/wire-merge-patch-sync.md`, and the seed in `tasks/nebula-pre-alpha.md`'s paragraph on names.
+- **The repeat-after-relabel case now compares the tree before and after,** and `claims-forms.test.ts` says why its system-principal cases need no running system.
+- **The docs' pointers no longer tell every view to drop a key that is not a person's.** A roster keeps the people, and a view of every grant shows the other keys as what they name. The climb sentences in `access-control.md` and `api-reference.md` say a person's grant.
+
+**For Larry:**
+
+- **A row stays `pending` when its inviter lost every grant at the node before the facade answered** (Phase 3's note). Nothing later changes it.
+- **Which addresses an invite reports as failed is asserted nowhere for a grant refused singly.** A Star takes no `onInviteOutcome`, and on a Galaxy only an app admin passes the facade, whose grants dominion never refuses. So `#onInviteResult`'s split of `sent` from `failed` for that case has no reader today.
+- **`access-control.md`'s shared-list example still grants with `setPermission`,** where Phase 3 had it become one invite (Phase 3's note).
+- **`asAgentPrincipal` takes anything after `agent:`,** `agent:a:b` or a name with a space included. No rule says what a name may hold.
+- **`system:{scope}`'s scope is the node's stamped name, and `ctx.id.name` only when none is stamped.** Only code holding the binding can stamp a name, and passage already trusted it, so nothing new is opened. Dominion now follows from it, and `ctx.id.name` is the name no envelope can write.
+- **A restore logs its record after `setPermission` returns,** and `setPermission` pushes the tree first. A push that throws at a start would leave the grant written and the record unlogged, with `tree setup failed` logged instead.
+- **Limb 5's check that no read was refused is not narrowed to this Galaxy,** since the line carries only a resource id. On the shared deployed target another run's refused read could red it.
+- **`resubscribe-when-lost` deployed** (Phase 6's note) is still open.
+
+**Mutations run:** flip a refused grant's row to `sent`, and the new lane test reds. Drop the restore before a post, and limb 5 times out waiting for the pushed tree.
+
+**Runs:** on the tree with these fixes, type-check clean; Mesh 1117 passed, Resources 265, Nebula 1356 passed and 2 skipped, one more than before for the new lane test; `npm run test:doc` passed. The full `/live` sweep passed 79 of 79 with 2 parked, in 38.8 minutes, with no flake.
+
 ## Non-goals
 
 - **An app's `onStart` and `onNewOntologyVersion`,** and the facet they run in: nebula-app-lifecycle-hooks.md.

@@ -454,6 +454,37 @@ describe('Star.resources.invite — one invite names every grant it gives', () =
     }
   });
 
+  // The inviter lowers their own grant at the second node to `write`, right behind the invite.
+  // `write` cannot grant, so that node's grant is refused, and it can still write the node's row,
+  // so the row says what happened. MUTATION: flip a refused grant's row to `sent`, and the `lost`
+  // row reads `sent` with no error.
+  it('flips a refused grant\'s row to submission-failed, with the refusal, when the inviter can still write it', async () => {
+    const star = uniqueStar();
+    const { browser, client: admin, accessToken } = await starWithOntology(star);
+    const inviter = await memberOf(star, browser, accessToken);
+    try {
+      const [lost, kept] = [await node(admin, 'lost'), await node(admin, 'kept')];
+      await admin.orgTree.setPermission(kept, inviter.sub, 'admin');
+      await admin.orgTree.setPermission(lost, inviter.sub, 'admin');
+      const invitee = em('demoted');
+      const sent = invite(inviter.client, [{ email: invitee, grants: [{ nodeId: lost, tier: 'read' }, { nodeId: kept, tier: 'read' }] }]);
+      const lowered = inviter.client.orgTree.setPermission(lost, inviter.sub, 'write');
+      expect(await sent).toEqual({ accepted: 1, errors: [] });
+      await lowered;
+      await vi.waitFor(async () => {
+        expect((await inviteStatuses(admin, kept))[invitee]).toEqual({ state: 'sent', tier: 'read' });
+        expect((await inviteStatuses(admin, lost))[invitee]?.state).toBe('submission-failed');
+      });
+      const row = (await inviteStatuses(admin, lost))[invitee] as { state: string; tier: string; error?: string };
+      expect(row.tier).toBe('read');
+      expect(row.error).toMatch(/admin/);
+      expect(await grantsOf(admin, await mintedAt(admin, kept, [inviter.sub]))).toEqual({ [kept]: 'read' });
+    } finally {
+      admin.disconnect();
+      inviter.client.disconnect();
+    }
+  });
+
   // MUTATIONS: write every grant unconditionally, and the first re-invite lowers `admin` to `read`.
   // Compare against the grant at the node alone, and the invite at `child` writes a row there.
   it('never lowers a grant, raises one, and writes none that an ancestor already covers', async () => {

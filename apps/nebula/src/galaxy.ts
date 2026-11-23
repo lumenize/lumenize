@@ -2885,7 +2885,7 @@ export class Galaxy extends ScopedMeshDO implements ResourcesHost {
 
   /**
    * Where a turn's rounds are kept: a `Round` Resource at {@link ROUNDS_NODE_ID} per round, each
-   * written by the agent as itself under its protected `write` there, and read by `message` as
+   * written by the agent as itself under its `write` at `chat`, and read by `message` as
    * the agent, keeping only those at that node: a `Round` anyone writes elsewhere is never the
    * turn's. A write first checks that the turn's row names this turn, and answers
    * `not-this-turn` when it does not, since the row may then be the next turn's. Each later write

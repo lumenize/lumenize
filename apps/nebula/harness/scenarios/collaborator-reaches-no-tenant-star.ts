@@ -7,7 +7,7 @@
  * asking where it was earned would hand a collaborator every tenant's data.
  *
  * The owner founds the app and a tenant Star by a real login, and the collaborator is enrolled by
- * the real node invite at the `messages` node, followed as sent. The first assertion is that the
+ * the real node invite to the conversation, followed as sent. The first assertion is that the
  * collaborator really holds both memberships, the admin one included.
  *
  *  1. **From `.dev`'s host, where the collaborator is admin, the tenant Star refuses them**, by
@@ -70,7 +70,7 @@ export async function run(stack: DevStack): Promise<void> {
     const owner = await provisionAndLogin({ baseUrl: origin, scope: TENANT, testToken });
     const ownerOnApp = await connect(APP, await refreshAccessToken(origin, owner.session, APP));
 
-    // The collaborator, by the real node invite at the `messages` node, followed as sent.
+    // The collaborator, by the real node invite to the conversation, followed as sent.
     const email = uniqueTestEmail();
     const waiter = waitForEmail({ testToken, instance: APP, to: email, timeout: 60_000 });
     let cookies: string[];

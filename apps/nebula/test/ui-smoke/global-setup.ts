@@ -81,7 +81,7 @@ export default async function setup(project: TestProject) {
 
   // Start from a CLEAN DO store. `wrangler dev --local` persists `.wrangler/state` across
   // runs, so a prior run's schema survives — and `CREATE TABLE IF NOT EXISTS` does NOT
-  // migrate an existing table (e.g. a nodeId INTEGER->TEXT change), so onStart's #ensureSeed
+  // migrate an existing table (e.g. a nodeId INTEGER->TEXT change), so onStart's schema setup
   // throws `SQLITE_MISMATCH` against the stale schema. The lane exercises a FRESH install each
   // run (the same "wipe, don't migrate" model prod uses), so wipe the persisted state first.
   rmSync(resolvePath(process.cwd(), '.wrangler/state'), { recursive: true, force: true });

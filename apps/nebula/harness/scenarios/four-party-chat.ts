@@ -101,7 +101,7 @@ export async function run(stack: DevStack): Promise<void> {
     });
     disposables.push(coach);
 
-    // ── The COLLABORATOR: the REAL node invite (write at the `messages` node, no admin bit) ──
+    // ── The COLLABORATOR: the REAL node invite (write at `messages` and read at `chat`, no admin bit) ──
     const austenEmail = uniqueTestEmail();
     const austenWaiter = waitForEmail({ testToken, instance: SCOPE, to: austenEmail, timeout: 60_000 });
     let austenGalaxyToken: string; let austenDevToken: string;

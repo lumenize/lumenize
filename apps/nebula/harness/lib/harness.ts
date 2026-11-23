@@ -25,7 +25,7 @@ import { spawnWranglerDev } from '@lumenize/testing/wrangler';
 import { Browser } from '@lumenize/testing';
 import { NebulaClient } from '@lumenize/resources/client';
 import { StudioClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula/client';
-import type { NebulaClientConfig } from '@lumenize/resources/client';
+import type { NebulaClientConfig, OrgTreeState } from '@lumenize/resources/client';
 import type { InviteSummary, AuthClaims } from '@lumenize/mesh/auth/testing';
 import { hostOrigin, platformOrigin } from '@lumenize/mesh/client';
 import { provisionAndLogin } from '../../test/lib/email-login';
@@ -175,7 +175,7 @@ export async function bootDevStack(
   const signingKey = readDevVar('JWT_PRIVATE_KEY_BLUE');
 
   // Fresh DO store each run — `wrangler dev --local` persists `.wrangler/state`, and
-  // `CREATE TABLE IF NOT EXISTS` does NOT migrate a stale schema (onStart #ensureSeed throws
+  // `CREATE TABLE IF NOT EXISTS` does NOT migrate a stale schema (onStart's schema setup throws
   // SQLITE_MISMATCH). This wipe is the harness's local reset primitive.
   rmSync(resolve(NEBULA_DIR, '.wrangler/state'), { recursive: true, force: true });
   // wrangler HARD-ERRORS if the declared `assets.directory` (the Studio SPA dist) is absent;
@@ -359,6 +359,12 @@ export async function connectDriver<C extends NebulaClient = NebulaClient>(
      * idles longer lets the driver sign in itself, by passing no `session`.
      */
     session?: { accessToken: string; sub: string };
+    /**
+     * Hears every org tree the host pushes. It is registered before the first connection, as a
+     * page's store registers its own, because a Client subscribes the tree only at a connection
+     * made while a listener is set: one set later hears nothing.
+     */
+    onTree?: (tree: OrgTreeState) => void;
   },
 ): Promise<Driver<C>> {
   const scope = opts.scope;
@@ -405,6 +411,7 @@ export async function connectDriver<C extends NebulaClient = NebulaClient>(
     sessionStorage: ctx.sessionStorage,
     BroadcastChannel: ctx.BroadcastChannel,
   });
+  if (opts.onTree) client.onOrgTreeUpdate(opts.onTree);
 
   await waitForConnected(client, opts.connectTimeoutMs ?? 30_000);
 

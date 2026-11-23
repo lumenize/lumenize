@@ -1296,7 +1296,7 @@ export class Resources {
   }
 
   /**
-   * Run `fn` under the claims recorded on one snapshot, with `principal`, the host's local
+   * Run `fn` under the claims recorded on one snapshot, with `principal`, the host's agent
    * principal, as actor (`lmz.actFor`). For a host acting on a person's stored request: the record
    * is the one the server stamped when that person wrote the resource, so the host names a
    * resource and never handles anyone's claims.
