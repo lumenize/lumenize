@@ -42,7 +42,7 @@ What stands in the way today:
 
 ## Relationships
 
-- **After [nebula-lifecycle-hooks.md](nebula-lifecycle-hooks.md), whose D3 changes this file's design.** Larry decided on 2026-11-22 that the platform's own nodes come from install code, never a seed, so the `meta` node and its grant to `anyone` come from each plane's in-process `onNewOntologyVersion`. DI1, DI2, C1, the seed bullet in § *Current state*, and the criteria that seed `meta` still say seed, and are rewritten when this file is next picked up.
+- **After [nebula-galaxy-builds-its-tree.md](nebula-galaxy-builds-its-tree.md), whose D3 changes this file's design.** Larry decided on 2026-11-22 that the platform's own nodes come from install code, never a seed, so the `meta` node and its grant to `anyone` come from each plane's in-process `onNewOntologyVersion`. DI1, DI2, C1, the seed bullet in § *Current state*, and the criteria that seed `meta` still say seed, and are rewritten when this file is next picked up.
 - **After [archive/nebula-turn-stored-round-by-round.md](archive/nebula-turn-stored-round-by-round.md)**, built and archived on 2026-11-19. It edited `galaxy.ts` too; this one adds a type to the chat ontology and deletes the config pair there.
 - **Before [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 24: Visitors read what anyone may*.** The `anyone` grantee lands here, and Item 24 widens who it covers.
 - **[nebula-pre-alpha.md](nebula-pre-alpha.md) § *Shared pages*** carries this as a `deploy` row, and its § *Scope full names* points here.

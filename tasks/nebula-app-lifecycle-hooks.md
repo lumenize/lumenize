@@ -1,10 +1,10 @@
 # An app's own code creates its nodes when a Star moves onto a new ontology version
 
-**Status:** Pass 1, split from [nebula-lifecycle-hooks.md](nebula-lifecycle-hooks.md) on 2026-11-22; phases are not written. It is reviewed once [nebula-query-upgrade.md](nebula-query-upgrade.md) has landed, since that task changes the `query` an app's hooks call, and once an experiment has measured C3. It builds the hook nebula-query-upgrade.md's D12 decided, delivers that task's DI22, and lands before the first invite (§ *Relationships*).
+**Status:** Pass 1, split from [nebula-galaxy-builds-its-tree.md](nebula-galaxy-builds-its-tree.md) on 2026-11-22; phases are not written. It is reviewed once [nebula-query-upgrade.md](nebula-query-upgrade.md) has landed, since that task changes the `query` an app's hooks call, and once an experiment has measured C3. It builds the hook nebula-query-upgrade.md's D12 decided, delivers that task's DI22, and lands before the first invite (§ *Relationships*).
 
 ## Conventions
 
-Items carry IDs, numbered in the order they were raised and never reused: `B` is something in today's code that stands in the way, `DI` an item of design intent, `C` a claim the design rests on that someone can check, `D` a decision Larry made, and `Q` an open question. C4 is the fourth claim raised, wherever it sits. A gap is an item removed or answered. Items raised before the split keep their numbers, so a gap may also be an item that stayed in nebula-lifecycle-hooks.md, whose decisions this file cites by name, as in nebula-lifecycle-hooks.md's D6.
+Items carry IDs, numbered in the order they were raised and never reused: `B` is something in today's code that stands in the way, `DI` an item of design intent, `C` a claim the design rests on that someone can check, `D` a decision Larry made, and `Q` an open question. C4 is the fourth claim raised, wherever it sits. A gap is an item removed or answered. Items raised before the split keep their numbers, so a gap may also be an item that stayed in nebula-galaxy-builds-its-tree.md, whose decisions this file cites by name, as in nebula-galaxy-builds-its-tree.md's D6.
 
 ## Objective
 
@@ -43,7 +43,7 @@ What happens when a page built against version `3f2a9c…` makes its first call 
 
 **An app has no way to create its own nodes.** [nebula-query-upgrade.md](nebula-query-upgrade.md)'s D9 has a page query at a node its source names as a constant, as our Galaxy's pages query at `MESSAGES_NODE_ID`. Something has to create that node in every Star, and nothing an app writes runs on a Star. A page can create one only for a viewer holding `write` at the parent. So the `define-the-cast` skill creates `lists` from the founder's tab with `crypto.randomUUID()`: `.dev` then holds a `lists` node whose id no page knows, and a tenant Star holds none until an admin opens the app.
 
-**Our hosts get the same hooks first, in-process** (nebula-lifecycle-hooks.md's D9). That file builds `onNewOntologyVersion` beside Mesh's `onStart`, the object a hook receives, the idempotent `createNode`, and `system:lumenize` with its grant at the root. This file hands the same call to an app's code across a facet.
+**Our hosts get the same hooks first, in-process** (nebula-galaxy-builds-its-tree.md's D9). That file builds `onNewOntologyVersion` beside Mesh's `onStart`, the object a hook receives, the idempotent `createNode`, and `system:lumenize` with its grant at the root. This file hands the same call to an app's code across a facet.
 
 **Larry chose the hook on 2026-11-21 (D1), and the folder that holds it on 2026-11-22 (D2).** The ids a page imports have to exist at runtime, so they live in a `.ts` file. The types stay in a `.d.ts`, which can hold no value.
 
@@ -59,12 +59,12 @@ The sections that follow say what the install step becomes for an app, the claim
 ## Goals
 
 1. **Every node a page names exists in every Star before the page's first call answers.** Today an app's node exists only where a viewer with `write` at its parent created it (Context).
-2. **An admin's change to a node survives every later version.** nebula-lifecycle-hooks.md's D6 makes `createNode` leave an existing node as it stands, so an app's install code inherits this.
+2. **An admin's change to a node survives every later version.** nebula-galaxy-builds-its-tree.md's D6 makes `createNode` leave an existing node as it stands, so an app's install code inherits this.
 3. **The install code can do only what a page can do, and its writes say who made them.** It calls the operations a page calls, each checked as a page's call is, and each write records the principal it ran as (ADR-016).
 
 ## Relationships
 
-- **After [nebula-lifecycle-hooks.md](nebula-lifecycle-hooks.md)**, whose D4, D6, D8 and D9 this builds on: the principal, the create, the start, and the in-process call an app's facet answers in the same way.
+- **After [nebula-galaxy-builds-its-tree.md](nebula-galaxy-builds-its-tree.md)**, whose D4, D6, D8 and D9 this builds on: the principal, the create, the start, and the in-process call an app's facet answers in the same way.
 - **After [nebula-query-upgrade.md](nebula-query-upgrade.md)** (Larry, 2026-11-22). The `query` this file hands an app's code takes the descriptor that task changes. This file delivers that task's DI22, which has every Star create an app's nodes at install. Until it lands, a generated app has no node of its own to name in a query, which costs only our own scenarios, since nobody else builds apps before the first invite.
 - **Before the first invite in [nebula-pre-alpha.md](nebula-pre-alpha.md).** Moving `src/ontology.d.ts` into `src/ontology/` breaks every Workspace that holds it, and before the invite no Workspace belongs to anyone but us.
 
@@ -77,7 +77,7 @@ Built already:
 - **`compileOntologyVersion` and `extractTypeMetadata`.** *Carried over unchanged:* they are handed the types as text, never a path (C7).
 - **`OntologyVersionRow`**: `version`, `types`, `validatorBundle`, `relationships`, `fields`, `indexes`. *Adapted:* it carries the folder's files, so `#land` can hash them again, the bundle of `index.ts`, and whether `index.ts` exports `onStart` (DI11).
 - **The Galaxy's `ONTOLOGY_PATH`, `#readOntology`, `#pendingOntology` and `#land`'s hash check.** *Adapted:* they hash the folder `src/ontology/` (D5).
-- **`Resources.#install`, with the in-process call nebula-lifecycle-hooks.md adds.** *Adapted:* for an app it stages the row, runs the install code in the facet, and only then records it (DI2).
+- **`Resources.#install`, with the in-process call nebula-galaxy-builds-its-tree.md adds.** *Adapted:* for an app it stages the row, runs the install code in the facet, and only then records it (DI2).
 - **`#settle` and `#askedAt`**, which answer `checking` while an ask waits. *Carried over:* a call at a version still installing is answered the same way.
 - **`getParserValidatorFacet`**, the precedent for loading a row's bundle as a facet. *Carried over* as the pattern the install code's facet follows.
 - **What reads the ontology's path**: `sfc-check.ts`'s `ontologyTypesDts`, the codegen loop's `ontologyDts` request part, `SKIPPED_FOR_ONTOLOGY`, and ADR-024's version wording. *Adapted:* they read the new path. The global `LumenizeOntology` that `ontologyTypesDts` writes imports `./ontology`, which then finds the folder's `index.ts` and the types it re-exports (C13).
@@ -93,17 +93,17 @@ Built already:
 - **DI2. A Star runs an app's install code between receiving a version and recording it, and answers no call at that version until it has recorded it.**
   - **It stages the row, runs the install code, and then records the row as installed.** Calls pinned to the staged version are answered `checking` until then, and calls at the installed version keep running.
   - **The run is handed to `ctx.waitUntil`**, so it holds the Star while it runs.
-  - **An eviction mid-run leaves the version staged, and the next call starts the install code again from the beginning.** So install code must be safe to run twice, which nebula-lifecycle-hooks.md's D6 makes it.
+  - **An eviction mid-run leaves the version staged, and the next call starts the install code again from the beginning.** So install code must be safe to run twice, which nebula-galaxy-builds-its-tree.md's D6 makes it.
   - **A Client retries `checking` for under two seconds (C2)**, so install code that takes longer has its page reload and ask again.
 - **DI3. Install code that throws leaves the Star on the version it had.** The staged row is discarded, the error is logged at `error`, which raises a Workers Issue, and a waiting page's next retry is answered stale. How the model learns of it on `.dev` is Q6.
 - **DI4. The install code runs in a facet and reaches the plane only through what the Star hands it.**
   - **The facet is loaded through the Worker Loader with `globalOutbound: null`,** from the row's bundle, under a bundle id built as the validator's is (C4). It has no network and no binding (C3).
-  - **The Star passes in the object our hosts' hooks receive** (nebula-lifecycle-hooks.md's DI12), with each method answering across the facet.
+  - **The Star passes in the object our hosts' hooks receive** (nebula-galaxy-builds-its-tree.md's DI12), with each method answering across the facet.
   - **Each call crosses a trust boundary, so the Star checks it as it checks a Client's** (`security.md`). It wraps the call in `lmz.asLocalPrincipal` as `system:lumenize`, fixes the version to the staged one, and calls the plane's operation, which validates its arguments and checks the tree under those claims.
 - **DI7. The version is the hash of the folder `src/ontology/`, git's tree id for it** (D5). A change to any file there, or a file added, removed or renamed, is a new version, which every Star installs and runs. The box's bundle step refuses a relative import from outside the folder, so no file the install code runs escapes the hash.
 - **DI9. The guidance says where an app's nodes come from.** `platform/AGENTS.md` lists the folder and both its files. The `define-ontology` skill writes the ids in `index.ts`, and the `define-the-cast` skill creates only nodes for one person or one record, under nodes the install code made. `ontology.md` documents the install code, and its blocks are `@check-example` once a phase makes them real. The embed and the scaffold are regenerated when they land (`studio-guidance.md`).
 - **DI10. A `.dev` wipe is followed by a first install, so the install code makes the app's nodes again** (C9).
-- **DI11. An app's `onStart` export runs at every start, after the grants nebula-lifecycle-hooks.md's D8 writes back.** The row records whether `index.ts` exports it, so a Star loads the app's facet at start only when it does. A throw is logged at `error` and the start goes on.
+- **DI11. An app's `onStart` export runs at every start, after the grants nebula-galaxy-builds-its-tree.md's D8 writes back.** The row records whether `index.ts` exports it, so a Star loads the app's facet at start only when it does. A throw is logged at `error` and the start goes on.
 
 Claims the design rests on:
 
@@ -142,7 +142,7 @@ Claims the design rests on:
 
 ## Decisions
 
-This file also builds on nebula-lifecycle-hooks.md's D3, D4, D6, D7, D8 and D9, which stay there.
+This file also builds on nebula-galaxy-builds-its-tree.md's D3, D4, D6, D7, D8 and D9, which stay there.
 
 | Decision | Alternatives weighed |
 |---|---|
