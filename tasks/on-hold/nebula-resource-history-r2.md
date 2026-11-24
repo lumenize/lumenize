@@ -214,8 +214,8 @@ Noted 2026-11-23, while `nebula-query-upgrade.md` was in design. That task reads
 
 - **The default looks at the past through today's tree and today's grants** (Larry). A chart of six months runs its query at each month's end against the subtree as it is now, so a business unit moved to another division three months ago is in the chart from its first month. A node keeps its id when it is reparented, which is what makes that work.
 - **A resource moved between nodes is found where it sat then,** because a `move` writes a new version with the new `nodeId`. A deal moved into that business unit enters its chart partway through. The coding agent's guidance may need to prefer moving a node over moving its resources, and a person moving a resource may need a warning.
-- **A second mode reads the past through the tree as it stood then, and needs the orgTree to keep its history,** which it does not yet. Larry intends its nodes, edges and grants to be kept as snapshots, as resources are (2026-11-23). A tree change takes a moment of its own once the query upgrade lands, which is where recording would start.
-- **Tree history also retires a workaround.** A client catching up on a live query across a change to the tree's edges (`addEdge`, `removeEdge`, `reparentNode`) is sent the whole result, because the plane cannot ask what sat under a node at an earlier moment. With tree history that catch-up becomes a patch. The branch carries a JSDoc saying so, in `packages/resources/src/resources.ts`.
+- **A second mode reads the past through the tree as it stood then, and needs the orgTree to keep its history,** which it does not yet. Larry intends its nodes, edges and grants to be kept as snapshots, as resources are (2026-11-23). He set that work before the wipe on 2026-11-24.
+- **Tree history also closes a gap.** A live query does nothing when an edge of the tree changes (`addEdge`, `removeEdge`, `reparentNode`), so a result the change moved reaches a tab at its next first read, and a catch-up across the change can miss it (`nebula-query-upgrade.md`'s D19). With tree history both become a patch.
 
 ## Out of scope
 
