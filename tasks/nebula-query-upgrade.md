@@ -479,7 +479,7 @@ None are open.
 
 ## Phases
 
-Each phase is one commit or a few, in this order, on the one branch. Each ends with `npm run type-check`, the touched workspaces' tests, and the `/live` scenarios it names. A phase's docs wait for the docs phase unless it says otherwise, since D25 lands them corrected in one place.
+Each phase is one commit or a few, in this order, on the one branch. Each ends with `npm run type-check`, the touched workspaces' tests, and the `/live` scenarios it names. The docs the model reads never teach a shape the code refuses: Phase 1 and Phase 4 each change the docs for what they change in a query's shape, and Phase 7 lands the rest (D25).
 
 ### Before the first phase
 
@@ -503,6 +503,7 @@ Each phase is one commit or a few, in this order, on the one branch. Each ends w
 - **`#onChatCommitted`'s test of a commit's node stays.** It decides which commit starts a turn, and is no reader's filter.
 - **A host reader treats a denial as a fault, never as an empty result.** The round store throws on `deniedNodes`, and `#thread()` logs at `warn` naming the node, with its blanket `catch` narrowed to the Galaxy that has no name yet.
 - **The plane logs one debug line for each live query it evaluates for a commit,** with `instanceName`, `queryHash` and the moment, which the criteria below and Phase 2's count.
+- **The docs' queries gain `nodeId` here,** in `api-reference.md` and `coding-your-ui.md`, with the embed regenerated, so no turn between this phase and Phase 7 is taught a query the plane refuses. `platform/AGENTS.md` and the `define-the-cast` skill already name it.
 
 **Success criteria (capable of failing):**
 
@@ -576,6 +577,7 @@ Each phase is one commit or a few, in this order, on the one branch. Each ends w
 - **Studio's thread, landed build and marks read the result they hold** (DI20): the thread sorts by `meta.validFrom`, and the landed build is the `ServedBuild` with the latest write.
 - **An edge change sends nothing** (D19).
 - **The plane writes each touched query's moment first,** in the synchronous turn that follows the commit, before any patch is built or sent. Each query's patch is computed in its own `try`, and one that throws sends that query moments alone, so its subscribers read again. A deleted resource's row counts as a result that left.
+- **The docs lose `setRenderWindow` and `more` here,** and say the result arrives whole, with the embed regenerated.
 
 **Success criteria (capable of failing):**
 
