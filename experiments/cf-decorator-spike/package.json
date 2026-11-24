@@ -1,0 +1,21 @@
+{
+  "name": "experiment-cf-decorator-spike",
+  "private": true,
+  "type": "module",
+  "//": "Spike: do @mesh()/@rawRpc() survive cf's build (Vite + @cloudflare/vite-plugin + unplugin-swc), deployed? See RESULTS.md and tasks/nebula-pre-alpha-fast-follow.md § Item 12.",
+  "scripts": {
+    "build": "cf build",
+    "deploy": "cf deploy",
+    "drive": "node scripts/drive.mjs"
+  },
+  "dependencies": {
+    "@lumenize/mesh": "file:../../packages/mesh"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "2.0.0-rc.4",
+    "@swc/core": "^1.13.5",
+    "cf": "1.0.0-rc.4",
+    "unplugin-swc": "^1.5.10",
+    "vite": "^8.2.0"
+  }
+}

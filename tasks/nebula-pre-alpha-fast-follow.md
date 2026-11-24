@@ -265,7 +265,7 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 
 **Goal:** `apps/nebula` declares its Worker in a typed `cloudflare.config.ts`, and our scripts, the `/live` harness and the vitest-plugin lane all read it instead of `wrangler.jsonc`.
 
-**Trigger: a deadline, not demand.** The 18 months start when the beta ends. The first step is one spike, any time after pre-alpha: build `apps/nebula`'s Worker in `experiments/` with the Cloudflare Vite plugin and `unplugin-swc`, then call a `@mesh()`-decorated method on it. If the decorators survive, what is left is cost.
+**Trigger: a deadline, not demand.** The 18 months start when the beta ends, which looks close: `cf` reached 1.0.0-rc.0 on 2026-11-16. The decorator spike ran on 2026-11-23 and the decorators survive (`experiments/cf-decorator-spike/RESULTS.md`), so what is left is cost, and the move can start any time after pre-alpha.
 
 **What it buys:**
 
@@ -273,12 +273,19 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 - **The config type-checks.** Bindings come from typed helpers such as `bindings.durableObject(…)`, so an agent editing the file gets the language server's errors: ADR-001's bet, applied to config.
 - **Every operation in Cloudflare's API becomes a command**, about 3,000 against wrangler's 280, with JSON output by default and `cf cli search` to find one from a sentence.
 
-**What blocks it (checked 2026-10-08, `cf` 1.0.0-beta.13 and wrangler 4.147.0): our `@mesh()`-decorated methods under the Vite build.** `cf` builds with the Cloudflare Vite plugin, and Rolldown passes TC39 decorators through untransformed while still exiting 0; Oxc's transform is still an open issue, oxc-project/oxc#9170. Both UI surfaces already carry `unplugin-swc` for this, but nobody has measured it on the Worker's build. Until someone does, `cf` hands a Worker that needs esbuild back to wrangler for dev and deploy, which is the path the 18 months run out on.
+**Nothing blocks it (checked 2026-11-23, `cf` 1.0.0-rc.4 and `@cloudflare/vite-plugin` 2.0.0-rc.4).** The blocker was our `@mesh()`-decorated methods under the Vite build: Rolldown passes TC39 decorators through untransformed and still exits 0, and Oxc's transform is still open (oxc-project/oxc#9170). `unplugin-swc`, configured as both UI surfaces already have it, fixes it on the Worker too:
+
+- **Deployed:** a Worker built and deployed by `cf` answered a real `lmz.call` to a `@mesh()`-decorated method and to a `@mesh()`-decorated getter gate, and refused an undecorated method.
+- **Nebula's own entry:** `apps/nebula/src/worker.ts` builds under the same plugins and every chunk parses. It was not deployed, since that needs the full `cloudflare.config.ts` this item writes.
+- **The swc config keeps its default `exclude`.** An empty one sends swc into `node_modules`, where a dependency's `tsconfig.json` extends a package nobody installed, and Nebula's build fails.
 
 **What it costs:**
 
 - **The `/live` harness is built on `wrangler dev`.** `drive.ts` boots one per scenario, reads its output, and fingerprints the tree it reloads on save. A Vite dev server changes all of that, so the switch ends with a `drive.ts all` sweep and a deployed pass.
 - **A second package pins `miniflare` exactly.** On 2026-10-08 `cf` pinned `5.20261006.0-alpha` and `@cloudflare/vitest-plugin` pinned `5.20261001.0-alpha`. From then on the two are chosen together, or local dev and the vitest-plugin lane run different workerd builds (`packaging.md` § *Toolchain bumps*).
+- **Nebula's bundle is about a quarter larger gzipped**, 863 KiB under Vite against 683 KiB from wrangler. Bytes are not startup cost, so the first deploy reads its `Worker Startup Time` against wrangler's before going further.
+- **`cf` keeps its own login.** It does not read wrangler's session, and `.dev.vars` holds no deploy token, so the deploy scripts need one or the other.
+- **`cf` wants Node 24.22 or later**, against 24.19 on this machine, so a Node bump goes first, on its own axis (`packaging.md` § *Toolchain bumps*).
 - **`critical.md` is written against wrangler.** Its `Env`, compatibility-date and secrets rules name `wrangler types`, `wrangler.jsonc` or its `vars`, and each changes with the format.
 
 **Not blockers, though both were reported as blockers at launch:**

@@ -74,3 +74,5 @@ durable-objects/coverage
 __screenshots__
 vitest.config.*.timestamp-*.mjs
 .wrangler-deploy-test.jsonc
+experiments/cf-decorator-spike/.cloudflare/
+experiments/cf-decorator-spike/nebula/.cloudflare/
