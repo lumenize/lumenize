@@ -466,7 +466,7 @@ async function sweep(fast: boolean, concurrency: number, rerun: boolean, only?: 
     const ok = status === 0;
     const slept = !ok && out.includes(HOST_SLEPT_MARK);
     const detail = ok ? '' : `${slept ? '(the host slept under it) ' : ''}`
-      + (/^(?:AssertionError|\w*Error):.*$/m.exec(out)?.[0] ?? '(see the kept output)').slice(0, 120);
+      + (/^(?:\[harness\] fatal: )?(?:AssertionError|\w*Error)(?: \[\w+\])?:.*$/m.exec(out)?.[0] ?? '(see the kept output)').slice(0, 120);
     checkTree(name); // an edit DURING this scenario taints it too
     const tainted = taintedFrom !== undefined;
     // A scenario that ends after a stop was cut short by it, so its result is evidence of nothing.

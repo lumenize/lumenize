@@ -38,9 +38,16 @@ export function startPersonaMailRelay({ workerUrl, testToken, mailDomain = LOCAL
   let stopped = false;
   let ws;
   let retry;
+  // When the relay last had no socket, so a new one can ask the mailbox to replay that stretch.
+  let downSince;
+  // What has been handed on already: a replay sends again whatever arrived in the stretch it covers.
+  const relayed = new Set();
   const relay = async (mail) => {
     // A delivery event has no `raw`, and neither has mail a mailbox from before it kept one.
     if (typeof mail?.raw !== 'string') return;
+    const key = `${mail.messageId ?? ''}|${mail.receivedAt ?? ''}`;
+    if (relayed.has(key)) return;
+    relayed.add(key);
     for (const { address } of mail.to ?? []) {
       const to = String(address ?? '').toLowerCase();
       // Only what is shaped as a persona's address, which keeps every other test's login mail out
@@ -59,15 +66,21 @@ export function startPersonaMailRelay({ workerUrl, testToken, mailDomain = LOCAL
   };
   const connect = () => {
     if (stopped) return;
-    ws = new WebSocket(`${EMAIL_TEST_WS_URL}/ws?token=${testToken}`);
+    // The second of slack covers mail the mailbox stored just before this side saw the close.
+    const replay = downSince === undefined ? '' : `&replayMs=${Date.now() - downSince + 1000}`;
+    ws = new WebSocket(`${EMAIL_TEST_WS_URL}/ws?token=${testToken}${replay}`);
+    ws.addEventListener('open', () => { downSince = undefined; });
     ws.addEventListener('message', (event) => {
       let mail;
       try { mail = JSON.parse(String(event.data)); } catch { return; }
       void relay(mail);
     });
-    // A deploy of the mailbox, or an idle timeout, closes the socket. Mail that arrives while it is
-    // closed is not replayed, so an invite sent in that second is not accepted until it is re-sent.
-    ws.addEventListener('close', () => { if (!stopped) retry = setTimeout(connect, 1000); });
+    // A deploy of the mailbox, or an idle timeout, closes the socket. The next one asks the mailbox
+    // to replay what arrived since, so an invite sent in that stretch is still handed on.
+    ws.addEventListener('close', () => {
+      downSince ??= Date.now();
+      if (!stopped) retry = setTimeout(connect, 1000);
+    });
     ws.addEventListener('error', () => { /* `close` follows */ });
   };
   connect();
