@@ -144,7 +144,7 @@ Built already:
 
 ### How a result reaches a tab and stays current
 
-**One tab's life, from its subscribe to a grant removed.** The items after it fill in each step.
+**One tab's life, from its subscribe to a grant removed.** A first read needs no catch-up, and a lost message does. The items after it fill in each step.
 
 ```mermaid
 sequenceDiagram
@@ -153,21 +153,21 @@ sequenceDiagram
   Note over T,P: First read, in pages as of M0 (DI17)
   T->>P: subscribe { query }
   P-->>T: { moment M0, snapshots, cursor c1 }
+  Note over T,P: A commit at M3 lands while the tab reads, and the tab holds its message
+  P-->>T: message { moment M3, pushes { previousMoment M0, patch } }
   T->>P: { query, cursor c1 }
   P-->>T: { moment M0, snapshots } with no cursor, the last page
-  Note over T,P: Catch-up from M0, in pages that each end at a moment (DI16)
-  T->>P: catch up [{ query, moment M0 }]
-  P-->>T: { moment M3, patches, hasMore }
-  T->>P: catch up [{ query, moment M3 }]
-  P-->>T: { moment M5, patches }
-  Note over T,P: ready resolves, and the tab holds the result as of M5
+  Note over T,P: ready resolves once the tab applies the message it held, and it holds the result as of M3
   Note over T,P: A commit at M6 touches the query (DI14, DI15)
-  P-->>T: message { moment M6, pushes { previousMoment M5, patch } }
-  Note over T,P: The tab holds M5, so it is in step and applies the patch (DI19)
+  P-->>T: message { moment M6, pushes { previousMoment M3, patch } }
+  Note over T,P: The tab holds M3, so it is in step and applies the patch (DI19)
   Note over T,P: The message for a commit at M7 is lost, and a commit at M8 follows
   P-->>T: message { moment M8, pushes { previousMoment M7, patch } }
   Note over T,P: M7 is after the M6 the tab holds, so it missed a push and applies nothing
+  Note over T,P: Catch-up from M6, in pages that each end at a moment (DI16)
   T->>P: catch up [{ query, moment M6 }]
+  P-->>T: { moment M7, patches, hasMore }
+  T->>P: catch up [{ query, moment M7 }]
   P-->>T: { moment M8, patches }
   Note over T,P: A grant is removed, and the subscriber no longer reads the node (DI8)
   P-->>T: message { pushes { deniedNodes [nodeId] } }
@@ -254,8 +254,8 @@ catch-up     →  [{ query, moment: M0 }]     ←  { moment: M5, patches: {}, de
      WHERE resourceId = ? AND validFrom <= ? AND validTo > ?;   -- both bound to M0
     ```
   - **So M0 bounds the lookup by key, and never the scan.** A scan bounded by M0, `validFrom <= M0 AND validTo > M0`, is a query as of a past moment, which needs an index over every version (DI23). C24 has what that index costs.
-  - **A one-time read answers each result as it stood at M0, and may miss one that left while it ran** (D29). A resource deleted after M0, or changed so it no longer matches, has no current row the scan can find, though it matched when the read began. A subscription's catch-up from M0 makes up for it, and a one-time read has none. A read that fits one page cannot meet the case.
-  - **`ready` resolves when the whole result has arrived.** A push that arrives during the read waits until the read and its catch-up end, and is then applied or skipped by DI15's rule, as the proposal's R16 has it.
+  - **A one-time read answers each result as it stood at M0, and may miss one that left while it ran** (D29). A resource deleted after M0, or changed so it no longer matches, has no current row the scan can find, though it matched when the read began. For a subscription the held messages make up for it: a result that left arrives as a `null` for an id the tab never held, and one created since arrives whole. A one-time read holds no messages. A read that fits one page cannot meet the case.
+  - **`ready` resolves after the last page, once the tab has applied the messages it held during the read** (D32). No catch-up follows a first read. The subscribe writes the row and reads the first page in one synchronous turn (`doSubscribeQuery`), so the row records M0 and every commit after M0 is pushed to the tab. It holds those pushes, which chain from M0, and each page hands back results as they stood at M0, so every patch finds the version it was cut from. A catch-up runs only if DI15's rule then finds a push missing or one that carried moments alone, as at any other time.
   - **A query still on its first read is built apart from the store.** Its pages are as of the moment the read began, and other lists on the page keep moving the store past that moment. No page shows the list before `ready`, so nothing disagrees with it. At `ready` its snapshots join the store in one step, and an entry already at a later `validFrom` stays.
   - **The plane computes a page when it is asked for it, and stores none.** The client asks for the first page, each answer carries the cursor for the next, and the client asks again until an answer carries none. The moment the client holds does not move during the read, since every page names the moment the read began, and the cursor is what advances.
   - **Every subscriber's first read is its own.** A hundred tabs opening one long list each read it. That costs rows read, billed at a thousandth of a write, and the Durable Object's time to read and encode them. A cache of a query's pages, shared by everyone who reads it, is in § *Beyond this task*, and nothing here stands in its way: the server makes the cursor and names the moment, so it may answer from pages it kept.
@@ -421,7 +421,7 @@ Claims the design rests on:
 - **A query could name several types** (Larry, 2026-11-20). `typeName` is one required field today: `compileWhere` resolves the filter against that type's fields, each `@index` covers one type's rows, and results land in `store.resources.<typeName>`. A page can already hold one query per type and merge them, since each delivers whole values. One query across types needs a filter that means something for each, and a catch-up across them would read one statement per type, which the experiment behind D14 found cheaper than one statement across them.
 - **A query could name the fields it holds**, a task of its own after this one (Larry, 2026-11-20), if holding whole values makes a list too heavy.
 - **A first read's pages could be cached and shared** (Larry, 2026-11-23). Everyone who reads a query reads the same result (D6), so pages cut for one subscriber serve the next.
-  - **A cached page does not go stale, it gets older.** Pages cut as of a moment stay a correct first read for anyone, who then catches up from that moment as every first read does (DI17). The cache is cut again when that catch-up has grown long, and dropped when a catch-up from its moment would no longer be right, as after a new ontology version.
+  - **A cached page does not go stale, it gets older.** Pages cut as of a moment stay a correct first read for anyone, who then catches up from that moment, since their own row is newer than the pages (DI16). The cache is cut again when that catch-up has grown long, and dropped when a catch-up from its moment would no longer be right, as after a new ontology version.
   - **It lives in storage, a row for each page.** Held in memory it would break D7's bound, and a 10 MB list is about five writes. A row's value stops at 2 MB, so a cached page is cut under that. Rows a restart finds for no live query are deleted in `onStart`, and nothing needs an exact lifetime.
   - **Whether it is worth building waits on a measurement** of what a first read of a long list costs the Durable Object. The case to measure is a new ontology version, when every open tab reads its whole result again at once.
 - **A query could read as of a past moment, for time series** (Larry, 2026-11-23). A monthly chart of six months runs its query at each month's end, seven queries with the month in progress, and merges them. Goal 7 keeps this from getting harder, and none of it is built here.
@@ -473,6 +473,7 @@ Claims the design rests on:
 | **D29. A one-time read answers each result as it stood when the read began, and may miss one that left while it ran** (Larry, 2026-11-24). Only a read too long for one page can meet it, what it misses is gone or no longer matches by the time the caller could act, and a caller who needs an exact picture subscribes | A catch-up after every one-time read, which makes it exact as of its end for one more request on every long read. A scan as of the start moment through an index over every version, weighed again after C24's measurement and declined (Larry, 2026-11-24): it costs every update one more row written per index, for the same CPU on a first read. Time series is where it is weighed next, perhaps for the indexes an app charts by |
 | **D30. A tab holding no moment is behind, a refused whole read ends the wait as a denial, and no catch-up spans an ontology version** (Larry, 2026-11-24). The first two close gaps the entry kinds left for a tab that was denied. The third needs no rule of its own: every call names its ontology version and an old page is answered stale, as today | A catch-up told to read again when it finds no subscription row, which is the usual state of a tab told to subscribe again (D28), so every reconnect would read whole. A separate entry for a query that no longer compiles, a case an install already rules out by clearing every row |
 | **D31. A tab waits a random delay of up to about 2 s before a catch-up or a read again that every tab was set off into, and the Client's reconnect backoff gains jitter** (Larry, 2026-11-24). A restart, a stripped message and an install each reach every tab at once, and a Durable Object answers one request at a time | No delay, where a busy Star's tabs queue behind one another in step, and each retry lands in step too |
+| **D32. A subscription's first read is followed by no catch-up: the tab applies the messages it held while it read** (Larry, 2026-11-24). The row is written when the read begins, so every commit since is pushed, and those pushes chain from the read's moment. It saves a request on every subscribe, and it is what Phase 4 has to get right before any catch-up exists | A catch-up after every first read, as the proposal has it, where events may not be flowing while a client reads. A catch-up only after a read of more than one page, which still spends a request the held messages make unnecessary |
 
 ## Open questions
 
@@ -567,7 +568,7 @@ Each phase is one commit or a few, in this order, on the one branch. Each ends w
 
 **Goal:** a live query's subscriber holds every result's value, a commit reaches a tab as one message it applies as one step, and a row draws from what the tab holds (DI14, DI15, DI19, DI8's grant handling, D1, D4, D15, D20, D21, D26). Until Phase 5, a tab that is out of step or coming back reads its result again from the start.
 
-- **A subscribe starts a first read** in Phase 3's pages, built apart from the store, joined to it at `ready`, with an entry already at a later `validFrom` kept.
+- **A subscribe starts a first read** in Phase 3's pages, built apart from the store. The tab holds each message that arrives meanwhile, applies them after the last page, and then joins the result to the store at `ready`, keeping an entry already at a later `validFrom`. No catch-up follows (D32).
 - **`#touches` returns the change:** the new snapshot for a result that entered, the `diff` of its old row and its new one for one that changed, and `null` for one that left. The plane holds no previous result.
 - **The plane sends each tab one message for a commit, through `lmz.broadcast` to one new client method, with one result handler on `resourcesResults`,** which has no `@mesh()`. On `ClientDisconnectedError` it removes every row of that address no newer than the send, and the tree's and the roster's handlers do the same. `onQueryBroadcastResult` and `onBroadcastResult` are deleted. The client answers the call before it applies the message. The message holds an entry for each of the tab's live queries the commit touched and the whole snapshot of each resource it subscribes to alone. Tabs that hold and read the same touched queries are sent the same `pushes`, grouped before the message is built, and a query a tab was told it cannot read contributes no entry of any kind to that tab's message. An entry is one of the kinds DI15 lists, and a message past 256 KiB keeps its `resources` and sends each query moments alone.
 - **Each push names its moment and `previousMoment`.** A `Subscriptions` migration with the next id adds the host's latest moment to a query's row, beside `subscribedAt`, and whether its subscriber was last told it cannot read. The plane stores each live query's last push moment in a `WITHOUT ROWID` table keyed by `queryHash`, one write per push, and deletes the row with the query's last subscriber row. The `Subscriptions` columns are a `TEXT` moment and an `INTEGER` flag with an inline `CHECK`, camelCase. Each new table or key joins `PLANE_TABLES` or `PLANE_KEYS`, so a `.dev` wipe drops it.
@@ -634,8 +635,9 @@ Each phase is one commit or a few, in this order, on the one branch. Each ends w
 - Phase 3's non-JSON resource is caught up and deep-equals the host's snapshot.
 - In `/live`, `resubscribe-when-lost` gains a limb: a tab frozen past the call timeout comes back, is told to subscribe again, and ends matching another tab through a catch-up from its moments, with no first read in the stack's logs.
 - In the lane, a tab back inside the grace period sends no subscribe and no catch-up, and holds a push sent while it was away.
+- In the lane, a subscribe whose first read spans pages, with writes landing between them, sends no catch-up request, counted from the debug sink, and ends equal to a fresh one-time read.
 
-**Mutation notes:** answer every catch-up with `readWhole` and the scenario's log shows a first read. Split a moment across pages and the tab stopped mid-way holds a result that never existed. Skip the `read` check and the revoked tab is patched. Omit the oldest-moment test and the tab from before a wipe keeps entries the host no longer has. Apply every patch whatever `previousValidFrom` says and the removed key stays in the tab's entry. Scan before checking `read` and the all-denied request reads rows. Treat a tab with no moment as in step and the dropped `read` leaves its list empty. Drop the delay and the stubbed tab's catch-up is sent at once.
+**Mutation notes:** answer every catch-up with `readWhole` and the scenario's log shows a first read. Split a moment across pages and the tab stopped mid-way holds a result that never existed. Skip the `read` check and the revoked tab is patched. Omit the oldest-moment test and the tab from before a wipe keeps entries the host no longer has. Apply every patch whatever `previousValidFrom` says and the removed key stays in the tab's entry. Scan before checking `read` and the all-denied request reads rows. Treat a tab with no moment as in step and the dropped `read` leaves its list empty. Drop the delay and the stubbed tab's catch-up is sent at once. Send a catch-up after every first read and the count is one.
 
 ### Phase 6: a roster is read from its handle
 
