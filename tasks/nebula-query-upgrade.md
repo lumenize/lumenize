@@ -34,10 +34,10 @@ const thread = client.resources.subscribeQuery({
   filter: { chat: DEFAULT_CHAT_ID },
 });
 await thread.ready;                 // the whole result is held; the client asked for it a page at a time (DI17)
-for (const id of thread.resourceIds) {
-  const { value, meta } = store.resources.Message[id];   // held already: this read subscribes to nothing
-  showPost(value.content, meta.validFrom);                // do something with each
-}
+const posts = thread.resourceIds
+  .map((id) => store.resources.Message[id])               // held already: this read subscribes to nothing
+  .sort((a, b) => a.meta.validFrom.localeCompare(b.meta.validFrom));   // NEW: the page sorts its copy (D2)
+for (const { value, meta } of posts) showPost(value.content, meta.validFrom);
 // GONE: thread.setRenderWindow(), thread.more, and a subscription for each row
 ```
 
@@ -239,8 +239,8 @@ Built already:
   - **The requests and answers, for a first read of two pages and a catch-up of two:**
 
     ```
-    first read   →  { query }                   ←  { moment: M0, results: {…}, cursor: 'c1' }
-                 →  { query, cursor: 'c1' }     ←  { moment: M0, results: {…} }       // no cursor: the last page
+    first read   →  { query }                   ←  { moment: M0, snapshots: {…}, cursor: 'c1' }
+                 →  { query, cursor: 'c1' }     ←  { moment: M0, snapshots: {…} }     // no cursor: the last page
     catch-up     →  [{ query, moment: M0 }]     ←  { moment: M3, patches: {…}, hasMore: true }   // stopped at about 2 MB
                  →  [{ query, moment: M3 }]     ←  { moment: M5, patches: {…} }                  // the last page
     catch-up     →  [{ query, moment: M0 }]     ←  { moment: M5, patches: {}, readWhole: ['<hash>'] }   // a first read follows
@@ -249,6 +249,7 @@ Built already:
 - **DI18. What one subscription holds has no ceiling, and the host never holds more than about a page of it (D7).** A first read and a catch-up page at about 2 MB (DI16, DI17), and a message stops at 256 KiB (DI14). What a long list costs is the person's wait for `ready`: by arithmetic, 10 MB takes about 4 s at 20 Mbit/s. So a first read past about 10 MB logs at `warn`, naming the type, the node and the size, which gives a slow load a stated cause. Host code that reads a whole result into the Durable Object's memory breaks the bound. The Galaxy's `#thread()` is the one that does, a named exception until the chat is compacted (D10).
 - **DI19. A row of a result draws from the result.** `store.resources.<typeName>[id].value` reads the snapshot any live query on the page holds, so app code that reads the store does not change, and a list of any length opens one subscription. `setRenderWindow`, its grace period and `renderGraceMs` go. A resource shown alone, such as a detail page, still subscribes to itself, and the store decides when (D21).
   - **The store holds each resource once, at `store.resources.<typeName>[id]`, as `{ value, meta }`.** That is today's entry, the one a resource subscription fills and an edit writes through. A query's first read and its patches fill the same entries, and the handle keeps the ids of its result.
+  - **The handle holds `ready`, `resourceIds`, `deniedNodes` and `onChange`, as today, without `more` and `setRenderWindow`.** `resourceIds` carries no order, where today it is each result's latest write, oldest first. A page sorts its copy (D2), and a sort on `meta.validFrom` gives today's order, in which an edited post moves.
   - **A tab's lists and entries move together** (D15). Two lists on a page can hold one resource, and each could otherwise be at a moment of its own: a list of won deals still showing a deal whose entry already says `open`. So:
     - **The tab applies a message, or a page of a catch-up, as one step.** Every list it touches and every entry change at once.
     - **While a list the page shows is catching up, the tab applies nothing.** It holds what arrives and applies it with the catch-up. The tab is then behind the host and still one picture of it. A list answered whole (DI16) holds the tab for as long as that read takes, about 4 s for 10 MB.
