@@ -551,8 +551,10 @@ Each phase is one commit or a few, in this order, on the one branch. Each ends w
 - The 1,001 `Message`s are written through real transactions, in `waiting-posts.test.ts`'s lane, which says why it needs no running system: the count is the subject.
 - A resource holding a `Date`, a `Map`, a `BigInt` and two fields naming one object crosses a page boundary and deep-equals the host's snapshot, the alias kept.
 - With the threshold constant lowered, the host's `warn` carries the type, the node and the size.
+- In the lane, between two pages of one read: a resource created is absent from the answer, one deleted before its page is absent, and one changed so it matches now but did not at the start is absent.
+- In the lane, a read through a range filter pages across a write made mid-read and answers every result once.
 
-**Mutation notes:** restore `LIMIT 1001` and the newest post is not taken up. Read current rows on each page with no moment and the resource written between pages arrives in its later version. Drop the node from the cursor and a result repeats or is missed across nodes. Drop `#thread()`'s sort and the history arrives in id order. Trust the cursor's node and the read answers from outside the subtree.
+**Mutation notes:** restore `LIMIT 1001` and the newest post is not taken up. Read current rows on each page with no moment and the resource written between pages arrives in its later version. Drop the node from the cursor and a result repeats or is missed across nodes. Drop `#thread()`'s sort and the history arrives in id order. Trust the cursor's node and the read answers from outside the subtree. Carry a row written since the start without the lookup by key and the resource that came to match is answered. Page a range filter by resource id alone and a result repeats or is missed.
 
 ### Phase 4: a subscriber holds the whole result, kept current by patches
 
