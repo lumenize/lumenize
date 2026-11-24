@@ -142,25 +142,39 @@ Built already:
   - **The client stops re-asking for a denied query.** Its `#askAgain` exists only because a tree change reran nothing, and each ask costs the host a billed write (C10). Resource subscriptions keep it.
 - **DI9. A query's hash covers its type, its node and its filter (C2).** Two pages that ask the same question share one live query.
   - **A write is tested only against the live queries at its node or above it** (D23). No other query can hold the resource (DI1), and the plane finds a node's ancestors in memory (C8). Today a write is tested against every live query of its type.
-  - **The cap counts a type's distinct live queries at one node, 200 as today.** A Star with a node for each of 5,000 people then has no ceiling on how many view a type at once, where one cap per type would stop the 201st. A write is tested against the queries at each ancestor of its node, along every path of the DAG, at most the cap at each. A list shared with many people has a parent for each of them (D24), so its writes are tested against a query for each person viewing it, which is accepted: each is a subscriber the write has to reach.
+  - **The cap counts a type's distinct live queries at one node, 200 as today.** A Star with a node for each of 5,000 people then has no ceiling on how many view a type at once, where one cap per type would stop the 201st. A write is tested against the queries at each ancestor of its node, along every path of the DAG, at most the cap at each. A list co-owned by many people has a parent for each of them (D24), so its writes are tested against a query for each person viewing it, which is accepted: each is a subscriber the write has to reach.
   - **A query counts toward the cap while it is live, whether or not its subscribers read its node.** A member denied a node could so fill that node's cap, which Stage 2's security lens weighs.
   - **Past the cap the error says to filter one of the node's queries further in the page.** Today's other advice, to reuse a query another page holds, cannot be followed at a node only one person queries.
 - **DI11. The docs say where to query, and that the result arrives whole.** `resources.md`, `api-reference.md` § *`client.resources.subscribeQuery`* and § *`client.resources.query`*, and `coding-your-ui.md` § *Data several people share: query it* show `nodeId`, drop `setRenderWindow` and `more`, and tell the page to sort, count and total its own copy. `access-control.md` § *Drawing the tree: a node for each audience* gains the rule that a list is queried at the node its resources are created under, and that a page knows its node (D24). The platform's `AGENTS.md` says every query names its node, and the `define-the-cast` skill checks a persona from their tab with one query at that persona's node. All of it is drafted in § *Doc drafts*. Each block is `@skip-check` until a phase makes it real and then `@check-example`, and the embed is regenerated when the docs land (`studio-guidance.md`).
-  - **A page knows its node, and never searches the tree for every node its viewer reads** (D24). It is a constant in the app's source, a node the person picked from the tree on screen, a record's `meta.nodeId`, or the node made for its viewer (D9, Q14).
-  - **The todo example is redrawn from its audiences.** Today each list hangs under its owner, and a read-only share is a grant on the list, which the sharee's page can find only by searching the tree for its own grants. Redrawn, each person has a node they read, over the lists they own and the lists shared with them:
+  - **A page knows its node, and never rebuilds one list by querying every node its viewer reads** (D24). The node is a constant in the app's source, a node the person picked on screen, a record's `meta.nodeId`, or the node made for its viewer (D9, Q14).
+  - **The todo example's tree stands: a node for each person, and a node for each list beneath its creator's.** Alice holds `admin` at `user-alice`, which reaches `list-shopping` beneath it. The docs gain how sharing looks from the other side, now that a query answers only under the node it names:
+    - **A share is a grant on the list's node, at the tier its owner chose.** `read` or `write` leaves the list in Alice's part of the tree.
+    - **A grant at `admin` makes a co-owner,** who can add people as Alice can.
+    - **Bob's page finds what is shared with him as the nodes granted to him,** read from the tree it already holds. It queries a list at that list's node when he opens it.
+    - **Bob's page offers to add a co-owned list to his own.** Accepting adds a second parent, from `user-bob` to the list, which Bob may do: `addEdge` needs `write` at the parent and `admin` at the child. His one query at `user-bob` then holds it among his own lists. A list granted at `read` or `write` gets no offer, since Bob's `admin` at his own node would reach it.
+    - **Nothing is stored for the offer.** It is waiting while the grant is `admin` and the edge is absent, and declining is leaving it so.
+  - **The docs' example shows the page's side of it,** sketched here and checked when the docs phase writes it:
 
-    ```
-    root
-    ├── alice            alice: read
-    │   ├── own          alice: admin     ← list-shopping, list-work
-    │   └── shared                        ← lists others share with Alice
-    └── bob              bob: read
-        ├── own          bob: admin       ← list-personal
-        └── shared                        ← list-shopping, by a second parent
-    ```
+    ```ts
+    const tree = store.lmz.orgTree.value;              // the whole tree, kept current (ADR-008)
+    const me = client.claims.sub;
+    const isAmongMine = (nodeId) => tree.edges.has(`${myNodeId}:${nodeId}`);   // myNodeId: Q14
 
-    Bob's page makes one query at `bob` and gets his own lists and the ones shared with him. His `read` at `bob` reaches `list-shopping` through `bob/shared`, so the share is read-only with no grant on the list. Who adds that edge is Q13.
-  - **A share made by an edge reaches an open list at its next first read,** until the temporal org tree lands (D19).
+    // Every node someone granted Bob, with the tier they chose
+    const granted = [...tree.permissions]
+      .filter(([nodeId, grants]) => grants.has(me) && nodeId !== myNodeId)
+      .map(([nodeId, grants]) => ({ nodeId, tier: grants.get(me), label: tree.nodes.get(nodeId).label }));
+
+    const sharedWithMe = granted.filter((g) => !isAmongMine(g.nodeId));   // the "Shared with me" list
+    const offers = sharedWithMe.filter((g) => g.tier === 'admin');        // co-ownerships not yet added
+
+    // "Alice made you a co-owner of Shopping. Add it to your lists?"   [Add]  [Not now]
+    const accept = (offer) => client.orgTree.addEdge(myNodeId, offer.nodeId);
+
+    // Bob opens a shared list: one query, at that list's node
+    const todos = client.resources.subscribeQuery({ typeName: 'Todo', nodeId: list.nodeId, filter: {} });
+    ```
+  - **Until the temporal org tree lands, the docs say to keep the `admin` grant after accepting.** The new edge reaches Bob's open query at `user-bob` only at its next first read (D19), and the grant keeps the list in "Shared with me" until then. Today's docs offer removing the grant as cleanup.
 - **DI12. The old shape is refused, by a message naming the missing `nodeId`.** Nothing accepts both shapes. A generated app's build catches it before its page runs (C9).
 - **DI13. A roster is read from its handle, and the store path goes** (D18). A query's roster is who is subscribed to it right now. `client.subscribeQuerySubscribers(query)` takes the whole descriptor, node included, and its handle holds the roster as `subscribers`:
 
@@ -380,16 +394,15 @@ Claims the design rests on:
 | **D21. A resource subscription exists exactly while something on screen reads the entry and no live query holds it** (Larry, 2026-11-24). A query's hold keeps an entry in the store as a reader does, and keeps it current as a subscription does, so the store's count of readers asks for one before it opens the other | Removing the entry when its last query drops it, which blanks a pane for a round trip before its read subscribes again. A rule in the docs not to subscribe to what a query holds, which no page author can follow, since reading the entry is what subscribes |
 | **D22. The task is `data`-gated and relies on a wipe; nothing upgrades a host that already holds data** (Larry, 2026-11-24). No customer data exists to preserve, production's next deploy is a wipe, and a local stack or `test-nebula` object that predates the change has its storage reset | Each stored thing installing itself on a host with data: the old index dropped, the oldest moment written whenever it is absent. It preserves only test data. Real migrations under a `deploy` gate, which build in-place upgrade for a production that is wiped anyway |
 | **D23. The cap on distinct live queries counts per type per node, and a write is tested only against queries at or above its node** (Larry, 2026-11-24). The cap exists so a write's cost does not grow with its audience, and with a node on every query that cost follows the written node's ancestors | One cap per type, as today, which D6 and D9 turn into a ceiling of about 200 people viewing a type at once in a Star with a node for each. No cap, where one node can collect thousands of distinct filters, each tested on every write beneath it |
-| **D24. A page knows its node, and the todo example is redrawn so its sharee's one query finds what was shared** (Larry, 2026-11-24: the example had the fault the Galaxy's paired grants had, a grant reaching across the tree where a node over the audience would do). Each person reads a node over the lists they own and the lists shared with them, and a share is a second parent there | A client accessor answering the top-most nodes a viewer reads, which a page would loop over, one query each. It served a read-only share made by a grant on a list in its owner's subtree, and the skill's check of a persona, and the redrawn tree needs neither. A loop written in each app, which misses a grant to `anyone`, needs a branch for dominion, and answers a result twice when grants nest |
+| **D24. A page knows its node, and the todo example keeps its tree: a share is a grant on the list's node, and a co-owner's page offers to add the list to their own** (Larry, 2026-11-24). A grant needs only the `admin` its owner has, it is told at once (D20), and the offer is read from the tree with nothing stored. The second parent is the co-owner's to add, which is their consent to having the list among theirs | Dropping `addEdge`'s need for `write` at the parent, so an owner could place a list under a co-owner's node alone. Anyone could then hang their own nodes under any node, and their `Round`s under `rounds` would reach a turn as its own (DI4). A node of lists shared with each person, with a share as a second parent there, which needs that same change and leans on edge changes D19 leaves stale. A client accessor answering every node a viewer reads, for a page to loop over, one query each |
 
 ## Open questions
 
-- **Q13. Who adds the edge that shares a list read-only** (raised 2026-11-24, from D24). `addEdge` needs `write` at the parent and `admin` at the child. Alice holds `admin` on her list and no `write` at `bob/shared`, and Bob holds neither on Alice's list, so neither can place it there alone. Approach 2 in `access-control.md` has Alice first grant Bob `admin` on the list, which a read-only share must not do. It is a question about `addEdge`'s rule or an offer Bob accepts, and it does not change the query design.
 - **Q14. How a page knows the id of the node made for its viewer** (raised 2026-11-24, from D24). D9 says such a node is found by its grant, a search of the tree for one node. A better answer may exist, and the docs teach whichever is chosen.
 
 ## Doc drafts
 
-The docs the model reads were drafted before the design was built, and they are held here so the docs in the tree teach only what is built. Each block below is a diff against the file as it stood at commit `82ce20b`. The docs phase applies them: save a block to a file and run `git apply --3way` on it, which merges it over whatever has changed in that doc since. They carry D6, D7, D8 and D11 (DI11), and not yet how D12 creates an app's nodes. They still teach the roster's store path, which D18 removes, and the todo example's grant across subtrees and the skill's loop over a persona's grants, which D24 replaces. Where a draft and the sections above disagree, the sections above are right, and the draft is corrected when its docs phase applies it (Larry, 2026-11-23).
+The docs the model reads were drafted before the design was built, and they are held here so the docs in the tree teach only what is built. Each block below is a diff against the file as it stood at commit `82ce20b`. The docs phase applies them: save a block to a file and run `git apply --3way` on it, which merges it over whatever has changed in that doc since. They carry D6, D7, D8 and D11 (DI11), and not yet how D12 creates an app's nodes. They still teach the roster's store path, which D18 removes, and the skill's loop over a persona's grants, which D24 replaces. Where a draft and the sections above disagree, the sections above are right, and the draft is corrected when its docs phase applies it (Larry, 2026-11-23).
 
 ### `website/docs/nebula/resources.md`
 
