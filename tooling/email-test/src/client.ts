@@ -21,7 +21,7 @@
  * `tasks/email-latency-cf-vs-resend.md`), which is why it can be the default
  * tier rather than a reserved-for-headline-flows luxury.
  */
-import type { StoredEmail, DeliveryEvent, DeliveryEventMessage } from './types';
+import type { StoredEmail, DeliveryEvent, DeliveryEventMessage, ReplayedMessage } from './types';
 
 const EMAIL_TEST_HTTP_URL = 'https://email-test.transformation.workers.dev';
 const EMAIL_TEST_WS_URL = 'wss://email-test.transformation.workers.dev';
@@ -48,7 +48,7 @@ export interface WaitForEmailOptions {
    * default**, and the reason has changed: not because mail might be untagged, but because two
    * listeners on the SAME instance race for the next-arriving mail. Supplying `to` also skips the
    * startup `clear` this helper otherwise issues — which NO waiter needs for its own sake, because
-   * the socket only ever carries mail that arrives after it opens (see `emailPromise` below). So a
+   * the socket only ever carries mail that arrived after this waiter began (see `emailPromise` below). So a
    * recipient filter requires no cooperation from the sender and cannot collide.
    */
   instance?: string;
@@ -77,9 +77,8 @@ export interface WaitForEmailOptions {
 
 /**
  * Wall-clock marks (ms since epoch) filled in as the receive side progresses.
- * `wsOpenAt` is a floor on any latency measured across the whole loop: the DO
- * pushes only to *connected* sockets and never replays stored mail, so an email
- * beating the socket open would never be observed at all.
+ * `wsOpenAt` is when the first socket opened. Mail that beats it is seen only if a later socket
+ * asks for a replay, so on a wait that never dropped it is a floor on any latency measured.
  */
 export interface EmailWaitMarks {
   wsOpenAt?: number;
@@ -99,11 +98,49 @@ export function uniqueTestEmail(prefix = 'test'): string {
 }
 
 /**
+ * How a waiter reaches the email-test Worker. The default goes over the network to the deployed
+ * one; the package's own tests pass one that reaches the Worker under test.
+ */
+export interface EmailTestTransport {
+  /** An OPEN socket on `/ws` with `query` appended, or a rejection when it does not open. */
+  open(query: string): Promise<WebSocket>;
+  /** Empties the stored list `/emails` reads. */
+  clear(query: string): Promise<void>;
+}
+
+const networkTransport: EmailTestTransport = {
+  open: (query) => new Promise<WebSocket>((resolve, reject) => {
+    const ws = new WebSocket(`${EMAIL_TEST_WS_URL}/ws${query}`);
+    const giveUp = setTimeout(() => {
+      try { ws.close(); } catch { /* ignore */ }
+      reject(new Error('WebSocket connection timeout'));
+    }, 5000);
+    ws.addEventListener('open', () => { clearTimeout(giveUp); resolve(ws); });
+    ws.addEventListener('error', () => {
+      clearTimeout(giveUp);
+      reject(new Error('WebSocket connection to email-test Worker failed'));
+    });
+  }),
+  clear: async (query) => { await fetch(`${EMAIL_TEST_HTTP_URL}/clear${query}`, { method: 'POST' }); },
+};
+
+/** The wait before each reconnect, by how many have failed in a row. */
+const RECONNECT_DELAYS_MS = [100, 250, 500, 1000, 2000];
+
+/** How long a reconnected socket waits for the Worker's replay before saying it cannot replay. */
+const REPLAY_ANSWER_MS = 5000;
+
+/**
  * Connect to the deployed EmailTestDO over WebSocket, clear existing mail, and
  * wait for the next email to arrive.
  *
  * Call this BEFORE triggering the send — the DO pushes only to already-connected
  * sockets, so a listener attached afterwards misses the email entirely.
+ *
+ * **A socket that fails to open or drops is opened again, until the wait's `timeout`.** Every
+ * socket after the first asks the Worker to replay what arrived since this call began (`replayMs`,
+ * an elapsed time, so the two clocks need not agree), which covers mail that landed while no socket
+ * was open. The first socket asks for nothing, so a wait that never drops behaves as it always has.
  *
  * ⚠️ **You MUST call `cleanup()`, and a `finally` is the only safe place** — an assertion between
  * here and there will otherwise skip it. The reason is not tidiness: the open WebSocket keeps Node's
@@ -113,8 +150,8 @@ export function uniqueTestEmail(prefix = 'test'): string {
  * rather than "my caller leaked a socket". Bit 2026-08-04, and it is exactly the impression
  * `live.md` exists to correct.
  */
-export function waitForEmail(options: WaitForEmailOptions): {
-  /** Resolves with the next matching email; rejects on timeout or socket close. */
+export function waitForEmail(options: WaitForEmailOptions, transport: EmailTestTransport = networkTransport): {
+  /** Resolves with the next matching email; rejects on timeout, a terminal Resend event, or `cleanup()`. */
   emailPromise: Promise<StoredEmail>;
   /** Close the WebSocket — REQUIRED, in a `finally`. Safe to call more than once. See the note above:
    *  a leaked waiter hangs the process after its verdict prints. */
@@ -126,96 +163,139 @@ export function waitForEmail(options: WaitForEmailOptions): {
 } {
   const { testToken, instance, to, timeout = 60_000 } = options;
   const instanceParam = instance !== undefined ? `&instance=${encodeURIComponent(instance)}` : '';
+  const query = `?token=${testToken}${instanceParam}`;
   const matchesRecipient = (email: StoredEmail) =>
     to === undefined || email.to?.some((addr) => addr.address?.toLowerCase() === to.toLowerCase()) === true;
 
   const marks: EmailWaitMarks = {};
   const deliveryEvents: DeliveryEvent[] = [];
-  let ws: WebSocket;
-  let cleanedUp = false;
-
-  const cleanup = () => {
-    if (!cleanedUp) {
-      cleanedUp = true;
-      try { ws?.close(); } catch { /* ignore */ }
-    }
+  const startedAt = Date.now();
+  let ws: WebSocket | undefined;
+  let settled = false;
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  const later = (run: () => void, ms: number): ReturnType<typeof setTimeout> => {
+    const timer = setTimeout(() => { timers.delete(timer); run(); }, ms);
+    timers.add(timer);
+    return timer;
   };
+  let settle: (outcome: { email: StoredEmail } | { error: Error }) => void = () => {};
 
-  const emailPromise = (async () => {
-    // ⚠️ The clear does NOT protect this waiter, and reading it that way is how a caller talks
-    // itself out of `to`. The DO pushes an email to open sockets ONLY as it arrives (its one
-    // `ws.send` of a message is in the receipt path; the `/ws` handler replays nothing), so a
-    // previous run's mail can never resolve us however full the bucket is. What the clear actually
-    // does is reset the STORED list the `/emails` HTTP endpoint reads — and it wipes a bucket
-    // shared with every concurrent test, which is why supplying `to` skips it.
-    //
-    // ⇒ `to` is safe on ANY address, historied ones included. It does not make two waiters on the
-    // SAME address independent, though — both match — so that needs a unique recipient, or one
-    // waiter (verified 2026-09-25; the older wording here claimed the opposite and was believed).
-    if (to === undefined) {
-      await fetch(`${EMAIL_TEST_HTTP_URL}/clear?token=${testToken}${instanceParam}`, { method: 'POST' });
-    }
+  const cleanup = () => settle({ error: new Error('The wait was cleaned up before an email arrived') });
 
-    // The instance filter persists via serializeAttachment on the DO side, so
-    // concurrent subscribers each see only their own emails.
-    ws = new WebSocket(`${EMAIL_TEST_WS_URL}/ws?token=${testToken}${instanceParam}${to !== undefined ? '&events=1' : ''}`);
+  const emailPromise = new Promise<StoredEmail>((resolve, reject) => {
+    // What the socket went through, for the timeout's message: a wait that never held a socket
+    // open says so, where it would otherwise blame the mail.
+    let drops = 0;
+    let lastTrouble: string | undefined;
+    let failuresInARow = 0;
 
-    await new Promise<void>((resolve, reject) => {
-      ws.addEventListener('open', () => { marks.wsOpenAt = Date.now(); resolve(); });
-      ws.addEventListener('error', () => reject(new Error('WebSocket connection to email-test Worker failed')));
-      setTimeout(() => reject(new Error('WebSocket connection timeout')), 5000);
-    });
+    settle = (outcome) => {
+      if (settled) return;
+      settled = true;
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+      try { ws?.close(); } catch { /* ignore */ }
+      if ('email' in outcome) resolve(outcome.email); else reject(outcome.error);
+    };
 
-    const email = await new Promise<StoredEmail>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        cleanup();
-        reject(new Error(`No email received within ${timeout}ms; ${describeDelivery(deliveryEvents)}`));
-      }, timeout);
+    later(() => settle({
+      error: new Error(`No email received within ${timeout}ms; ${describeDelivery(deliveryEvents)}`
+        + (lastTrouble !== undefined ? `; the socket to the email-test Worker was reopened ${drops} time(s), last after: ${lastTrouble}` : '')),
+    }), timeout);
 
-      ws.addEventListener('message', (event) => {
-        const parsed = JSON.parse(event.data as string) as StoredEmail | DeliveryEventMessage;
+    const reconnect = (trouble: string): void => {
+      if (settled) return;
+      drops++;
+      lastTrouble = trouble;
+      later(() => { void connect(true); }, RECONNECT_DELAYS_MS[Math.min(failuresInARow, RECONNECT_DELAYS_MS.length - 1)]);
+      failuresInARow++;
+    };
+
+    const connect = async (replay: boolean): Promise<void> => {
+      if (settled) return;
+      let socket: WebSocket;
+      try {
+        socket = await transport.open(query + (to !== undefined ? '&events=1' : '')
+          + (replay ? `&replayMs=${Date.now() - startedAt}` : ''));
+      } catch (e) {
+        reconnect(e instanceof Error ? e.message : String(e));
+        return;
+      }
+      if (settled) { try { socket.close(); } catch { /* ignore */ } return; }
+      ws = socket;
+      marks.wsOpenAt ??= Date.now();
+      failuresInARow = 0;
+      // A deployed Worker older than the replay ignores `replayMs` and sends nothing, which would
+      // read as "no mail arrived while the socket was down". Its answer is what tells them apart.
+      const noReplay = replay ? later(() => settle({
+        error: new Error('The email-test Worker did not answer a replay request: deploy tooling/email-test'),
+      }), REPLAY_ANSWER_MS) : undefined;
+
+      socket.addEventListener('message', (event) => {
+        if (settled) return;
+        const parsed = JSON.parse(event.data as string) as StoredEmail | DeliveryEventMessage | ReplayedMessage;
+        if ('kind' in parsed && parsed.kind === 'replayed') {
+          if (noReplay !== undefined) { clearTimeout(noReplay); timers.delete(noReplay); }
+          return;
+        }
         if (isDeliveryEventMessage(parsed)) {
           const delivery = parsed.event;
           if (to === undefined || delivery.recipient !== to.toLowerCase()) return;
+          // A replay sends again what an earlier socket already heard.
+          if (deliveryEvents.some((e) => e.type === delivery.type && e.emailId === delivery.emailId && e.occurredAt === delivery.occurredAt)) return;
           deliveryEvents.push(delivery);
           if (TERMINAL_DELIVERY_EVENTS.includes(delivery.type)) {
-            clearTimeout(timer);
-            cleanup();
-            reject(new Error(`Resend reported ${delivery.type} for ${delivery.recipient} at ${delivery.occurredAt}`
-              + (delivery.reason ? `: ${delivery.reason}` : '')));
+            settle({
+              error: new Error(`Resend reported ${delivery.type} for ${delivery.recipient} at ${delivery.occurredAt}`
+                + (delivery.reason ? `: ${delivery.reason}` : '')),
+            });
           }
           return;
         }
-        const email = parsed;
         // Another test's email on the shared socket — keep waiting, don't
         // resolve with it and don't consume our timer.
-        if (!matchesRecipient(email)) return;
-        clearTimeout(timer);
+        if (!matchesRecipient(parsed)) return;
         marks.receivedAt = Date.now();
-        resolve(email);
+        settle({ email: parsed });
       });
 
-      ws.addEventListener('close', () => {
-        clearTimeout(timer);
-        reject(new Error('WebSocket closed before email received'));
+      socket.addEventListener('close', () => {
+        if (noReplay !== undefined) { clearTimeout(noReplay); timers.delete(noReplay); }
+        if (ws === socket) reconnect('the socket closed');
       });
-    });
+    };
 
-    return email;
-  })();
+    void (async () => {
+      // ⚠️ The clear does NOT protect this waiter, and reading it that way is how a caller talks
+      // itself out of `to`. The DO pushes an email to open sockets ONLY as it arrives, and replays
+      // only to a socket that asks, which this waiter's first one never does. So a previous run's
+      // mail can never resolve us however full the bucket is. What the clear actually does is
+      // reset the STORED list the `/emails` HTTP endpoint reads — and it wipes a bucket shared
+      // with every concurrent test, which is why supplying `to` skips it.
+      //
+      // ⇒ `to` is safe on ANY address, historied ones included. It does not make two waiters on the
+      // SAME address independent, though — both match — so that needs a unique recipient, or one
+      // waiter (verified 2026-09-25; the older wording here claimed the opposite and was believed).
+      if (to === undefined) {
+        try { await transport.clear(query); } catch { /* the wait does not depend on it */ }
+      }
+      // The instance filter persists via serializeAttachment on the DO side, so
+      // concurrent subscribers each see only their own emails.
+      await connect(false);
+    })();
+  });
 
   // An abandoned wait must not crash the process. If the caller fails for an
-  // unrelated reason and calls cleanup() in a `finally`, closing a still-
-  // connecting socket rejects this promise with nobody awaiting it — an
-  // unhandled rejection, which is fatal in Node and masks the REAL error with a
-  // useless "WebSocket connection failed". Marking it handled here changes
-  // nothing for an actual awaiter: the returned reference still rejects.
+  // unrelated reason and calls cleanup() in a `finally`, this promise rejects
+  // with nobody awaiting it — an unhandled rejection, which is fatal in Node and
+  // masks the REAL error. Marking it handled here changes nothing for an actual
+  // awaiter: the returned reference still rejects.
   emailPromise.catch(() => { /* see above — real awaiters still see the rejection */ });
 
   return { emailPromise, cleanup, marks, deliveryEvents };
 }
 
-function isDeliveryEventMessage(message: StoredEmail | DeliveryEventMessage): message is DeliveryEventMessage {
+function isDeliveryEventMessage(message: StoredEmail | DeliveryEventMessage | ReplayedMessage): message is DeliveryEventMessage {
   return 'kind' in message && message.kind === 'delivery-event';
 }
 

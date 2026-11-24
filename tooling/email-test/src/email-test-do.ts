@@ -72,6 +72,16 @@ const RECEIVED_DOMAINS = ['lumenize-test.dev', 'lumenize.io'];
 const RETENTION_DAYS = 14;
 const RETENTION_SWEEP_EVERY_MS = 60 * 60_000;
 
+/** The longest stretch a reconnecting socket may ask to have replayed: a waiter gives up long before. */
+const MAX_REPLAY_MS = 15 * 60_000;
+
+/** Sent after a replay, so a waiter can tell a Worker that replayed nothing from one that cannot replay. */
+export interface ReplayedMessage {
+  kind: 'replayed';
+  emails: number;
+  events: number;
+}
+
 /** Header name (lowercased — postal-mime exposes header keys lowercase). */
 const INSTANCE_HEADER = 'x-lumenize-auth-instance';
 
@@ -209,6 +219,32 @@ export class EmailTestDO extends DurableObject {
     return fresh;
   }
 
+  /**
+   * Send `ws` what arrived in the last `replayMs`, as it would have been pushed, then a
+   * {@link ReplayedMessage}. A waiter whose socket dropped asks for the time since it began waiting,
+   * as an elapsed time and not a timestamp, so its clock and this one need not agree. Mail the
+   * waiter already saw is sent again, and it takes the first that matches as it always has.
+   */
+  #replay(ws: WebSocket, attachment: WsAttachment, replayMs: number): void {
+    const since = new Date(Date.now() - replayMs).toISOString();
+    const emails = attachment.instance === ''
+      ? this.ctx.storage.sql.exec<{ email: string }>(`SELECT email FROM Emails WHERE receivedAt >= ? ORDER BY seq`, since)
+      : this.ctx.storage.sql.exec<{ email: string }>(
+        `SELECT email FROM Emails WHERE instance = ? AND receivedAt >= ? ORDER BY seq`, attachment.instance, since);
+    let emailCount = 0;
+    for (const row of emails) { ws.send(row.email); emailCount++; }
+    let eventCount = 0;
+    if (attachment.events) {
+      const events = this.ctx.storage.sql.exec<{ event: string }>(
+        `SELECT event FROM DeliveryEvents WHERE receivedAt >= ? ORDER BY receivedAt`, since);
+      for (const row of events) {
+        ws.send(JSON.stringify({ kind: 'delivery-event', event: JSON.parse(row.event) as DeliveryEvent } satisfies DeliveryEventMessage));
+        eventCount++;
+      }
+    }
+    ws.send(JSON.stringify({ kind: 'replayed', emails: emailCount, events: eventCount } satisfies ReplayedMessage));
+  }
+
   /** Every delivery event stored for `recipient`, oldest first. */
   getDeliveryEvents(recipient: string): DeliveryEvent[] {
     return [...this.ctx.storage.sql.exec<{ event: string }>(
@@ -286,6 +322,10 @@ export class EmailTestDO extends DurableObject {
       // (legacy callers that don't pass ?instance= subscribe to everything).
       const attachment: WsAttachment = { instance, ...(url.searchParams.get('events') === '1' ? { events: true } : {}) };
       server.serializeAttachment(attachment);
+      const replayMs = Number(url.searchParams.get('replayMs'));
+      if (url.searchParams.has('replayMs') && Number.isFinite(replayMs) && replayMs >= 0) {
+        this.#replay(server, attachment, Math.min(replayMs, MAX_REPLAY_MS));
+      }
 
       return new Response(null, { status: 101, webSocket: client });
     }
