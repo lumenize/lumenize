@@ -15,13 +15,13 @@
 - **`data`** changes a stored shape. It lands before the wipe, or production is wiped again after it.
 - **`deploy`** only needs to reach production, by any deploy, before the first invite.
 
-**Before the wipe, or wipe again after it:** nothing remains.
+**Before the wipe, or wipe again after it:** the row gated `data` below.
 
 **Before the first invite, in this order:**
 
 | # | Item | Specified in | Gate |
 |---|---|---|---|
-| — | **Queries upgraded** — a query reads under the node it names and is checked once there, and its subscriber holds the whole result, kept current by patches, so a chat past 1,000 messages still reaches the agent | [nebula-query-upgrade.md](nebula-query-upgrade.md), Pass 1, the next to build | deploy |
+| — | **Queries upgraded** — a query reads under the node it names and is checked once there, and its subscriber holds the whole result, kept current by patches, so a chat past 1,000 messages still reaches the agent | [nebula-query-upgrade.md](nebula-query-upgrade.md), Pass 1, the next to build | data |
 | — | **An app's code creates its nodes** — an app's ontology becomes the folder `src/ontology/`, and the `onNewOntologyVersion` and `onStart` it exports run in a facet, so its pages can name their nodes in every Star | [nebula-app-lifecycle-hooks.md](nebula-app-lifecycle-hooks.md), Pass 1, reviewed once the query change lands | deploy |
 | — | **Shared pages** — a new founder names the account and its first app on the account's page after accepting, Galaxy create asks for each later app's name, Studio shows each account's and app's name and picture, and each page decides whether an app forwards to ours or runs its own | § *Shared pages*. The names are [nebula-accounts-and-apps-have-names.md](nebula-accounts-and-apps-have-names.md), waiting on Larry's read of its Pass 1 | deploy |
 | — | **Denied access shows in the app** — a generated app shows what a subscriber cannot read and who can grant it | § *Denied access in generated apps* | deploy |
