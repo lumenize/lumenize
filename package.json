@@ -24,7 +24,8 @@
     "experiments/do-read-cache",
     "experiments/do-alarm-retry",
     "experiments/merge-patch-sql",
-    "experiments/query-subtree-and-catchup"
+    "experiments/query-subtree-and-catchup",
+    "experiments/asof-index-cost"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",

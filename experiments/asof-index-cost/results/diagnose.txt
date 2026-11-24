@@ -1,0 +1,12 @@
+plain columns only: counted 61025, rowsRead 119505, 18 / 19 / 19 ms a run
+  plan: SEARCH S_B1 USING COVERING INDEX idx_S_B1_x1 (typeName=?)
+  seeks: SeekGE cursor 1
+expression in WHERE: counted 20621, rowsRead 20622, 200 / 225 / 226 ms a run
+  plan: SEARCH S_B1 USING COVERING INDEX idx_S_B1_x1 (typeName=? AND <expr>=? AND validTo>?)
+  seeks: SeekGT cursor 1, NotFound cursor 0
+expression, and validFrom: counted 389, rowsRead 20622, 212 / 213 / 228 ms a run
+  plan: SEARCH S_B1 USING COVERING INDEX idx_S_B1_x1 (typeName=? AND <expr>=? AND validTo>?)
+  seeks: SeekGT cursor 1, NotFound cursor 0
+arm B, expression, and validFrom: counted 389, rowsRead 20622, 197 / 360 / 207 ms a run
+  plan: SEARCH S_B1 USING INDEX idx_S_B1_q_Deal:stage (<expr>=? AND validTo>?)
+  seeks: SeekGT cursor 1, NotFound cursor 0

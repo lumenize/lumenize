@@ -1,0 +1,17 @@
+{
+  "name": "experiment-asof-index-cost",
+  "private": true,
+  "type": "module",
+  "//": "What an index over every version of a resource costs a write, and what it buys a read as of a past moment. See RESULTS.md.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "seed": "node scripts/seed.mjs",
+    "measure": "node scripts/measure.mjs",
+    "logs": "node scripts/logs.mjs",
+    "tables": "node scripts/tables.mjs",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "wrangler": "4.147.0"
+  }
+}

@@ -1,0 +1,1215 @@
+{
+ "run": "2026-11-24T17-52-51-041Z",
+ "mode": "writes",
+ "base": "https://experiment-asof-index-cost.transformation.workers.dev",
+ "startedAt": "2026-11-24T17:52:51.046Z",
+ "config": {
+  "TARGET_MS": 250,
+  "MAX_REPS": 3000,
+  "ROUNDS": 5
+ },
+ "noops": [],
+ "records": [
+  {
+   "object": "d1",
+   "arm": "A",
+   "indexes": 1,
+   "table": "S_A1",
+   "tally": {
+    "Deal create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Deal update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Contact create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Contact update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Task create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Task update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    }
+   }
+  },
+  {
+   "object": "d1",
+   "arm": "B",
+   "indexes": 1,
+   "table": "S_B1",
+   "tally": {
+    "Deal create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Deal update": {
+     "n": 10,
+     "closeWritten": [
+      2
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Contact create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Contact update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Task create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Task update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    }
+   }
+  },
+  {
+   "object": "d1",
+   "arm": "C",
+   "indexes": 1,
+   "table": "S_C1",
+   "tally": {
+    "Deal create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Deal update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Contact create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Contact update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Task create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Task update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    }
+   }
+  },
+  {
+   "object": "d10",
+   "arm": "A",
+   "indexes": 1,
+   "table": "S_A1",
+   "tally": {
+    "Deal create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Deal update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Contact create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Contact update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Task create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Task update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    }
+   }
+  },
+  {
+   "object": "d10",
+   "arm": "B",
+   "indexes": 1,
+   "table": "S_B1",
+   "tally": {
+    "Deal create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Deal update": {
+     "n": 10,
+     "closeWritten": [
+      2
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Contact create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Contact update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Task create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Task update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    }
+   }
+  },
+  {
+   "object": "d10",
+   "arm": "C",
+   "indexes": 1,
+   "table": "S_C1",
+   "tally": {
+    "Deal create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Deal update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Contact create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Contact update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Task create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Task update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    }
+   }
+  },
+  {
+   "object": "d10",
+   "arm": "Z",
+   "indexes": 0,
+   "table": "S_Z0",
+   "tally": {
+    "Deal create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Deal update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Contact create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Contact update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Task create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Task update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    }
+   }
+  },
+  {
+   "object": "d10",
+   "arm": "F",
+   "indexes": 1,
+   "table": "S_F1",
+   "tally": {
+    "Deal create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Deal update": {
+     "n": 10,
+     "closeWritten": [
+      2
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Contact create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Contact update": {
+     "n": 10,
+     "closeWritten": [
+      2
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Task create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Task update": {
+     "n": 10,
+     "closeWritten": [
+      2
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      2
+     ]
+    }
+   }
+  },
+  {
+   "object": "d10",
+   "arm": "A",
+   "indexes": 3,
+   "table": "S_A3",
+   "tally": {
+    "Deal create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      5
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Deal update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      5
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Contact create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Contact update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Task create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Task update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    }
+   }
+  },
+  {
+   "object": "d10",
+   "arm": "B",
+   "indexes": 3,
+   "table": "S_B3",
+   "tally": {
+    "Deal create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      5
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Deal update": {
+     "n": 10,
+     "closeWritten": [
+      4
+     ],
+     "insertWritten": [
+      5
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Contact create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Contact update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Task create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Task update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    }
+   }
+  },
+  {
+   "object": "d10",
+   "arm": "C",
+   "indexes": 3,
+   "table": "S_C3",
+   "tally": {
+    "Deal create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      5
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Deal update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      5
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Contact create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Contact update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Task create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Task update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    }
+   }
+  },
+  {
+   "object": "d10",
+   "arm": "F",
+   "indexes": 3,
+   "table": "S_F3",
+   "tally": {
+    "Deal create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      5
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Deal update": {
+     "n": 10,
+     "closeWritten": [
+      4
+     ],
+     "insertWritten": [
+      5
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Contact create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      5
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Contact update": {
+     "n": 10,
+     "closeWritten": [
+      4
+     ],
+     "insertWritten": [
+      5
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Task create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      5
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Task update": {
+     "n": 10,
+     "closeWritten": [
+      4
+     ],
+     "insertWritten": [
+      5
+     ],
+     "read": [
+      2
+     ]
+    }
+   }
+  },
+  {
+   "object": "d100",
+   "arm": "A",
+   "indexes": 1,
+   "table": "S_A1",
+   "tally": {
+    "Deal create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Deal update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Contact create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Contact update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Task create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Task update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    }
+   }
+  },
+  {
+   "object": "d100",
+   "arm": "B",
+   "indexes": 1,
+   "table": "S_B1",
+   "tally": {
+    "Deal create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Deal update": {
+     "n": 10,
+     "closeWritten": [
+      2
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Contact create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Contact update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Task create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Task update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    }
+   }
+  },
+  {
+   "object": "d100",
+   "arm": "C",
+   "indexes": 1,
+   "table": "S_C1",
+   "tally": {
+    "Deal create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Deal update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      3
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Contact create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Contact update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    },
+    "Task create": {
+     "n": 10,
+     "closeWritten": [
+      0
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      0
+     ]
+    },
+    "Task update": {
+     "n": 10,
+     "closeWritten": [
+      1
+     ],
+     "insertWritten": [
+      2
+     ],
+     "read": [
+      2
+     ]
+    }
+   }
+  }
+ ],
+ "finishedAt": "2026-11-24T17:52:55.417Z"
+}

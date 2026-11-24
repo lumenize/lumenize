@@ -1,0 +1,3812 @@
+{
+ "run": "2026-11-24T17-50-46-449Z",
+ "mode": "reads",
+ "base": "https://experiment-asof-index-cost.transformation.workers.dev",
+ "startedAt": "2026-11-24T17:50:46.449Z",
+ "config": {
+  "TARGET_MS": 250,
+  "MAX_REPS": 3000,
+  "ROUNDS": 5
+ },
+ "noops": [
+  {
+   "object": "d100",
+   "seq": 1795542646449001,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449002,
+   "workerMs": 108,
+   "workerColo": "ARN",
+   "logs": {
+    "wallMs": 105,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449003,
+   "workerMs": 88,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449004,
+   "workerMs": 109,
+   "workerColo": "ARN",
+   "logs": {
+    "wallMs": 105,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449005,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449037,
+   "workerMs": 88,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 79,
+    "cpuMs": 3,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449039,
+   "workerMs": 85,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 78,
+    "cpuMs": 4,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449041,
+   "workerMs": 78,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449043,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449045,
+   "workerMs": 84,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 78,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449047,
+   "workerMs": 83,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449049,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 78,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449051,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449053,
+   "workerMs": 82,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449055,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449057,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449059,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 77,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449061,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449063,
+   "workerMs": 83,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449065,
+   "workerMs": 84,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449067,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449069,
+   "workerMs": 84,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 77,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449071,
+   "workerMs": 128,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 122,
+    "cpuMs": 44,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449073,
+   "workerMs": 83,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449075,
+   "workerMs": 87,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 77,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449077,
+   "workerMs": 83,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449079,
+   "workerMs": 83,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449081,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449083,
+   "workerMs": 82,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 78,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449085,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449087,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 77,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449089,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449091,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449093,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449095,
+   "workerMs": 82,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449097,
+   "workerMs": 82,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449099,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449101,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449103,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449105,
+   "workerMs": 78,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449107,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 73,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449109,
+   "workerMs": 82,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449111,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449113,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449115,
+   "workerMs": 84,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449117,
+   "workerMs": 78,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449119,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449121,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 81,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449123,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449125,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 77,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449127,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449129,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449131,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 73,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449133,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 73,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449135,
+   "workerMs": 86,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 78,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449137,
+   "workerMs": 97,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 82,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449139,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449141,
+   "workerMs": 100,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 77,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449143,
+   "workerMs": 85,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 79,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449145,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449147,
+   "workerMs": 83,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 78,
+    "cpuMs": 2,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449149,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449151,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449153,
+   "workerMs": 77,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 73,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449155,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449157,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449159,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 81,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449161,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449163,
+   "workerMs": 83,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 79,
+    "cpuMs": 2,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449165,
+   "workerMs": 82,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449167,
+   "workerMs": 83,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449169,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 78,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449171,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449173,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449175,
+   "workerMs": 83,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449177,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449179,
+   "workerMs": 78,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449181,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449183,
+   "workerMs": 101,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 94,
+    "cpuMs": 19,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449185,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449187,
+   "workerMs": 78,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449189,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449191,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449193,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449195,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 77,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449197,
+   "workerMs": 83,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 77,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449199,
+   "workerMs": 82,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 83,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449201,
+   "workerMs": 78,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 73,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449203,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 73,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449205,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449207,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449209,
+   "workerMs": 78,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 73,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449211,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449213,
+   "workerMs": 79,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449215,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449217,
+   "workerMs": 83,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 77,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449219,
+   "workerMs": 82,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 77,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449221,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449223,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449225,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 77,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449227,
+   "workerMs": 82,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449229,
+   "workerMs": 78,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449231,
+   "workerMs": 82,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 77,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449233,
+   "workerMs": 82,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449235,
+   "workerMs": 78,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 73,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449237,
+   "workerMs": 84,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 73,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449239,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 74,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449241,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 81,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449243,
+   "workerMs": 81,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 75,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  },
+  {
+   "object": "d100",
+   "seq": 1795542646449245,
+   "workerMs": 80,
+   "workerColo": "LHR",
+   "logs": {
+    "wallMs": 76,
+    "cpuMs": 0,
+    "outcome": "ok",
+    "via": "line"
+   }
+  }
+ ],
+ "records": [
+  {
+   "id": "d100.current.A",
+   "q": "current",
+   "depth": "d100",
+   "arm": "A",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_A1 INDEXED BY \"idx_S_A1_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? ORDER BY resourceId",
+    "params": [
+     "open"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449040,
+     "round": 0,
+     "reps": 72,
+     "workerMs": 349,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 344,
+      "cpuMs": 332,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449102,
+     "round": 1,
+     "reps": 72,
+     "workerMs": 399,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 394,
+      "cpuMs": 383,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449130,
+     "round": 2,
+     "reps": 72,
+     "workerMs": 379,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 373,
+      "cpuMs": 361,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449174,
+     "round": 3,
+     "reps": 72,
+     "workerMs": 390,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 382,
+      "cpuMs": 369,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449208,
+     "round": 4,
+     "reps": 72,
+     "workerMs": 383,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 376,
+      "cpuMs": 364,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449006,
+    "rows": 424,
+    "bytes": 113997,
+    "rowsRead": 425,
+    "rowsWritten": 0,
+    "check": 3451911269,
+    "plan": [
+     "SEARCH S_A1 USING INDEX idx_S_A1_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 132,
+    "workerColo": "ARN"
+   },
+   "reps": 72
+  },
+  {
+   "id": "d100.current.B",
+   "q": "current",
+   "depth": "d100",
+   "arm": "B",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_B1 INDEXED BY \"idx_S_B1_q_Deal:stage\" WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo = '9999-01-01T00:00:00.000Z' ORDER BY resourceId",
+    "params": [
+     "open"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449036,
+     "round": 0,
+     "reps": 72,
+     "workerMs": 471,
+     "workerColo": "LHR",
+     "logs": {
+      "wallMs": 465,
+      "cpuMs": 389,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449090,
+     "round": 1,
+     "reps": 72,
+     "workerMs": 598,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 593,
+      "cpuMs": 572,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449128,
+     "round": 2,
+     "reps": 72,
+     "workerMs": 367,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 363,
+      "cpuMs": 351,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449178,
+     "round": 3,
+     "reps": 72,
+     "workerMs": 416,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 408,
+      "cpuMs": 394,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449238,
+     "round": 4,
+     "reps": 72,
+     "workerMs": 390,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 383,
+      "cpuMs": 372,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449007,
+    "rows": 424,
+    "bytes": 113997,
+    "rowsRead": 425,
+    "rowsWritten": 0,
+    "check": 3451911269,
+    "plan": [
+     "SEARCH S_B1 USING INDEX idx_S_B1_q_Deal:stage (<expr>=? AND validTo=?)"
+    ],
+    "reps": 1,
+    "workerMs": 95,
+    "workerColo": "LHR"
+   },
+   "reps": 72
+  },
+  {
+   "id": "d100.current.C",
+   "q": "current",
+   "depth": "d100",
+   "arm": "C",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_C1 INDEXED BY \"idx_S_C1_q_Deal:stage\" WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo = '9999-01-01T00:00:00.000Z' ORDER BY resourceId",
+    "params": [
+     "open"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449042,
+     "round": 0,
+     "reps": 1,
+     "workerMs": 139,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 134,
+      "cpuMs": 122,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449092,
+     "round": 1,
+     "reps": 1,
+     "workerMs": 144,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 139,
+      "cpuMs": 127,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449138,
+     "round": 2,
+     "reps": 1,
+     "workerMs": 149,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 142,
+      "cpuMs": 130,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449186,
+     "round": 3,
+     "reps": 1,
+     "workerMs": 148,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 141,
+      "cpuMs": 128,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449216,
+     "round": 4,
+     "reps": 1,
+     "workerMs": 144,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 136,
+      "cpuMs": 122,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449008,
+    "rows": 424,
+    "bytes": 113997,
+    "rowsRead": 40381,
+    "rowsWritten": 0,
+    "check": 3451911269,
+    "plan": [
+     "SEARCH S_C1 USING INDEX idx_S_C1_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 207,
+    "workerColo": "LHR"
+   },
+   "reps": 1
+  },
+  {
+   "id": "d100.current.A.pick",
+   "q": "current",
+   "depth": "d100",
+   "arm": "A pick",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_A1 WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? ORDER BY resourceId",
+    "params": [
+     "open"
+    ]
+   },
+   "timed": [],
+   "isTimed": false,
+   "first": {
+    "seq": 1795542646449009,
+    "rows": 424,
+    "bytes": 113997,
+    "rowsRead": 425,
+    "rowsWritten": 0,
+    "check": 3451911269,
+    "plan": [
+     "SEARCH S_A1 USING INDEX idx_S_A1_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 85,
+    "workerColo": "LHR"
+   },
+   "reps": 72
+  },
+  {
+   "id": "d100.current.B.pick",
+   "q": "current",
+   "depth": "d100",
+   "arm": "B pick",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_B1 WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? ORDER BY resourceId",
+    "params": [
+     "open"
+    ]
+   },
+   "timed": [],
+   "isTimed": false,
+   "first": {
+    "seq": 1795542646449010,
+    "rows": 424,
+    "bytes": 113997,
+    "rowsRead": 425,
+    "rowsWritten": 0,
+    "check": 3451911269,
+    "plan": [
+     "SEARCH S_B1 USING INDEX idx_S_B1_q_Deal:stage (<expr>=? AND validTo=?)"
+    ],
+    "reps": 1,
+    "workerMs": 95,
+    "workerColo": "LHR"
+   },
+   "reps": 72
+  },
+  {
+   "id": "d100.current.C.pick",
+   "q": "current",
+   "depth": "d100",
+   "arm": "C pick",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_C1 WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? ORDER BY resourceId",
+    "params": [
+     "open"
+    ]
+   },
+   "timed": [],
+   "isTimed": false,
+   "first": {
+    "seq": 1795542646449011,
+    "rows": 424,
+    "bytes": 113997,
+    "rowsRead": 40381,
+    "rowsWritten": 0,
+    "check": 3451911269,
+    "plan": [
+     "SEARCH S_C1 USING INDEX idx_S_C1_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 205,
+    "workerColo": "LHR"
+   },
+   "reps": 1
+  },
+  {
+   "id": "d100.asof.recent.B",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "recent",
+   "m0": "2026-11-01T00:06:39.979Z",
+   "writesSince": 20,
+   "arm": "B",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_B1 INDEXED BY \"idx_S_B1_q_Deal:stage\" WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ? ORDER BY resourceId",
+    "params": [
+     "open",
+     "2026-11-01T00:06:39.979Z",
+     "2026-11-01T00:06:39.979Z"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449074,
+     "round": 0,
+     "reps": 37,
+     "workerMs": 411,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 407,
+      "cpuMs": 389,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449108,
+     "round": 1,
+     "reps": 37,
+     "workerMs": 208,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 200,
+      "cpuMs": 185,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449122,
+     "round": 2,
+     "reps": 37,
+     "workerMs": 215,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 207,
+      "cpuMs": 191,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449196,
+     "round": 3,
+     "reps": 37,
+     "workerMs": 184,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 180,
+      "cpuMs": 169,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449210,
+     "round": 4,
+     "reps": 37,
+     "workerMs": 183,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 178,
+      "cpuMs": 165,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449012,
+    "rows": 422,
+    "bytes": 113367,
+    "rowsRead": 849,
+    "rowsWritten": 0,
+    "check": 1276869445,
+    "plan": [
+     "SEARCH S_B1 USING INDEX idx_S_B1_q_Deal:stage (<expr>=? AND validTo>?)",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 89,
+    "workerColo": "LHR"
+   },
+   "reps": 37
+  },
+  {
+   "id": "d100.asof.recent.B.unordered",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "recent",
+   "m0": "2026-11-01T00:06:39.979Z",
+   "writesSince": 20,
+   "arm": "B unordered",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_B1 INDEXED BY \"idx_S_B1_q_Deal:stage\" WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ?",
+    "params": [
+     "open",
+     "2026-11-01T00:06:39.979Z",
+     "2026-11-01T00:06:39.979Z"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449054,
+     "round": 0,
+     "reps": 72,
+     "workerMs": 367,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 358,
+      "cpuMs": 345,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449098,
+     "round": 1,
+     "reps": 72,
+     "workerMs": 375,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 372,
+      "cpuMs": 360,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449120,
+     "round": 2,
+     "reps": 72,
+     "workerMs": 381,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 376,
+      "cpuMs": 365,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449166,
+     "round": 3,
+     "reps": 72,
+     "workerMs": 645,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 640,
+      "cpuMs": 618,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449234,
+     "round": 4,
+     "reps": 72,
+     "workerMs": 378,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 370,
+      "cpuMs": 357,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449013,
+    "rows": 422,
+    "bytes": 113367,
+    "rowsRead": 427,
+    "rowsWritten": 0,
+    "check": 1276869445,
+    "plan": [
+     "SEARCH S_B1 USING INDEX idx_S_B1_q_Deal:stage (<expr>=? AND validTo>?)"
+    ],
+    "reps": 1,
+    "workerMs": 90,
+    "workerColo": "LHR"
+   },
+   "reps": 72
+  },
+  {
+   "id": "d100.asof.recent.B.ids",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "recent",
+   "m0": "2026-11-01T00:06:39.979Z",
+   "writesSince": 20,
+   "arm": "B ids only",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, validFrom FROM S_B1 INDEXED BY \"idx_S_B1_q_Deal:stage\" WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ?",
+    "params": [
+     "open",
+     "2026-11-01T00:06:39.979Z",
+     "2026-11-01T00:06:39.979Z"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449050,
+     "round": 0,
+     "reps": 72,
+     "workerMs": 329,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 325,
+      "cpuMs": 313,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449086,
+     "round": 1,
+     "reps": 72,
+     "workerMs": 358,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 350,
+      "cpuMs": 339,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449126,
+     "round": 2,
+     "reps": 72,
+     "workerMs": 348,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 344,
+      "cpuMs": 333,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449200,
+     "round": 3,
+     "reps": 72,
+     "workerMs": 374,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 363,
+      "cpuMs": 352,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449236,
+     "round": 4,
+     "reps": 72,
+     "workerMs": 364,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 348,
+      "cpuMs": 335,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449014,
+    "rows": 422,
+    "bytes": 0,
+    "rowsRead": 427,
+    "rowsWritten": 0,
+    "check": 1276869445,
+    "plan": [
+     "SEARCH S_B1 USING INDEX idx_S_B1_q_Deal:stage (<expr>=? AND validTo>?)"
+    ],
+    "reps": 1,
+    "workerMs": 95,
+    "workerColo": "LHR"
+   },
+   "reps": 72
+  },
+  {
+   "id": "d100.asof.recent.C",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "recent",
+   "m0": "2026-11-01T00:06:39.979Z",
+   "writesSince": 20,
+   "arm": "C",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_C1 INDEXED BY \"idx_S_C1_q_Deal:stage\" WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ? ORDER BY resourceId",
+    "params": [
+     "open",
+     "2026-11-01T00:06:39.979Z",
+     "2026-11-01T00:06:39.979Z"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449060,
+     "round": 0,
+     "reps": 1,
+     "workerMs": 147,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 139,
+      "cpuMs": 124,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449112,
+     "round": 1,
+     "reps": 1,
+     "workerMs": 148,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 141,
+      "cpuMs": 126,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449156,
+     "round": 2,
+     "reps": 1,
+     "workerMs": 142,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 133,
+      "cpuMs": 122,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449176,
+     "round": 3,
+     "reps": 1,
+     "workerMs": 144,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 135,
+      "cpuMs": 124,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449240,
+     "round": 4,
+     "reps": 1,
+     "workerMs": 132,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 123,
+      "cpuMs": 113,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449015,
+    "rows": 422,
+    "bytes": 113367,
+    "rowsRead": 40381,
+    "rowsWritten": 0,
+    "check": 1276869445,
+    "plan": [
+     "SEARCH S_C1 USING INDEX idx_S_C1_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 202,
+    "workerColo": "LHR"
+   },
+   "reps": 1
+  },
+  {
+   "id": "d100.asof.recent.A",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "recent",
+   "m0": "2026-11-01T00:06:39.979Z",
+   "writesSince": 20,
+   "arm": "A (no index over history)",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_A1 WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ? ORDER BY resourceId",
+    "params": [
+     "open",
+     "2026-11-01T00:06:39.979Z",
+     "2026-11-01T00:06:39.979Z"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449066,
+     "round": 0,
+     "reps": 1,
+     "workerMs": 432,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 425,
+      "cpuMs": 396,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449088,
+     "round": 1,
+     "reps": 1,
+     "workerMs": 422,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 418,
+      "cpuMs": 403,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449148,
+     "round": 2,
+     "reps": 1,
+     "workerMs": 386,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 380,
+      "cpuMs": 366,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449168,
+     "round": 3,
+     "reps": 1,
+     "workerMs": 431,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 419,
+      "cpuMs": 405,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449206,
+     "round": 4,
+     "reps": 1,
+     "workerMs": 405,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 402,
+      "cpuMs": 390,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449016,
+    "rows": 422,
+    "bytes": 113367,
+    "rowsRead": 400000,
+    "rowsWritten": 0,
+    "check": 1276869445,
+    "plan": [
+     "SCAN S_A1"
+    ],
+    "reps": 1,
+    "workerMs": 488,
+    "workerColo": "LHR"
+   },
+   "reps": 1
+  },
+  {
+   "id": "d100.asof.recent.B.pick",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "recent",
+   "m0": "2026-11-01T00:06:39.979Z",
+   "writesSince": 20,
+   "arm": "B pick",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_B1 WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ? ORDER BY resourceId",
+    "params": [
+     "open",
+     "2026-11-01T00:06:39.979Z",
+     "2026-11-01T00:06:39.979Z"
+    ]
+   },
+   "timed": [],
+   "isTimed": false,
+   "first": {
+    "seq": 1795542646449017,
+    "rows": 422,
+    "bytes": 113367,
+    "rowsRead": 849,
+    "rowsWritten": 0,
+    "check": 1276869445,
+    "plan": [
+     "SEARCH S_B1 USING INDEX idx_S_B1_q_Deal:stage (<expr>=? AND validTo>?)",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 90,
+    "workerColo": "LHR"
+   },
+   "reps": 37
+  },
+  {
+   "id": "d100.asof.recent.C.pick",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "recent",
+   "m0": "2026-11-01T00:06:39.979Z",
+   "writesSince": 20,
+   "arm": "C pick",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_C1 WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ? ORDER BY resourceId",
+    "params": [
+     "open",
+     "2026-11-01T00:06:39.979Z",
+     "2026-11-01T00:06:39.979Z"
+    ]
+   },
+   "timed": [],
+   "isTimed": false,
+   "first": {
+    "seq": 1795542646449018,
+    "rows": 422,
+    "bytes": 113367,
+    "rowsRead": 40381,
+    "rowsWritten": 0,
+    "check": 1276869445,
+    "plan": [
+     "SEARCH S_C1 USING INDEX idx_S_C1_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 201,
+    "workerColo": "LHR"
+   },
+   "reps": 1
+  },
+  {
+   "id": "d100.asof.recent.today",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "recent",
+   "m0": "2026-11-01T00:06:39.979Z",
+   "writesSince": 20,
+   "arm": "today",
+   "object": "d100",
+   "op": {
+    "kind": "firstRead",
+    "m0": "2026-11-01T00:06:39.979Z",
+    "scan": "SELECT resourceId, nodeId, validFrom, value FROM S_A1 INDEXED BY \"idx_S_A1_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? ORDER BY resourceId",
+    "scanParams": [
+     "open"
+    ],
+    "lookup": "SELECT validFrom, value, (typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = 'open') AS matches FROM S_A1 WHERE resourceId = ? AND validFrom <= ? ORDER BY validFrom DESC LIMIT 1"
+   },
+   "timed": [
+    {
+     "seq": 1795542646449038,
+     "round": 0,
+     "reps": 72,
+     "workerMs": 432,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 422,
+      "cpuMs": 411,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449078,
+     "round": 1,
+     "reps": 72,
+     "workerMs": 426,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 418,
+      "cpuMs": 401,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449140,
+     "round": 2,
+     "reps": 72,
+     "workerMs": 432,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 424,
+      "cpuMs": 408,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449170,
+     "round": 3,
+     "reps": 72,
+     "workerMs": 400,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 398,
+      "cpuMs": 385,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449230,
+     "round": 4,
+     "reps": 72,
+     "workerMs": 448,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 441,
+      "cpuMs": 425,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449019,
+    "rows": 420,
+    "scanned": 424,
+    "asIs": 420,
+    "lookups": 4,
+    "found": 4,
+    "kept": 0,
+    "scanRead": 425,
+    "lookupRead": 4,
+    "rowsRead": 429,
+    "bytes": 112828,
+    "check": 537061866,
+    "plan": [
+     [
+      "SEARCH S_A1 USING INDEX idx_S_A1_q_Deal:stage (<expr>=?)"
+     ],
+     [
+      "SEARCH S_A1 USING PRIMARY KEY (resourceId=? AND validFrom<?)"
+     ]
+    ],
+    "reps": 1,
+    "workerMs": 88,
+    "workerColo": "LHR"
+   },
+   "reps": 72
+  },
+  {
+   "id": "d100.asof.mid.B",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "mid",
+   "m0": "2026-11-01T00:06:38.999Z",
+   "writesSince": 1000,
+   "arm": "B",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_B1 INDEXED BY \"idx_S_B1_q_Deal:stage\" WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ? ORDER BY resourceId",
+    "params": [
+     "open",
+     "2026-11-01T00:06:38.999Z",
+     "2026-11-01T00:06:38.999Z"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449048,
+     "round": 0,
+     "reps": 31,
+     "workerMs": 240,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 227,
+      "cpuMs": 209,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449094,
+     "round": 1,
+     "reps": 31,
+     "workerMs": 254,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 246,
+      "cpuMs": 219,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449154,
+     "round": 2,
+     "reps": 31,
+     "workerMs": 217,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 212,
+      "cpuMs": 200,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449184,
+     "round": 3,
+     "reps": 31,
+     "workerMs": 250,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 245,
+      "cpuMs": 233,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449242,
+     "round": 4,
+     "reps": 31,
+     "workerMs": 212,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 206,
+      "cpuMs": 188,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449020,
+    "rows": 441,
+    "bytes": 117731,
+    "rowsRead": 986,
+    "rowsWritten": 0,
+    "check": 1629519658,
+    "plan": [
+     "SEARCH S_B1 USING INDEX idx_S_B1_q_Deal:stage (<expr>=? AND validTo>?)",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 91,
+    "workerColo": "LHR"
+   },
+   "reps": 31
+  },
+  {
+   "id": "d100.asof.mid.B.unordered",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "mid",
+   "m0": "2026-11-01T00:06:38.999Z",
+   "writesSince": 1000,
+   "arm": "B unordered",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_B1 INDEXED BY \"idx_S_B1_q_Deal:stage\" WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ?",
+    "params": [
+     "open",
+     "2026-11-01T00:06:38.999Z",
+     "2026-11-01T00:06:38.999Z"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449044,
+     "round": 0,
+     "reps": 57,
+     "workerMs": 397,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 392,
+      "cpuMs": 381,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449080,
+     "round": 1,
+     "reps": 57,
+     "workerMs": 368,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 362,
+      "cpuMs": 350,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449144,
+     "round": 2,
+     "reps": 57,
+     "workerMs": 416,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 410,
+      "cpuMs": 397,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449164,
+     "round": 3,
+     "reps": 57,
+     "workerMs": 386,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 380,
+      "cpuMs": 366,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449226,
+     "round": 4,
+     "reps": 57,
+     "workerMs": 395,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 385,
+      "cpuMs": 372,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449021,
+    "rows": 441,
+    "bytes": 117731,
+    "rowsRead": 545,
+    "rowsWritten": 0,
+    "check": 1629519658,
+    "plan": [
+     "SEARCH S_B1 USING INDEX idx_S_B1_q_Deal:stage (<expr>=? AND validTo>?)"
+    ],
+    "reps": 1,
+    "workerMs": 90,
+    "workerColo": "LHR"
+   },
+   "reps": 57
+  },
+  {
+   "id": "d100.asof.mid.B.ids",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "mid",
+   "m0": "2026-11-01T00:06:38.999Z",
+   "writesSince": 1000,
+   "arm": "B ids only",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, validFrom FROM S_B1 INDEXED BY \"idx_S_B1_q_Deal:stage\" WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ?",
+    "params": [
+     "open",
+     "2026-11-01T00:06:38.999Z",
+     "2026-11-01T00:06:38.999Z"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449068,
+     "round": 0,
+     "reps": 57,
+     "workerMs": 400,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 389,
+      "cpuMs": 375,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449110,
+     "round": 1,
+     "reps": 57,
+     "workerMs": 350,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 346,
+      "cpuMs": 335,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449134,
+     "round": 2,
+     "reps": 57,
+     "workerMs": 387,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 383,
+      "cpuMs": 371,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449180,
+     "round": 3,
+     "reps": 57,
+     "workerMs": 355,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 351,
+      "cpuMs": 338,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449222,
+     "round": 4,
+     "reps": 57,
+     "workerMs": 571,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 565,
+      "cpuMs": 546,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449022,
+    "rows": 441,
+    "bytes": 0,
+    "rowsRead": 545,
+    "rowsWritten": 0,
+    "check": 1629519658,
+    "plan": [
+     "SEARCH S_B1 USING INDEX idx_S_B1_q_Deal:stage (<expr>=? AND validTo>?)"
+    ],
+    "reps": 1,
+    "workerMs": 89,
+    "workerColo": "LHR"
+   },
+   "reps": 57
+  },
+  {
+   "id": "d100.asof.mid.C",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "mid",
+   "m0": "2026-11-01T00:06:38.999Z",
+   "writesSince": 1000,
+   "arm": "C",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_C1 INDEXED BY \"idx_S_C1_q_Deal:stage\" WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ? ORDER BY resourceId",
+    "params": [
+     "open",
+     "2026-11-01T00:06:38.999Z",
+     "2026-11-01T00:06:38.999Z"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449064,
+     "round": 0,
+     "reps": 1,
+     "workerMs": 146,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 142,
+      "cpuMs": 125,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449084,
+     "round": 1,
+     "reps": 1,
+     "workerMs": 253,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 243,
+      "cpuMs": 227,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449158,
+     "round": 2,
+     "reps": 1,
+     "workerMs": 133,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 127,
+      "cpuMs": 115,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449192,
+     "round": 3,
+     "reps": 1,
+     "workerMs": 138,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 128,
+      "cpuMs": 116,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449224,
+     "round": 4,
+     "reps": 1,
+     "workerMs": 140,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 133,
+      "cpuMs": 121,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449023,
+    "rows": 441,
+    "bytes": 117731,
+    "rowsRead": 40381,
+    "rowsWritten": 0,
+    "check": 1629519658,
+    "plan": [
+     "SEARCH S_C1 USING INDEX idx_S_C1_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 199,
+    "workerColo": "LHR"
+   },
+   "reps": 1
+  },
+  {
+   "id": "d100.asof.mid.A",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "mid",
+   "m0": "2026-11-01T00:06:38.999Z",
+   "writesSince": 1000,
+   "arm": "A (no index over history)",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_A1 WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ? ORDER BY resourceId",
+    "params": [
+     "open",
+     "2026-11-01T00:06:38.999Z",
+     "2026-11-01T00:06:38.999Z"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449052,
+     "round": 0,
+     "reps": 1,
+     "workerMs": 423,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 419,
+      "cpuMs": 395,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449106,
+     "round": 1,
+     "reps": 1,
+     "workerMs": 642,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 636,
+      "cpuMs": 610,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449160,
+     "round": 2,
+     "reps": 1,
+     "workerMs": 403,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 400,
+      "cpuMs": 380,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449172,
+     "round": 3,
+     "reps": 1,
+     "workerMs": 411,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 401,
+      "cpuMs": 387,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449214,
+     "round": 4,
+     "reps": 1,
+     "workerMs": 415,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 410,
+      "cpuMs": 395,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449024,
+    "rows": 441,
+    "bytes": 117731,
+    "rowsRead": 400000,
+    "rowsWritten": 0,
+    "check": 1629519658,
+    "plan": [
+     "SCAN S_A1"
+    ],
+    "reps": 1,
+    "workerMs": 458,
+    "workerColo": "LHR"
+   },
+   "reps": 1
+  },
+  {
+   "id": "d100.asof.mid.B.pick",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "mid",
+   "m0": "2026-11-01T00:06:38.999Z",
+   "writesSince": 1000,
+   "arm": "B pick",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_B1 WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ? ORDER BY resourceId",
+    "params": [
+     "open",
+     "2026-11-01T00:06:38.999Z",
+     "2026-11-01T00:06:38.999Z"
+    ]
+   },
+   "timed": [],
+   "isTimed": false,
+   "first": {
+    "seq": 1795542646449025,
+    "rows": 441,
+    "bytes": 117731,
+    "rowsRead": 986,
+    "rowsWritten": 0,
+    "check": 1629519658,
+    "plan": [
+     "SEARCH S_B1 USING INDEX idx_S_B1_q_Deal:stage (<expr>=? AND validTo>?)",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 88,
+    "workerColo": "LHR"
+   },
+   "reps": 31
+  },
+  {
+   "id": "d100.asof.mid.C.pick",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "mid",
+   "m0": "2026-11-01T00:06:38.999Z",
+   "writesSince": 1000,
+   "arm": "C pick",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_C1 WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ? ORDER BY resourceId",
+    "params": [
+     "open",
+     "2026-11-01T00:06:38.999Z",
+     "2026-11-01T00:06:38.999Z"
+    ]
+   },
+   "timed": [],
+   "isTimed": false,
+   "first": {
+    "seq": 1795542646449026,
+    "rows": 441,
+    "bytes": 117731,
+    "rowsRead": 40381,
+    "rowsWritten": 0,
+    "check": 1629519658,
+    "plan": [
+     "SEARCH S_C1 USING INDEX idx_S_C1_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 201,
+    "workerColo": "LHR"
+   },
+   "reps": 1
+  },
+  {
+   "id": "d100.asof.mid.today",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "mid",
+   "m0": "2026-11-01T00:06:38.999Z",
+   "writesSince": 1000,
+   "arm": "today",
+   "object": "d100",
+   "op": {
+    "kind": "firstRead",
+    "m0": "2026-11-01T00:06:38.999Z",
+    "scan": "SELECT resourceId, nodeId, validFrom, value FROM S_A1 INDEXED BY \"idx_S_A1_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? ORDER BY resourceId",
+    "scanParams": [
+     "open"
+    ],
+    "lookup": "SELECT validFrom, value, (typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = 'open') AS matches FROM S_A1 WHERE resourceId = ? AND validFrom <= ? ORDER BY validFrom DESC LIMIT 1"
+   },
+   "timed": [
+    {
+     "seq": 1795542646449070,
+     "round": 0,
+     "reps": 60,
+     "workerMs": 612,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 616,
+      "cpuMs": 594,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449116,
+     "round": 1,
+     "reps": 60,
+     "workerMs": 661,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 648,
+      "cpuMs": 624,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449142,
+     "round": 2,
+     "reps": 60,
+     "workerMs": 642,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 645,
+      "cpuMs": 618,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449202,
+     "round": 3,
+     "reps": 60,
+     "workerMs": 601,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 602,
+      "cpuMs": 577,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449220,
+     "round": 4,
+     "reps": 60,
+     "workerMs": 1028,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 1034,
+      "cpuMs": 990,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449027,
+    "rows": 356,
+    "scanned": 424,
+    "asIs": 334,
+    "lookups": 90,
+    "found": 90,
+    "kept": 22,
+    "scanRead": 425,
+    "lookupRead": 90,
+    "rowsRead": 515,
+    "bytes": 95473,
+    "check": 1436665950,
+    "plan": [
+     [
+      "SEARCH S_A1 USING INDEX idx_S_A1_q_Deal:stage (<expr>=?)"
+     ],
+     [
+      "SEARCH S_A1 USING PRIMARY KEY (resourceId=? AND validFrom<?)"
+     ]
+    ],
+    "reps": 1,
+    "workerMs": 92,
+    "workerColo": "LHR"
+   },
+   "reps": 60
+  },
+  {
+   "id": "d100.asof.far.B",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "far",
+   "m0": "2026-11-01T00:03:19.999Z",
+   "writesSince": 200000,
+   "arm": "B",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_B1 INDEXED BY \"idx_S_B1_q_Deal:stage\" WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ? ORDER BY resourceId",
+    "params": [
+     "open",
+     "2026-11-01T00:03:19.999Z",
+     "2026-11-01T00:03:19.999Z"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449062,
+     "round": 0,
+     "reps": 1,
+     "workerMs": 233,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 226,
+      "cpuMs": 212,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449118,
+     "round": 1,
+     "reps": 1,
+     "workerMs": 250,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 242,
+      "cpuMs": 228,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449152,
+     "round": 2,
+     "reps": 1,
+     "workerMs": 242,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 238,
+      "cpuMs": 225,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449190,
+     "round": 3,
+     "reps": 1,
+     "workerMs": 227,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 222,
+      "cpuMs": 211,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449212,
+     "round": 4,
+     "reps": 1,
+     "workerMs": 248,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 239,
+      "cpuMs": 226,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449028,
+    "rows": 389,
+    "bytes": 104756,
+    "rowsRead": 21005,
+    "rowsWritten": 0,
+    "check": 1664023118,
+    "plan": [
+     "SEARCH S_B1 USING INDEX idx_S_B1_q_Deal:stage (<expr>=? AND validTo>?)",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 301,
+    "workerColo": "LHR"
+   },
+   "reps": 1
+  },
+  {
+   "id": "d100.asof.far.B.unordered",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "far",
+   "m0": "2026-11-01T00:03:19.999Z",
+   "writesSince": 200000,
+   "arm": "B unordered",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_B1 INDEXED BY \"idx_S_B1_q_Deal:stage\" WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ?",
+    "params": [
+     "open",
+     "2026-11-01T00:03:19.999Z",
+     "2026-11-01T00:03:19.999Z"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449072,
+     "round": 0,
+     "reps": 2,
+     "workerMs": 458,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 453,
+      "cpuMs": 438,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449082,
+     "round": 1,
+     "reps": 2,
+     "workerMs": 461,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 453,
+      "cpuMs": 440,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449136,
+     "round": 2,
+     "reps": 2,
+     "workerMs": 471,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 467,
+      "cpuMs": 444,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449162,
+     "round": 3,
+     "reps": 2,
+     "workerMs": 446,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 437,
+      "cpuMs": 422,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449244,
+     "round": 4,
+     "reps": 2,
+     "workerMs": 440,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 436,
+      "cpuMs": 423,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449029,
+    "rows": 389,
+    "bytes": 104756,
+    "rowsRead": 20616,
+    "rowsWritten": 0,
+    "check": 1664023118,
+    "plan": [
+     "SEARCH S_B1 USING INDEX idx_S_B1_q_Deal:stage (<expr>=? AND validTo>?)"
+    ],
+    "reps": 1,
+    "workerMs": 280,
+    "workerColo": "LHR"
+   },
+   "reps": 2
+  },
+  {
+   "id": "d100.asof.far.B.ids",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "far",
+   "m0": "2026-11-01T00:03:19.999Z",
+   "writesSince": 200000,
+   "arm": "B ids only",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, validFrom FROM S_B1 INDEXED BY \"idx_S_B1_q_Deal:stage\" WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ?",
+    "params": [
+     "open",
+     "2026-11-01T00:03:19.999Z",
+     "2026-11-01T00:03:19.999Z"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449046,
+     "round": 0,
+     "reps": 2,
+     "workerMs": 733,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 729,
+      "cpuMs": 707,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449096,
+     "round": 1,
+     "reps": 2,
+     "workerMs": 450,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 444,
+      "cpuMs": 428,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449150,
+     "round": 2,
+     "reps": 2,
+     "workerMs": 436,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 425,
+      "cpuMs": 410,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449198,
+     "round": 3,
+     "reps": 2,
+     "workerMs": 413,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 412,
+      "cpuMs": 394,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449204,
+     "round": 4,
+     "reps": 2,
+     "workerMs": 419,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 415,
+      "cpuMs": 399,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449030,
+    "rows": 389,
+    "bytes": 0,
+    "rowsRead": 20616,
+    "rowsWritten": 0,
+    "check": 1664023118,
+    "plan": [
+     "SEARCH S_B1 USING INDEX idx_S_B1_q_Deal:stage (<expr>=? AND validTo>?)"
+    ],
+    "reps": 1,
+    "workerMs": 301,
+    "workerColo": "LHR"
+   },
+   "reps": 2
+  },
+  {
+   "id": "d100.asof.far.C",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "far",
+   "m0": "2026-11-01T00:03:19.999Z",
+   "writesSince": 200000,
+   "arm": "C",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_C1 INDEXED BY \"idx_S_C1_q_Deal:stage\" WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ? ORDER BY resourceId",
+    "params": [
+     "open",
+     "2026-11-01T00:03:19.999Z",
+     "2026-11-01T00:03:19.999Z"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449058,
+     "round": 0,
+     "reps": 1,
+     "workerMs": 256,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 253,
+      "cpuMs": 234,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449100,
+     "round": 1,
+     "reps": 1,
+     "workerMs": 145,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 136,
+      "cpuMs": 124,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449124,
+     "round": 2,
+     "reps": 1,
+     "workerMs": 221,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 213,
+      "cpuMs": 201,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449188,
+     "round": 3,
+     "reps": 1,
+     "workerMs": 150,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 150,
+      "cpuMs": 133,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449218,
+     "round": 4,
+     "reps": 1,
+     "workerMs": 223,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 219,
+      "cpuMs": 201,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449031,
+    "rows": 389,
+    "bytes": 104756,
+    "rowsRead": 40381,
+    "rowsWritten": 0,
+    "check": 1664023118,
+    "plan": [
+     "SEARCH S_C1 USING INDEX idx_S_C1_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 287,
+    "workerColo": "LHR"
+   },
+   "reps": 1
+  },
+  {
+   "id": "d100.asof.far.A",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "far",
+   "m0": "2026-11-01T00:03:19.999Z",
+   "writesSince": 200000,
+   "arm": "A (no index over history)",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_A1 WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ? ORDER BY resourceId",
+    "params": [
+     "open",
+     "2026-11-01T00:03:19.999Z",
+     "2026-11-01T00:03:19.999Z"
+    ]
+   },
+   "timed": [
+    {
+     "seq": 1795542646449076,
+     "round": 0,
+     "reps": 1,
+     "workerMs": 412,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 409,
+      "cpuMs": 394,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449104,
+     "round": 1,
+     "reps": 1,
+     "workerMs": 407,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 401,
+      "cpuMs": 388,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449132,
+     "round": 2,
+     "reps": 1,
+     "workerMs": 397,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 394,
+      "cpuMs": 382,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449194,
+     "round": 3,
+     "reps": 1,
+     "workerMs": 424,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 416,
+      "cpuMs": 403,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449232,
+     "round": 4,
+     "reps": 1,
+     "workerMs": 446,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 437,
+      "cpuMs": 422,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449032,
+    "rows": 389,
+    "bytes": 104756,
+    "rowsRead": 400000,
+    "rowsWritten": 0,
+    "check": 1664023118,
+    "plan": [
+     "SCAN S_A1"
+    ],
+    "reps": 1,
+    "workerMs": 505,
+    "workerColo": "LHR"
+   },
+   "reps": 1
+  },
+  {
+   "id": "d100.asof.far.B.pick",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "far",
+   "m0": "2026-11-01T00:03:19.999Z",
+   "writesSince": 200000,
+   "arm": "B pick",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_B1 WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ? ORDER BY resourceId",
+    "params": [
+     "open",
+     "2026-11-01T00:03:19.999Z",
+     "2026-11-01T00:03:19.999Z"
+    ]
+   },
+   "timed": [],
+   "isTimed": false,
+   "first": {
+    "seq": 1795542646449033,
+    "rows": 389,
+    "bytes": 104756,
+    "rowsRead": 21005,
+    "rowsWritten": 0,
+    "check": 1664023118,
+    "plan": [
+     "SEARCH S_B1 USING INDEX idx_S_B1_q_Deal:stage (<expr>=? AND validTo>?)",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 299,
+    "workerColo": "LHR"
+   },
+   "reps": 1
+  },
+  {
+   "id": "d100.asof.far.C.pick",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "far",
+   "m0": "2026-11-01T00:03:19.999Z",
+   "writesSince": 200000,
+   "arm": "C pick",
+   "object": "d100",
+   "op": {
+    "kind": "sql",
+    "sql": "SELECT resourceId, nodeId, validFrom, value FROM S_C1 WHERE typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND validTo > ? AND validFrom <= ? ORDER BY resourceId",
+    "params": [
+     "open",
+     "2026-11-01T00:03:19.999Z",
+     "2026-11-01T00:03:19.999Z"
+    ]
+   },
+   "timed": [],
+   "isTimed": false,
+   "first": {
+    "seq": 1795542646449034,
+    "rows": 389,
+    "bytes": 104756,
+    "rowsRead": 40381,
+    "rowsWritten": 0,
+    "check": 1664023118,
+    "plan": [
+     "SEARCH S_C1 USING INDEX idx_S_C1_q_Deal:stage (<expr>=?)"
+    ],
+    "reps": 1,
+    "workerMs": 204,
+    "workerColo": "LHR"
+   },
+   "reps": 1
+  },
+  {
+   "id": "d100.asof.far.today",
+   "q": "asof",
+   "depth": "d100",
+   "moment": "far",
+   "m0": "2026-11-01T00:03:19.999Z",
+   "writesSince": 200000,
+   "arm": "today",
+   "object": "d100",
+   "op": {
+    "kind": "firstRead",
+    "m0": "2026-11-01T00:03:19.999Z",
+    "scan": "SELECT resourceId, nodeId, validFrom, value FROM S_A1 INDEXED BY \"idx_S_A1_q_Deal:stage\" WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? ORDER BY resourceId",
+    "scanParams": [
+     "open"
+    ],
+    "lookup": "SELECT validFrom, value, (typeName = 'Deal' AND deleted = 0 AND json_extract(value, '$.stage') = 'open') AS matches FROM S_A1 WHERE resourceId = ? AND validFrom <= ? ORDER BY validFrom DESC LIMIT 1"
+   },
+   "timed": [
+    {
+     "seq": 1795542646449056,
+     "round": 0,
+     "reps": 37,
+     "workerMs": 1659,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 1661,
+      "cpuMs": 1547,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449114,
+     "round": 1,
+     "reps": 37,
+     "workerMs": 965,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 963,
+      "cpuMs": 924,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449146,
+     "round": 2,
+     "reps": 37,
+     "workerMs": 876,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 879,
+      "cpuMs": 858,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449182,
+     "round": 3,
+     "reps": 37,
+     "workerMs": 939,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 934,
+      "cpuMs": 900,
+      "outcome": "ok",
+      "via": "line"
+     }
+    },
+    {
+     "seq": 1795542646449228,
+     "round": 4,
+     "reps": 37,
+     "workerMs": 929,
+     "workerColo": "IAD",
+     "logs": {
+      "wallMs": 922,
+      "cpuMs": 887,
+      "outcome": "ok",
+      "via": "line"
+     }
+    }
+   ],
+   "isTimed": true,
+   "first": {
+    "seq": 1795542646449035,
+    "rows": 96,
+    "scanned": 424,
+    "asIs": 0,
+    "lookups": 424,
+    "found": 424,
+    "kept": 96,
+    "scanRead": 425,
+    "lookupRead": 424,
+    "rowsRead": 849,
+    "bytes": 25710,
+    "check": 2988887962,
+    "plan": [
+     [
+      "SEARCH S_A1 USING INDEX idx_S_A1_q_Deal:stage (<expr>=?)"
+     ],
+     [
+      "SEARCH S_A1 USING PRIMARY KEY (resourceId=? AND validFrom<?)"
+     ]
+    ],
+    "reps": 1,
+    "workerMs": 111,
+    "workerColo": "LHR"
+   },
+   "reps": 37
+  }
+ ],
+ "finishedAt": "2026-11-24T17:52:06.532Z",
+ "logsJoinedAt": "2026-11-24T17:53:02.550Z"
+}
