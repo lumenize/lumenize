@@ -124,6 +124,8 @@ Built already:
 
 ## Design intent
 
+### What a query is
+
 - **DI1. Every query names a node, and answers what sits at that node or beneath it.** `nodeId` is required on `QueryDescriptor`, beside `typeName` and `filter`, and is spelled as a create op spells it. "Beneath" follows every path of the DAG, so a list with two parents is under both. `{ typeName: 'Round', nodeId: ROUNDS_NODE_ID, filter: { message: id } }` answers that message's rounds at `rounds` and nothing a member wrote at `messages`. A query over the whole tree names `ROOT_NODE_ID`. A node the tree does not hold refuses the query, as a filter the engine refuses does.
 - **DI2. A caller with `read` at the named node is checked once, there.** It reads every result, since a grant reaches every node beneath it (C1), so no result's own node is looked at. The check reads the caller's live claims on a one-time read. On a push it reads the `sub` and the dominion verdict the subscription row stores, against the tree as it is, as today. The row's record of what a subscriber was last told (DI8) only decides whether an entry is sent, and never stands in for the check. Dominion over the host passes it as it passes any check.
 - **DI3. A caller without `read` at the node is told, not refused, and reads nothing beneath it.** The answer holds no results and `deniedNodes: [nodeId]`, as a resource subscription answers a caller who cannot read its resource (D6). A subscription still registers, so a grant that reaches the node reaches it too (DI8), and a one-time read still answers. A malformed query is refused, as today.
@@ -133,61 +135,56 @@ Built already:
   - The Galaxy's `#thread()` asks `doQuery` under `messages`, as the agent, instead of `findCurrent` and a read of each `Message`.
   - `findCurrent` takes a descriptor, so the `_InviteStatus` lookup names the node its rows sit at (C7).
   - `mesh.md` § *Nebula reaches its resources the way an app does* loses the `#thread()` sentence of its *Today's code differs* block, which the tree build left for this task. `ensureResource` and `findCurrent`'s one remaining caller stay host code no Client can call, and that block keeps saying so.
-- **DI8. A live query answers a write under its node and a grant at or above it, and does nothing yet when an edge changes** (D19). Its answer depends on what sits under its node, and on whether each subscriber reads that node. So:
-  - **A write touches a query only under its node.** A `move` op enters one subtree and leaves another, and `#touches` counts both.
-  - **A grant changed at or above the query's node changes only who reads it, and the plane tells each subscriber whose answer flipped** (D20). One function checks who reads, at a grant change and at each push. A subscriber let in is sent `read` and starts a first read (DI17), and its row records the moment that read names, as a subscribe's does (DI15). One shut out is sent `deniedNodes: [nodeId]` once, as DI3 answers, and its client drops the result it held. The row records which it was last told, a write only when the answer flips.
-  - **An edge changed beneath the query's node sends nothing, which is today's behaviour (B4).** A second parent can bring a whole subtree into a list with no resource written, and `removeEdge` and `reparentNode` can take one out. Those results reach a tab at its next first read: a reload, or a new ontology version. A catch-up that spans the change can miss them too (DI16). The tab stays one picture of the host, behind it.
-  - **Who reads is still checked on every push, against the tree as it is** (DI2). A subscriber an edge change shuts out or lets in is told at the query's next push, where a grant change tells them at once.
-  - **The temporal org tree closes the gap** (§ *Relationships*). Each node, edge and grant becomes a resource in `Snapshots` ([on-hold/wire-merge-patch-sync.md](on-hold/wire-merge-patch-sync.md) § *Option B with the tree's rows as resources*). An edge change is then a write with a moment, which D14's index finds, so a push and a catch-up both patch it.
-  - **The client stops re-asking for a denied query.** Its `#askAgain` exists only because a tree change reran nothing, and each ask costs the host a billed write (C10). Resource subscriptions keep it.
 - **DI9. A query's hash covers its type, its node and its filter (C2).** Two pages that ask the same question share one live query.
   - **A write is tested only against the live queries at its node or above it** (D23). No other query can hold the resource (DI1), and the plane finds a node's ancestors in memory (C8). Today a write is tested against every live query of its type.
   - **The cap counts a type's distinct live queries at one node, 200 as today.** A Star with a node for each of 5,000 people then has no ceiling on how many view a type at once, where one cap per type would stop the 201st. A write is tested against the queries at each ancestor of its node, along every path of the DAG, at most the cap at each. A list co-owned by many people has a parent for each of them (D24), so its writes are tested against a query for each person viewing it, which is accepted: each is a subscriber the write has to reach.
   - **A query counts toward the cap while it is live, whether or not its subscribers read its node.** A member denied a node could so fill that node's cap, which Stage 2's security lens weighs.
   - **Past the cap the error says to filter one of the node's queries further in the page.** Today's other advice, to reuse a query another page holds, cannot be followed at a node only one person queries.
-- **DI11. The docs say where to query, and that the result arrives whole.** `resources.md`, `api-reference.md` § *`client.resources.subscribeQuery`* and § *`client.resources.query`*, and `coding-your-ui.md` § *Data several people share: query it* show `nodeId`, drop `setRenderWindow` and `more`, and tell the page to sort, count and total its own copy. `access-control.md` § *Drawing the tree: a node for each audience* gains the rule that a list is queried at the node its resources are created under, and that a page knows its node (D24). The platform's `AGENTS.md` says every query names its node, and the `define-the-cast` skill checks a persona from their tab with one query at that persona's node. All of it lands with this task, the sharing example included (D25), and is drafted in § *Doc drafts*. Each block is `@skip-check` until a phase makes it real and then `@check-example`, and the embed is regenerated when the docs land (`studio-guidance.md`).
-  - **A page knows its node, and never rebuilds one list by querying every node its viewer reads** (D24). The node is a constant in the app's source, a node the person picked on screen, a record's `meta.nodeId`, or the node made for its viewer (D9, Q14).
-  - **The todo example's tree stands: a node for each person, and a node for each list beneath its creator's.** Alice holds `admin` at `user-alice`, which reaches `list-shopping` beneath it. The docs gain how sharing looks from the other side, now that a query answers only under the node it names:
-    - **A share is a grant on the list's node, at the tier its owner chose.** `read` or `write` leaves the list in Alice's part of the tree.
-    - **A grant at `admin` makes a co-owner,** who can add people as Alice can.
-    - **Bob's page finds what is shared with him as the nodes granted to him,** read from the tree it already holds. It queries a list at that list's node when he opens it.
-    - **Bob's page offers to add a co-owned list to his own.** Accepting adds a second parent, from `user-bob` to the list, which Bob may do: `addEdge` needs `write` at the parent and `admin` at the child. His one query at `user-bob` then holds it among his own lists. A list granted at `read` or `write` gets no offer, since Bob's `admin` at his own node would reach it.
-    - **Nothing is stored for the offer.** It is waiting while the grant is `admin` and the edge is absent, and declining is leaving it so.
-  - **The docs' example shows the page's side of it,** sketched here and checked when the docs phase writes it:
-
-    ```ts
-    const tree = store.lmz.orgTree.value;              // the whole tree, kept current (ADR-008)
-    const me = client.claims.sub;
-    const isAmongMine = (nodeId) => tree.edges.has(`${myNodeId}:${nodeId}`);   // myNodeId: Q14
-
-    // Every node someone granted Bob, with the tier they chose
-    const granted = [...tree.permissions]
-      .filter(([nodeId, grants]) => grants.has(me) && nodeId !== myNodeId)
-      .map(([nodeId, grants]) => ({ nodeId, tier: grants.get(me), label: tree.nodes.get(nodeId).label }));
-
-    const sharedWithMe = granted.filter((g) => !isAmongMine(g.nodeId));   // the "Shared with me" list
-    const offers = sharedWithMe.filter((g) => g.tier === 'admin');        // co-ownerships not yet added
-
-    // "Alice made you a co-owner of Shopping. Add it to your lists?"   [Add]  [Not now]
-    const accept = (offer) => client.orgTree.addEdge(myNodeId, offer.nodeId);
-
-    // Bob opens a shared list: one query, at that list's node
-    const todos = client.resources.subscribeQuery({ typeName: 'Todo', nodeId: list.nodeId, filter: {} });
-    ```
-  - **Until the temporal org tree lands, the docs say to keep the `admin` grant after accepting.** The new edge reaches Bob's open query at `user-bob` only at its next first read (D19), and the grant keeps the list in "Shared with me" until then. Today's docs offer removing the grant as cleanup.
 - **DI12. The old shape is refused, by a message naming the missing `nodeId`.** Nothing accepts both shapes. A generated app's build catches it before its page runs (C9).
-- **DI13. A roster is read from its handle, and the store path goes** (D18). A query's roster is who is subscribed to it right now. `client.subscribeQuerySubscribers(query)` takes the whole descriptor, node included, and its handle holds the roster as `subscribers`:
 
-    ```ts
-    const here = client.subscribeQuerySubscribers({
-      typeName: 'Message', nodeId: MESSAGES_NODE_ID, filter: { chat: DEFAULT_CHAT_ID },
-    });
-    await here.ready;
-    here.subscribers      // NEW: [{ sub, profileId }, …], kept current as people join and leave
-    ```
-  - **Today the handle holds only `ready`,** and the roster lands at `store.lmz.querySubscribers.<typeName>.<field>[value]`. That path spells a filter of one field equal to one string, so the store drops the roster of any other query, and a query that names a node could not be spelled.
-  - **A template that reads `subscribers` re-renders when the roster changes,** as one that reads a live query's result does.
-  - **A page holds the handle for as long as it shows the roster.** Reading a store path no longer starts a roster's subscription.
+### How a result reaches a tab and stays current
+
+**One tab's life, from its subscribe to a grant removed.** The items after it fill in each step.
+
+```mermaid
+sequenceDiagram
+  participant T as Tab
+  participant P as Plane
+  Note over T,P: First read, in pages as of M0 (DI17)
+  T->>P: subscribe { query }
+  P-->>T: { moment M0, snapshots, cursor c1 }
+  T->>P: { query, cursor c1 }
+  P-->>T: { moment M0, snapshots } with no cursor, the last page
+  Note over T,P: Catch-up from M0, in pages that each end at a moment (DI16)
+  T->>P: catch up [{ query, moment M0 }]
+  P-->>T: { moment M3, patches, hasMore }
+  T->>P: catch up [{ query, moment M3 }]
+  P-->>T: { moment M5, patches }
+  Note over T,P: ready resolves, and the tab holds the result as of M5
+  Note over T,P: A commit at M6 touches the query (DI14, DI15)
+  P-->>T: message { moment M6, pushes { previousMoment M5, patch } }
+  Note over T,P: The tab holds M5, so it is in step and applies the patch (DI19)
+  Note over T,P: The message for a commit at M7 is lost, and a commit at M8 follows
+  P-->>T: message { moment M8, pushes { previousMoment M7, patch } }
+  Note over T,P: M7 is after the M6 the tab holds, so it missed a push and applies nothing
+  T->>P: catch up [{ query, moment M6 }]
+  P-->>T: { moment M8, patches }
+  Note over T,P: A grant is removed, and the subscriber no longer reads the node (DI8)
+  P-->>T: message { pushes { deniedNodes [nodeId] } }
+  Note over T,P: The tab drops the result
+```
+
+The same exchanges as requests and answers, with a catch-up that names a query to read again and one that answers a denial:
+
+```
+first read   →  { query }                   ←  { moment: M0, snapshots: {…}, cursor: 'c1' }
+             →  { query, cursor: 'c1' }     ←  { moment: M0, snapshots: {…} }     // no cursor: the last page
+catch-up     →  [{ query, moment: M0 }]     ←  { moment: M3, patches: {…}, hasMore: true }   // stopped at about 2 MB
+             →  [{ query, moment: M3 }]     ←  { moment: M5, patches: {…} }                  // the last page
+catch-up     →  [{ query, moment: M0 }]     ←  { moment: M5, patches: {}, readWhole: ['<hash>'] }   // a first read follows
+catch-up     →  [{ query, moment: M0 }]     ←  { moment: M5, patches: {}, deniedNodes: { '<hash>': [nodeId] } }   // lost `read` while away
+```
+
 - **DI14. A live query's push is a merge patch of the result, keyed by resource id.** The client holds the result as one object whose keys are the results' ids and whose values are their snapshots: `{ "9f2c41aa-…": { value: { title: 'Acme renewal', stage: 'open', amount: 5000 }, meta: { validFrom: '2026-11-20T15:04:05.123Z', … } } }`.
   - **A push patches the result from the push before it to this one.** A result that entered is set whole, one that changed is patched, and one that left is `null`, so a deal won leaves a list of open deals as one `null`. The patch is what `diff` in `@lumenize/structured-clone` answers, a list applied in order when a value's own order changed.
   - **Keyed by id, never an ordered list.** An id list patches small only for an append or a removal (C15).
@@ -233,6 +230,14 @@ Built already:
     { read: true }                                 // the subscriber gained `read`: start a first read (DI8)
     ```
   - **A resource subscribed alone rides the message as its whole snapshot,** or as `{ deniedNodes }`, as it is sent today. It names no `previousMoment` and has no catch-up, so it is never stripped: a message past 256 KiB loses its queries' patches (DI14) and keeps its `resources`, and may be larger than the limit by what they weigh (D26). Its patch and its moment are Item 14's (§ *Relationships*).
+- **DI17. A first read pages by resource id, as of the moment it began.** A subscribe that names no moment, and a one-time `query`, read the result in pages of about 2 MB, ordered by resource id. Every page names the moment the read began, as the prototype's first read repeats its first page's `nextFrom`, and carries a cursor the server made, which the next request presents unchanged.
+  - **A query no filter index serves pages by node, then by resource id (D13).** The node index returns rows in that order, and resource-id order would sort the rest of the result on every page. The cursor then names a node and a resource id, and the plane binds only the nodes from that one on. No caller sees which order a read took.
+  - **A result written after the read began arrives as it stood then.** The page reads its version at that moment by its key, so every page is a slice of one moment's result, and the catch-up from that moment, which follows the last page, brings the client current.
+  - **`ready` resolves when the whole result has arrived.** A push that arrives during the read waits until the read and its catch-up end, and is then applied or skipped by DI15's rule, as the proposal's R16 has it.
+  - **A query still on its first read is built apart from the store.** Its pages are as of the moment the read began, and other lists on the page keep moving the store past that moment. No page shows the list before `ready`, so nothing disagrees with it. At `ready` its snapshots join the store in one step, and an entry already at a later `validFrom` stays.
+  - **The plane computes a page when it is asked for it, and stores none.** The client asks for the first page, each answer carries the cursor for the next, and the client asks again until an answer carries none. The moment the client holds does not move during the read, since every page names the moment the read began, and the cursor is what advances.
+  - **Every subscriber's first read is its own.** A hundred tabs opening one long list each read it. That costs rows read, billed at a thousandth of a write, and the Durable Object's time to read and encode them. A cache of a query's pages, shared by everyone who reads it, is in § *Beyond this task*, and nothing here stands in its way: the server makes the cursor and names the moment, so it may answer from pages it kept.
+  - **A page on screen order would fill the screen first, and needs a sort the descriptor no longer has (D2).** Pages of about 2 MB arrive quickly enough that the page waits for `ready`.
 - **DI16. A catch-up names the moment the client holds, and answers only what changed since, in pages of about 2 MB.** A re-subscribe after a reconnect asks for one, and so does a push whose `previousMoment` is after the client's moment.
   - **One request catches up every query a tab holds that is behind** (D15). It lists each with the moment the tab holds for it, `[{ query, moment }, …]`, and every page ends at one moment for all of them. A tab that applies a page as one step holds all its lists as they stood at that moment.
   - **A catch-up checks `read` at each query's node, as a subscribe does.** A query the caller can no longer read is answered `deniedNodes: [nodeId]` in the page, the tab drops its result, and the row records that it was told (DI8). One the caller was denied when it left and reads now is named in `readWhole`.
@@ -245,25 +250,6 @@ Built already:
   - **A page that stopped short says so with `hasMore`** (D16), as the proposal's R14 has it, and the client asks again at once from the moment the page names. A page may stop short with nothing to send, as after reading many writes to a type the request does not name.
   - **The server cuts every page.** A request names only the moments the client holds, and the server decides where each page ends, so no client chooses a page's size. The client asks again from the moment the last page left it at, which is also how the MCP interface over HTTP has to work, since a response carries one page.
   - **The plane finds what was written since a moment through an index on `Snapshots(typeName, validFrom)` (D14).** It reads ids and moments from the index alone, and opens a row only for a resource it found.
-- **DI17. A first read pages by resource id, as of the moment it began.** A subscribe that names no moment, and a one-time `query`, read the result in pages of about 2 MB, ordered by resource id. Every page names the moment the read began, as the prototype's first read repeats its first page's `nextFrom`, and carries a cursor the server made, which the next request presents unchanged.
-  - **A query no filter index serves pages by node, then by resource id (D13).** The node index returns rows in that order, and resource-id order would sort the rest of the result on every page. The cursor then names a node and a resource id, and the plane binds only the nodes from that one on. No caller sees which order a read took.
-  - **A result written after the read began arrives as it stood then.** The page reads its version at that moment by its key, so every page is a slice of one moment's result, and the catch-up from that moment, which follows the last page, brings the client current.
-  - **`ready` resolves when the whole result has arrived.** A push that arrives during the read waits until the read and its catch-up end, and is then applied or skipped by DI15's rule, as the proposal's R16 has it.
-  - **A query still on its first read is built apart from the store.** Its pages are as of the moment the read began, and other lists on the page keep moving the store past that moment. No page shows the list before `ready`, so nothing disagrees with it. At `ready` its snapshots join the store in one step, and an entry already at a later `validFrom` stays.
-  - **The plane computes a page when it is asked for it, and stores none.** The client asks for the first page, each answer carries the cursor for the next, and the client asks again until an answer carries none. The moment the client holds does not move during the read, since every page names the moment the read began, and the cursor is what advances.
-  - **Every subscriber's first read is its own.** A hundred tabs opening one long list each read it. That costs rows read, billed at a thousandth of a write, and the Durable Object's time to read and encode them. A cache of a query's pages, shared by everyone who reads it, is in § *Beyond this task*, and nothing here stands in its way: the server makes the cursor and names the moment, so it may answer from pages it kept.
-  - **The requests and answers, for a first read of two pages and a catch-up of two:**
-
-    ```
-    first read   →  { query }                   ←  { moment: M0, snapshots: {…}, cursor: 'c1' }
-                 →  { query, cursor: 'c1' }     ←  { moment: M0, snapshots: {…} }     // no cursor: the last page
-    catch-up     →  [{ query, moment: M0 }]     ←  { moment: M3, patches: {…}, hasMore: true }   // stopped at about 2 MB
-                 →  [{ query, moment: M3 }]     ←  { moment: M5, patches: {…} }                  // the last page
-    catch-up     →  [{ query, moment: M0 }]     ←  { moment: M5, patches: {}, readWhole: ['<hash>'] }   // a first read follows
-    catch-up     →  [{ query, moment: M0 }]     ←  { moment: M5, patches: {}, deniedNodes: { '<hash>': [nodeId] } }   // lost `read` while away
-    ```
-  - **A page on screen order would fill the screen first, and needs a sort the descriptor no longer has (D2).** Pages of about 2 MB arrive quickly enough that the page waits for `ready`.
-- **DI18. What one subscription holds has no ceiling, and the host never holds more than about a page of it (D7).** A first read and a catch-up page at about 2 MB (DI16, DI17), and a message stops at 256 KiB (DI14). What a long list costs is the person's wait for `ready`: by arithmetic, 10 MB takes about 4 s at 20 Mbit/s. So a first read past about 10 MB logs at `warn`, naming the type, the node and the size, which gives a slow load a stated cause. The host logs it, where we read it, and the client warns in the page's console too, where the person with the slow page looks. The client adds up the pages it received, so it needs nothing new on the wire. Host code that reads a whole result into the Durable Object's memory breaks the bound. The Galaxy's `#thread()` is the one that does, a named exception until the chat is compacted (D10).
 - **DI19. A row of a result draws from the result.** `store.resources.<typeName>[id].value` reads the snapshot any live query on the page holds, so app code that reads the store does not change, and a list of any length opens one subscription. `setRenderWindow`, its grace period and `renderGraceMs` go. A resource shown alone, such as a detail page, still subscribes to itself, and the store decides when (D21).
   - **The store holds each resource once, at `store.resources.<typeName>[id]`, as `{ value, meta }`.** That is today's entry, the one a resource subscription fills and an edit writes through. A query's first read and its patches fill the same entries, and the handle keeps the ids of its result.
   - **The handle holds `ready`, `resourceIds`, `deniedNodes` and `onChange`, as today, without `more` and `setRenderWindow`.** `resourceIds` carries no order, where today it is each result's latest write, oldest first. A page sorts its copy (D2), and a sort on `meta.validFrom` gives today's order, in which an edited post moves.
@@ -282,10 +268,14 @@ Built already:
   - **An entry stays in the store while something reads it or a live query holds it.** A list of 5,000 deals keeps 5,000 entries though the screen shows 30. One that nothing reads and no query holds goes after today's quiet period, `unsubscribeGraceMs`.
   - **A subscription's snapshot rides the tab's message** (DI15). The docs need no rule about subscribing to what a query holds, since a page's reads never do.
   - **The org tree arrives on a channel of its own,** so a change to the tree and the patches it causes are separate steps. Item 14 is where that channel changes (§ *Relationships*).
-- **DI20. Our own lists hold their whole result, a long chat's thread included.** The Galaxy's `#thread()` is the exception to DI18's bound on the host's memory, until the chat is compacted (D10, fast-follow's Item 26). Studio's landed build is the `ServedBuild` with the latest write among those it holds, so C5's stall goes with the cap. Studio's thread holds the whole chat (D8), the Galaxy's `#thread()` reads the whole chat too (D10), and C4's stall goes with the cap.
-- **DI22. An app's own nodes exist in every Star before a page's first query, with ids its pages import as constants (D9, D12).** [nebula-app-lifecycle-hooks.md](nebula-app-lifecycle-hooks.md) builds that, after this task. The ids are exported from `src/ontology/index.ts`, and the app's `onNewOntologyVersion` creates the nodes when a Star installs a version. Its § *Design intent* says how that code runs, what a failure does, and what it leaves as an admin left it.
-  - **A node's id is a constant in the app's source from this task on** (D25). The model writes the id there, pages import it, and until the hooks land the `define-the-cast` skill creates the node under that id: `createNode` takes its id from the caller (C21). The hooks task moves the constants to `src/ontology/index.ts` and has the app's own code create the nodes, and no page changes.
-  - **After it lands, the skill creates only nodes for one person or one record,** such as Pat's list. The app's own nodes, such as `lists`, come from the hook.
+- **DI8. A live query answers a write under its node and a grant at or above it, and does nothing yet when an edge changes** (D19). Its answer depends on what sits under its node, and on whether each subscriber reads that node. So:
+  - **A write touches a query only under its node.** A `move` op enters one subtree and leaves another, and `#touches` counts both.
+  - **A grant changed at or above the query's node changes only who reads it, and the plane tells each subscriber whose answer flipped** (D20). One function checks who reads, at a grant change and at each push. A subscriber let in is sent `read` and starts a first read (DI17), and its row records the moment that read names, as a subscribe's does (DI15). One shut out is sent `deniedNodes: [nodeId]` once, as DI3 answers, and its client drops the result it held. The row records which it was last told, a write only when the answer flips.
+  - **An edge changed beneath the query's node sends nothing, which is today's behaviour (B4).** A second parent can bring a whole subtree into a list with no resource written, and `removeEdge` and `reparentNode` can take one out. Those results reach a tab at its next first read: a reload, or a new ontology version. A catch-up that spans the change can miss them too (DI16). The tab stays one picture of the host, behind it.
+  - **Who reads is still checked on every push, against the tree as it is** (DI2). A subscriber an edge change shuts out or lets in is told at the query's next push, where a grant change tells them at once.
+  - **The temporal org tree closes the gap** (§ *Relationships*). Each node, edge and grant becomes a resource in `Snapshots` ([on-hold/wire-merge-patch-sync.md](on-hold/wire-merge-patch-sync.md) § *Option B with the tree's rows as resources*). An edge change is then a write with a moment, which D14's index finds, so a push and a catch-up both patch it.
+  - **The client stops re-asking for a denied query.** Its `#askAgain` exists only because a tree change reran nothing, and each ask costs the host a billed write (C10). Resource subscriptions keep it.
+- **DI18. What one subscription holds has no ceiling, and the host never holds more than about a page of it (D7).** A first read and a catch-up page at about 2 MB (DI16, DI17), and a message stops at 256 KiB (DI14). What a long list costs is the person's wait for `ready`: by arithmetic, 10 MB takes about 4 s at 20 Mbit/s. So a first read past about 10 MB logs at `warn`, naming the type, the node and the size, which gives a slow load a stated cause. The host logs it, where we read it, and the client warns in the page's console too, where the person with the slow page looks. The client adds up the pages it received, so it needs nothing new on the wire. Host code that reads a whole result into the Durable Object's memory breaks the bound. The Galaxy's `#thread()` is the one that does, a named exception until the chat is compacted (D10).
 - **DI23. This task reads a past version only by its key, and runs no query as of a past moment** (Larry asked, 2026-11-23). Wherever it reads the past, the plane already knows which resources to read:
   - **A catch-up** first finds the resources written since the client's moment (D14). It reads each one's version at that moment and at the page's last moment through the table's primary key, `(resourceId, validFrom)`, and tests the filter against each row read, as `#touches` tests a commit's rows today (C12).
   - **A first read** finds its results among current rows, through the filter's index or the node index (D13). It reads an earlier version, by key, only for a result written after the read began (DI17).
@@ -293,6 +283,10 @@ Built already:
   - **When an edge of the tree changed in between, the two differ, and the patch misses what the edge moved** (DI8, D19). The temporal org tree lets the plane ask what sat under a node at the earlier moment.
   - **Both read through today's tree.** Whether a version sat under the query's node is asked of the tree as it is now. § *Beyond this task* makes the same reading the default for time series.
   - **A query as of a past moment also has to find every resource that matched then, with no list of which to look at.** Today's indexes hold only current rows, so that find is a scan of the type's history. It is the part Goal 7 keeps open and this task does not build.
+
+### Our own readers, and code inside a host
+
+- **DI20. Our own lists hold their whole result, a long chat's thread included.** The Galaxy's `#thread()` is the exception to DI18's bound on the host's memory, until the chat is compacted (D10, fast-follow's Item 26). Studio's landed build is the `ServedBuild` with the latest write among those it holds, so C5's stall goes with the cap. Studio's thread holds the whole chat (D8), the Galaxy's `#thread()` reads the whole chat too (D10), and C4's stall goes with the cap.
 - **DI24. Code inside a host reads a query once, a page at a time, and holds no subscription** (Larry asked, 2026-11-23). The agent loop runs in the Galaxy, the Durable Object that holds the chat, so it reads when its work needs an answer and nothing is pushed to it.
   - **It calls the operation a Client's `query` reaches, in process,** under claims Mesh builds (`mesh.md` § *Nebula reaches its resources the way an app does*). A turn's rounds, read as the agent:
 
@@ -304,6 +298,54 @@ Built already:
     ```
   - **`doQuery` answers one page and the cursor for the next,** which is what a Client's `query` is sent for each of its requests. The client's `query` asks until no cursor comes back and resolves with the whole result. Host code that does the same holds the whole result in the Durable Object's memory, which only `#thread()` may (D10).
   - **A turn's rounds fit in one page,** so the round store reads once, and throws if a cursor comes back.
+
+### Rosters, the docs, and an app's nodes
+
+- **DI13. A roster is read from its handle, and the store path goes** (D18). A query's roster is who is subscribed to it right now. `client.subscribeQuerySubscribers(query)` takes the whole descriptor, node included, and its handle holds the roster as `subscribers`:
+
+    ```ts
+    const here = client.subscribeQuerySubscribers({
+      typeName: 'Message', nodeId: MESSAGES_NODE_ID, filter: { chat: DEFAULT_CHAT_ID },
+    });
+    await here.ready;
+    here.subscribers      // NEW: [{ sub, profileId }, …], kept current as people join and leave
+    ```
+  - **Today the handle holds only `ready`,** and the roster lands at `store.lmz.querySubscribers.<typeName>.<field>[value]`. That path spells a filter of one field equal to one string, so the store drops the roster of any other query, and a query that names a node could not be spelled.
+  - **A template that reads `subscribers` re-renders when the roster changes,** as one that reads a live query's result does.
+  - **A page holds the handle for as long as it shows the roster.** Reading a store path no longer starts a roster's subscription.
+- **DI11. The docs say where to query, and that the result arrives whole.** `resources.md`, `api-reference.md` § *`client.resources.subscribeQuery`* and § *`client.resources.query`*, and `coding-your-ui.md` § *Data several people share: query it* show `nodeId`, drop `setRenderWindow` and `more`, and tell the page to sort, count and total its own copy. `access-control.md` § *Drawing the tree: a node for each audience* gains the rule that a list is queried at the node its resources are created under, and that a page knows its node (D24). The platform's `AGENTS.md` says every query names its node, and the `define-the-cast` skill checks a persona from their tab with one query at that persona's node. All of it lands with this task, the sharing example included (D25), and is drafted in § *Doc drafts*. Each block is `@skip-check` until a phase makes it real and then `@check-example`, and the embed is regenerated when the docs land (`studio-guidance.md`).
+  - **A page knows its node, and never rebuilds one list by querying every node its viewer reads** (D24). The node is a constant in the app's source, a node the person picked on screen, a record's `meta.nodeId`, or the node made for its viewer (D9, Q14).
+  - **The todo example's tree stands: a node for each person, and a node for each list beneath its creator's.** Alice holds `admin` at `user-alice`, which reaches `list-shopping` beneath it. The docs gain how sharing looks from the other side, now that a query answers only under the node it names:
+    - **A share is a grant on the list's node, at the tier its owner chose.** `read` or `write` leaves the list in Alice's part of the tree.
+    - **A grant at `admin` makes a co-owner,** who can add people as Alice can.
+    - **Bob's page finds what is shared with him as the nodes granted to him,** read from the tree it already holds. It queries a list at that list's node when he opens it.
+    - **Bob's page offers to add a co-owned list to his own.** Accepting adds a second parent, from `user-bob` to the list, which Bob may do: `addEdge` needs `write` at the parent and `admin` at the child. His one query at `user-bob` then holds it among his own lists. A list granted at `read` or `write` gets no offer, since Bob's `admin` at his own node would reach it.
+    - **Nothing is stored for the offer.** It is waiting while the grant is `admin` and the edge is absent, and declining is leaving it so.
+  - **The docs' example shows the page's side of it,** sketched here and checked when the docs phase writes it:
+
+    ```ts
+    const tree = store.lmz.orgTree.value;              // the whole tree, kept current (ADR-008)
+    const me = client.claims.sub;
+    const isAmongMine = (nodeId) => tree.edges.has(`${myNodeId}:${nodeId}`);   // myNodeId: Q14
+
+    // Every node someone granted Bob, with the tier they chose
+    const granted = [...tree.permissions]
+      .filter(([nodeId, grants]) => grants.has(me) && nodeId !== myNodeId)
+      .map(([nodeId, grants]) => ({ nodeId, tier: grants.get(me), label: tree.nodes.get(nodeId).label }));
+
+    const sharedWithMe = granted.filter((g) => !isAmongMine(g.nodeId));   // the "Shared with me" list
+    const offers = sharedWithMe.filter((g) => g.tier === 'admin');        // co-ownerships not yet added
+
+    // "Alice made you a co-owner of Shopping. Add it to your lists?"   [Add]  [Not now]
+    const accept = (offer) => client.orgTree.addEdge(myNodeId, offer.nodeId);
+
+    // Bob opens a shared list: one query, at that list's node
+    const todos = client.resources.subscribeQuery({ typeName: 'Todo', nodeId: list.nodeId, filter: {} });
+    ```
+  - **Until the temporal org tree lands, the docs say to keep the `admin` grant after accepting.** The new edge reaches Bob's open query at `user-bob` only at its next first read (D19), and the grant keeps the list in "Shared with me" until then. Today's docs offer removing the grant as cleanup.
+- **DI22. An app's own nodes exist in every Star before a page's first query, with ids its pages import as constants (D9, D12).** [nebula-app-lifecycle-hooks.md](nebula-app-lifecycle-hooks.md) builds that, after this task. The ids are exported from `src/ontology/index.ts`, and the app's `onNewOntologyVersion` creates the nodes when a Star installs a version. Its § *Design intent* says how that code runs, what a failure does, and what it leaves as an admin left it.
+  - **A node's id is a constant in the app's source from this task on** (D25). The model writes the id there, pages import it, and until the hooks land the `define-the-cast` skill creates the node under that id: `createNode` takes its id from the caller (C21). The hooks task moves the constants to `src/ontology/index.ts` and has the app's own code create the nodes, and no page changes.
+  - **After it lands, the skill creates only nodes for one person or one record,** such as Pat's list. The app's own nodes, such as `lists`, come from the hook.
 
 Claims the design rests on:
 
