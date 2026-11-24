@@ -283,7 +283,7 @@ Every dependency here needs Larry's approval. Selector generation in the style o
 
 - **The `/live` harness is built on `wrangler dev`.** `drive.ts` boots one per scenario, reads its output, and fingerprints the tree it reloads on save. A Vite dev server changes all of that, so the switch ends with a `drive.ts all` sweep and a deployed pass.
 - **A second package pins `miniflare` exactly.** On 2026-10-08 `cf` pinned `5.20261006.0-alpha` and `@cloudflare/vitest-plugin` pinned `5.20261001.0-alpha`. From then on the two are chosen together, or local dev and the vitest-plugin lane run different workerd builds (`packaging.md` § *Toolchain bumps*).
-- **Nebula's bundle is about a quarter larger gzipped**, 863 KiB under Vite against 683 KiB from wrangler. Bytes are not startup cost, so the first deploy reads its `Worker Startup Time` against wrangler's before going further.
+- **Rolldown keeps JSDoc comments unless told not to**, which made Nebula's first Vite bundle 838 KiB gzipped against wrangler's 683 KiB. With `output.comments: { jsdoc: false }` it is 547 KiB (`experiments/cf-decorator-spike/RESULTS.md` § *Findings*). Bytes are not startup cost, so the first deploy still reads its `Worker Startup Time` against wrangler's.
 - **`cf` keeps its own login.** It does not read wrangler's session, and `.dev.vars` holds no deploy token, so the deploy scripts need one or the other.
 - **`cf` wants Node 24.22 or later**, against 24.19 on this machine, so a Node bump goes first, on its own axis (`packaging.md` § *Toolchain bumps*).
 - **`critical.md` is written against wrangler.** Its `Env`, compatibility-date and secrets rules name `wrangler types`, `wrangler.jsonc` or its `vars`, and each changes with the format.

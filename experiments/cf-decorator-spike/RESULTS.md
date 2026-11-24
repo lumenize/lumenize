@@ -34,7 +34,15 @@ node scripts/drive.mjs   # or curl /meta, /start?id=<uuid>, /results?id=<uuid>
 
 - **The decorator blocker is gone, by `unplugin-swc`, the same plugin and options both UI surfaces carry.** Nothing new to maintain.
 - **Keep `unplugin-swc`'s default `exclude`.** `exclude: []` sends swc through `node_modules`, where it reads each package's `tsconfig.json`, and several of isomorphic-git's dependencies ship one that extends `@ljharb/tsconfig`, which nobody installs, so Nebula's build fails. `@lumenize/*` resolves through workspace symlinks to real paths outside `node_modules`, so the default already transforms it. The spike's own `vite.config.ts` still has `exclude: []`, which was harmless there and is what deployed.
-- **Nebula's bundle is about a quarter larger gzipped under Vite.** About 863 KiB gzipped across `index.js` and its chunks, against 683 KiB from `wrangler deploy --dry-run` at wrangler 4.147.0. Bytes are not startup cost (`packaging.md` § *Startup cost is work at import, not bytes*), so this is a prompt to measure `Worker Startup Time` on the first deploy, not a finding about startup.
+- **Nebula's bundle is smaller under Vite once Rolldown drops JSDoc, which it keeps by default.** As first built, it was about 838 KiB gzipped across `index.js` and its chunks (`gzip -c` per file, summed), against 683 KiB for wrangler 4.147.0's `worker.js`. Neither build minifies. The gap was comments: Rolldown's `output.comments` keeps JSDoc unless told not to, and esbuild, under wrangler, drops it. Measured on the same tree:
+
+  | Build | Raw | Gzipped |
+  |---|---|---|
+  | wrangler (esbuild, `keep_names`) | 2,949 KiB | 683 KiB |
+  | Vite, Rolldown's defaults | 3,269 KiB | 838 KiB |
+  | Vite, `comments: { jsdoc: false }` (`nebula/vite.nojsdoc.config.ts`) | 2,349 KiB | 547 KiB |
+
+  The last row still carries 32 `_apply_decs_2203` calls, and every chunk passes `node --check`. Some of the rest of the difference is wrangler's `keep_names`: its `worker.js` has 2,703 `__name(…)` wrappers, and Vite's has none. Nothing here reads a class's or a function's own `name`: the `.name` reads in `packages/mesh/src`, `packages/resources/src` and `apps/nebula/src` are all on Errors that set it themselves. Bytes are not startup cost (`packaging.md` § *Startup cost is work at import, not bytes*), so the first deploy still reads `Worker Startup Time` against wrangler's.
 - **`cf` does not share wrangler's login.** `cf auth whoami` answered *Not logged in* beside a live wrangler session, and offered to deploy to a temporary account instead, which was declined. The deploy ran with wrangler's own OAuth token passed in `CLOUDFLARE_API_TOKEN` (from `wrangler auth token --json`, never printed), so `cf` takes the same credential once it is handed over. Adopting `cf` needs a `cf auth login`, or a deploy token in `.dev.vars`, which has none today.
 - **`cf` 1.0.0-rc.4 wants Node 24.22 or later**, and this machine runs 24.19. It warned and ran. Adopting it is therefore a Node bump too, which `packaging.md` § *Toolchain bumps* puts on its own axis before the toolchain moves.
 - **`cf` prints its telemetry events** to the console on every command, by default.
