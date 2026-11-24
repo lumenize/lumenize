@@ -690,6 +690,44 @@ Then the whole registry runs locally, since this phase and § *Phase 3* change w
 
 **Closing runs, on the tree with D22 to D25:** type-check clean; Mesh 1123 passed and 4 skipped, Resources 265, Nebula 1356 passed and 2 skipped; `npm run test:doc` passed. The full `/live` sweep passed 79 of 79 with 2 parked, in 45.5 minutes, with no flake.
 
+**Closing deployed pass, on a deploy whose self-check matched `739b5f2`:** eleven of this build's twelve scenarios passed on their first run, `resubscribe-when-lost` among them, which had failed three times in § *Phase 6*'s pass. `galaxy-builds-its-tree` failed after limb 1 with a bare `TimeoutError`, 1155 s in. The Mac was asleep for that whole gap: `pmset -g log` shows a Maintenance Sleep from 23:37:04 to 23:52:39 local, and the run's own log lines stop at 04:37:01Z and resume at 04:52:40Z. Rerun deployed with nothing changed, it passed all six limbs in 224.6 s. That is the host sleeping under a run, so it is not counted as a flake of the scenario.
+
+**Workers Issues since that pass began:** nothing new. `scope-deleted` is standing. `teardown failed`, with *Durable Object reset because its code was updated*, recurred during the pass. It dates from 2026-10-14 with 24 occurrences, and `scripts/issues.mjs`'s header does not list it as standing. `tasks/backlog.md` § *Other Nebula backlog* already has the row that asks which it is.
+
+## Phase Retro
+
+**What did we learn?**
+
+- **A Client asked for the tree only at a connection made while a listener was set.** The scenario's limb 4 waited for a push that never came, and the first fix worked around it in the harness. D25 removed the gap in the Client instead.
+- **`ctx.id.name` is there at a node's first construction, and the stamped name is not.** `onStart` runs before any call has stamped one, so a node's own principals read the namespace's name first (D24).
+- **The protected grant had no lane test.** Removing it reddened only the `/live` scenario, so the restore at each start now has lane cases of its own.
+- **SQLite triggers count what a start writes.** An `INSERT OR IGNORE` that finds its row fires none, so a count of zero means no write, with no proxy around `ctx`.
+- **A deployed run that fails far past its budget, with its log silent for the gap, is the Mac asleep.** `pmset -g log` showed a sleep covering the whole sixteen minutes of the one closing failure.
+
+**What did we struggle with?**
+
+- **The signature changes reached many callers.** `createNode` had thirty-one and `invite` twenty-one that a script could rewrite, and the type-checker named the rest. Neither was hard, and both were most of their phase's time.
+- **The deployed venue failed often.** In § *Phase 6*'s pass five of twelve scenarios failed on first try, and four of those were a lost mail, a dropped socket or a late log line.
+
+**Did any tests fail unexpectedly?**
+
+- **Limb 4's missing push** was the Client's subscribe gap above.
+- **One mutation survived:** duplicate addresses compared as sent. The fixture named the lower-case spelling first, which is already the normalized one, so both forms agreed.
+- **`resubscribe-when-lost` failed deployed three times in § *Phase 6*, in a different place each time, and passed in the closing pass.** No cause was found, and the Mac did not sleep during those runs. `tasks/backlog.md` § *Testing & Quality* now carries it.
+
+**Impact on follow-on work?**
+
+- **nebula-query-upgrade.md is no longer paused.** Its `#thread()` read replaces `findCurrent`, the last reach `mesh.md`'s *Today's code differs* block still names.
+- **nebula-app-lifecycle-hooks.md's review confirms which scope's system principal an app's code runs as,** now that D24 names the principal from the object's own name.
+- **nebula-accounts-and-apps-have-names.md creates its `meta` node in each host's `onStart`,** through the same `createNode`.
+
+**Process changes?**
+
+- **A deployed pass of several scenarios should keep a record of which failures repeat.** `drive.ts` takes one scenario or `all`, so the pass was a shell loop that kept none. Proposed: `drive.ts` takes a list of names and writes the sweep record for it, so `--rerun` works on a subset.
+- **The harness should say when the host slept.** Proposed: `drive.ts` keeps a one-second heartbeat and, on a failure, reports any gap in it over a minute, so a sleep is named in the failure itself.
+- **A closing grep for a retired term misses it across a line break.** Proposed for `/build-task`'s read of a retired name: search with `rg -U` and `\s+` between the words.
+- **Holding the closing suites, sweep and deployed pass until after the hand-off's answers worked.** D22 to D25 each changed source, and one sweep covered all of them.
+
 ## Non-goals
 
 - **An app's `onStart` and `onNewOntologyVersion`,** and the facet they run in: nebula-app-lifecycle-hooks.md.
