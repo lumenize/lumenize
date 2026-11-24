@@ -21,7 +21,7 @@
  * `tasks/email-latency-cf-vs-resend.md`), which is why it can be the default
  * tier rather than a reserved-for-headline-flows luxury.
  */
-import type { StoredEmail, DeliveryEvent, DeliveryEventMessage, ReplayedMessage } from './types';
+import type { StoredEmail, DeliveryEvent, DeliveryEventMessage, ReplayedMessage, ReplayRequest } from './types';
 
 const EMAIL_TEST_HTTP_URL = 'https://email-test.transformation.workers.dev';
 const EMAIL_TEST_WS_URL = 'wss://email-test.transformation.workers.dev';
@@ -77,8 +77,7 @@ export interface WaitForEmailOptions {
 
 /**
  * Wall-clock marks (ms since epoch) filled in as the receive side progresses.
- * `wsOpenAt` is when the first socket opened. Mail that beats it is seen only if a later socket
- * asks for a replay, so on a wait that never dropped it is a floor on any latency measured.
+ * `wsOpenAt` is when the first socket opened. Mail that beats it reaches the waiter by replay.
  */
 export interface EmailWaitMarks {
   wsOpenAt?: number;
@@ -137,10 +136,14 @@ const REPLAY_ANSWER_MS = 5000;
  * Call this BEFORE triggering the send — the DO pushes only to already-connected
  * sockets, so a listener attached afterwards misses the email entirely.
  *
- * **A socket that fails to open or drops is opened again, until the wait's `timeout`.** Every
- * socket after the first asks the Worker to replay what arrived since this call began (`replayMs`,
- * an elapsed time, so the two clocks need not agree), which covers mail that landed while no socket
- * was open. The first socket asks for nothing, so a wait that never drops behaves as it always has.
+ * **Every socket, once open, asks the Worker to replay what arrived since this call began** (as an
+ * elapsed time, so the two clocks need not agree). This call returns before its socket is open and
+ * the caller sends at once, so a fast mail can be stored before the socket exists: on 2026-11-24 an
+ * invite was stored 640 ms after its send and its waiter never heard it. The replay covers that
+ * stretch, and nothing older.
+ *
+ * **A socket that fails to open or drops is opened again, until the wait's `timeout`,** and the
+ * same replay covers mail that landed while none was open.
  *
  * ⚠️ **You MUST call `cleanup()`, and a `finally` is the only safe place** — an assertion between
  * here and there will otherwise skip it. The reason is not tidiness: the open WebSocket keeps Node's
@@ -207,16 +210,15 @@ export function waitForEmail(options: WaitForEmailOptions, transport: EmailTestT
       if (settled) return;
       drops++;
       lastTrouble = trouble;
-      later(() => { void connect(true); }, RECONNECT_DELAYS_MS[Math.min(failuresInARow, RECONNECT_DELAYS_MS.length - 1)]);
+      later(() => { void connect(); }, RECONNECT_DELAYS_MS[Math.min(failuresInARow, RECONNECT_DELAYS_MS.length - 1)]);
       failuresInARow++;
     };
 
-    const connect = async (replay: boolean): Promise<void> => {
+    const connect = async (): Promise<void> => {
       if (settled) return;
       let socket: WebSocket;
       try {
-        socket = await transport.open(query + (to !== undefined ? '&events=1' : '')
-          + (replay ? `&replayMs=${Date.now() - startedAt}` : ''));
+        socket = await transport.open(query + (to !== undefined ? '&events=1' : ''));
       } catch (e) {
         reconnect(e instanceof Error ? e.message : String(e));
         return;
@@ -225,17 +227,21 @@ export function waitForEmail(options: WaitForEmailOptions, transport: EmailTestT
       ws = socket;
       marks.wsOpenAt ??= Date.now();
       failuresInARow = 0;
-      // A deployed Worker older than the replay ignores `replayMs` and sends nothing, which would
-      // read as "no mail arrived while the socket was down". Its answer is what tells them apart.
-      const noReplay = replay ? later(() => settle({
+      // Asked once the socket is open, so the elapsed time covers the connect itself, which is the
+      // stretch a fast mail lands in.
+      socket.send(JSON.stringify({ kind: 'replay', ms: Date.now() - startedAt } satisfies ReplayRequest));
+      // A deployed Worker older than the replay ignores the request and sends nothing, which would
+      // read as "no mail arrived before this socket opened". Its answer is what tells them apart.
+      const noReplay = later(() => settle({
         error: new Error('The email-test Worker did not answer a replay request: deploy tooling/email-test'),
-      }), REPLAY_ANSWER_MS) : undefined;
+      }), REPLAY_ANSWER_MS);
 
       socket.addEventListener('message', (event) => {
         if (settled) return;
         const parsed = JSON.parse(event.data as string) as StoredEmail | DeliveryEventMessage | ReplayedMessage;
         if ('kind' in parsed && parsed.kind === 'replayed') {
-          if (noReplay !== undefined) { clearTimeout(noReplay); timers.delete(noReplay); }
+          clearTimeout(noReplay);
+          timers.delete(noReplay);
           return;
         }
         if (isDeliveryEventMessage(parsed)) {
@@ -260,7 +266,8 @@ export function waitForEmail(options: WaitForEmailOptions, transport: EmailTestT
       });
 
       socket.addEventListener('close', () => {
-        if (noReplay !== undefined) { clearTimeout(noReplay); timers.delete(noReplay); }
+        clearTimeout(noReplay);
+        timers.delete(noReplay);
         if (ws === socket) reconnect('the socket closed');
       });
     };
@@ -268,7 +275,7 @@ export function waitForEmail(options: WaitForEmailOptions, transport: EmailTestT
     void (async () => {
       // ⚠️ The clear does NOT protect this waiter, and reading it that way is how a caller talks
       // itself out of `to`. The DO pushes an email to open sockets ONLY as it arrives, and replays
-      // only to a socket that asks, which this waiter's first one never does. So a previous run's
+      // to this waiter only what arrived since this call began. So a previous run's
       // mail can never resolve us however full the bucket is. What the clear actually does is
       // reset the STORED list the `/emails` HTTP endpoint reads — and it wipes a bucket shared
       // with every concurrent test, which is why supplying `to` skips it.
@@ -281,7 +288,7 @@ export function waitForEmail(options: WaitForEmailOptions, transport: EmailTestT
       }
       // The instance filter persists via serializeAttachment on the DO side, so
       // concurrent subscribers each see only their own emails.
-      await connect(false);
+      await connect();
     })();
   });
 

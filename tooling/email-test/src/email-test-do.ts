@@ -75,6 +75,12 @@ const RETENTION_SWEEP_EVERY_MS = 60 * 60_000;
 /** The longest stretch a reconnecting socket may ask to have replayed: a waiter gives up long before. */
 const MAX_REPLAY_MS = 15 * 60_000;
 
+/** What a socket sends to be replayed the last `ms` of arrivals. */
+export interface ReplayRequest {
+  kind: 'replay';
+  ms: number;
+}
+
 /** Sent after a replay, so a waiter can tell a Worker that replayed nothing from one that cannot replay. */
 export interface ReplayedMessage {
   kind: 'replayed';
@@ -219,11 +225,22 @@ export class EmailTestDO extends DurableObject {
     return fresh;
   }
 
+  /** A socket's only message is a {@link ReplayRequest}; anything else is ignored. */
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
+    if (typeof message !== 'string') return;
+    let request: Partial<ReplayRequest>;
+    try { request = JSON.parse(message) as Partial<ReplayRequest>; } catch { return; }
+    if (request?.kind !== 'replay' || typeof request.ms !== 'number' || !Number.isFinite(request.ms) || request.ms < 0) return;
+    const attachment = (ws.deserializeAttachment() ?? { instance: '' }) as WsAttachment;
+    this.#replay(ws, attachment, Math.min(request.ms, MAX_REPLAY_MS));
+  }
+
   /**
    * Send `ws` what arrived in the last `replayMs`, as it would have been pushed, then a
-   * {@link ReplayedMessage}. A waiter whose socket dropped asks for the time since it began waiting,
-   * as an elapsed time and not a timestamp, so its clock and this one need not agree. Mail the
-   * waiter already saw is sent again, and it takes the first that matches as it always has.
+   * {@link ReplayedMessage}. A waiter asks for the time since it began waiting, as an elapsed
+   * time and not a timestamp, so its clock and this one need not agree, and asks once its socket
+   * is open, so the stretch covers the connect. Mail the waiter already saw is sent again, and it
+   * takes the first that matches as it always has.
    */
   #replay(ws: WebSocket, attachment: WsAttachment, replayMs: number): void {
     const since = new Date(Date.now() - replayMs).toISOString();
@@ -322,10 +339,6 @@ export class EmailTestDO extends DurableObject {
       // (legacy callers that don't pass ?instance= subscribe to everything).
       const attachment: WsAttachment = { instance, ...(url.searchParams.get('events') === '1' ? { events: true } : {}) };
       server.serializeAttachment(attachment);
-      const replayMs = Number(url.searchParams.get('replayMs'));
-      if (url.searchParams.has('replayMs') && Number.isFinite(replayMs) && replayMs >= 0) {
-        this.#replay(server, attachment, Math.min(replayMs, MAX_REPLAY_MS));
-      }
 
       return new Response(null, { status: 101, webSocket: client });
     }
@@ -349,11 +362,6 @@ export class EmailTestDO extends DurableObject {
     }
 
     return new Response('Not found', { status: 404 });
-  }
-
-  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    // Test clients don't send meaningful messages; echo back for diagnostics
-    ws.send(typeof message === 'string' ? message : 'binary');
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {

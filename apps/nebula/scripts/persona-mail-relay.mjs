@@ -66,10 +66,13 @@ export function startPersonaMailRelay({ workerUrl, testToken, mailDomain = LOCAL
   };
   const connect = () => {
     if (stopped) return;
-    // The second of slack covers mail the mailbox stored just before this side saw the close.
-    const replay = downSince === undefined ? '' : `&replayMs=${Date.now() - downSince + 1000}`;
-    ws = new WebSocket(`${EMAIL_TEST_WS_URL}/ws?token=${testToken}${replay}`);
-    ws.addEventListener('open', () => { downSince = undefined; });
+    const socket = new WebSocket(`${EMAIL_TEST_WS_URL}/ws?token=${testToken}`);
+    ws = socket;
+    socket.addEventListener('open', () => {
+      // The second of slack covers mail the mailbox stored just before this side saw the close.
+      if (downSince !== undefined) socket.send(JSON.stringify({ kind: 'replay', ms: Date.now() - downSince + 1000 }));
+      downSince = undefined;
+    });
     ws.addEventListener('message', (event) => {
       let mail;
       try { mail = JSON.parse(String(event.data)); } catch { return; }

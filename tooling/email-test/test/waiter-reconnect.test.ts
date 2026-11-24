@@ -34,17 +34,19 @@ const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * A transport onto the Worker under test. `before` runs ahead of each open with its number, from
- * 1, and may hold it back, fail it or rewrite its query.
+ * 1, and may hold it back or fail it.
  */
-function transportTo(before: (attempt: number, query: string) => Promise<string | void> | string | void = () => {}) {
+function transportTo(before: (attempt: number, socket?: undefined) => Promise<void> | void = () => {}, deaf = false) {
   const opens: string[] = [];
   const transport: EmailTestTransport = {
     open: async (query) => {
       opens.push(query);
-      const used = (await before(opens.length, query)) ?? query;
-      const res = await SELF.fetch(`https://email-test/ws${used}`, { headers: { Upgrade: 'websocket' } });
+      await before(opens.length);
+      const res = await SELF.fetch(`https://email-test/ws${query}`, { headers: { Upgrade: 'websocket' } });
       const ws = res.webSocket!;
       ws.accept();
+      // A Worker deployed before the replay ignores what a socket sends, which `deaf` stands in for.
+      if (deaf) ws.send = () => {};
       return ws;
     },
     clear: async () => {},
@@ -66,8 +68,23 @@ describe('a mail waiter whose socket drops', () => {
       await deliver(to, 'arrived in the gap');
       release();
       expect((await waiter.emailPromise).subject).toBe('arrived in the gap');
-      expect(opens[0]).not.toContain('replayMs');
-      expect(opens[1]).toMatch(/&replayMs=\d+$/);
+    } finally {
+      waiter.cleanup();
+    }
+  });
+
+  it('hears mail stored before its first socket opened', async () => {
+    const to = address();
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    const { transport, opens } = transportTo(async () => { await held; });
+    const waiter = waitForEmail({ testToken: env.TEST_TOKEN, to, timeout: 4000 }, transport);
+    try {
+      await vi.waitFor(() => expect(opens).toHaveLength(1));
+      await deliver(to, 'beat the socket');
+      release();
+      expect((await waiter.emailPromise).subject).toBe('beat the socket');
+      expect(opens).toHaveLength(1);
     } finally {
       waiter.cleanup();
     }
@@ -113,14 +130,11 @@ describe('a mail waiter whose socket drops', () => {
 
   it('says so when the Worker does not answer a replay request', { timeout: 10_000 }, async () => {
     const to = address();
-    // A Worker deployed before the replay ignores the parameter, which this stands in for.
-    const { transport, opens } = transportTo((_attempt, query) => query.replace(/&replayMs=\d+/, ''));
+    const { transport, opens } = transportTo(undefined, true);
     const waiter = waitForEmail({ testToken: env.TEST_TOKEN, to, timeout: 9000 }, transport);
     try {
-      await vi.waitFor(() => expect(waiter.marks.wsOpenAt).toBeDefined());
-      await dropSockets();
-      await vi.waitFor(() => expect(opens).toHaveLength(2));
       await expect(waiter.emailPromise).rejects.toThrow('did not answer a replay request');
+      expect(opens).toHaveLength(1);
     } finally {
       waiter.cleanup();
     }
@@ -146,7 +160,7 @@ describe('a mail waiter whose socket drops', () => {
       const waiter = waitForEmail({ testToken: env.TEST_TOKEN, to: address(), timeout: 4000 }, transport);
       for (let i = 0; i < 10 && opens.length === 0; i++) await Promise.resolve();
       await Promise.resolve();
-      expect(vi.getTimerCount()).toBe(2); // the wait's own timeout, and the reconnect
+      expect(vi.getTimerCount()).toBe(2); // the wait's own timeout, and the reconnect's delay
       waiter.cleanup();
       expect(vi.getTimerCount()).toBe(0);
     } finally {
