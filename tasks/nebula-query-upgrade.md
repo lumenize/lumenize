@@ -454,7 +454,7 @@ Each phase is one commit or a few, in this order, on the one branch. Each ends w
 
 ### Before the first phase
 
-- **Record the baseline:** each workspace's `Test Files` count, and a `drive.ts all --fast` sweep, so a later red is this task's.
+- **Record the baseline:** each workspace's `Test Files` count, and a `drive.ts all` sweep with the container scenarios, so a later red is this task's. `query-by-filter`, `dev-star-follows-the-build`, `persona-tabs`, `node-invite-roundtrip` and `deploy-cuts-a-turn` need a container and call what this task changes, so `--fast` would skip them.
 - **Confirm nothing in § *Current state* moved** since 2026-11-24: `grep -n 'QUERY_RESULT_CAP\|MAX_LIVE_QUERIES_PER_TYPE\|setRenderWindow' packages/resources/src/*.ts` still finds each.
 - **Reset local stacks' storage before the first run of each phase that changes a stored shape** (D22): Phases 1, 4 and 5.
 
@@ -463,24 +463,31 @@ Each phase is one commit or a few, in this order, on the one branch. Each ends w
 **Goal:** `QueryDescriptor` carries a required `nodeId`, a query answers only what sits at that node or beneath it, and one check at the node replaces the per-result look (DI1, DI2, DI3, DI4, DI9's hash, DI12, D13). What a push carries does not change yet.
 
 - **`QueryDescriptor` gains `nodeId`, and `canonicalQueryHash` covers it,** in `query-hash.ts`. A descriptor without it is refused by a message naming `nodeId`, and a node the tree does not hold is refused as a filter the engine refuses is.
-- **`#evaluateQuery` binds the node's subtree as one JSON array,** `nodeId IN (SELECT value FROM json_each(?))`, with the subtree read from the tree in memory. `snapshots.ts` creates the index on `Snapshots(nodeId, typeName)` over current rows and no longer creates `idx_Snapshots_current`.
+- **`#evaluateQuery` binds the node's subtree as one JSON array,** `nodeId IN (SELECT value FROM json_each(?))`, with the subtree read from the tree in memory. `snapshots.ts` creates the index on `Snapshots(nodeId, typeName)` over current rows, named `idx_Snapshots_node`, and no longer creates `idx_Snapshots_current`, whose name is not reused. `durable-objects.md` § *SQL naming* and ADR-004 cite the old index as their example, and each takes the new one here.
 - **`doQuery` and `#broadcastQueries` check `read` once, at the query's node.** A caller without it is answered no results and `deniedNodes: [nodeId]`, a subscription still registers, and `#readableNodes` is no longer called for a query.
 - **`#touches` and `#rerunQueriesForCommit` take the node into account,** so a write outside a query's subtree does not rerun it, and a `move` counts for the subtree it leaves and the one it enters.
 - **`findCurrent` takes a descriptor.** The `_InviteStatus` lookup names the node its rows sit at.
 - **Our own readers name their node and drop their filters** (DI4): the round store and `roundsOf` read under `ROUNDS_NODE_ID` and lose the `meta.nodeId` test, `toolCallMarks` loses its test of who wrote each round, and the Galaxy's `#thread()` asks `doQuery` under `MESSAGES_NODE_ID` as the agent in place of `findCurrent` and a read of each `Message`.
 - **`mesh.md` § *Nebula reaches its resources the way an app does* loses the `#thread()` sentence** of its *Today's code differs* block, in this phase, since this is where it stops being true.
 - **Every caller gains the node.** `npm run type-check` names each: Studio's `App.vue`, the tests and scenarios `grep -rln 'subscribeQuery\|resources.query(' apps/nebula/harness/scenarios apps/nebula/test packages/resources/test apps/nebula-studio-ui/src` lists, and `test-apps/baseline/index.ts`.
+- **The roster's store path goes here,** since it cannot spell a node: `store.lmz.querySubscribers`, `trackQuerySubscribersRead`, `querySubscribersKey` and the listener that fills the store are deleted, and `roster-store-wiring.test.ts` reads a roster through `onQuerySubscribersUpdate` until Phase 6 puts it on the handle.
+- **`#onChatCommitted`'s test of a commit's node stays.** It decides which commit starts a turn, and is no reader's filter.
+- **A host reader treats a denial as a fault, never as an empty result.** The round store throws on `deniedNodes`, and `#thread()` logs at `warn` naming the node, with its blanket `catch` narrowed to the Galaxy that has no name yet.
+- **The plane logs one debug line for each live query it evaluates for a commit,** with `instanceName`, `queryHash` and the moment, which the criteria below and Phase 2's count.
 
 **Success criteria (capable of failing):**
 
 - In `/live`, `query-by-filter` gains limbs: a query at a node answers a resource created beneath it and not one created beside it; a member with no `read` at the node is answered `deniedNodes: [nodeId]` and no results, and is answered the results after a grant there and a new subscribe; a subscribe in the old shape is refused by a message that names `nodeId`.
-- In the lane, a list with two parents is answered by a query at each. A write outside a live query's subtree sends its subscribers nothing, read from the debug sink. A `move` out of the subtree removes the result and a `move` in adds it.
+- In the lane, a list with two parents is answered by a query at each. A write outside a live query's subtree evaluates it zero times, counted from the debug line once a following write inside the subtree has pushed. A `move` out of the subtree removes the result and a `move` in adds it.
 - In the lane, a `Round` a member writes at `messages` naming a running turn's message is absent from what the round store reads for that turn, and from `toolCallMarks`.
 - Two subscribes with one type and filter at different nodes hold two live queries, and at one node they hold one.
-- `turn-rounds`, `waiting-posts` and `node-invite` pass with no reader filtering what a query answered: `grep -n 'meta.nodeId' apps/nebula/src/galaxy.ts apps/nebula/src/participants.ts` prints nothing. Run 2026-11-24, it prints the round store's filter and `#thread()`'s.
+- `turn-rounds`, `waiting-posts` and `node-invite` pass with no reader filtering what a query answered: `grep -n 'meta.nodeId === ROUNDS_NODE_ID' apps/nebula/src/galaxy.ts` and `grep -n "findCurrent('Message'" apps/nebula/src/galaxy.ts` each print nothing. Run 2026-11-24, the first prints the round store's filter.
+- In the lane, a `Message` written at a node other than `messages` starts no turn.
 - `EXPLAIN QUERY PLAN` for `{}` at a node names the node index, asserted in `query-sqlite.test.ts`.
+- In the lane, a grant is removed and a write then lands beneath the node: the subscriber is answered `deniedNodes` and no ids.
+- A subscribe and a one-time read that name a node the tree does not hold are each refused by a message naming it.
 
-**Mutation notes:** drop the `json_each` clause and the beside-the-node resource is answered. Skip the check at the node and the denied member reads results. Leave `nodeId` out of the hash and the two nodes share one live query. Restore the round store's read of every `Round` and the planted round reaches the turn.
+**Mutation notes:** drop the `json_each` clause and the beside-the-node resource is answered. Skip the check at the node and the denied member reads results. Leave `nodeId` out of the hash and the two nodes share one live query. Restore the round store's read of every `Round` and the planted round reaches the turn. Skip the check in `#broadcastQueries` and the subscriber whose grant went still receives ids. Ignore the node in `#touches` and the outside write's count is one. Drop `#onChatCommitted`'s node test and the `Message` written elsewhere starts a turn.
 
 ### Phase 2: the cap counts per node, and a write is tested only above its node
 
@@ -505,6 +512,8 @@ Each phase is one commit or a few, in this order, on the one branch. Each ends w
 - **The client's `query` asks until no cursor comes back** and resolves with the whole result. `more` goes from its answer, and `QUERY_RESULT_CAP` no longer bounds a one-time read.
 - **Host code reads a page at a time.** The round store reads once and throws if a cursor comes back. The Galaxy's `#thread()` reads every page into memory, the named exception until fast-follow's Item 26.
 - **A first read past about 10 MB logs at `warn` on the host,** naming the type, the node and the size, and the client warns in the page's console from the bytes it received.
+- **The cursor is a position only, and the plane trusts nothing in it.** Each request is its own `doQuery`, with its own check at the node and its subtree read again from the descriptor. A cursor that names a node outside that subtree, or is malformed, is refused as a malformed query is. The moment it names lies between the host's oldest and its latest, and a past version read by key is answered only if it sits in today's subtree and matches the filter. The cursor also carries the bytes sent so far, for the 10 MB `warn`.
+- **The Galaxy's `#thread()` sorts what it read by `meta.validFrom`, then resource id,** since `#waiting`, `#decisionFor` and `#historyBundle` rely on write order and a page arrives in index order. The 10 MB threshold is an exported constant.
 
 **Success criteria (capable of failing):**
 
@@ -512,8 +521,13 @@ Each phase is one commit or a few, in this order, on the one branch. Each ends w
 - In the lane, a Galaxy whose chat holds 1,001 `Message`s takes up a post that is the newest, which C4 says it does not today.
 - A query no filter index serves pages through the node index, and every result arrives once across the pages when its subtree holds several nodes.
 - In `/live`, `waiting-posts-answered` passes unchanged.
+- In the lane, posts whose ids sort opposite to their write order reach the model's history and the waiting posts in write order.
+- A cursor naming a node outside the query's subtree is refused.
+- The 1,001 `Message`s are written through real transactions, in `waiting-posts.test.ts`'s lane, which says why it needs no running system: the count is the subject.
+- A resource holding a `Date`, a `Map`, a `BigInt` and two fields naming one object crosses a page boundary and deep-equals the host's snapshot, the alias kept.
+- With the threshold constant lowered, the host's `warn` carries the type, the node and the size.
 
-**Mutation notes:** restore `LIMIT 1001` and the newest post is not taken up. Read current rows on each page with no moment and the resource written between pages arrives in its later version. Drop the node from the cursor and a result repeats or is missed across nodes.
+**Mutation notes:** restore `LIMIT 1001` and the newest post is not taken up. Read current rows on each page with no moment and the resource written between pages arrives in its later version. Drop the node from the cursor and a result repeats or is missed across nodes. Drop `#thread()`'s sort and the history arrives in id order. Trust the cursor's node and the read answers from outside the subtree.
 
 ### Phase 4: a subscriber holds the whole result, kept current by patches
 
@@ -521,37 +535,48 @@ Each phase is one commit or a few, in this order, on the one branch. Each ends w
 
 - **A subscribe starts a first read** in Phase 3's pages, built apart from the store, joined to it at `ready`, with an entry already at a later `validFrom` kept.
 - **`#touches` returns the change:** the new snapshot for a result that entered, the `diff` of its old row and its new one for one that changed, and `null` for one that left. The plane holds no previous result.
-- **The plane sends each tab one message for a commit,** holding an entry for each of the tab's live queries the commit touched and the whole snapshot of each resource it subscribes to alone. Tabs holding the same touched queries are sent the same `pushes`. An entry is one of the kinds DI15 lists, and a message past 256 KiB keeps its `resources` and sends each query moments alone.
-- **Each push names its moment and `previousMoment`.** A `Subscriptions` migration with the next id adds the host's latest moment to a query's row, beside `subscribedAt`, and whether its subscriber was last told it cannot read. The plane stores each live query's last push moment, one write per push.
+- **The plane sends each tab one message for a commit,** holding an entry for each of the tab's live queries the commit touched and the whole snapshot of each resource it subscribes to alone. Tabs that hold and read the same touched queries are sent the same `pushes`, grouped before the message is built, and a query a tab was told it cannot read contributes no entry of any kind to that tab's message. An entry is one of the kinds DI15 lists, and a message past 256 KiB keeps its `resources` and sends each query moments alone.
+- **Each push names its moment and `previousMoment`.** A `Subscriptions` migration with the next id adds the host's latest moment to a query's row, beside `subscribedAt`, and whether its subscriber was last told it cannot read. The plane stores each live query's last push moment in a `WITHOUT ROWID` table keyed by `queryHash`, one write per push, and deletes the row with the query's last subscriber row. The `Subscriptions` columns are a `TEXT` moment and an `INTEGER` flag with an inline `CHECK`, camelCase. Each new table or key joins `PLANE_TABLES` or `PLANE_KEYS`, so a `.dev` wipe drops it.
 - **One function checks who reads, at a grant change and at each push.** A subscriber whose answer flipped to denied is sent `deniedNodes: [nodeId]` once, one whose answer flipped to allowed is sent `read`, and the row records which. `#askAgain` stops re-asking for queries.
 - **The client applies a message as one step** by DI15's rule and DI19's rules for an entry: at the version the patch was cut from, apply; at the patch's `validFrom` or later, skip; otherwise read the resource whole. A push whose `previousMoment` is after the moment held, or with no patch, starts a first read again.
 - **The store subscribes to a resource exactly while something reads its entry and no live query holds it** (D21), in `incrementRefcount` and `decrementRefcount`. An entry stays while something reads it or a query holds it.
 - **`setRenderWindow`, `#reconcileQueryWindow`, `renderGraceMs`, `more` and `QUERY_RESULT_CAP` are deleted.** The handle holds `ready`, `resourceIds`, `deniedNodes` and `onChange`, and `resourceIds` carries no order.
 - **Studio's thread, landed build and marks read the result they hold** (DI20): the thread sorts by `meta.validFrom`, and the landed build is the `ServedBuild` with the latest write.
 - **An edge change sends nothing** (D19).
+- **The plane writes each touched query's moment first,** in the synchronous turn that follows the commit, before any patch is built or sent. Each query's patch is computed in its own `try`, and one that throws sends that query moments alone, so its subscribers read again. A deleted resource's row counts as a result that left.
 
 **Success criteria (capable of failing):**
 
 - In `/live`, a new scenario `query-holds-its-result` drives a page with two lists that share a resource and a pane open on it: after `ready` every row draws with no resource subscription opened, counted from the stack's logs; a change to the shared resource reaches both lists in one message; the resource leaving one list keeps the pane current through a subscription opened then; a grant removed at the node empties the list at once, and the grant restored fills it without a reload.
 - In the lane, a change to one resource of a thousand sends a patch naming that resource and no id list, asserted on the message's size and keys.
 - In the lane, a resource a tab subscribes to alone arrives whole in the same message as its query entries, and still arrives whole when the message's queries are stripped past 256 KiB.
-- In the lane, a subscriber denied the node is sent one denial across several later commits, and a tab holding an entry its own write moved reads the resource whole when a patch's base does not match.
-- In `/live`, `studio-chat-reload`, `rounds-as-they-land`, `four-party-chat` and `build-reaches-every-studio` pass, and Studio's thread shows a chat's posts in the order of their latest write.
+- In the lane, a subscriber denied the node is sent one denial across several later commits.
+- In `/live`, `studio-chat-reload`, `rounds-as-they-land`, `four-party-chat`, `build-reaches-every-studio` and `dev-star-follows-the-build` pass, and Studio's thread shows a chat's posts in the order of their latest write.
 - `it.skip` holds the target for an edge change: a second parent added beneath a live query's node patches the result. Its title names the temporal org tree.
 - `grep -rn 'setRenderWindow\|renderGraceMs\|QUERY_RESULT_CAP' packages apps --include='*.ts' --include='*.vue' --exclude-dir=node_modules` prints only `apps/nebula/src/platform-embed.ts`, which Phase 7 regenerates. Run 2026-11-24, it also prints the source and the tests that use them: `child2-query-window.test.ts` is deleted with the window, and the rest are rewritten against the held result.
+- In the lane, two tabs hold queries A and B at different nodes, one tab is denied at A's node, and one commit touches both: the denied tab's message holds B's entry alone, in the usual form and past 256 KiB.
+- In the lane, an edge is cut above a query's node so a subscriber no longer reads it: nothing is sent at the change, and the next commit sends that subscriber the denial and no patch. A path added sends `read` at the next commit.
+- In the lane, a tab in step stays in step: across commits to the query, to an unrelated type and to a node outside its subtree, with a second subscriber joining part-way, the debug sink counts no first read and no catch-up after `ready`.
+- In the lane, a subscribe, a push, a `ctx.abort()` and a commit: the next push names the earlier push's moment and is applied with no read again, and a subscriber told it is denied gets no second denial after the abort.
+- In the lane, a fan-out forced to throw while building one query's patch leaves that query's tabs reading again and every other tab patched.
+- In the lane, a denied subscriber sees several unrelated tree changes and the host records no subscribe for its query.
+- In the lane, another client changes a result already delivered, adds one, and removes one not yet delivered, between the pages of a subscriber's first read: at `ready` the result equals a fresh one-time read, and an entry already at a later `validFrom` is kept.
+- The resource of Phase 3's non-JSON criterion is patched and deep-equals the host's snapshot, the alias kept.
 
-**Mutation notes:** send each query in a call of its own and the two lists move in separate steps, which the scenario's one-message limb catches. Subscribe on every read and the row count of resource subscriptions is no longer zero. Skip the subscribe when a query drops a read entry and the pane goes stale. Send a denial on every push and the count is above one. Strip `resources` with the patches and the lone resource never arrives.
+**Mutation notes:** send each query in a call of its own and the two lists move in separate steps, which the scenario's one-message limb catches. Subscribe on every read and the row count of resource subscriptions is no longer zero. Skip the subscribe when a query drops a read entry and the pane goes stale. Send a denial on every push and the count is above one. Strip `resources` with the patches and the lone resource never arrives. Group tabs by the queries they hold and the denied tab's message carries A's values. Call the who-reads function only on a grant change and the cut edge sends no denial. Write the moment after the send and the forced throw leaves a tab in step with a change missing. Keep the moment or the told flag in a field and the abort criterion fails. Name the host's previous moment as `previousMoment`, or drop the subscription row's operand, and the in-step count is above zero. Restore `#askAgain` for queries and the subscribe count is above zero, or drop the `read` send and the restored grant fills nothing. Discard pushes received before `ready` and the first read's result is stale. Carry a patch through JSON and the `Map` arrives as an object.
 
 ### Phase 5: a tab that missed writes receives only those
 
 **Goal:** a tab coming back, or one that missed a push, names the moment it holds and receives a patch to a moment that existed, in pages (DI16, DI23, D14, D16, D17).
 
-- **`snapshots.ts` creates the index on `Snapshots(typeName, validFrom)`** over every row.
+- **`snapshots.ts` creates the index on `Snapshots(typeName, validFrom)`** over every row, named `idx_Snapshots_written`.
 - **One request catches up every query a tab holds that is behind,** `[{ query, moment }, …]`. Each page ends at one moment for all of them, at about 2 MB, never splitting a moment, and carries `hasMore` when it stopped short.
 - **The plane finds what was written since through the index,** reads each changed resource at both moments by its key, and tests each version against the filter and the query's node through today's tree.
-- **A catch-up checks `read` at each query's node.** A query the caller can no longer read is answered `deniedNodes`, and one it was denied and reads now is named in `readWhole`.
+- **A catch-up checks `read` at each listed query's node before it reads anything.** A query the caller can no longer read is answered `deniedNodes` and adds neither its type nor its moment to the scan, and one it was denied and reads now is named in `readWhole`. A request whose queries are all denied reads no row of `Snapshots`. What a caller could learn from a page's timing is host-wide and accepted, so the build adds no gate for it.
+- **A re-subscribe and a catch-up rewrite the row's `sub`, its stored dominion verdict and its told flag from the caller's live claims.**
 - **A page names a query in `readWhole`** when an ontology version installed since the client's moment, and when that moment is earlier than the oldest the host answers from. The host writes that oldest moment once, with the first write to its storage.
 - **`#restoreSubscriptions` sends each query's moment,** and the client catches up where Phase 4 had it read again: after a reconnect, on a `previousMoment` after the moment it holds, and on an entry with no patch. While a list the page shows is catching up the tab applies nothing, and applies what arrived with the catch-up.
+- **`mesh.md` § *Nebula reaches its resources the way an app does* names the catch-up here,** if it lists the operations a Client's calls reach.
 
 **Success criteria (capable of failing):**
 
@@ -562,22 +587,27 @@ Each phase is one commit or a few, in this order, on the one branch. Each ends w
 - In the lane, a tab revoked while away is answered a denial in its catch-up and drops its result.
 - A write by the tab itself between its held moment and the catch-up leaves its entry one whole version.
 - `EXPLAIN QUERY PLAN` for the find names the new index.
+- In the lane, a tab's own write adds a key to a resource, a later write by another removes it, and a catch-up spans both: the tab's entry deep-equals the host's snapshot and the tab issued one whole `read`.
+- The wipe and the ontology cases above start from the real event and say why they are lane tests. For the wipe, a tab holds results, the host's storage is wiped and the object restarted, a write lands, and the tab reconnects holding no id from before. For the ontology, a version installs under which a held resource no longer matches.
+- In `/live`, a tab holding a live query sits past its token's lifetime while another tab writes, in `query-catches-up` or `push-survives-token-lapse`: its list then matches, with a catch-up in the logs and no first read.
+- A request whose queries are all denied reads zero rows, asserted on `rowsRead`.
+- Phase 3's non-JSON resource is caught up and deep-equals the host's snapshot.
 
-**Mutation notes:** answer every catch-up with `readWhole` and the scenario's log shows a first read. Split a moment across pages and the tab stopped mid-way holds a result that never existed. Skip the `read` check and the revoked tab is patched. Omit the oldest-moment test and the tab from before a wipe keeps entries the host no longer has.
+**Mutation notes:** answer every catch-up with `readWhole` and the scenario's log shows a first read. Split a moment across pages and the tab stopped mid-way holds a result that never existed. Skip the `read` check and the revoked tab is patched. Omit the oldest-moment test and the tab from before a wipe keeps entries the host no longer has. Apply every patch whatever `previousValidFrom` says and the removed key stays in the tab's entry. Scan before checking `read` and the all-denied request reads rows. Skip the ontology test and the tab keeps a resource that no longer matches.
 
 ### Phase 6: a roster is read from its handle
 
 **Goal:** `subscribeQuerySubscribers(query)` takes a whole descriptor and its handle holds the roster as `subscribers`, for any query (DI13, D18).
 
 - **The handle gains `subscribers`,** kept current, and a template that reads it re-renders when it changes.
-- **`store.lmz.querySubscribers`, `trackQuerySubscribersRead`, `querySubscribersKey` and the listener that fills the store are deleted,** with `roster-store-wiring.test.ts` rewritten against the handle.
+- **`roster-store-wiring.test.ts` is rewritten against the handle,** the store path having gone in Phase 1.
 
 **Success criteria (capable of failing):**
 
 - In `/live`, `query-holds-its-result` gains a limb: one tab's `subscribers` for the list's query gains a second tab's person when it subscribes and loses them when it leaves. No scenario reads a roster today (checked 2026-11-24).
 - In the lane, `subscriber-list.test.ts` passes against the handle.
 - In the lane, a roster for a filter of two fields is held on its handle, which the store path could not spell.
-- `grep -rn 'lmz.querySubscribers\|querySubscribersKey' packages apps website/docs --exclude-dir=node_modules` prints nothing after Phase 7.
+- `git grep -n 'lmz.querySubscribers\|querySubscribersKey' -- packages apps ':!apps/nebula/src/platform-embed.ts'` prints nothing.
 
 **Mutation notes:** fill `subscribers` only for a one-equality filter and the two-field roster stays empty.
 
@@ -594,17 +624,18 @@ Each phase is one commit or a few, in this order, on the one branch. Each ends w
 **Success criteria (capable of failing):**
 
 - `npm run test:doc` passes, and `gen-platform.mjs --check` reports no drift.
-- In `/live`, `first-app-built`, `studio-guidance-loop`, `shared-lists-turn` and `cast-from-a-tab` pass: a generated app's queries carry a `nodeId` that is a constant in its source, and its build has no finding about `nodeId`, `setRenderWindow` or `more`.
+- In `/live`, `first-app-built`, `studio-guidance-loop`, `shared-lists-turn` and `cast-from-a-tab` pass, and each turn's first build has no type error naming `nodeId`, `setRenderWindow` or `more`, read through `harness/lib/turn-calls.ts`. Whether the model wrote the node's id as a constant is recorded in the build notes as an observation, since the model chooses.
+- `git grep -n 'lmz.querySubscribers\|querySubscribersKey' -- packages apps website/docs` prints nothing.
 - The sharing example runs as a test: a list granted at `admin` shows as an offer, accepting it adds the edge, and a list granted at `read` shows as shared with no offer.
 - `grep -rn 'setRenderWindow\|querySubscribers\.\|\.more\b' website/docs/nebula apps/nebula/platform` prints nothing.
 
-**Mutation notes:** leave a draft's `store.lmz.querySubscribers` block and the grep prints it. Offer a `read` grant and the example's test finds an offer where none is due.
+**Mutation notes:** leave a draft's `store.lmz.querySubscribers` block and the grep prints it. Offer a `read` grant and the example's test finds an offer where none is due. Regenerate the embed from the docs as they stood before this task and a first build names `setRenderWindow`.
 
 ### Phase 8: the sweep and the deployed pass
 
 **Goal:** nothing this task did not write is broken, and what only shows deployed is seen there (`live.md`).
 
-- **Run `drive.ts all --fast` locally,** then `drive.ts all --rerun` after any fix.
+- **Run `drive.ts all` locally, container scenarios included,** then `drive.ts all --rerun` after any fix.
 - **Deploy with `deploy-test.sh`,** on storage reset for the change (D22), and run this task's scenarios against it: `query-by-filter`, `query-holds-its-result`, `query-catches-up`, `waiting-posts-answered`, `studio-chat-reload` and `four-party-chat`.
 - **Read the target's Workers Issues since the pass began,** and `node scripts/do-queries.mjs --worker <name>` for what the two new indexes and the per-push moment cost a write.
 
@@ -612,7 +643,8 @@ Each phase is one commit or a few, in this order, on the one branch. Each ends w
 
 - The local sweep ends with every scenario passed or named as a flake.
 - `deploy-test.sh` prints that the test worker matches `HEAD`, and each scenario above passes deployed.
-- No new Workers Issue is raised during the pass, and the build notes record rows written per commit beside C22's measurement.
+- No new Workers Issue is raised during the pass.
+- In the lane, a transaction writing one resource that one live query holds writes two rows more than before this task, asserted on `rowsWritten`: D14's index and the query's moment. The build derives the figure again against C22 before asserting it, and the deployed reading confirms it.
 
 ## Non-goals
 
