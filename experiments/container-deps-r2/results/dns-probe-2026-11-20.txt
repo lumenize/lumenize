@@ -1,0 +1,25 @@
+Output of scripts/dns-probe.mjs against experiment-container-deps-r2, deployed, 2026-11-20.
+The two ops ran as separate invocations of the same commands before they were combined into one
+script; each ran on the `baked` image with enableInternet: false, followed by its build.
+
+== as shipped  probeMs=65182 buildMs=6387 error=none
+-- /etc/resolv.conf:
+nameserver 1.1.1.1
+nameserver 9.9.9.9
+nameserver 2606:4700:4700::1111
+getent, default: exit=2 56047ms
+getent, RES_OPTIONS timeout:1 attempts:1: exit=2 6009ms
+node dns.lookup, RES_OPTIONS: EAI_AGAIN 3064ms
+intercepted host deps.r2, RES_OPTIONS (curl): exit=0 32ms
+intercepted host deps.r2, default (curl): exit=0 16ms
+
+== rewritten  probeMs=2114 buildMs=6398 error=none
+-rw-r--r-- 1 root root 70 Jan  1  1970 /etc/resolv.conf
+overlay /etc/resolv.conf overlay rw,relatime,lowerdir=/etc,upperdir=/container/etc,workdir=/container/work,uuid=on 0 0
+wrote: one server, timeout 1
+getent, one server + timeout:1: exit=2 2004ms
+deps.r2 after rewrite (curl): exit=0 19ms
+wrote: localhost only
+getent, localhost resolver: exit=2 2ms
+node dns.lookup, localhost resolver: EAI_AGAIN 53ms
+deps.r2 with localhost resolver (curl): exit=6 11ms

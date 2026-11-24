@@ -1,0 +1,134 @@
+{
+  "base": "https://experiment-do-socket-drop-probe.transformation.workers.dev",
+  "mode": "jit",
+  "out": [
+    {
+      "instance": "jit-03b53fb2",
+      "colo": "EWR",
+      "sql": 2.9,
+      "json": 2.8,
+      "js": 26.6,
+      "boots": 1
+    },
+    {
+      "instance": "jit-b2729486",
+      "colo": "IAD",
+      "sql": 2.9,
+      "json": 3.9,
+      "js": 3,
+      "boots": 1
+    },
+    {
+      "instance": "jit-26d0484c",
+      "colo": "EWR",
+      "sql": 3.1,
+      "json": 2.9,
+      "js": 2,
+      "boots": 1
+    },
+    {
+      "instance": "jit-4ef80a6d",
+      "colo": "EWR",
+      "sql": 2.9,
+      "json": 2.6,
+      "js": 6.4,
+      "boots": 1
+    },
+    {
+      "instance": "jit-b68cfb38",
+      "colo": "IAD",
+      "sql": 2.9,
+      "json": 3,
+      "js": 30.7,
+      "boots": 1
+    },
+    {
+      "instance": "jit-f575c7b4",
+      "colo": "IAD",
+      "sql": 3.2,
+      "json": 3.7,
+      "js": 3.2,
+      "boots": 1
+    },
+    {
+      "instance": "jit-7179c734",
+      "colo": "EWR",
+      "sql": 2.3,
+      "json": 2.9,
+      "js": 2.1,
+      "boots": 1
+    },
+    {
+      "instance": "jit-acaefc9a",
+      "colo": "IAD",
+      "sql": 3,
+      "json": 3.6,
+      "js": -0.4,
+      "boots": 1
+    },
+    {
+      "instance": "jit-3e473694",
+      "colo": "IAD",
+      "sql": 5.3,
+      "json": 4.6,
+      "js": 4.4,
+      "boots": 1
+    },
+    {
+      "instance": "jit-2e166027",
+      "colo": "IAD",
+      "sql": 2.9,
+      "json": 3.4,
+      "js": 30.6,
+      "boots": 1
+    },
+    {
+      "instance": "jit-118edc91",
+      "colo": "IAD",
+      "sql": 3.5,
+      "json": 3,
+      "js": 1.2,
+      "boots": 1
+    },
+    {
+      "instance": "jit-44943b86",
+      "colo": "IAD",
+      "sql": 3,
+      "json": 2.3,
+      "js": 3.3,
+      "boots": 1
+    },
+    {
+      "instance": "jit-71077304",
+      "colo": "IAD",
+      "sql": 2.6,
+      "json": 3.1,
+      "js": 30.5,
+      "boots": 1
+    },
+    {
+      "instance": "jit-7f3ba1c0",
+      "colo": "IAD",
+      "sql": 3.5,
+      "json": 3.2,
+      "js": 34.7,
+      "boots": 1
+    },
+    {
+      "instance": "jit-a66b62a2",
+      "colo": "EWR",
+      "sql": 2.6,
+      "json": 2.8,
+      "js": 1.5,
+      "boots": 1
+    },
+    {
+      "instance": "jit-16e1e8a6",
+      "colo": "IAD",
+      "sql": 5.3,
+      "json": 5.3,
+      "js": 54.4,
+      "boots": 1
+    }
+  ]
+}

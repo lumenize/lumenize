@@ -1,0 +1,76 @@
+{
+  "startedAt": "2026-10-15T12:26:25.053Z",
+  "finishedAt": "2026-10-15T12:34:33.266Z",
+  "waitS": 480,
+  "probes": [
+    {
+      "mode": "cpu",
+      "name": "cpu-2026-10-15T12-26-25-052Z",
+      "armedAt": "2026-10-15T12:26:28.183Z",
+      "alarmAt": "2026-10-15T12:26:30.183Z",
+      "seen": 7,
+      "report": {
+        "mode": "cpu",
+        "alarm": "2026-10-15T12:26:30.183Z",
+        "attempts": [
+          {
+            "seq": 1,
+            "firedAt": "2026-10-15T12:26:30.183Z",
+            "scheduledTime": "2026-10-15T12:26:30.183Z",
+            "retryCount": 0,
+            "isRetry": 0,
+            "completedAt": null
+          },
+          {
+            "seq": 2,
+            "firedAt": "2026-10-15T12:26:35.988Z",
+            "scheduledTime": "2026-10-15T12:26:30.183Z",
+            "retryCount": 1,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 3,
+            "firedAt": "2026-10-15T12:26:43.989Z",
+            "scheduledTime": "2026-10-15T12:26:30.183Z",
+            "retryCount": 2,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 4,
+            "firedAt": "2026-10-15T12:26:53.781Z",
+            "scheduledTime": "2026-10-15T12:26:30.183Z",
+            "retryCount": 3,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 5,
+            "firedAt": "2026-10-15T12:27:14.328Z",
+            "scheduledTime": "2026-10-15T12:26:30.183Z",
+            "retryCount": 4,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 6,
+            "firedAt": "2026-10-15T12:27:53.676Z",
+            "scheduledTime": "2026-10-15T12:26:30.183Z",
+            "retryCount": 5,
+            "isRetry": 1,
+            "completedAt": null
+          },
+          {
+            "seq": 7,
+            "firedAt": "2026-10-15T12:29:10.036Z",
+            "scheduledTime": "2026-10-15T12:26:30.183Z",
+            "retryCount": 6,
+            "isRetry": 1,
+            "completedAt": null
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,382 @@
+{
+ "mode": "idle-check",
+ "run": "2026-10-14T18-37-54-770Z",
+ "base": "https://experiment-do-read-cache.transformation.workers.dev",
+ "local": false,
+ "startedAt": "2026-10-14T18:37:54.772Z",
+ "config": {
+  "OBJECTS": 10,
+  "ROUNDS": 3,
+  "CYCLES": 10,
+  "TARGET_READS": 10000,
+  "MAX_ROWS": 18000,
+  "SWEEP_ROWS": [
+   64,
+   128,
+   256,
+   320,
+   384,
+   416,
+   448,
+   480,
+   512,
+   576,
+   640,
+   768,
+   1024,
+   1536,
+   2048,
+   4096,
+   8192,
+   18000
+  ],
+  "ABORT_ROWS": [
+   256,
+   448,
+   4096,
+   18000
+  ]
+ },
+ "objects": [],
+ "records": [
+  {
+   "arm": "idle",
+   "object": 0,
+   "instance": "idle-2026-10-14T17-32-18-666Z-0",
+   "idleMinutes": 65,
+   "order": [
+    "sql",
+    "kv"
+   ],
+   "ping": {
+    "seq": 1,
+    "workerMs": 466,
+    "workerColo": "IAD",
+    "nodeMs": 1737,
+    "bootId": "56c786e0-b762-4ed2-a412-619645c10e0f",
+    "logs": {
+     "wallMs": 414,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "shape": "records",
+   "cold_sql": {
+    "seq": 2,
+    "workerMs": 468,
+    "workerColo": "IAD",
+    "nodeMs": 651.9,
+    "reads": 20000,
+    "bootId": "56c786e0-b762-4ed2-a412-619645c10e0f",
+    "built": false,
+    "logs": {
+     "wallMs": 464,
+     "cpuMs": 436,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "cold_kv": {
+    "seq": 3,
+    "workerMs": 667,
+    "workerColo": "IAD",
+    "nodeMs": 769.4,
+    "reads": 20000,
+    "bootId": "56c786e0-b762-4ed2-a412-619645c10e0f",
+    "built": false,
+    "logs": {
+     "wallMs": 668,
+     "cpuMs": 631,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "warm_sql": {
+    "seq": 4,
+    "workerMs": 477,
+    "workerColo": "IAD",
+    "nodeMs": 613.9,
+    "reads": 20000,
+    "bootId": "56c786e0-b762-4ed2-a412-619645c10e0f",
+    "built": false,
+    "logs": {
+     "wallMs": 463,
+     "cpuMs": 455,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "warm_kv": {
+    "seq": 5,
+    "workerMs": 705,
+    "workerColo": "IAD",
+    "nodeMs": 816.9,
+    "reads": 20000,
+    "bootId": "56c786e0-b762-4ed2-a412-619645c10e0f",
+    "built": false,
+    "logs": {
+     "wallMs": 711,
+     "cpuMs": 659,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "idle",
+   "object": 1,
+   "instance": "idle-2026-10-14T17-32-18-666Z-1",
+   "idleMinutes": 65,
+   "order": [
+    "kv",
+    "sql"
+   ],
+   "ping": {
+    "seq": 7,
+    "workerMs": 62,
+    "workerColo": "IAD",
+    "nodeMs": 136.2,
+    "bootId": "14e70743-e97d-4fff-a3c5-cd18096acb9d",
+    "logs": {
+     "wallMs": 20,
+     "cpuMs": 1,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "shape": "records",
+   "cold_kv": {
+    "seq": 8,
+    "workerMs": 1375,
+    "workerColo": "IAD",
+    "nodeMs": 1541.7,
+    "reads": 20000,
+    "bootId": "14e70743-e97d-4fff-a3c5-cd18096acb9d",
+    "built": false,
+    "logs": {
+     "wallMs": 1405,
+     "cpuMs": 932,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "cold_sql": {
+    "seq": 9,
+    "workerMs": 1354,
+    "workerColo": "IAD",
+    "nodeMs": 1392.3,
+    "reads": 20000,
+    "bootId": "14e70743-e97d-4fff-a3c5-cd18096acb9d",
+    "built": false,
+    "logs": {
+     "wallMs": 1369,
+     "cpuMs": 1056,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "warm_kv": {
+    "seq": 10,
+    "workerMs": 681,
+    "workerColo": "IAD",
+    "nodeMs": 757,
+    "reads": 20000,
+    "bootId": "14e70743-e97d-4fff-a3c5-cd18096acb9d",
+    "built": false,
+    "logs": {
+     "wallMs": 665,
+     "cpuMs": 642,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "warm_sql": {
+    "seq": 11,
+    "workerMs": 1525,
+    "workerColo": "IAD",
+    "nodeMs": 1585.6,
+    "reads": 20000,
+    "bootId": "14e70743-e97d-4fff-a3c5-cd18096acb9d",
+    "built": false,
+    "logs": {
+     "wallMs": 1549,
+     "cpuMs": 1387,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "idle",
+   "object": 2,
+   "instance": "idle-2026-10-14T17-32-18-666Z-2",
+   "idleMinutes": 65,
+   "order": [
+    "sql",
+    "kv"
+   ],
+   "ping": {
+    "seq": 13,
+    "workerMs": 534,
+    "workerColo": "IAD",
+    "nodeMs": 607.7,
+    "bootId": "53d518e6-b35c-4458-85dc-1693341c13cb",
+    "logs": {
+     "wallMs": 456,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "shape": "records",
+   "cold_sql": {
+    "seq": 14,
+    "workerMs": 496,
+    "workerColo": "IAD",
+    "nodeMs": 531.6,
+    "reads": 20000,
+    "bootId": "53d518e6-b35c-4458-85dc-1693341c13cb",
+    "built": false,
+    "logs": {
+     "wallMs": 500,
+     "cpuMs": 453,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "cold_kv": {
+    "seq": 15,
+    "workerMs": 443,
+    "workerColo": "IAD",
+    "nodeMs": 544.1,
+    "reads": 20000,
+    "bootId": "53d518e6-b35c-4458-85dc-1693341c13cb",
+    "built": false,
+    "logs": {
+     "wallMs": 458,
+     "cpuMs": 408,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "warm_sql": {
+    "seq": 16,
+    "workerMs": 500,
+    "workerColo": "IAD",
+    "nodeMs": 612.5,
+    "reads": 20000,
+    "bootId": "53d518e6-b35c-4458-85dc-1693341c13cb",
+    "built": false,
+    "logs": {
+     "wallMs": 510,
+     "cpuMs": 453,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "warm_kv": {
+    "seq": 17,
+    "workerMs": 354,
+    "workerColo": "IAD",
+    "nodeMs": 418.9,
+    "reads": 20000,
+    "bootId": "53d518e6-b35c-4458-85dc-1693341c13cb",
+    "built": false,
+    "logs": {
+     "wallMs": 353,
+     "cpuMs": 325,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "idle",
+   "object": 3,
+   "instance": "idle-2026-10-14T17-32-18-666Z-3",
+   "idleMinutes": 65,
+   "order": [
+    "kv",
+    "sql"
+   ],
+   "ping": {
+    "seq": 19,
+    "workerMs": 517,
+    "workerColo": "IAD",
+    "nodeMs": 615.5,
+    "bootId": "c8eb1d75-b7a2-4fc4-8b50-1f9ac6a9fc86",
+    "logs": {
+     "wallMs": 463,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "shape": "records",
+   "cold_kv": {
+    "seq": 20,
+    "workerMs": 479,
+    "workerColo": "IAD",
+    "nodeMs": 506.9,
+    "reads": 20000,
+    "bootId": "c8eb1d75-b7a2-4fc4-8b50-1f9ac6a9fc86",
+    "built": false,
+    "logs": {
+     "wallMs": 486,
+     "cpuMs": 424,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "cold_sql": {
+    "seq": 21,
+    "workerMs": 556,
+    "workerColo": "IAD",
+    "nodeMs": 585.5,
+    "reads": 20000,
+    "bootId": "c8eb1d75-b7a2-4fc4-8b50-1f9ac6a9fc86",
+    "built": false,
+    "logs": {
+     "wallMs": 564,
+     "cpuMs": 485,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "warm_kv": {
+    "seq": 22,
+    "workerMs": 482,
+    "workerColo": "IAD",
+    "nodeMs": 549.6,
+    "reads": 20000,
+    "bootId": "c8eb1d75-b7a2-4fc4-8b50-1f9ac6a9fc86",
+    "built": false,
+    "logs": {
+     "wallMs": 487,
+     "cpuMs": 358,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "warm_sql": {
+    "seq": 23,
+    "workerMs": 572,
+    "workerColo": "IAD",
+    "nodeMs": 650.3,
+    "reads": 20000,
+    "bootId": "c8eb1d75-b7a2-4fc4-8b50-1f9ac6a9fc86",
+    "built": false,
+    "logs": {
+     "wallMs": 582,
+     "cpuMs": 479,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  }
+ ],
+ "seedFile": "results/idle-seed-2026-10-14T17-32-18-666Z.json",
+ "finishedAt": "2026-10-14T18:38:10.883Z",
+ "logsJoinedAt": "2026-10-14T18:39:14.024Z"
+}

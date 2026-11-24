@@ -8,8 +8,7 @@
  * context even when concurrent mesh calls are interleaved through awaits.
  *
  * The `cloudflare:workers` runtime provides `node:async_hooks` natively at
- * the project's `compatibility_date: "2026-03-12"` — no `nodejs_compat`
- * flag required.
+ * the project's compatibility date — no `nodejs_compat` flag required.
  *
  * The companion `lmz-api-context.browser.ts` is a synchronous shim selected
  * for the `browser` condition; it does NOT preserve across awaits. See that

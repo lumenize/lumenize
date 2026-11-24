@@ -1,22 +1,22 @@
 /**
  * Entrypoint auth-scope verification (unit tests)
  *
- * Tests the belt-and-suspenders matchAccess(authScopePattern, aud) check
- * inside verifyNebulaAccessToken using crafted JWTs.
+ * Tests the belt-and-suspenders isAtOrAbove(authScope, aud) check
+ * inside verifyAccessToken using crafted JWTs.
  */
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { generateUuid, signJwt, importPrivateKey } from '@lumenize/auth';
-import { NEBULA_AUTH_ISSUER } from '@lumenize/nebula-auth';
+import { signJwt, importPrivateKey } from '@lumenize/crypto';
+import { deploymentOrigin, platformOrigin } from '@lumenize/mesh/client';
 
 /**
- * Craft a JWT with specific authScopePattern and aud for unit testing.
+ * Craft a JWT with specific authScope and aud for unit testing.
  * Signs with the real private key so signature verification passes.
  */
 async function craftJwt(options: {
-  authScopePattern: string;
+  authScope: string;
   aud: string;
-  admin?: boolean;
+  scopeAdmin?: boolean;
   sub?: string;
 }): Promise<string> {
   const privateKeyPem = (env as any).JWT_PRIVATE_KEY_BLUE;
@@ -24,59 +24,59 @@ async function craftJwt(options: {
 
   const now = Math.floor(Date.now() / 1000);
   const payload = {
-    iss: NEBULA_AUTH_ISSUER,
+    iss: platformOrigin(deploymentOrigin(env)),
     aud: options.aud,
-    sub: options.sub ?? generateUuid(),
+    sub: options.sub ?? crypto.randomUUID(),
     exp: now + 900,
     iat: now,
-    jti: generateUuid(),
+    jti: crypto.randomUUID(),
     emailVerified: true,
     adminApproved: true,
     email: 'test@example.com',
     access: {
-      authScopePattern: options.authScopePattern,
-      admin: options.admin ?? false,
+      authScope: options.authScope,
+      scopeAdmin: options.scopeAdmin ?? false,
     },
   };
 
   return await signJwt(payload, privateKey, 'BLUE');
 }
 
-describe('matchAccess(authScopePattern, aud) verification', () => {
-  it('allows JWT where wildcard authScopePattern covers aud', async () => {
+describe('isAtOrAbove(authScope, aud) verification', () => {
+  it('allows JWT where an ancestor authScope covers aud', async () => {
     const token = await craftJwt({
-      authScopePattern: 'acme.*',
+      authScope: 'acme',
       aud: 'acme.app.tenant-a',
-      admin: true,
+      scopeAdmin: true,
     });
 
-    const { verifyNebulaAccessToken } = await import('@lumenize/nebula-auth');
-    const result = await verifyNebulaAccessToken(token, env);
+    const { verifyAccessToken } = await import('@lumenize/mesh/auth');
+    const result = await verifyAccessToken(token, env);
     expect(result).not.toBeNull();
     expect(result!.aud).toBe('acme.app.tenant-a');
-    expect(result!.access.authScopePattern).toBe('acme.*');
+    expect(result!.access.authScope).toBe('acme');
   });
 
-  it('allows JWT where exact authScopePattern matches aud', async () => {
+  it('allows JWT where exact authScope matches aud', async () => {
     const token = await craftJwt({
-      authScopePattern: 'acme.app.tenant-a',
+      authScope: 'acme.app.tenant-a',
       aud: 'acme.app.tenant-a',
     });
 
-    const { verifyNebulaAccessToken } = await import('@lumenize/nebula-auth');
-    const result = await verifyNebulaAccessToken(token, env);
+    const { verifyAccessToken } = await import('@lumenize/mesh/auth');
+    const result = await verifyAccessToken(token, env);
     expect(result).not.toBeNull();
     expect(result!.aud).toBe('acme.app.tenant-a');
   });
 
-  it('rejects JWT where authScopePattern is narrower than aud', async () => {
+  it('rejects JWT where authScope is narrower than aud', async () => {
     const token = await craftJwt({
-      authScopePattern: 'acme.app.tenant-a',
-      aud: 'acme.app',  // aud is broader than authScopePattern
+      authScope: 'acme.app.tenant-a',
+      aud: 'acme.app',  // aud is broader than authScope
     });
 
-    const { verifyNebulaAccessToken } = await import('@lumenize/nebula-auth');
-    const result = await verifyNebulaAccessToken(token, env);
+    const { verifyAccessToken } = await import('@lumenize/mesh/auth');
+    const result = await verifyAccessToken(token, env);
     expect(result).toBeNull();
   });
 });

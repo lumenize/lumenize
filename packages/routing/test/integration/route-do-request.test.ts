@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-// @ts-expect-error TypeScript does not like this magic import from vitest-pool-workers
+// @ts-expect-error TypeScript does not like this magic import from vitest-plugin
 import { env, SELF } from 'cloudflare:test';
 
 describe('routeDORequest integration tests', () => {

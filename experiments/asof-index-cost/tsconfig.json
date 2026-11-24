@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "noEmit": true, "allowJs": true },
+  "include": ["src/**/*"],
+  "files": ["worker-configuration.d.ts"]
+}

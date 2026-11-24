@@ -1,0 +1,130 @@
+#!/usr/bin/env node
+/**
+ * Derive the wrangler config a LOCAL `wrangler dev` boots from — `wrangler.jsonc` minus the parts
+ * that are only true of a deployed Worker.
+ *
+ * Why `routes` must go (the reason this file exists, found by hand-driving on 2026-09-02):
+ * `wrangler dev` infers the local upstream host from the FIRST `routes` entry, so with a custom
+ * domain declared the Worker sees that domain as its `Host`, `lumenize.dev` today, no matter what
+ * the browser addressed — and magic-link URLs follow the request origin (`worker-token.ts`), so every login link
+ * a local stack emailed pointed at PRODUCTION. Clicking one hit a two-month-old deploy, and the
+ * test lanes never noticed because a helper re-pointed the host before following it. Stripping
+ * `routes` makes wrangler use the real inbound `Host`, which lands the link wherever the caller
+ * actually is — `:8787` when driven directly, `:5174` through the Studio vite proxy (whose
+ * `changeOrigin: false` forwards that Host untouched). `wrangler dev`'s own knobs cannot express
+ * "use the inbound Host": `dev.host` / `--local-upstream` each pin ONE fixed value, and there are
+ * two callers. `scripts/test-deploy-config.mjs` is the deployed twin, which swaps `routes` for the
+ * test domain's, since custom domains are exclusive to one Worker.
+ *
+ * Why `LUMENIZE_ORIGIN` is rewritten: the deployment names its origin once, and every host parses
+ * against it. A local stack answers on `*.lumenize.localhost`, which Chromium treats as a secure
+ * context and Node resolves to loopback, so its origin is {@link LOCAL_ORIGIN}.
+ *
+ * Why `PERSONA_MAIL_DOMAIN` is rewritten: {@link LOCAL_PERSONA_MAIL_DOMAIN} says.
+ *
+ * Why `assets.directory` is rewritten: a local stack serves no built pages. The browser reaches
+ * Studio and the auth app through vite, from source, and `nebula-studio-ui/dist` holds whatever a
+ * deploy or a hand build last left there. A page loaded from it ran that old Studio against
+ * today's Worker, and nothing said so (2026-11-15: a scenario's second browser took its invite
+ * link at the Worker's own port, and its Studio was a build from that morning). So the local
+ * config reads {@link LOCAL_PAGES_DIR}, always empty, and such a load fails where it happens.
+ *
+ * Why `containers` is optional: it is the ONLY thing in the stack that needs Docker. A scenario
+ * that declares `needsContainer = false` boots without the image build (~13 s instead of ~110 s).
+ *
+ * ⚠️ Derived from the real config on every boot, never a second committed file — a parallel config
+ * drifts silently the first time someone edits bindings in one and not the other. It is a
+ * line-level comment-out rather than a JSONC re-serialisation because no JSONC parser is available
+ * here and a regex comment-strip would corrupt any `//` inside a string (an https URL, say).
+ *
+ * ⚠️ The output MUST sit beside `wrangler.jsonc`: wrangler resolves `main`, `assets.directory` and
+ * every other relative path against the CONFIG FILE's directory. Both outputs are gitignored.
+ *
+ * Throws loudly when the config's shape has changed, rather than emitting a config nobody reviewed.
+ *
+ * CLI:   node scripts/local-config.mjs [--no-containers]   → prints the derived filename
+ * Import: deriveLocalConfig({ containers }) → the derived filename, relative to apps/nebula
+ */
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const NEBULA_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula
+const SOURCE = 'wrangler.jsonc';
+
+/** A local stack's origin, with the port taken from each request. The harness imports it too. */
+export const LOCAL_ORIGIN = 'http://lumenize.localhost';
+
+/**
+ * Where a local stack's personas receive mail: the test mailbox's zone, whose catch-all goes to the
+ * `email-test` Worker. No mail can reach a local Worker, so the stack's relay reads a persona's
+ * message there and hands it to the local `email` handler as it arrived (`persona-mail-relay.mjs`).
+ */
+export const LOCAL_PERSONA_MAIL_DOMAIN = 'lumenize-test.dev';
+
+/** The directory a local stack's `assets` reads, relative to apps/nebula: created here, never filled. */
+const LOCAL_PAGES_DIR = '.wrangler/local-no-built-pages';
+
+/** Rewrite the one `"NAME": "…"` var line's value, in place. */
+function setVar(lines, name, value) {
+  const at = lines.findIndex((l) => new RegExp(`^\\s*"${name}"\\s*:\\s*"[^"]*",?\\s*$`).test(l));
+  if (at === -1) {
+    throw new Error(
+      `local-config: no \`"${name}": "…"\` line in apps/nebula/${SOURCE}. The config shape changed — `
+      + 'update this derivation instead of letting it emit a config nobody reviewed.',
+    );
+  }
+  lines[at] = lines[at].replace(new RegExp(`"${name}"\\s*:\\s*"[^"]*"`), `"${name}": "${value}"`);
+}
+
+/** Comment out one top-level `"key": [ … ]` array block, in place, tagged with `why`. */
+function commentOutArray(lines, key, why) {
+  const start = lines.findIndex((l) => new RegExp(`^\\s*"${key}"\\s*:\\s*\\[\\s*$`).test(l));
+  if (start === -1) {
+    throw new Error(
+      `local-config: no \`"${key}": [\` line in apps/nebula/${SOURCE}. The config shape changed — `
+      + 'update this derivation instead of letting it emit a config nobody reviewed.',
+    );
+  }
+  let end = -1;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^\s*\],?\s*$/.test(lines[i])) { end = i; break; }
+  }
+  if (end === -1) throw new Error(`local-config: unterminated \`${key}\` array in apps/nebula/${SOURCE}.`);
+  for (let i = start; i <= end; i++) lines[i] = `// [local: ${why}] ${lines[i]}`;
+}
+
+/** Comment out the one top-level `"key": …` line, in place, tagged with `why`. */
+function commentOutLine(lines, key, why) {
+  const at = lines.findIndex((l) => new RegExp(`^\\s*"${key}"\\s*:.*,\\s*$`).test(l));
+  if (at === -1) {
+    throw new Error(
+      `local-config: no single-line \`"${key}": …\` in apps/nebula/${SOURCE}. The config shape changed — `
+      + 'update this derivation instead of letting it emit a config nobody reviewed.',
+    );
+  }
+  lines[at] = `// [local: ${why}] ${lines[at]}`;
+}
+
+/**
+ * @param {{ containers?: boolean }} [opts] — `containers: false` also drops the image build.
+ * @returns {string} the derived config's filename, relative to apps/nebula
+ */
+export function deriveLocalConfig({ containers = true } = {}) {
+  const lines = readFileSync(resolve(NEBULA_DIR, SOURCE), 'utf8').split('\n');
+  commentOutArray(lines, 'routes', 'routes stripped so the Worker sees the real inbound Host');
+  commentOutLine(lines, 'addresses', 'no mail is routed to a local Worker; the relay hands it its personas\' mail');
+  setVar(lines, 'LUMENIZE_ORIGIN', LOCAL_ORIGIN);
+  setVar(lines, 'PERSONA_MAIL_DOMAIN', LOCAL_PERSONA_MAIL_DOMAIN);
+  mkdirSync(resolve(NEBULA_DIR, LOCAL_PAGES_DIR), { recursive: true });
+  setVar(lines, 'directory', LOCAL_PAGES_DIR);
+  if (!containers) commentOutArray(lines, 'containers', 'container build disabled');
+  const out = containers ? 'wrangler.local.jsonc' : 'wrangler.local-no-container.jsonc';
+  writeFileSync(resolve(NEBULA_DIR, out), lines.join('\n'));
+  return out;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const containers = !process.argv.includes('--no-containers');
+  process.stdout.write(deriveLocalConfig({ containers }) + '\n');
+}

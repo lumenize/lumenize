@@ -104,6 +104,43 @@ export interface InlineSubtype {
   };
 }
 
+/**
+ * What a query may do with one field, read from its declared type.
+ *
+ * A query filters and indexes on what the stored form of a value keeps as a plain scalar: a
+ * string, a finite number, a boolean, a `Date` and a to-one relationship's id. `enum` is a union of
+ * string literals, with `values` in declared order, which is the order a comparison follows.
+ * `deprecated` holds the values a `@deprecatedValues` tag names: still valid to store and to query,
+ * and in `values` at their place in the order, but not to be offered for a new choice.
+ * `object` is an inline `{ ... }`, whose own fields a dotted path reaches. Everything else is
+ * `unsupported`, with `reason` saying what it is, so a query naming it is refused in those words.
+ *
+ * `optional` is a `?` property; `nullable` is a `| null` or `| undefined` in the type.
+ */
+export type FieldInfo = { optional: boolean } & FieldShape;
+
+/** A field's kind and what goes with it, before the property's own `?` is known. */
+export type FieldShape = { nullable?: true } & (
+  | { kind: 'string' | 'number' | 'boolean' | 'date' }
+  | { kind: 'id'; target: string }
+  | { kind: 'enum'; values: string[]; deprecated?: string[] }
+  | { kind: 'object'; fields: Record<string, FieldInfo> }
+  | { kind: 'unsupported'; reason: string }
+);
+
+/** `typeName -> fieldName -> FieldInfo`, for every top-level interface. */
+export type FieldsMap = Record<string, Record<string, FieldInfo>>;
+
+/**
+ * One index a type declares with `@index`: its fields in order, as dotted paths. A field's own
+ * `@index` declares an index on that field; `@index stage, amount` on the interface declares one
+ * over several, the leftmost serving a query on it alone.
+ */
+export interface IndexDeclaration {
+  type: string;
+  fields: string[];
+}
+
 export interface TypeMetadata {
   /** Top-level interface names in declaration order. */
   interfaceNames: string[];
@@ -127,6 +164,10 @@ export interface TypeMetadata {
    * "just use TypeScript" ergonomics.
    */
   inlineSubtypes: Record<string, Record<string, InlineSubtype>>;
+  /** `typeName -> fieldName -> FieldInfo`: what a query may filter and index on. */
+  fields: FieldsMap;
+  /** Every `@index` the types declare, each checked against `fields`. */
+  indexes: IndexDeclaration[];
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +190,210 @@ const tsApi = ts as {
   flattenDiagnosticMessageText: Function;
   SyntaxKind: { NullKeyword: number; UndefinedKeyword: number; TrueKeyword: number; FalseKeyword: number };
 };
+
+/** The containers whose contents a query cannot reach, by the name a refusal gives them. */
+const CONTAINER_REASONS: Record<string, string> = {
+  Array: 'an array', ReadonlyArray: 'an array', Set: 'a Set', ReadonlySet: 'a Set',
+  Map: 'a Map', ReadonlyMap: 'a Map',
+};
+
+/** How deep an alias may point at another alias before the walk gives up on it. */
+const MAX_ALIAS_DEPTH = 8;
+
+/**
+ * Classify one property's type for {@link FieldInfo}. `aliases` holds every top-level `type X = …`
+ * by name, so `stage: Stage` reads through to the union `Stage` names.
+ */
+function classifyField(
+  typeNode: any,
+  ontologyTypes: Set<string>,
+  aliases: Map<string, any>,
+  depth = 0,
+): FieldShape {
+  const kinds = (ts as any).SyntaxKind;
+  const unsupported = (reason: string): FieldShape => ({ kind: 'unsupported', reason });
+  if (typeNode.kind === kinds.ParenthesizedType) {
+    return classifyField(typeNode.type, ontologyTypes, aliases, depth);
+  }
+  if (typeNode.kind === kinds.StringKeyword) return { kind: 'string' };
+  if (typeNode.kind === kinds.NumberKeyword) return { kind: 'number' };
+  if (typeNode.kind === kinds.BooleanKeyword) return { kind: 'boolean' };
+  if (typeNode.kind === kinds.BigIntKeyword) return unsupported('a bigint');
+  if (tsApi.isLiteralTypeNode(typeNode)) {
+    const literal = typeNode.literal;
+    if (literal.kind === kinds.StringLiteral || literal.kind === kinds.NoSubstitutionTemplateLiteral) {
+      return { kind: 'enum', values: [literal.text] };
+    }
+    if (literal.kind === kinds.TrueKeyword || literal.kind === kinds.FalseKeyword) return { kind: 'boolean' };
+    if (literal.kind === kinds.NumericLiteral) return { kind: 'number' };
+    return unsupported('a literal type a query does not compare');
+  }
+  if (tsApi.isArrayTypeNode(typeNode)) return unsupported('an array');
+  if (tsApi.isTypeLiteralNode(typeNode)) {
+    return { kind: 'object', fields: fieldsOfMembers(typeNode.members, ontologyTypes, aliases, depth) };
+  }
+  if (tsApi.isTypeReferenceNode(typeNode) && tsApi.isIdentifier(typeNode.typeName)) {
+    const name = typeNode.typeName.text;
+    if (name === 'Date') return { kind: 'date' };
+    if (ontologyTypes.has(name)) return { kind: 'id', target: name };
+    if (CONTAINER_REASONS[name]) return unsupported(CONTAINER_REASONS[name]);
+    const alias = aliases.get(name);
+    if (alias && depth < MAX_ALIAS_DEPTH) return classifyField(alias, ontologyTypes, aliases, depth + 1);
+    return unsupported(`the type ${name}`);
+  }
+  if (tsApi.isUnionTypeNode(typeNode)) {
+    const isNullish = (t: any): boolean =>
+      t.kind === kinds.NullKeyword || t.kind === kinds.UndefinedKeyword ||
+      (tsApi.isLiteralTypeNode(t) && t.literal.kind === kinds.NullKeyword);
+    const members = typeNode.types.filter((t: any) => !isNullish(t));
+    const nullable = members.length < typeNode.types.length;
+    const withNull = (info: FieldShape): FieldShape =>
+      nullable ? { ...info, nullable: true } : info;
+    if (members.length === 1) return withNull(classifyField(members[0], ontologyTypes, aliases, depth));
+    const parts = members.map((t: any) => classifyField(t, ontologyTypes, aliases, depth));
+    if (parts.length > 0 && parts.every((part: FieldShape) => part.kind === 'enum')) {
+      const values = parts.flatMap((part: any) => part.values as string[]);
+      return withNull({ kind: 'enum', values: [...new Set<string>(values)] });
+    }
+    if (parts.length > 0 && parts.every((part: FieldShape) => part.kind === 'boolean')) {
+      return withNull({ kind: 'boolean' });
+    }
+    return withNull(unsupported('a union of different types'));
+  }
+  return unsupported('a type a query does not compare');
+}
+
+/** {@link FieldInfo} for each named property of an interface body or an inline `{ ... }`. */
+function fieldsOfMembers(
+  members: any,
+  ontologyTypes: Set<string>,
+  aliases: Map<string, any>,
+  depth = 0,
+): Record<string, FieldInfo> {
+  const out: Record<string, FieldInfo> = {};
+  for (const member of members) {
+    if (!tsApi.isPropertySignature(member) || !member.type) continue;
+    if (!tsApi.isIdentifier(member.name)) continue;
+    out[member.name.text] = {
+      ...classifyField(member.type, ontologyTypes, aliases, depth),
+      optional: member.questionToken !== undefined,
+    } as FieldInfo;
+  }
+  return out;
+}
+
+/** The `{ ... }` a property's type holds directly, or behind `| null` / `| undefined`. */
+function inlineLiteralOf(typeNode: any): any | null {
+  const kinds = (ts as any).SyntaxKind;
+  if (typeNode.kind === kinds.ParenthesizedType) return inlineLiteralOf(typeNode.type);
+  if (tsApi.isTypeLiteralNode(typeNode)) return typeNode;
+  if (tsApi.isUnionTypeNode(typeNode)) {
+    const literals = typeNode.types.filter((t: any) => tsApi.isTypeLiteralNode(t));
+    return literals.length === 1 ? literals[0] : null;
+  }
+  return null;
+}
+
+/**
+ * Every index one interface declares, each checked against the type's own fields so a
+ * declaration a query could not use is refused here, by a message naming the type.
+ */
+function indexesOfInterface(stmt: any, typeFields: Record<string, FieldInfo>): IndexDeclaration[] {
+  const typeName: string = stmt.name.text;
+  const refuse = (what: string): never => {
+    throw new Error(`@lumenize/ts-runtime-parser-validator: @index on ${typeName} ${what}`);
+  };
+  const lists: string[][] = [];
+  for (const tag of tsApi.getJSDocTags(stmt) ?? []) {
+    if (tag.tagName?.text !== 'index') continue;
+    const paths = getTagText(tag).split(',').map((part: string) => part.trim()).filter((part: string) => part !== '');
+    if (paths.length === 0) refuse('names no fields. On an interface, write @index followed by its fields, such as "@index stage, amount"');
+    lists.push(paths);
+  }
+  const walk = (members: any, prefix: string): void => {
+    for (const member of members) {
+      if (!tsApi.isPropertySignature(member) || !member.type || !tsApi.isIdentifier(member.name)) continue;
+      const path = prefix ? `${prefix}.${member.name.text}` : member.name.text;
+      for (const tag of tsApi.getJSDocTags(member) ?? []) {
+        if (tag.tagName?.text !== 'index') continue;
+        if (getTagText(tag).trim() !== '') {
+          refuse(`field "${path}" takes no text. To index several fields together, put @index on the interface`);
+        }
+        lists.push([path]);
+      }
+      const literal = inlineLiteralOf(member.type);
+      if (literal) walk(literal.members, path);
+    }
+  };
+  walk(stmt.members, '');
+
+  const seen = new Set<string>();
+  return lists.map((paths) => {
+    const within = new Set<string>();
+    for (const path of paths) {
+      if (within.has(path)) refuse(`names "${path}" twice`);
+      within.add(path);
+      let level: Record<string, FieldInfo> | undefined = typeFields;
+      let info: FieldInfo | undefined;
+      for (const part of path.split('.')) {
+        info = level && Object.hasOwn(level, part) ? level[part] : undefined;
+        if (!info) refuse(`names "${path}", and ${typeName} has no such field`);
+        level = info!.kind === 'object' ? info!.fields : undefined;
+      }
+      if (info!.kind === 'object') refuse(`names "${path}", which holds an object. Index one of its fields, such as "${path}.name"`);
+      if (info!.kind === 'unsupported') refuse(`names "${path}", which a query cannot compare: it is ${(info as { reason: string }).reason}`);
+    }
+    const key = paths.join(',');
+    if (seen.has(key)) refuse(`declares the index on ${paths.map((path) => `"${path}"`).join(', ')} twice`);
+    seen.add(key);
+    return { type: typeName, fields: paths };
+  });
+}
+
+/**
+ * Record each `@deprecatedValues` tag one interface's fields carry on the field's own
+ * {@link FieldInfo}, and answer how many tags were read. A tag on a field that is not a union of
+ * string literals, or naming a value the union does not hold, is refused by a message naming the type.
+ */
+function applyDeprecatedValues(stmt: any, typeFields: Record<string, FieldInfo>): number {
+  const typeName: string = stmt.name.text;
+  let read = 0;
+  const walk = (members: any, level: Record<string, FieldInfo>, prefix: string): void => {
+    for (const member of members) {
+      if (!tsApi.isPropertySignature(member) || !member.type || !tsApi.isIdentifier(member.name)) continue;
+      const path = prefix ? `${prefix}.${member.name.text}` : member.name.text;
+      const info = level[member.name.text]!;
+      const refuse = (what: string): never => {
+        throw new Error(`@lumenize/ts-runtime-parser-validator: @deprecatedValues on ${typeName}.${path} ${what}`);
+      };
+      const tags = (tsApi.getJSDocTags(member) ?? []).filter((tag: any) => tag.tagName?.text === 'deprecatedValues');
+      if (tags.length > 1) refuse('is written twice. List every deprecated value in one tag, separated by commas');
+      if (tags.length === 1) {
+        read++;
+        if (info.kind !== 'enum') {
+          refuse(`needs a field whose type is a list of string values, such as 'lead' | 'open' | 'won'`);
+        }
+        const values = (info as { values: string[] }).values;
+        const named = getTagText(tags[0]).split(',').map((part: string) => part.trim()).filter((part: string) => part !== '');
+        if (named.length === 0) refuse('names no values. Write the values after it, such as "@deprecatedValues qualified, stalled"');
+        const within = new Set<string>();
+        for (const value of named) {
+          if (!values.includes(value)) {
+            refuse(`names "${value}", and the field's values are ${values.map((v) => JSON.stringify(v)).join(', ')}`);
+          }
+          if (within.has(value)) refuse(`names "${value}" twice`);
+          within.add(value);
+        }
+        // Kept in declared order, whatever order the tag lists them in.
+        (info as { deprecated?: string[] }).deprecated = values.filter((value) => within.has(value));
+      }
+      const literal = inlineLiteralOf(member.type);
+      if (literal && info.kind === 'object') walk(literal.members, info.fields, path);
+    }
+  };
+  walk(stmt.members, typeFields, '');
+  return read;
+}
 
 function collectInterfaceNamesArray(sourceFile: any): string[] {
   const names: string[] = [];
@@ -627,9 +872,34 @@ export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
     }
   }
 
+  const aliasNodes = new Map<string, any>();
+  for (const stmt of sourceFile.statements) {
+    if (tsApi.isTypeAliasDeclaration(stmt) && tsApi.isIdentifier(stmt.name)) aliasNodes.set(stmt.name.text, stmt.type);
+  }
+  const fields: FieldsMap = {};
+  const indexes: IndexDeclaration[] = [];
+  let deprecatedRead = 0;
   for (const stmt of sourceFile.statements) {
     if (!tsApi.isInterfaceDeclaration(stmt)) continue;
     walkMembers(stmt.members, stmt.name.text, /* isTopLevel */ true);
+    fields[stmt.name.text] = fieldsOfMembers(stmt.members, ontologyTypes, aliasNodes);
+    indexes.push(...indexesOfInterface(stmt, fields[stmt.name.text]!));
+    deprecatedRead += applyDeprecatedValues(stmt, fields[stmt.name.text]!);
+  }
+  // TypeScript attaches a JSDoc block to a member only when the block starts on a line of its
+  // own, so `{ /** @index */ a: string }` on one line declares nothing. Refuse it here, where the
+  // author can see why, since an index that silently does not exist shows only as a refused query.
+  const written = typeDefinitions.match(/@index\b/g)?.length ?? 0;
+  if (written !== indexes.length) {
+    throw new Error(
+      `@lumenize/ts-runtime-parser-validator: ${written} @index tags are written and ${indexes.length} were read. ` +
+      'Put each /** @index */ comment on a line of its own, directly above the field or interface it belongs to');
+  }
+  const deprecatedWritten = typeDefinitions.match(/@deprecatedValues\b/g)?.length ?? 0;
+  if (deprecatedWritten !== deprecatedRead) {
+    throw new Error(
+      `@lumenize/ts-runtime-parser-validator: ${deprecatedWritten} @deprecatedValues tags are written and ${deprecatedRead} were read. ` +
+      'Put each JSDoc comment on a line of its own, directly above the field it belongs to');
   }
 
   // Register top-level `type X = Y` / `type X = Y<...>` aliases. typia's
@@ -644,6 +914,7 @@ export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
       if (defaults[targetInterface]) defaults[aliasName] = defaults[targetInterface];
       if (relationships[targetInterface]) relationships[aliasName] = relationships[targetInterface];
       if (inlineSubtypes[targetInterface]) inlineSubtypes[aliasName] = inlineSubtypes[targetInterface];
+      if (fields[targetInterface]) fields[aliasName] = fields[targetInterface];
     }
   }
 
@@ -660,5 +931,7 @@ export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
     writeShapeTypeDefinitions: writeShape,
     defaults,
     inlineSubtypes,
+    fields,
+    indexes,
   };
 }

@@ -5,10 +5,10 @@
  * from calls.mdx.
  */
 
-import { LumenizeClient, mesh } from '../../../src/index.js';
+import { MeshClient, mesh } from '../../../src/index.js';
 import type { CalculatorDO } from './calculator-do.js';
 
-export class CalculatorClient extends LumenizeClient {
+export class CalculatorClient extends MeshClient {
   // Store results received via handlers
   readonly results: number[] = [];
 
@@ -21,7 +21,7 @@ export class CalculatorClient extends LumenizeClient {
   calculateNested() {
     this.lmz.call(
       'CALCULATOR_DO',
-      'calc-1',
+      'calc_1',
       this.ctn<CalculatorDO>().add(
         this.ctn<CalculatorDO>().add(1, 10),      // Returns 11
         this.ctn<CalculatorDO>().add(100, 1000)   // Returns 1100
@@ -38,7 +38,7 @@ export class CalculatorClient extends LumenizeClient {
   calculateChained() {
     this.lmz.call(
       'CALCULATOR_DO',
-      'calc-1',
+      'calc_1',
       this.ctn<CalculatorDO>().multiply(5, this.ctn<CalculatorDO>().add(2, 3)),  // multiply(5, 5) = 25
       this.ctn().handleResult(this.ctn().$result)
     );

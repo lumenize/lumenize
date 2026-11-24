@@ -11,28 +11,27 @@
  * engine owns.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createDebounceQueue, type QueueSubmission, type NonCommitApi } from '../../src/frontend/debounce';
+import { createDebounceQueue, type QueueSubmission, type NonCommitApi } from '../../../../packages/resources/src/frontend/debounce';
 
 // ─── Local mock outcome shape (matches the default interpretCommit) ─────────
 
 type MockOutcome =
-  | { resolution: 'committed'; eTag: string }
-  | { resolution: 'use-server'; snapshot: { value: unknown; meta: { eTag: string } } };
+  | { resolution: 'committed'; validFrom: string }
+  | { resolution: 'use-server'; snapshot: { value: unknown; meta: { validFrom: string } } };
 
 // ─── Harness: fake store + capture-submit mock ─────────────────────────────
 
 type Responder = (subs: QueueSubmission[]) => Promise<MockOutcome[]>;
 
 function makeHarness(opts: { quietMs?: number; maxWaitMs?: number; timeoutMs?: number } = {}) {
-  const store = new Map<string, { value: unknown; eTag?: string }>();
+  const store = new Map<string, { value: unknown; validFrom?: string }>();
   const submitted: QueueSubmission[] = [];
   const nonCommits: Array<{ outcome: unknown; submission: QueueSubmission }> = [];
-  let etagCounter = 0;
-  let newETagCounter = 0;
+  let versionCounter = 0;
 
-  // Default: auto-commit with a fresh server eTag, resolving on a microtask.
+  // Default: auto-commit with a fresh server validFrom, resolving on a microtask.
   let respond: Responder = async (subs) =>
-    subs.map(() => ({ resolution: 'committed' as const, eTag: `srv-${++etagCounter}` }));
+    subs.map(() => ({ resolution: 'committed' as const, validFrom: `srv-${++versionCounter}` }));
   // Default non-commit handling mirrors the factory: use-server → accept; else fail.
   let onNonCommitBehavior = (outcome: unknown, _s: QueueSubmission, api: NonCommitApi) => {
     const o = outcome as MockOutcome;
@@ -45,21 +44,20 @@ function makeHarness(opts: { quietMs?: number; maxWaitMs?: number; timeoutMs?: n
       submitted.push(...subs.map((s) => ({ ...s })));
       return respond(subs);
     },
-    readResource: (rt, rid) => store.get(`${rt}:${rid}`) ?? { value: undefined, eTag: undefined },
-    onCommitted: (s, eTag) => {
+    readResource: (rt, rid) => store.get(`${rt}:${rid}`) ?? { value: undefined, validFrom: undefined },
+    onCommitted: (s, validFrom) => {
       const entry = store.get(`${s.rt}:${s.rid}`);
-      if (entry) entry.eTag = eTag;
+      if (entry) entry.validFrom = validFrom;
     },
     onNonCommit: (outcome, s, api) => {
       nonCommits.push({ outcome, submission: { ...s } });
       onNonCommitBehavior(outcome, s, api);
     },
-    newETag: () => `ne-${++newETagCounter}`,
     ...opts,
   });
 
-  function seed(rt: string, rid: string, value: unknown, eTag = 'eTag-v1') {
-    store.set(`${rt}:${rid}`, { value, eTag });
+  function seed(rt: string, rid: string, value: unknown, validFrom = 'validFrom-v1') {
+    store.set(`${rt}:${rid}`, { value, validFrom });
   }
   /** A keystroke: update the (already-optimistic) store, then notify the queue. */
   function type(rt: string, rid: string, value: unknown, writeOpts?: { quietMs?: number; preWriteValue?: unknown }) {
@@ -118,10 +116,10 @@ describe('debounce coalescing', () => {
       h.type('todo', 't1', { title: text });
       await vi.advanceTimersByTimeAsync(50);
     }
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(h.submitted).toHaveLength(1);
     expect(h.submitted[0]!.value).toEqual({ title: 'hello' });
-    expect(h.submitted[0]!.eTag).toBe('eTag-v1');
+    expect(h.submitted[0]!.ifValidFromMatches).toBe('validFrom-v1');
   });
 
   it('continuous typing over T > maxWaitMs produces ≤ ceil(T/maxWaitMs)+1 transactions', async () => {
@@ -132,8 +130,8 @@ describe('debounce coalescing', () => {
       h.type('todo', 't1', { title: 'x'.repeat(t / 100 + 1) });
       await vi.advanceTimersByTimeAsync(100);
     }
-    await vi.advanceTimersByTimeAsync(2500); // drain trailing quiet window
-    const cap = Math.ceil(T / 2000) + 1;
+    await vi.advanceTimersByTimeAsync(3500); // drain trailing quiet window
+    const cap = Math.ceil(T / 3000) + 1;
     expect(h.submitted.length).toBeGreaterThanOrEqual(2); // maxWait actually fired mid-burst
     expect(h.submitted.length).toBeLessThanOrEqual(cap);
     // No keystroke lost: the last submission carries the final value.
@@ -154,44 +152,61 @@ describe('debounce coalescing', () => {
   });
 });
 
-describe('eTag chain + idempotency tokens', () => {
-  it('all submitted newETags are unique across logical submissions', async () => {
+describe('the default windows', () => {
+  // A queue built with no windows, so these ride the framework defaults. Mutation: restore 500 and
+  // 2000 → the lone write submits at 500 ms and the stream at 2000, 4000 and 6000.
+  it('a lone write submits 1 s after it', async () => {
+    const h = makeHarness();
+    h.seed('todo', 't1', { title: '' });
+    h.type('todo', 't1', { title: 'a' });
+    await vi.advanceTimersByTimeAsync(999);
+    expect(h.submitted).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.submitted).toHaveLength(1);
+  });
+
+  it('a steady stream of writes submits every 3 s', async () => {
     const h = makeHarness();
     h.seed('todo', 't1', { n: 0 });
-    for (let burst = 0; burst < 3; burst++) {
-      h.type('todo', 't1', { n: burst + 1 });
-      await vi.advanceTimersByTimeAsync(600); // quiet elapse + commit
+    // A write every 100 ms never lets the quiet window close, so only the maximum wait submits.
+    const submittedAt: number[] = [];
+    for (let t = 0; t < 6500; t += 100) {
+      const before = h.submitted.length;
+      h.type('todo', 't1', { n: t });
+      await vi.advanceTimersByTimeAsync(100);
+      if (h.submitted.length > before) submittedAt.push(t + 100);
     }
-    expect(h.submitted).toHaveLength(3);
-    expect(new Set(h.submitted.map((s) => s.newETag)).size).toBe(3);
+    expect(submittedAt).toEqual([3000, 6000]);
   });
+});
 
-  it("each submission's eTag equals the previous successful submission's resulting eTag — no stale or duplicate eTags", async () => {
+describe('validFrom chain + idempotency tokens', () => {
+  it("each submission's validFrom equals the previous successful submission's resulting validFrom — no stale or duplicate validFroms", async () => {
     const h = makeHarness();
-    h.seed('todo', 't1', { n: 0 }, 'eTag-v1');
+    h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
     for (let burst = 0; burst < 3; burst++) {
       h.type('todo', 't1', { n: burst + 1 });
-      await vi.advanceTimersByTimeAsync(600);
+      await vi.advanceTimersByTimeAsync(1100);
     }
-    expect(h.submitted.map((s) => s.eTag)).toEqual(['eTag-v1', 'srv-1', 'srv-2']);
-    expect(new Set(h.submitted.map((s) => s.eTag)).size).toBe(3);
+    expect(h.submitted.map((s) => s.ifValidFromMatches)).toEqual(['validFrom-v1', 'srv-1', 'srv-2']);
+    expect(new Set(h.submitted.map((s) => s.ifValidFromMatches)).size).toBe(3);
   });
 
-  it('buffered writes during in-flight chain off the in-flight result eTag, not the pre-submit eTag', async () => {
+  it('buffered writes during in-flight chain off the in-flight result validFrom, not the pre-submit validFrom', async () => {
     const h = makeHarness();
     const d = deferredResponder();
     h.setResponder(d.responder);
-    h.seed('todo', 't1', { n: 0 }, 'eTag-v1');
+    h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // S1 in flight
+    await vi.advanceTimersByTimeAsync(1000); // S1 in flight
     expect(h.submitted).toHaveLength(1);
     h.type('todo', 't1', { n: 2 }); // buffered
     h.type('todo', 't1', { n: 3 }); // coalesces
-    d.pending[0]!.resolve([{ resolution: 'committed', eTag: 'srv-after-s1' }]);
+    d.pending[0]!.resolve([{ resolution: 'committed', validFrom: 'srv-after-s1' }]);
     await flushMicrotasks();
-    await vi.advanceTimersByTimeAsync(2500); // buffered burst re-enters debounce, then submits
+    await vi.advanceTimersByTimeAsync(3500); // buffered burst re-enters debounce, then submits
     expect(h.submitted).toHaveLength(2);
-    expect(h.submitted[1]!.eTag).toBe('srv-after-s1');
+    expect(h.submitted[1]!.ifValidFromMatches).toBe('srv-after-s1');
     expect(h.submitted[1]!.value).toEqual({ n: 3 }); // latest-value coalescing
   });
 });
@@ -201,22 +216,22 @@ describe('B4 — merge base re-anchors at the commit boundary', () => {
     const h = makeHarness();
     const d = deferredResponder();
     h.setResponder(d.responder);
-    h.seed('doc', 'd1', { body: 'V0' }, 'eTag-v1');
+    h.seed('doc', 'd1', { body: 'V0' }, 'validFrom-v1');
 
     h.type('doc', 'd1', { body: 'V1' });
-    await vi.advanceTimersByTimeAsync(500); // T1 in flight with value V1, base V0
+    await vi.advanceTimersByTimeAsync(1000); // T1 in flight with value V1, base V0
     expect(h.submitted[0]!.base).toEqual({ body: 'V0' });
     h.type('doc', 'd1', { body: 'V2' }); // buffered behind T1
-    d.pending[0]!.resolve([{ resolution: 'committed', eTag: 'srv-t1' }]); // T1 commits
+    d.pending[0]!.resolve([{ resolution: 'committed', validFrom: 'srv-t1' }]); // T1 commits
     await flushMicrotasks();
-    await vi.advanceTimersByTimeAsync(2500); // T2 (the buffered write) submits
+    await vi.advanceTimersByTimeAsync(3500); // T2 (the buffered write) submits
 
     expect(h.submitted).toHaveLength(2);
     // A third party moved the server: T2 conflicts.
     d.pending[1]!.resolve([
       {
         resolution: 'use-server',
-        snapshot: { value: { body: 'THIRD-PARTY' }, meta: { eTag: 'srv-3p' } },
+        snapshot: { value: { body: 'THIRD-PARTY' }, meta: { validFrom: 'srv-3p' } },
       },
     ]);
     await flushMicrotasks();
@@ -232,14 +247,14 @@ describe('serial per resource + conflict invocation count', () => {
     const h = makeHarness();
     const d = deferredResponder();
     h.setResponder(d.responder);
-    h.seed('todo', 't1', { n: 0 }, 'eTag-v1');
+    h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // S1 in flight
+    await vi.advanceTimersByTimeAsync(1000); // S1 in flight
     for (let i = 2; i <= 6; i++) h.type('todo', 't1', { n: i }); // 5 buffered writes
     d.pending[0]!.resolve([
       {
         resolution: 'use-server',
-        snapshot: { value: { n: 99 }, meta: { eTag: 'srv-other' } },
+        snapshot: { value: { n: 99 }, meta: { validFrom: 'srv-other' } },
       },
     ]);
     await flushMicrotasks();
@@ -253,9 +268,9 @@ describe('serial per resource + conflict invocation count', () => {
     h.seed('todo', 't1', { n: 0 });
     h.seed('todo', 't2', { n: 0 });
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // t1 in flight (deferred — stays occupied)
+    await vi.advanceTimersByTimeAsync(1000); // t1 in flight (deferred — stays occupied)
     h.type('todo', 't2', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // t2 proceeds despite t1 occupied
+    await vi.advanceTimersByTimeAsync(1000); // t2 proceeds despite t1 occupied
     expect(h.submitted.map((s) => s.rid)).toEqual(['t1', 't2']);
   });
 });
@@ -303,18 +318,18 @@ describe('flush triggers', () => {
     const h = makeHarness();
     const d = deferredResponder();
     h.setResponder(d.responder);
-    h.seed('todo', 't1', { n: 0 }, 'eTag-v1');
+    h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // S1 in flight (deferred)
+    await vi.advanceTimersByTimeAsync(1000); // S1 in flight (deferred)
     expect(h.submitted).toHaveLength(1);
     h.type('todo', 't1', { n: 2 }); // buffered behind the in-flight tx
 
     const disposed = h.queue.dispose();
     // The in-flight settles normally (commit) — dispose must wait for it.
-    d.pending[0]!.resolve([{ resolution: 'committed', eTag: 'srv-1' }]);
+    d.pending[0]!.resolve([{ resolution: 'committed', validFrom: 'srv-1' }]);
     await flushMicrotasks();
     await expect(disposed).resolves.toBeUndefined();
-    expect(h.store.get('todo:t1')!.eTag).toBe('srv-1'); // in-flight committed normally
+    expect(h.store.get('todo:t1')!.validFrom).toBe('srv-1'); // in-flight committed normally
 
     // The buffered follow-up NEVER submits (dropped behind in-flight at dispose).
     expect(h.submitted).toHaveLength(1);
@@ -326,8 +341,8 @@ describe('flush triggers', () => {
 describe('explicit multi-resource batch (m9)', () => {
   it('an explicit batch folds pending debounced writes for its resources — no lost write, no separate submission', async () => {
     const h = makeHarness();
-    h.seed('todo', 't1', { n: 0 }, 'eTag-t1');
-    h.seed('todo', 't2', { n: 0 }, 'eTag-t2');
+    h.seed('todo', 't1', { n: 0 }, 'validFrom-t1');
+    h.seed('todo', 't2', { n: 0 }, 'validFrom-t2');
     h.type('todo', 't1', { n: 1 }); // debounced, pending
     await vi.advanceTimersByTimeAsync(100);
     h.queue.explicitBatch([
@@ -346,11 +361,11 @@ describe('explicit multi-resource batch (m9)', () => {
     const h = makeHarness();
     const d = deferredResponder();
     h.setResponder(d.responder);
-    h.seed('todo', 't1', { n: 0 }, 'eTag-t1');
-    h.seed('todo', 't2', { n: 0 }, 'eTag-t2');
+    h.seed('todo', 't1', { n: 0 }, 'validFrom-t1');
+    h.seed('todo', 't2', { n: 0 }, 'validFrom-t2');
 
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // t1 single in flight (deferred)
+    await vi.advanceTimersByTimeAsync(1000); // t1 single in flight (deferred)
     h.queue.explicitBatch([
       { rt: 'todo', rid: 't1' },
       { rt: 'todo', rid: 't2' },
@@ -358,29 +373,29 @@ describe('explicit multi-resource batch (m9)', () => {
     await flushMicrotasks();
     expect(h.submitted).toHaveLength(1); // batch parked behind t1's in-flight
 
-    d.pending[0]!.resolve([{ resolution: 'committed', eTag: 'srv-t1-a' }]);
+    d.pending[0]!.resolve([{ resolution: 'committed', validFrom: 'srv-t1-a' }]);
     await flushMicrotasks();
     expect(h.submitted).toHaveLength(3); // batch went out (2 submissions)
     const batchT1 = h.submitted.find((s, i) => i > 0 && s.rid === 't1')!;
-    expect(batchT1.eTag).toBe('srv-t1-a'); // chained off the released in-flight result
+    expect(batchT1.ifValidFromMatches).toBe('srv-t1-a'); // chained off the released in-flight result
 
     // Buffered write to a batch member while the batch is in flight…
     h.type('todo', 't1', { n: 5 });
     d.pending[1]!.resolve([
-      { resolution: 'committed', eTag: 'srv-t1-b' },
-      { resolution: 'committed', eTag: 'srv-t2-a' },
+      { resolution: 'committed', validFrom: 'srv-t1-b' },
+      { resolution: 'committed', validFrom: 'srv-t2-a' },
     ]);
     await flushMicrotasks();
-    await vi.advanceTimersByTimeAsync(2500);
-    // …chains off the batch's resulting eTag for that resource.
-    expect(h.submitted.at(-1)!).toMatchObject({ rid: 't1', eTag: 'srv-t1-b' });
+    await vi.advanceTimersByTimeAsync(3500);
+    // …chains off the batch's resulting validFrom for that resource.
+    expect(h.submitted.at(-1)!).toMatchObject({ rid: 't1', ifValidFromMatches: 'srv-t1-b' });
   });
 });
 
 describe('connection gate (decided 2026-06-11)', () => {
   it('disconnect suspends the write path: no submission, no timers while disconnected; reconnect flushes exactly one coalesced submission', async () => {
     const h = makeHarness();
-    h.seed('todo', 't1', { n: 0 }, 'eTag-v1');
+    h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
     h.type('todo', 't1', { n: 1 });
     await vi.advanceTimersByTimeAsync(100);
     h.queue.setConnectionState('reconnecting');
@@ -394,16 +409,16 @@ describe('connection gate (decided 2026-06-11)', () => {
     h.queue.setConnectionState('connected');
     await flushMicrotasks();
     expect(h.submitted).toHaveLength(1);
-    expect(h.submitted[0]!).toMatchObject({ eTag: 'eTag-v1', value: { n: 2 } });
+    expect(h.submitted[0]!).toMatchObject({ ifValidFromMatches: 'validFrom-v1', value: { n: 2 } });
   });
 
-  it('in-flight at disconnect: never rolled back, timeout suspended; re-submits on reconnect with the SAME newETag', async () => {
+  it('in-flight at disconnect: never rolled back, timeout suspended; the ORIGINAL submit re-resolves on reconnect (NO re-fire — A)', async () => {
     const h = makeHarness();
     const d = deferredResponder();
     h.setResponder(d.responder);
-    h.seed('todo', 't1', { n: 0 }, 'eTag-v1');
+    h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // S1 in flight (deferred — server never answers)
+    await vi.advanceTimersByTimeAsync(1000); // S1 in flight (deferred — server never answers)
     expect(h.submitted).toHaveLength(1);
 
     h.queue.setConnectionState('reconnecting');
@@ -412,37 +427,40 @@ describe('connection gate (decided 2026-06-11)', () => {
 
     h.queue.setConnectionState('connected');
     await flushMicrotasks();
-    expect(h.submitted).toHaveLength(2); // replay
-    expect(h.submitted[1]!.newETag).toBe(h.submitted[0]!.newETag); // idempotent token
-    expect(h.submitted[1]!.eTag).toBe(h.submitted[0]!.eTag);
-    expect(h.submitted[1]!.attempt).toBe(2);
+    // (A): the in-flight `callAsync` re-resolves on its own (D17) — the queue does NOT re-fire a fresh
+    // mesh call (which would orphan the original). It just re-arms the timeout on the SAME attempt.
+    // Capable-of-failing: revert to re-submit-on-reconnect and this becomes length 2.
+    expect(h.submitted).toHaveLength(1);
 
-    // Server replay short-circuits to committed; chain advances normally.
-    d.pending[1]!.resolve([{ resolution: 'committed', eTag: 'srv-1' }]);
+    // The original in-flight submit re-resolves (D17 delivers the RESULT on the new socket) → commit.
+    d.pending[0]!.resolve([{ resolution: 'committed', validFrom: 'srv-1' }]);
     await flushMicrotasks();
     h.type('todo', 't1', { n: 2 });
-    await vi.advanceTimersByTimeAsync(600);
-    expect(h.submitted.at(-1)!.eTag).toBe('srv-1');
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(h.submitted.at(-1)!.ifValidFromMatches).toBe('srv-1');
   });
 
-  it('a stale first-attempt response arriving after the replay is ignored (no double-settle)', async () => {
+  it('after reconnect the re-armed in-flight timeout still backstops a genuinely-lost RESULT (A)', async () => {
     const h = makeHarness();
     const d = deferredResponder();
     h.setResponder(d.responder);
-    h.seed('todo', 't1', { n: 0 }, 'eTag-v1');
+    h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.submitted).toHaveLength(1);
+
     h.queue.setConnectionState('reconnecting');
     h.queue.setConnectionState('connected');
     await flushMicrotasks();
-    expect(h.submitted).toHaveLength(2);
-    d.pending[1]!.resolve([{ resolution: 'committed', eTag: 'srv-replay' }]); // replay answers first
-    await flushMicrotasks();
-    d.pending[0]!.resolve([{ resolution: 'committed', eTag: 'srv-stale' }]); // original limps in late
-    await flushMicrotasks();
-    h.type('todo', 't1', { n: 2 });
-    await vi.advanceTimersByTimeAsync(600);
-    expect(h.submitted.at(-1)!.eTag).toBe('srv-replay'); // stale attempt did not move the chain
+    expect(h.submitted).toHaveLength(1); // (A): no re-fire
+
+    // The RESULT is genuinely lost (never re-resolves). The timeout was suspended on disconnect and
+    // RE-ARMED on reconnect (same attempt), so it still fires → the engine retries (nonCommit timeout).
+    // Capable-of-failing: drop the reconnect `armTimeout` and this never fires (nonCommits stays 0).
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(h.nonCommits).toHaveLength(1);
+    expect((h.nonCommits[0]!.outcome as { queueSignal?: string }).queueSignal).toBe('timeout');
+    void d;
   });
 });
 
@@ -451,13 +469,13 @@ describe('connection gate — every non-connected literal (Mn8)', () => {
   // Drive it via every non-connected literal so an impl that special-cases one
   // (or treats 'disconnected' as a hard-rollback state) is caught.
   for (const downState of ['connecting', 'reconnecting', 'disconnected'] as const) {
-    it(`in-flight during '${downState}': no timeout/rollback; replays same newETag on reconnect`, async () => {
+    it(`in-flight during '${downState}': no timeout/rollback; the ORIGINAL submit re-resolves on reconnect (NO re-fire — A)`, async () => {
       const h = makeHarness();
       const d = deferredResponder();
       h.setResponder(d.responder);
-      h.seed('todo', 't1', { n: 0 }, 'eTag-v1');
+      h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
       h.type('todo', 't1', { n: 1 });
-      await vi.advanceTimersByTimeAsync(500); // in flight (deferred)
+      await vi.advanceTimersByTimeAsync(1000); // in flight (deferred)
       expect(h.submitted).toHaveLength(1);
 
       h.queue.setConnectionState(downState);
@@ -466,14 +484,16 @@ describe('connection gate — every non-connected literal (Mn8)', () => {
 
       h.queue.setConnectionState('connected');
       await flushMicrotasks();
-      expect(h.submitted).toHaveLength(2); // replay
-      expect(h.submitted[1]!.newETag).toBe(h.submitted[0]!.newETag);
-      expect(h.submitted[1]!.attempt).toBe(2);
+      expect(h.submitted).toHaveLength(1); // (A): NO re-fire; the in-flight callAsync re-resolves (D17)
+
+      d.pending[0]!.resolve([{ resolution: 'committed', validFrom: 'srv-1' }]);
+      await flushMicrotasks();
+      expect(h.nonCommits).toHaveLength(0); // the original re-resolution committed cleanly
     });
 
     it(`a write during '${downState}' holds (no submit, no armed timers) until reconnect`, async () => {
       const h = makeHarness();
-      h.seed('todo', 't1', { n: 0 }, 'eTag-v1');
+      h.seed('todo', 't1', { n: 0 }, 'validFrom-v1');
       h.queue.setConnectionState(downState); // go offline first
       h.type('todo', 't1', { n: 1 });
       await vi.advanceTimersByTimeAsync(60_000); // a held write must NOT arm timers / submit
@@ -481,7 +501,7 @@ describe('connection gate — every non-connected literal (Mn8)', () => {
       h.queue.setConnectionState('connected');
       await flushMicrotasks();
       expect(h.submitted).toHaveLength(1);
-      expect(h.submitted[0]!).toMatchObject({ eTag: 'eTag-v1', value: { n: 1 } });
+      expect(h.submitted[0]!).toMatchObject({ ifValidFromMatches: 'validFrom-v1', value: { n: 1 } });
     });
   }
 });
@@ -493,7 +513,7 @@ describe('in-flight infra timeout (while connected)', () => {
     h.setResponder(d.responder);
     h.seed('todo', 't1', { n: 0 });
     h.type('todo', 't1', { n: 1 });
-    await vi.advanceTimersByTimeAsync(500); // in flight
+    await vi.advanceTimersByTimeAsync(1000); // in flight
     await vi.advanceTimersByTimeAsync(10_000); // timeoutMs elapses
     expect(h.nonCommits).toHaveLength(1);
     expect(h.nonCommits[0]!.outcome).toEqual({ queueSignal: 'timeout' });
@@ -510,22 +530,22 @@ describe('per-type configuration', () => {
     h.type('todo', 't1', { n: 1 });
     await vi.advanceTimersByTimeAsync(60);
     expect(h.submitted.map((s) => s.rt)).toEqual(['chat']); // chat flushed at 50ms; todo still quiet
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(h.submitted.map((s) => s.rt)).toEqual(['chat', 'todo']);
   });
 });
 
 describe('conflict re-submission (use-this chain plumbing for the conflict-outcome engine)', () => {
-  it('api.resubmit sends a fresh newETag at the server eTag with the re-anchored base, and buffered writes chain after it', async () => {
+  it('api.resubmit names the server validFrom with the re-anchored base, and buffered writes chain after it', async () => {
     const h = makeHarness();
     const d = deferredResponder();
     h.setResponder(d.responder);
     h.setNonCommitBehavior((outcome, _s, api) => {
       const o = outcome as MockOutcome;
       if (o.resolution === 'use-server') {
-        // a use-this style resolver: merged value at the server's eTag
+        // a use-this style resolver: merged value at the server's validFrom
         api.resubmit({
-          eTag: o.snapshot.meta.eTag,
+          ifValidFromMatches: o.snapshot.meta.validFrom,
           value: { merged: true },
           base: o.snapshot.value,
         });
@@ -533,21 +553,20 @@ describe('conflict re-submission (use-this chain plumbing for the conflict-outco
         api.fail();
       }
     });
-    h.seed('doc', 'd1', { body: 'L' }, 'eTag-v1');
+    h.seed('doc', 'd1', { body: 'L' }, 'validFrom-v1');
     h.type('doc', 'd1', { body: 'L1' });
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(1000);
     d.pending[0]!.resolve([
-      { resolution: 'use-server', snapshot: { value: { body: 'S1' }, meta: { eTag: 'srv-s1' } } },
+      { resolution: 'use-server', snapshot: { value: { body: 'S1' }, meta: { validFrom: 'srv-s1' } } },
     ]);
     await flushMicrotasks();
     expect(h.submitted).toHaveLength(2);
-    expect(h.submitted[1]!).toMatchObject({ eTag: 'srv-s1', value: { merged: true } });
+    expect(h.submitted[1]!).toMatchObject({ ifValidFromMatches: 'srv-s1', value: { merged: true } });
     expect(h.submitted[1]!.base).toEqual({ body: 'S1' }); // base = previous conflict's server snapshot
-    expect(h.submitted[1]!.newETag).not.toBe(h.submitted[0]!.newETag); // new logical submission
-    d.pending[1]!.resolve([{ resolution: 'committed', eTag: 'srv-final' }]);
+    d.pending[1]!.resolve([{ resolution: 'committed', validFrom: 'srv-final' }]);
     await flushMicrotasks();
     h.type('doc', 'd1', { body: 'L2' });
-    await vi.advanceTimersByTimeAsync(600);
-    expect(h.submitted.at(-1)!.eTag).toBe('srv-final');
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(h.submitted.at(-1)!.ifValidFromMatches).toBe('srv-final');
   });
 });

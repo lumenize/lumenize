@@ -1,0 +1,154 @@
+/**
+ * **The superuser comes in the same door as everyone else.**
+ *
+ * They could not, before. A bootstrap address's platform membership was minted BY the platform-link
+ * request, so a first login discovered nothing and the only way in was a hand-typed URL naming a
+ * scope no UI ever showed. Now the membership is minted at the CONSUME — behind proof of the mailbox
+ * — the ordinary scope-less login sets its cookie like any other, and Home offers it behind the same
+ * self-flavour modal a new account gets.
+ *
+ * ⚠️ **The platform carve-out this scenario used to be blocked by was dropped on 2026-09-01**, and
+ * limb 2 is what stands in its place. mint-all no longer withholds the `_platform` cookie, so
+ * the safety story rests entirely on the cookie being INERT until accepted — which is asserted here
+ * against a real server, not against a header shape.
+ *
+ * Limbs, each isolated with a positive control (`live.md` — per limb, never per scenario):
+ *
+ *  1. **The ordinary front door mints the platform cookie.** No scope named anywhere; the
+ *     membership is created by the click that proved the mailbox. *Reds against re-introducing the
+ *     carve-out, which would leave a superuser unable to accept their own row.*
+ *  2. **That cookie is INERT until accepted.** *Reds against dropping inert-until-accepted — the
+ *     one thing between an unsolicited invite click and a live superuser session.*
+ *  3. **Accept enrols, and the same cookie mints a platform token** on a universe's page, since the
+ *     platform host's own pages get no token. The positive control for limb 2: without it, a broken
+ *     platform path would satisfy limb 2 by failing everywhere.
+ *  4. **POST-ACCEPT Home's summary reaches the platform root and DESCENDS**, showing scopes the
+ *     superuser holds no membership in. *Reds against a summary that self-confines to the caller's
+ *     own membership — the thing that made a superuser indistinguishable from an ordinary admin.*
+ *  5. **And it stays BUDGET-BOUNDED.** The read that answers a superuser is the one that could
+ *     scan the whole table; a node past the frontier arrives as a `childCount`, never as rows.
+ *     *Reds against an unbounded platform arm (ADR-018).*
+ *
+ * `bootVars` pins the bootstrap address for THIS boot only — the scenario's subject is server
+ * configuration the identity path reads, and a `.dev.vars` mutation would leak across runs.
+ *
+ * `needsContainer = false` — auth only, never a build.
+ */
+import assert from 'node:assert/strict';
+import { waitForEmail, extractMagicLink, uniqueTestEmail } from '@lumenize/email-test/client';
+import type { DevStack } from '../lib/harness';
+import { readDevVar, superuserEmail } from '../lib/harness';
+import { testSlug } from '../lib/test-scopes';
+import {
+  provisionAndLogin, refreshTokenForScope, setCookieHeaders, acceptMembership, consumeLink, refreshCookie,
+  refreshFromPage, homeSummary,
+} from '../../test/lib/email-login';
+import { parseJwtUnsafe } from '@lumenize/crypto';
+
+export const needsContainer = false;
+
+/** The reserved platform scope. Spelled out rather than imported — the worker is the authority. */
+const PLATFORM = '_platform';
+
+/** A stable address for this boot, pinned as the bootstrap identity below. */
+const SUPERUSER = superuserEmail('front-door-superuser@lumenize-test.dev');
+
+export const bootVars = { AUTH_BOOTSTRAP_EMAIL: SUPERUSER };
+
+export async function run(stack: DevStack): Promise<void> {
+  const testToken = readDevVar('TEST_TOKEN');
+  const origin = stack.baseUrl.replace(/\/$/, '');
+
+  // Somebody else's tenancy, created by a REAL claim — the superuser holds no membership in it, and
+  // limb 4 is about whether they can nonetheless see it.
+  const stranger = testSlug('stranger');
+  await provisionAndLogin({
+    baseUrl: origin, scope: `${stranger}.app`, email: uniqueTestEmail(), testToken,
+  });
+
+  // ── LIMB 1: the ordinary front door, naming no scope ───────────────────────────────────────────
+  const waiter = waitForEmail({ testToken, instance: '_scopeless', to: SUPERUSER, timeout: 60_000 });
+  let link: string;
+  try {
+    const requested = await fetch(`${origin}/auth/email-magic-link`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: SUPERUSER }),
+    });
+    assert.equal(requested.status, 200, `the scope-less request was refused (${requested.status})`);
+    link = extractMagicLink(await waiter.emailPromise);
+  } finally {
+    waiter.cleanup();
+  }
+
+  const clicked = await consumeLink(link);
+  assert.equal(clicked.status, 200, `the link page's Continue was refused (${clicked.status})`);
+  const cookie = refreshTokenForScope(setCookieHeaders(clicked), PLATFORM);
+  assert.ok(cookie,
+    'the ordinary front door set no platform cookie — a superuser would see their row on Home and ' +
+    'be unable to accept it, because the accept endpoint authenticates by exactly this cookie');
+  console.error('  ✓ limb 1 — the scope-less login minted the platform cookie, no scope named');
+
+  // ── LIMB 2: INERT until accepted ───────────────────────────────────────────────────────────────
+  // From a page on the stranger's universe: the superuser's platform membership is at or above every
+  // host, and the platform host's own pages get no token at all.
+  const cookieHeader = refreshCookie(PLATFORM, cookie!);
+  const preAccept = await refreshFromPage(origin, stranger, cookieHeader);
+  // A deployed target keeps its superuser between runs, so once a run has accepted the platform
+  // membership there is no unaccepted one left to observe. Every local boot starts it unaccepted.
+  if (process.env.HARNESS_TARGET_URL && preAccept.status === 200) {
+    await preAccept.body?.cancel();
+    console.error('  ⓘ limb 2 — not observable: this deployed superuser accepted its platform membership on an earlier run');
+  } else {
+    assert.equal(preAccept.status, 401,
+      'an unaccepted platform membership must mint NOTHING — with the carve-out gone this is the only ' +
+      'thing between an unsolicited invite click and a live superuser session');
+    assert.match(await preAccept.text(), /membership_not_accepted/);
+    console.error('  ✓ limb 2 — the platform cookie is inert before consent');
+  }
+
+  // ── LIMB 3: Accept enrols, the same cookie mints ───────────────────────────────────────────────
+  await acceptMembership(origin, cookie!, PLATFORM);
+  const postAccept = await refreshFromPage(origin, stranger, cookieHeader);
+  assert.equal(postAccept.status, 200,
+    `the same cookie must mint once accepted (${postAccept.status}) — the positive control for limb 2`);
+  const { access_token } = await postAccept.json() as { access_token: string };
+  const claims = parseJwtUnsafe(access_token)!.payload as any;
+  assert.equal(claims.access.authScope, PLATFORM);
+  assert.equal(claims.access.scopeAdmin, true, 'the platform membership must carry the admin bit');
+  console.error('  ✓ limb 3 — accept enrols; the same cookie mints a platform token');
+
+  // ── LIMB 4: the summary reaches beyond the superuser's own memberships ─────────────────────────
+  const summaryRes = await homeSummary(origin, cookieHeader);
+  assert.equal(summaryRes.status, 200, `Home's summary refused a superuser (${summaryRes.status})`);
+  type Node = { scope: string; children?: Node[]; childCount?: number };
+  const { groups } = await summaryRes.json() as { groups: { summary: { emails: { memberships: Node[] }[] } }[] };
+  const walk = (n: Node): Node[] => [n, ...(n.children ?? []).flatMap(walk)];
+  const nodes = groups.flatMap((g) => g.summary.emails.flatMap((e) => e.memberships.flatMap(walk)));
+  const ids = nodes.map((n) => n.scope);
+  assert.ok(ids.includes(PLATFORM), 'the platform root is missing from the superuser\'s own summary');
+  // The root's level is budget-bounded: on a target holding about fifty accounts or more (a deployed
+  // sweep at concurrency 4 on 2026-10-07) it lists the first in key order and counts the rest. So the
+  // stranger is listed, or sorts past the last account listed while the root counts more than it lists.
+  const root = nodes.find((n) => n.scope === PLATFORM);
+  const listedAccounts = (root?.children ?? []).map((c) => c.scope);
+  const countedPast = (root?.childCount ?? 0) > listedAccounts.length
+    && listedAccounts.length > 0 && stranger > listedAccounts[listedAccounts.length - 1]!;
+  assert.ok(ids.includes(stranger) || countedPast,
+    `the superuser did not reach "${stranger}" — a scope they hold NO membership in — nor count it past ` +
+    `the budget. Got ${ids.length}, root childCount ${root?.childCount}: ${ids.slice(0, 12).join(', ')}`);
+  console.error(`  ✓ limb 4 — the platform root ${ids.includes(stranger) ? 'descends into' : `counts past the budget (${listedAccounts.length} listed of ${root?.childCount})`} ${stranger}, held by someone else`);
+
+  // ── LIMB 5: and it stays bounded ───────────────────────────────────────────────────────────────
+  // ⚠️ The frontier marker, not a row count: a small fixture is under the budget either way, so
+  // "few nodes came back" proves nothing. What proves boundedness is that the shape CAN report a
+  // frontier — every non-star node either descended or says how many it did not.
+  const frontierCapable = nodes.filter((n) => n.children !== undefined || n.childCount !== undefined);
+  assert.ok(frontierCapable.length > 0,
+    'no node reported children or a childCount — the summary is not the budget-bounded shape');
+  const overflowing = nodes.filter((n) => (n.children?.length ?? 0) > 200);
+  assert.deepEqual(overflowing.map((n) => n.scope), [],
+    'a level came back unbounded — the platform arm must never read the whole table (ADR-018)');
+  console.error('  ✓ limb 5 — the superuser response carries a frontier, not the whole table');
+
+  console.error('  ── the superuser walks the front door and consents like anyone else');
+}

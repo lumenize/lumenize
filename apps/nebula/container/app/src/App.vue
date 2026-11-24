@@ -1,8 +1,7 @@
 <script setup lang="ts">
-// Seed App.vue — a standalone boot placeholder so vite serves a shell BEFORE the
-// first DevStudio push (Flow 1c) and the image self-validates vite+HMR without the
-// frontend factory. DevStudio's first `applyChanges` OVERWRITES this with the
-// generated app, which imports `{ client, store }` from ./nebula.ts.
+// Seed App.vue — a standalone boot placeholder so the first build serves a shell
+// BEFORE any codegen turn. The loop's first write_file OVERWRITES this with the
+// generated app.
 import { House } from 'lucide-vue-next';
 </script>
 

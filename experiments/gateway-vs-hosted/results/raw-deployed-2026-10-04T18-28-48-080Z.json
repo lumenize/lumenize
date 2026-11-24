@@ -1,0 +1,202 @@
+{
+  "base": "https://experiment-gateway-vs-hosted.transformation.workers.dev",
+  "which": "throughput",
+  "rounds": 2,
+  "windowS": 15,
+  "latency": [],
+  "throughput": [
+    {
+      "round": 0,
+      "arm": "gateway",
+      "workload": "heavy",
+      "M": 16,
+      "runId": "tp-heavy-16-gateway-a467922e",
+      "perSec": 28.7,
+      "errors": 0,
+      "latency": {
+        "n": 430,
+        "p50": 531.2878329999985,
+        "p90": 589.953209000003,
+        "p99": 661.7240409999995,
+        "max": 1039.632916999999
+      }
+    },
+    {
+      "round": 0,
+      "arm": "hosted",
+      "workload": "heavy",
+      "M": 16,
+      "runId": "tp-heavy-16-hosted-a0edf409",
+      "perSec": 212.4,
+      "errors": 0,
+      "latency": {
+        "n": 3186,
+        "p50": 70.8061250000028,
+        "p90": 83.67237500000192,
+        "p99": 224.51745900000242,
+        "max": 521.1779580000002
+      }
+    },
+    {
+      "round": 0,
+      "arm": "gateway",
+      "workload": "heavy",
+      "M": 64,
+      "runId": "tp-heavy-64-gateway-72b62805",
+      "perSec": 262.1,
+      "errors": 0,
+      "latency": {
+        "n": 3932,
+        "p50": 239.9053750000021,
+        "p90": 297.7250839999979,
+        "p99": 414.3784169999999,
+        "max": 530.1051250000019
+      }
+    },
+    {
+      "round": 0,
+      "arm": "hosted",
+      "workload": "heavy",
+      "M": 64,
+      "runId": "tp-heavy-64-hosted-ad499f27",
+      "perSec": 12.5,
+      "errors": 64,
+      "latency": {
+        "n": 187,
+        "p50": 2493.174332999988,
+        "p90": 2550.0908330000093,
+        "p99": 4335.514500000005,
+        "max": 4335.739874999999
+      }
+    },
+    {
+      "round": 0,
+      "arm": "gateway",
+      "workload": "heavy",
+      "M": 256,
+      "runId": "tp-heavy-256-gateway-5b5dd880",
+      "perSec": 30.7,
+      "errors": 0,
+      "latency": {
+        "n": 461,
+        "p50": 9394.073625000005,
+        "p90": 9412.235750000007,
+        "p99": 16623.796125000008,
+        "max": 16641.21908299999
+      }
+    },
+    {
+      "round": 0,
+      "arm": "hosted",
+      "workload": "heavy",
+      "M": 256,
+      "runId": "tp-heavy-256-hosted-6ad1ee3b",
+      "perSec": 0,
+      "errors": 256,
+      "latency": {
+        "n": 0,
+        "p50": null,
+        "p90": null,
+        "p99": null,
+        "max": null
+      }
+    },
+    {
+      "round": 1,
+      "arm": "hosted",
+      "workload": "heavy",
+      "M": 16,
+      "runId": "tp-heavy-16-hosted-8786ddc2",
+      "perSec": 220.7,
+      "errors": 0,
+      "latency": {
+        "n": 3311,
+        "p50": 68.85925000000861,
+        "p90": 77.56974999999511,
+        "p99": 184.45054200000595,
+        "max": 339.1096660000039
+      }
+    },
+    {
+      "round": 1,
+      "arm": "gateway",
+      "workload": "heavy",
+      "M": 16,
+      "runId": "tp-heavy-16-gateway-5e2297d4",
+      "perSec": 27.7,
+      "errors": 0,
+      "latency": {
+        "n": 416,
+        "p50": 580.5523329999996,
+        "p90": 609.7619169999962,
+        "p99": 663.8413329999894,
+        "max": 847.9348750000063
+      }
+    },
+    {
+      "round": 1,
+      "arm": "hosted",
+      "workload": "heavy",
+      "M": 64,
+      "runId": "tp-heavy-64-hosted-040133c9",
+      "perSec": 284.5,
+      "errors": 0,
+      "latency": {
+        "n": 4267,
+        "p50": 208.84895800001686,
+        "p90": 225.56379200000083,
+        "p99": 697.1514999999781,
+        "max": 737.0685829999857
+      }
+    },
+    {
+      "round": 1,
+      "arm": "gateway",
+      "workload": "heavy",
+      "M": 64,
+      "runId": "tp-heavy-64-gateway-843f364b",
+      "perSec": 29.8,
+      "errors": 0,
+      "latency": {
+        "n": 447,
+        "p50": 2301.0844170000055,
+        "p90": 2359.90191700001,
+        "p99": 2392.6940000000177,
+        "max": 6665.426290999982
+      }
+    },
+    {
+      "round": 1,
+      "arm": "hosted",
+      "workload": "heavy",
+      "M": 256,
+      "runId": "tp-heavy-256-hosted-3166a1bb",
+      "perSec": 341.8,
+      "errors": 0,
+      "latency": {
+        "n": 5127,
+        "p50": 728.235708000022,
+        "p90": 815.2729590000235,
+        "p99": 1126.6040839999914,
+        "max": 1134.1146670000162
+      }
+    },
+    {
+      "round": 1,
+      "arm": "gateway",
+      "workload": "heavy",
+      "M": 256,
+      "runId": "tp-heavy-256-gateway-294300f5",
+      "perSec": 34.1,
+      "errors": 1,
+      "latency": {
+        "n": 511,
+        "p50": 9120.955292000028,
+        "p90": 9965.967042000033,
+        "p99": 18341.96204200003,
+        "max": 18349.896833000006
+      }
+    }
+  ],
+  "broadcast": []
+}

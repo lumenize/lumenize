@@ -1,9 +1,9 @@
 # Mesh Overload & Retry Handling (CF `.overloaded` / `.retryable`)
 
-**Status**: On Hold — thinking settled (2026-06-09); Phase 3 (eTag replay-idempotency) verified present in `resources.ts` 2026-06-15, rest not started
+**Status**: On Hold — thinking settled (2026-06-09); Phase 3 (a repeat answered as committed) holds in `snapshots.ts`, by recognition since 2026-11-08; rest not started
 **Packages**: `packages/mesh/` (call boundary + WS upgrade), `apps/nebula/` (client UX + idempotency), `packages/structured-clone/` (only for the minted typed error)
 **Related**: `tasks/on-hold/mesh-resilience-testing.md` (how we'd test this), `tasks/nebula-tenant-ai-billing.md` (multi-tenant load is when this matters)
-**Relevant engine**: `packages/mesh/src/lmz-api.ts` (`callRaw` boundary, `lmz-api.ts:305`), `packages/mesh/src/lumenize-client.ts` (reconnect backoff `:824`, wake-up sensing `:840`), `packages/mesh/src/lumenize-worker.ts` (WS upgrade), `apps/nebula/src/nebula-client.ts` (serial txn queue `:751`, eTag idempotency / conflict retry `:1020`)
+**Relevant engine**: `packages/mesh/src/lmz-api.ts` (`callRaw` boundary, `lmz-api.ts:305`), `packages/mesh/src/lumenize-client.ts` (reconnect backoff `:824`, wake-up sensing `:840`), `packages/mesh/src/lumenize-worker.ts` (WS upgrade), `packages/resources/src/nebula-client.ts` (serial txn queue `:751`, eTag idempotency / conflict retry `:1020`)
 
 ## Goal
 
@@ -40,8 +40,8 @@ properties (`.overloaded`, `.retryable`) at the call boundary and WS-upgrade pat
    (The deeper *rationale* — a mutation that persisted but whose success response was lost — is general
    distributed-systems reasoning, not a CF sentence; CF's **output gate** mitigates the opposite
    direction by withholding the response until the write is durable. See `rules-of-durable-objects`.)
-   Nebula transactions satisfy the precondition via client `newETag` idempotency; general raw mesh
-   calls do not.
+   Nebula transactions satisfy the precondition because a repeat is recognized from what it wrote
+   ([ADR-005](../../docs/adr/005-optimistic-concurrency.md)); general raw mesh calls do not.
 
 4. **What exists today** (audited): exponential-backoff WS reconnect keyed on *close code*
    (`lumenize-client.ts:824`, **no jitter** → thundering-herd after a Gateway restart, worsened
@@ -59,10 +59,10 @@ properties (`.overloaded`, `.retryable`) at the call boundary and WS-upgrade pat
    caller. It dissolves the "mesh can't know idempotency" objection: the mesh doesn't *infer* anything,
    the caller *asserts* read-only-ness — which it legitimately, and *safely*, can.
    **Why `readOnly`, not `idempotent`:** `readOnly ⊂ idempotent`, and read-only-ness is *structurally
-   obvious* whereas idempotency is subtle (`newETag` makes a *write* idempotent non-obviously). Naming
+   obvious* whereas idempotency is subtle (recognition makes a *write* idempotent non-obviously). Naming
    the flag after the checkable *sufficient* condition rather than the subtle *actual* requirement is
    the safer footgun posture — "is this read-only?" is far less error-prone for an app author (often the
-   hosted LLM) to answer than "is this idempotent?" The one idempotent-but-*mutating* caller (the eTag
+   hosted LLM) to answer than "is this idempotent?" The one idempotent-but-*mutating* caller (the Resources
    write) does **not** use this flag (below), so the generality `idempotent` would buy is unused.
    Constraints on the design:
    - **Acting locus = `callRaw` itself — DO-side AND client-side alike (one place).** An earlier draft
@@ -90,21 +90,21 @@ properties (`.overloaded`, `.retryable`) at the call boundary and WS-upgrade pat
      hosted LLM) never hand-judge read-only-ness for the common case. The flag's *public* surface earns
      its keep only for hand-written read-only DO→DO calls. Loud docs for manual use.
    - **Nebula write does NOT set the flag — ALL its retry is app-level, in ONE loop.** Both triggers —
-     transport (`.overloaded`/`.retryable`) and semantic eTag *conflict* — resubmit the *same*
+     transport (`.overloaded`/`.retryable`) and semantic version *conflict* — resubmit the *same*
      transaction, so both live in the existing client-side conflict-resolver loop
      (`nebula-client.ts:1020`) with one backoff budget and one `maxRetries` cap (this resolves the
      earlier "two interacting retry budgets" awkwardness — there is only one). It reuses a shared
      backoff+jitter *utility*, not the `callRaw` flag path. Retry stays client-side = outside the
-     overloaded Star, where `newETag` lives. The mesh flag and the app loop are genuinely *different
+     overloaded Star, where the write's value and named version live. The mesh flag and the app loop are genuinely *different
      mechanisms*: reads have no conflict concept; the write's retry is inseparable from conflict
-     resolution, which the mesh structurally cannot do (it knows no eTags). **The write's app-level
-     retry still depends on the Phase 3 server-side replay-idempotency check** — that is what makes
-     resubmitting the same `newETag` safe.
+     resolution, which the mesh structurally cannot do (it knows no versions). **The write's app-level
+     retry still depends on the Phase 3 server-side recognition of a repeat** — that is what makes
+     resubmitting the same write safe.
 
    Mesh's non-retry obligation is unchanged: **tag the error once at the catch point** into a stable
    typed shape that survives the wire to the client (Phase 1).
 
-## The real enablers: (a) error classification that survives to the client, (b) a caller-declared `{ readOnly: true }` flag acted on in `callRaw` (DO + client), (c) server-side replay-idempotency of `newETag` (backs the app-level write retry), (d) jitter. NOT mesh *inferring* idempotency, and NOT raw CF-property survival.
+## The real enablers: (a) error classification that survives to the client, (b) a caller-declared `{ readOnly: true }` flag acted on in `callRaw` (DO + client), (c) server-side recognition of a repeated write (backs the app-level write retry), (d) jitter. NOT mesh *inferring* idempotency, and NOT raw CF-property survival.
 
 ## Phases (draft — refine at review)
 
@@ -138,22 +138,22 @@ properties (`.overloaded`, `.retryable`) at the call boundary and WS-upgrade pat
 
 ### Phase 2b: Nebula write retry — fully app-level, ONE loop (does NOT use the flag)
 - [ ] Extend the existing client-side conflict-resolver loop (`nebula-client.ts:1020`) to also trigger
-      on transport errors (`.overloaded`/`.retryable`), not just eTag conflicts — same resubmit, same
-      `newETag`, **one** backoff+`maxRetries` budget. Factor the backoff+jitter math into a shared
-      utility reused by Phase 2's `callRaw` path. Depends on Phase 3 (replay-idempotency of `newETag`).
+      on transport errors (`.overloaded`/`.retryable`), not just version conflicts — same resubmit, same
+      named version, **one** backoff+`maxRetries` budget. Factor the backoff+jitter math into a shared
+      utility reused by Phase 2's `callRaw` path. Depends on Phase 3 (recognition of a repeat).
 - [ ] **Further refinement (deferred): recent-overload circuit breaker** — count overloads in a short
       window (instance var ok; reset-on-hibernate is fine for a recent-rate signal); back off harder /
       shed when they spike. Honors CF's "retrying an overloaded DO worsens it" at scale.
 
-### Phase 3: VERIFY server-side replay-idempotency of `newETag` (correctness lynchpin)
-- [x] Confirm the Star transaction handler treats a resubmit of an **already-applied** `newETag` as a
+### Phase 3: VERIFY server-side recognition of a repeat (correctness lynchpin)
+- [x] Confirm the Star transaction handler treats a resubmit of an **already-applied** write as a
       success-returning no-op (the "committed but response was lost" `.retryable` case) — not a
       double-apply and not a spurious conflict. **Retry is unsafe to ship until this holds.**
-      - **VERIFIED 2026-06-15** (review pass on the Nebula Star path): two-layer replay detection, both
-        returning `{ ok: true }` → client `committed`: pre-validator fast path (`apps/nebula/src/resources.ts:314`)
-        + authoritative in-txn re-check (`resources.ts:424`, Step 6.5, ordered before the conflict scan, uses
-        `.some` so a sibling mutation can't hide the replay). No double-apply, no spurious conflict. This
-        lynchpin is satisfied on the Nebula path; a raw-mesh `callRaw` retry would still need its own check.
+      - **VERIFIED 2026-06-15, and again 2026-11-08 when recognition replaced the replay check:** a
+        repeat is recognized inside the transaction, before the permission and conflict checks, from
+        the snapshots it wrote, and answered `{ ok: true, validFrom }` → client `committed`. No
+        double-apply, no spurious conflict. This lynchpin is satisfied on the Nebula path; a raw-mesh
+        `callRaw` retry would still need its own check.
 
 ### Phase 4: Transport / thundering-herd (orthogonal — clean win regardless)
 - [ ] Add jitter to reconnect backoff (`lumenize-client.ts:824`) and wake-up reconnect (`:840`).

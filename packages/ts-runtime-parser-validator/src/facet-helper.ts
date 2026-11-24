@@ -1,5 +1,12 @@
 import { DurableObject } from 'cloudflare:workers';
 
+// The RUNTIME entry (`@lumenize/ts-runtime-parser-validator/runtime`): loads a
+// pre-generated validator module into a DO facet, and never touches the compiler.
+// The ontology-metadata types are re-exported here so a runtime consumer can type a
+// compiled row without importing the compile entry — `export type` is erased, so
+// this adds no value edge to `extract-type-metadata`'s tsc-bearing graph.
+export type { TypeMetadata, Relationship, DefaultsMap } from './extract-type-metadata';
+
 /**
  * The structured result shape returned by `ParserValidator.parse()`.
  *
@@ -83,7 +90,7 @@ export function getParserValidatorFacet(
     const worker = loader.get(bundleId, async () => {
       const moduleSource = await loadModuleSource();
       return {
-        compatibilityDate: '2026-04-01',
+        compatibilityDate: '2026-10-01',
         mainModule: 'parser.js',
         modules: { 'parser.js': moduleSource },
         globalOutbound: null,

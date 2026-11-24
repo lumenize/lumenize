@@ -1,13 +1,16 @@
 /**
  * TeamDocDO - Demonstrates @mesh(guard) patterns
  *
+ * Named by an id, so it is an unscoped node: it has no scope of its own, so it records the
+ * workspace it belongs to when it is created, and an admin is whoever holds dominion over that.
+ *
  * From website/docs/mesh/security.mdx:
  * - Method-Level: `@mesh(guard)` with claims and instance state
  * - Reusable Guards
- * - State-Based Access
+ * - A guard that computes its own decision
  */
 
-import { LumenizeDO, mesh } from '../../../src/index.js';
+import { UnscopedMeshDO, mesh, hasDominionOver, type AuthClaims } from '../../../src/index.js';
 
 // ============================================
 // Types
@@ -32,7 +35,7 @@ function requireSubscriber(instance: TeamDocDO) {
 // TeamDocDO
 // ============================================
 
-export class TeamDocDO extends LumenizeDO<Env> {
+export class TeamDocDO extends UnscopedMeshDO<Env> {
   /**
    * Get allowed editors from storage
    */
@@ -47,23 +50,34 @@ export class TeamDocDO extends LumenizeDO<Env> {
     return this.ctx.storage.kv.get('subscribers') ?? new Set<string>();
   }
 
-  // ============================================
-  // onBeforeCall with state population (Call Context State section)
-  // ============================================
-
-  onBeforeCall() {
-    super.onBeforeCall();
-    // Compute once, use in multiple guards
-    const sub = this.lmz.callContext.originAuth!.sub;
-    this.lmz.callContext.state.isEditor = this.allowedEditors.has(sub);
+  /** The workspace this document belongs to, recorded by {@link create}. */
+  get workspace(): string | undefined {
+    return this.ctx.storage.kv.get('workspace');
   }
 
+  /**
+   * Create the document in the workspace whose page the caller is on, its token's `aud`. The first
+   * call decides, so a later caller cannot move the document to a workspace of their own.
+   */
+  @mesh()
+  create(): void {
+    if (this.workspace) return;
+    const aud = (this.lmz.callContext.originAuth?.claims as AuthClaims | undefined)?.aud;
+    if (!aud) throw new Error('Create the document from a workspace page');
+    this.ctx.storage.kv.put('workspace', aud);
+  }
+
+  // ============================================
+  // A guard that computes its own decision (Computing Access in the Guard section)
+  // ============================================
+
   @mesh((instance: TeamDocDO) => {
-    if (!instance.lmz.callContext.state.isEditor) {
+    const sub = instance.lmz.callContext.originAuth?.sub;
+    if (!sub || !instance.allowedEditors.has(sub)) {
       throw new Error('Editor access required');
     }
   })
-  editWithStateCheck(changes: DocumentChange): { edited: true; byUser: string } {
+  editAsEditor(changes: DocumentChange): { edited: true; byUser: string } {
     const sub = this.lmz.callContext.originAuth!.sub;
     this.ctx.storage.kv.put('content', changes.content);
     return { edited: true, byUser: sub };
@@ -91,9 +105,13 @@ export class TeamDocDO extends LumenizeDO<Env> {
   // Guards checking claims (block 3, first example)
   // ============================================
 
-  // Check `callContext.originAuth.claims` to determine access
+  // Check `callContext.originAuth.claims` to determine access: here, whether the caller holds
+  // dominion over the workspace this document belongs to. The `scopeAdmin` bit alone is not
+  // enough: anyone who claims a workspace of their own holds it, there.
   @mesh((instance: TeamDocDO) => {
-    if (!instance.lmz.callContext.originAuth?.claims?.isAdmin) {
+    const claims = instance.lmz.callContext.originAuth?.claims as AuthClaims | undefined;
+    const workspace = instance.workspace;
+    if (!workspace || !hasDominionOver(claims, workspace)) {
       throw new Error('Admin only');
     }
   })

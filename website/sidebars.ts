@@ -170,7 +170,6 @@ const sidebars: SidebarsConfig = {
             'mesh/lumenize-do',
             'mesh/lumenize-worker',
             'mesh/lumenize-client',
-            'mesh/lumenize-container',
           ],
         },
         {
@@ -321,6 +320,15 @@ const sidebars: SidebarsConfig = {
         ...(typedocFetchSidebar && typedocFetchSidebar.length > 0
           ? [wrapInApiReference(typedocFetchSidebar, 'API Reference')]
           : []),
+      ],
+    },
+
+    // SQL Migrations
+    {
+      type: 'category',
+      label: 'SQL Migrations',
+      items: [
+        'sql-migrations/index',
       ],
     },
 

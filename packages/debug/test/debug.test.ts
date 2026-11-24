@@ -155,6 +155,97 @@ describe('@lumenize/debug', () => {
     });
   });
 
+  // Pure serialization, so no running system is needed here. What Cloudflare's Workers Issues
+  // makes of a line like this is measured on a deployed Worker in experiments/workers-issues.
+  describe('Errors', () => {
+    const lastLine = () => JSON.parse(consoleSpy.mock.calls.at(-1)![0]);
+
+    it('writes an Error in data as its fields, not as {}', () => {
+      const error = Object.assign(new Error('upstream 503'), { status: 503 });
+      debug('test').error('pack delete failed', { host: 'h.example', error });
+
+      const { data } = lastLine();
+      expect(data.error).toMatchObject({ name: 'Error', message: 'upstream 503', status: 503 });
+    });
+
+    // workerd sets these on an Error from a Durable Object call; whether it makes them enumerable
+    // is unmeasured, so the fixture takes the shape the enumerable-fields loop alone would drop.
+    it("writes workerd's error flags even when they are not enumerable", () => {
+      const error = new Error('internal error; reference = abc123');
+      for (const [key, value] of Object.entries({ remote: true, retryable: true, overloaded: false, durableObjectReset: true })) {
+        Object.defineProperty(error, key, { value, enumerable: false });
+      }
+      debug('test').error('teardown failed', { error });
+
+      expect(lastLine().data.error).toEqual({
+        name: 'Error', message: 'internal error; reference = abc123',
+        remote: true, retryable: true, overloaded: false, durableObjectReset: true,
+      });
+    });
+
+    it('lifts the stack to the top level and does not repeat it in data', () => {
+      const error = new Error('upstream 503');
+      debug('test').error('pack delete failed', { error });
+
+      const output = lastLine();
+      expect(output.stack).toBe(error.stack);
+      expect(output.data.error.stack).toBeUndefined();
+      expect(output.message).toBe('pack delete failed');
+    });
+
+    it('lifts the stack when data is itself an Error', () => {
+      const error = new TypeError('bad input');
+      debug('test').error('parse failed', error);
+
+      const output = lastLine();
+      expect(output.stack).toBe(error.stack);
+      expect(output.data).toEqual({ name: 'TypeError', message: 'bad input' });
+    });
+
+    it('keeps the stack of every Error it did not lift, causes included', () => {
+      const cause = new Error('socket reset');
+      const first = new Error('fetch failed', { cause });
+      const second = new Error('retry failed');
+      debug('test').error('delivery failed', { first, second });
+
+      const output = lastLine();
+      expect(output.stack).toBe(first.stack);
+      expect(output.data.first.cause).toEqual({ name: 'Error', message: 'socket reset', stack: cause.stack });
+      expect(output.data.second.stack).toBe(second.stack);
+    });
+
+    it('writes no stack when data holds no Error', () => {
+      debug('test').error('pack delete failed', { error: 'upstream 503' });
+
+      expect(lastLine().stack).toBeUndefined();
+    });
+
+    // A top-level stack makes Workers Issues treat a line as an error whatever its level, so a
+    // warning would become an issue.
+    it('lifts no stack below error level, and keeps it nested instead', () => {
+      process.env.DEBUG = '*';
+      debug.reset();
+      const error = new Error('upstream 503');
+      debug('test').warn('pack delete slow', { error });
+
+      const output = lastLine();
+      expect(output.stack).toBeUndefined();
+      expect(output.data.error.stack).toBe(error.stack);
+    });
+
+    it('gives a sink entry the lifted stack', () => {
+      const entries: DebugLogOutput[] = [];
+      setDebugSink((e) => entries.push(e));
+      try {
+        const error = new Error('upstream 503');
+        debug('test').error('pack delete failed', { error });
+        expect(entries[0].stack).toBe(error.stack);
+      } finally {
+        clearDebugSink();
+      }
+    });
+  });
+
   describe('log levels', () => {
     beforeEach(() => {
       process.env.DEBUG = '*';

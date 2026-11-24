@@ -3,7 +3,7 @@
  * arrival times keyed by `state.benchETag`, used by the fanout-scaling
  * benchmark's Cloudflare Agents comparison side.
  *
- * Mirrors `HarnessNebulaClient.waitForFanoutArrival(eTag)` semantics — the
+ * Mirrors `HarnessNebulaClient.waitForFanoutArrival(version)` semantics — the
  * originator pre-generates a UUID per "commit" via
  * `crypto.randomUUID()`, calls `setState({ benchETag, count })`, and each
  * subscriber's `onStateUpdate` callback fires (source === 'server'). The
@@ -28,7 +28,7 @@ export class AgentsHarnessClient {
   readonly client: AgentClient<unknown, BenchAgentState>;
   /** Map<benchETag, t_arrived ms> — captured by onStateUpdate. */
   #arrivalsByETag = new Map<string, number>();
-  /** Resolvers registered by `waitForArrival` for eTags not yet seen. */
+  /** Resolvers registered by `waitForArrival` for versions not yet seen. */
   #pendingWaits = new Map<string, (t: number) => void>();
   /** True once the WS has opened. Used by the test to await readiness. */
   #connected = false;

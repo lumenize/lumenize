@@ -16,7 +16,7 @@ The **ontology** is the single declaration of what resource types exist in your 
 - A `.d.ts`-style TypeScript file (one file per app, or one per type with a barrel — open question, see below).
 - Defines resource types via standard TypeScript `interface` / `type` declarations.
 - Annotated with JSDoc-style tags (`@title`, `@description`, `@inverse`, etc.) that Studio's LLM and the runtime parser-validator both consume.
-- Compiled at deploy time by [typia](https://typia.io) into a runtime parser-validator (see [@lumenize/ts-runtime-parser-validator](../ts-runtime-parser-validator/index.md) for the compilation pipeline).
+- Compiled by [typia](https://typia.io), when a build changes the file, into a runtime parser-validator (see [@lumenize/ts-runtime-parser-validator](../ts-runtime-parser-validator/index.md) for the compilation pipeline).
 - The single source of truth: the server validates every transaction against it; the client uses it for typed `store.resources.<type>` access (typed access is a planned addition — currently `Record<string, any>`).
 
 > **Open**: file layout. Single `ontology.d.ts` per app vs. per-type files (`Todo.d.ts`, `TodoList.d.ts`, ...) with a barrel `ontology/index.d.ts`. The single-file form is simpler for small apps and easier for the LLM to consult; per-type files scale better for large apps and co-locate the type with its resolver. Probably let Studio pick based on app size; document both shapes.
@@ -85,9 +85,61 @@ The asymmetry is intentional. Config-named annotations are unambiguous about sco
 | `@title` | metadata | Display name for Studio's UI surfaces (form labels, list headers). |
 | `@description` | metadata | Human/LLM explanation; Studio consults when reasoning about the type. |
 | `@inverse` | reference | Back-reference declaration for relationships. |
+| `@index` | query | Declares an index, so a query can filter on the field. See [Indexes](#indexes). |
+| `@deprecatedValues` | query, UI | Names the values of a union of string literals that are no longer offered for a new choice. See [A field with a fixed list of values](#fixed-values). |
 | `@debounce(q?, m?)` | config | Debounce timing for writes to this field. `@debounce(0)` makes the field commit immediately (no debounce) — used for booleans, enums, anything click-to-commit. |
-| `@longform` | semantic | This field is long-form text. Effects: slower debounce (default `quietMs: 1000`, `maxWaitMs: 5000`), auto-register a text-merge conflict resolver, Studio renders as `<textarea>` in generated UI. |
+| `@longform` | semantic | This field is long-form text. Effects: a longer maximum wait than the framework default (default `quietMs: 1000`, `maxWaitMs: 5000`), auto-register a text-merge conflict resolver, Studio renders as `<textarea>` in generated UI. |
 | typia validation tags (`@minimum`, `@maximum`, `@pattern`, `@format`, etc.) | validation | Standard typia constraints; see [@lumenize/ts-runtime-parser-validator](../ts-runtime-parser-validator/index.md). |
+
+### Indexes {#indexes}
+
+A query filters on a field only when an index lets it look the value up ([`subscribeQuery`](./api-reference.md#resourcessubscribequery)). Declare one with `@index`:
+
+```typescript @skip-check
+/** @index stage, amount */
+export interface Deal {
+  title: string;
+  /**
+   * @title Owner
+   * @index
+   */
+  owner: Person;
+  stage: 'lead' | 'open' | 'won';
+  amount?: number;
+}
+```
+
+- **On a field,** `@index` takes no text and indexes that field. `{ owner: personId }` can now be looked up.
+- **On the interface,** `@index stage, amount` indexes several fields together, in that order. It serves a filter on `stage`, or on `stage` and `amount`, and not one on `amount` alone.
+- **Put each JSDoc block on a line of its own,** directly above what it belongs to. `{ /** @index */ owner: Person }` on one line is refused at build, because TypeScript attaches that comment to nothing.
+- **A field inside an inline object** takes `@index` on itself, or a dotted path on the interface: `@index address.city`.
+- **What can be indexed:** a string, a number, a boolean, a `Date`, a relationship to one resource, and a union of string literals. An array, `Set`, `Map`, bigint or inline object cannot, and declaring one is refused at build.
+
+**Index what the app filters by, and nothing else.** Every index adds one stored row to each write of its type, and a write costs about a thousand times what a read does. Declare `@index` on each relationship a query filters by, and on the other fields a filter really uses. For a type that will only ever hold a few resources, skip the index and pass `allowScan: true` in the query.
+
+### A field with a fixed list of values {#fixed-values}
+
+A union of string literals is a field with a fixed list of values, and the order they are written in is their order:
+
+```typescript @skip-check
+export interface Deal {
+  /**
+   * @title Stage
+   * @index
+   * @deprecatedValues qualified, stalled
+   */
+  stage: 'lead' | 'qualified' | 'open' | 'stalled' | 'won';
+}
+```
+
+- **A query compares by that order.** `{ stage: { $gt: 'open' } }` selects `stalled` and `won`, and `{ stage: { $lt: 'open' } }` selects `lead` and `qualified`. An index on the field serves it.
+- **Never remove a value that a resource has held.** History keeps every value ever written, and a removed value fails validation when an old resource is next saved. Add new values where they belong in the order.
+- **Mark a value nobody should pick any more with `@deprecatedValues`.** It stays valid to store and to query, and keeps its place in the order.
+- **A dropdown offers the values that are not deprecated, plus the one the resource holds now.** A Deal still at `stalled` shows `stalled` selected, and a Deal at `open` is not offered it.
+- **Moving a value changes what every comparison on the field means**, from the build that moves it.
+- A value named in `@deprecatedValues` that the union does not hold is refused at build, and so is the tag on any other kind of field. A value with a comma in it cannot be named.
+
+**A number field holds a finite number.** A write holding `Infinity`, `-Infinity`, `NaN` or `-0` in a `number` field is refused, as is an invalid `Date`, because no query could compare it. Leave the field out when there is no value.
 
 ### Type-derived defaults (no annotation needed)
 
@@ -97,7 +149,7 @@ Most fields get sensible debounce config from their type. Studio's LLM relies on
 |---|---|
 | `boolean` | `{ quietMs: 0 }` (eager — click-to-commit) |
 | enum / literal union (e.g., `'open' \| 'done'`) | `{ quietMs: 0 }` (eager) |
-| `string` (short) | inherits type default (`500` / `2000`) |
+| `string` (short) | inherits type default (`1000` / `3000`) |
 | `string` with `@longform` | inherits the `@longform` config |
 | `number` | inherits type default |
 | arrays / objects / embedded | inherits type default |
@@ -112,7 +164,7 @@ interface Todo {
   title: string;                  // short string → inherits type default
 
   /** @longform */
-  description: string;            // long-form → slower debounce + text-merge + <textarea>
+  description: string;            // long-form → longer maximum wait + text-merge + <textarea>
 
   done: boolean;                  // boolean → @debounce(0) implied
 
@@ -127,9 +179,9 @@ Studio's LLM, when generating the ontology, picks annotations from a small rule 
 
 ### How annotations reach the runtime
 
-The compiler (typia or our extension) reads the .d.ts at deploy time and emits a config map alongside the validator bundle. The factory loads the bundle at startup and applies the per-field debounce config to its synced-state middleware automatically. For runtime overrides (rare — A/B testing, dynamic config), [`client.resources.transactionDebounce(rt, opts)`](./api-reference.md#resourcestransactiondebounce) is the override surface.
+The compiler (typia or our extension) reads the .d.ts when a build compiles it and emits a config map alongside the validator bundle. The factory loads the bundle at startup and applies the per-field debounce config to its synced-state middleware automatically. For runtime overrides (rare — A/B testing, dynamic config), [`client.resources.transactionDebounce(rt, opts)`](./api-reference.md#resourcestransactiondebounce) is the override surface.
 
-*(Status: the per-field debounce-config emission is post-demo. The initial release ships the global framework defaults — 500 ms quiet / 2000 ms maxWait — for every field, with `transactionDebounce` as the per-type override; per-field annotations take effect once the emission lands, the global defaults remaining the fallback for unannotated fields. `@longform`'s resolver + UI effects are on their own tracks, independent of this.)*
+*(Status: the per-field debounce-config emission is post-demo. The initial release ships the global framework defaults — 1000 ms quiet / 3000 ms maxWait — for every field, with `transactionDebounce` as the per-type override; per-field annotations take effect once the emission lands, the global defaults remaining the fallback for unannotated fields. `@longform` registers no conflict resolver yet either, so a type with a long-form field registers its own text-merge handler — see [Resources § Text fields specifically](./resources.md#text-fields-specifically--dont-leave-the-default). Its `<textarea>` effect is Studio's to apply, and applies now.)*
 
 Precedence: runtime override > ontology annotation > type-based default > framework default.
 
@@ -166,19 +218,19 @@ Will cover:
 
 Will cover briefly (link out for depth):
 
-- typia compiles the .d.ts at deploy time into a runtime parser-validator.
+- typia compiles the .d.ts into a runtime parser-validator when a build changes it, and the `.dev` Star runs it once that build lands.
 - The validator runs on every transaction (server-side, before write).
 - Validation failures surface per-resource as `{ kind: 'validation-failed', errors }` in the `TransactionResourceResolution` (see [Resources § Per-resource behavior](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler)).
 - Detailed pipeline + the typia tag vocabulary live in [@lumenize/ts-runtime-parser-validator](../ts-runtime-parser-validator/index.md).
-- The validator bundle ships alongside the deployed app (lock-step with `appVersion`); old clients hitting a new server get `{ kind: 'ontology-stale' }` and reload.
+- The validator bundle moves with the app's page (lock-step with `ontologyVersion`); a page on an old build gets `{ kind: 'ontology-stale' }` and reloads.
 
 ## When to evolve the ontology
 
 Will cover:
 
 - **Backward-compatible changes** — adding optional fields, adding new types, adding non-required references. Old clients keep working; new clients use the new fields.
-- **Breaking changes** — removing fields, renaming, making optional fields required, changing field types. These require a coordinated `appVersion` bump.
-- The `appVersion` ↔ ontology version lock-step model: server enforces that incoming transactions match its current ontology; mismatch yields `{ kind: 'ontology-stale' }` and the client reloads via `onShouldRefreshUI` (see [API reference § createNebulaClient](./api-reference.md#createnebulaclient)).
+- **Breaking changes** — removing fields, renaming, making optional fields required, changing field types. On the `.dev` Star the existing test data needs a reset; ask the user-developer for one.
+- The version lock-step model: the version is the hash of `src/ontology.d.ts`, so it moves whenever the types do, and every page carries the version it was built against. The host runs an op only at the version it has installed; a mismatch yields `{ kind: 'ontology-stale' }`, and a page on an old build reloads via `onShouldRefreshUI` (see [API reference § createNebulaClient](./api-reference.md#createnebulaclient)).
 - Migrations: link to wherever the migration story ultimately lives (`tasks/on-hold/nebula-lazy-schema-migrations.md` references this; the user-facing doc TBD).
 
 ## Authoring with Studio

@@ -143,6 +143,16 @@ if (response) return response;
 `routeDORequest` will short-circuit return undefined if the Request.url doesn't match the 
 prefix.
 
+## Binding Allow-list
+
+A Worker that holds several Durable Object bindings may want one route to reach only some of them. The `bindings` option names those, by the binding name the router resolves, so `/gateway/alpha-gateway/…` matches `ALPHA_GATEWAY`:
+
+```typescript @check-example('packages/routing/test/unit/route-do-request.test.ts')
+const opts: RouteOptions = { prefix: 'gateway', bindings: ['ALPHA_GATEWAY'] };
+```
+
+An unlisted binding answers `undefined`, exactly as a binding the Worker does not hold, and it does so before any hook runs, any CORS header is set, or the missing-instance error is thrown, so the request constructs no Durable Object and learns nothing about the binding. Without the option, every binding routes.
+
 ## Lumenize's own `routeAgentRequest`
 
 `@lumenize/routing` also exports our own `routeAgentRequest`. It defaults the prefix to 

@@ -5,37 +5,126 @@
  * (StarTest, NebulaClientTest), and provides the Worker entrypoint.
  */
 
-import { mesh } from '@lumenize/mesh';
-import { DurableObject } from 'cloudflare:workers';
+import { mesh, rawRpc, splitAddress, requireDominionHere } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
-import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
+import type { AuthClaims } from '@lumenize/mesh/auth';
+import type { ProfileChannelSnapshot } from '@lumenize/mesh/client';
+import type { AuthFacade } from '@lumenize/mesh/auth/facade';
 
 // Re-export DO classes and entrypoint for wrangler bindings
 export {
-  NebulaClientGateway,
   Universe,
-  Galaxy,
+  NebulaAuthFacade,
+  PlatformHost,
   entrypoint as default,
 } from '@lumenize/nebula';
 
-// Re-export auth classes (defined in nebula-auth, but wrangler needs them here)
-export { NebulaAuth, NebulaAuthRegistry, NebulaEmailSender } from '@lumenize/nebula-auth';
+// Re-export auth classes (defined in Mesh's auth layer, but wrangler needs them here)
+export { AuthRegistry, AuthEmailSender } from '@lumenize/mesh/auth';
+import { Profile } from '@lumenize/mesh/auth/profile';
+
+/** A profileId that forces `Profile`'s scoped-admin registry read to throw — the fail-closed probe. */
+export const FAIL_CLOSED_PROFILE_ID = '__fail_closed_probe__';
+
+/**
+ * Test subclass of `Profile` (bound at `PROFILE`) — overrides the `lookupProfileScopes` seam to THROW
+ * for {@link FAIL_CLOSED_PROFILE_ID}, so a scoped-admin write against that instance exercises the
+ * fail-closed path (`#requireOwnerOrAdmin` must catch the throw and DENY). Otherwise transparent.
+ */
+export class ProfileTest extends Profile {
+  protected override async lookupProfileScopes(profileId: string): Promise<string[]> {
+    if (profileId === FAIL_CLOSED_PROFILE_ID) throw new Error('injected registry failure (test)');
+    return super.lookupProfileScopes(profileId);
+  }
+
+  /** Test-only: call `admitted` at `binding`/`target` on a FRESH chain this Profile starts,
+   *  keeping the outcome. Driven in-DO through `runInDurableObject`, outside any mesh call. */
+  callFreshChain(binding: string, target: string): void {
+    this.ctx.storage.kv.delete('fresh_chain_outcome');
+    const self = this.ctn() as any;
+    this.lmz.call(binding, target, self.admitted(), self.recordFreshChainOutcome(), { newChain: true });
+  }
+
+  /** The handler: the value `admitted`, or the refusal's message. */
+  recordFreshChainOutcome(result?: unknown): void {
+    this.ctx.storage.kv.put('fresh_chain_outcome', result instanceof Error ? `Error: ${result.message}` : String(result));
+  }
+}
 
 // Import classes needed for test subclasses
 import {
   Star,
   Universe,
   Galaxy,
-  NebulaClient,
-  requireAdmin,
-  ROOT_NODE_ID,
-  compileOntologyVersion,
+  StudioClient,
 } from '@lumenize/nebula';
-import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow } from '@lumenize/nebula';
+import { NebulaClient, ROOT_NODE_ID, END_OF_TIME } from '@lumenize/resources';
+import { parse } from '@lumenize/structured-clone';
+// The compile fn left the barrel with the Worker's compilers — a test Worker may
+// still carry it (this app never deploys), imported from the leaf directly.
+import { compileOntologyVersion } from '../../../src/ontology-compile';
+import { fakeBuildJob } from '../fake-build';
+import type { BuildFaults } from '../fake-build';
+import type { ResourcesResults } from '@lumenize/resources';
+import type { NebulaClientConfig, OrgTreeState, PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload, ResourceDenied } from '@lumenize/resources';
+import type { StudioClientConfig, MessageSnapshot } from '@lumenize/nebula';
+import { MESSAGES_NODE_ID, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID } from '../../../src/chat-constants';
+import type { ChatMessage, ModelParams, BuildReport, LoopToolDeps } from '../../../src/codegen-loop';
+import { runCodegenLoop, assembleCodegenPrompt } from '../../../src/codegen-loop';
+import { TURN_ROW_KEY } from '../../../src/galaxy';
+import type { TurnRow } from '../../../src/galaxy';
+import type { CertificateApi, CertificatePack, CertificateResult } from '../../../src/certificate';
+
+/**
+ * A Galaxy's fake certificate-packs API, registered by instance name: the test and the Durable
+ * Object share one isolate in this lane, so the test reads `calls` directly. `https` stands in for
+ * an `https` origin, which the local stack never has.
+ */
+export interface FakeCertificates {
+  https: boolean;
+  /** Every call in order — `order`, `order-returned`, `get:{id}`, `list`, `delete:{id}`. */
+  calls: string[];
+  packs: CertificatePack[];
+  /** What an order answers; by default a pending pack, at once. */
+  order?: () => Promise<CertificateResult>;
+  /** What a poll answers; by default the pack, still pending. */
+  get?: (packId: string) => Promise<CertificateResult>;
+  /** Runs as the wake arrives, before the Galaxy handles it — where a test lands a deletion in the
+   *  gap between the Registry's answer and the wake. The test and the Galaxy share one isolate. */
+  onWake?: () => Promise<void>;
+  listDelayMs?: number;
+  failDelete?: boolean;
+  orderWaitMs?: number;
+}
+export const certificateFakes = new Map<string, FakeCertificates>();
+
+/** Test-only: the Galaxies, by scope, whose chat validator holds every parse this many ms. Set it
+ *  before the Galaxy's first touch, which installs the validator; the test and the Galaxy share one
+ *  isolate. */
+export const heldGalaxyParses = new Map<string, number>();
 
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
 // ============================================
+
+/**
+ * `row` with a validator whose `parseBatch` waits `ms` first — the seam that holds a transaction at
+ * the validator's await, so a test can land a wipe inside it. The module is the generated one with
+ * its class renamed and a subclass exported under the name the loader asks for.
+ */
+function holdingParse(row: OntologyVersionRow, ms: number): OntologyVersionRow {
+  const declaration = 'export class ParserValidator extends DurableObject';
+  if (row.validatorBundle.split(declaration).length !== 2) throw new Error('the generated validator changed shape');
+  const renamed = row.validatorBundle.replace(declaration, 'class HeldParserValidator extends DurableObject');
+  return {
+    ...row,
+    validatorBundle: `${renamed}
+export class ParserValidator extends HeldParserValidator {
+  async parseBatch(items) { await new Promise((r) => setTimeout(r, ${ms})); return super.parseBatch(items); }
+}
+`,
+  };
+}
 
 export class StarTest extends Star {
   @mesh()
@@ -43,20 +132,48 @@ export class StarTest extends Star {
     return `You are ${this.lmz.callContext.originAuth!.sub}`;
   }
 
+  /** Test-only: a call target that checks nothing past the passage step. */
+  @mesh()
+  admitted(): string {
+    return 'admitted';
+  }
+
+  /** Test-only: call `admitted` at `binding`/`target` on a FRESH chain this node starts, keeping
+   *  the outcome. Driven in-DO through `runInDurableObject`, outside any mesh call. */
+  callFreshChain(binding: string, target: string): void {
+    this.ctx.storage.kv.delete('fresh_chain_outcome');
+    const self = this.ctn() as any;
+    this.lmz.call(binding, target, self.admitted(), self.recordFreshChainOutcome(), { newChain: true });
+  }
+
+  /** The handler: the value `admitted`, or the refusal's message. */
+  recordFreshChainOutcome(result?: unknown): void {
+    this.ctx.storage.kv.put('fresh_chain_outcome', result instanceof Error ? `Error: ${result.message}` : String(result));
+  }
+
   /**
    * Test-only (T-migration): seed the legacy TOFU key to an arbitrary (stale)
    * value so a test can prove the structural gate ignores it. The new
    * onBeforeCall never reads this key — it's inert dead data left in place.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   seedScopeKeyForTest(value: string): void {
     this.ctx.storage.kv.put('__nebula_universeGalaxyStarId', value);
+  }
+
+  /** Test-only: a Star named `*.explode` fails its teardown before it wipes anything — the
+   *  failure the scope lifecycle hooks must log by name while the other targets still wipe. One
+   *  named `*.slow` waits a second before it wipes, as a Galaxy waits on its certificate order. */
+  protected override async beforeScopeTeardown(): Promise<void> {
+    if (this.lmz.instanceName?.endsWith('.explode')) throw new Error('injected teardown failure (test)');
+    if (this.lmz.instanceName?.endsWith('.slow')) await new Promise((r) => setTimeout(r, 1000));
+    await super.beforeScopeTeardown();
   }
 
   /**
    * Test-only (T-local-skip): schedule a self-continuation via the mesh alarm
    * service. It is delivered through the *local* chain executor (not
-   * executeEnvelope), so it must NOT invoke onBeforeCall.
+   * executeEnvelope), so it must NOT run the passage step.
    */
   @mesh()
   scheduleSelfPing(): void {
@@ -68,44 +185,65 @@ export class StarTest extends Star {
     debug('nebula.test.Star.selfPing').debug('fired', { instanceName: this.lmz.instanceName });
   }
 
-  @mesh(requireAdmin)
-  callClient(targetGatewayInstanceName: string, clientMethod: string, ...args: any[]): void {
+  @mesh(requireDominionHere)
+  callClient(clientAddress: string, clientMethod: string, ...args: any[]): void {
     const ctn = this.ctn() as any;
+    const { bindingName, instanceName } = splitAddress(clientAddress);
     this.lmz.call(
-      'NEBULA_CLIENT_GATEWAY',
-      targetGatewayInstanceName,
+      bindingName,
+      instanceName,
       ctn[clientMethod](...args),
+      ctn.recordClientCallOutcome(),
+      { onErrorOnly: true },
     );
   }
 
-  /** Test-only stand-in for `DevStudio.chat` (resilient-turn-delivery.md): receive a
-   *  fired turn (the client-generated `turnId` + the client's *explicit* instanceName +
-   *  the message) and echo the result straight back to that client via `onChatResult`
-   *  (the direct-delivery pattern). Proves `NebulaClient.chat` fires `turnId`+`clientId`
-   *  correctly and the client correlates the result by `turnId`. */
-  @mesh(requireAdmin)
-  runFakeTurn(turnId: string, clientId: string, message: string): void {
+  /** Test-only: `callClient`, keeping a refusal so a test can match it by its message. */
+  @mesh(requireDominionHere)
+  callClientReporting(clientAddress: string, clientMethod: string, ...args: any[]): void {
     const ctn = this.ctn() as any;
-    this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-      ctn.onChatResult(turnId, `echo: ${message}`, `thought: ${message}`));
+    this.ctx.storage.kv.delete('client_call_outcome');
+    const { bindingName, instanceName } = splitAddress(clientAddress);
+    this.lmz.call(bindingName, instanceName, ctn[clientMethod](...args), ctn.recordClientCallOutcome());
   }
 
-  /** Test-only stand-in for `DevStudio.warmPreview`'s signal (preview-ready-autorefresh.md):
-   *  echo `handlePreviewReady` (scope = this Star's instanceName) back to the client, proving
-   *  `warmPreview` fires `clientId` correctly and the client's `handlePreviewReady` invokes
-   *  the `onPreviewReady` hook. */
-  @mesh(requireAdmin)
-  runFakePreviewWarm(clientId: string): void {
-    const ctn = this.ctn() as any;
-    this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId, ctn.handlePreviewReady(this.lmz.instanceName));
+  /** The handler, at this node's fire-back door. The client's host node fires back a refusal's Error or the
+   *  Client's answer, and this records refusals only. */
+  recordClientCallOutcome(result?: unknown): void {
+    if (result instanceof Error) this.ctx.storage.kv.put('client_call_outcome', result.message);
+  }
+
+  @mesh(requireDominionHere)
+  clientCallOutcome(): string | undefined {
+    return this.ctx.storage.kv.get<string>('client_call_outcome');
+  }
+
+  /** Test-only: call a `NebulaAuthFacade` method on a FRESH chain, so no client's claims ride it —
+   *  the shape no page can produce — keeping the outcome for {@link facadeCallOutcome}. */
+  @mesh(requireDominionHere)
+  callFacadeFreshChain(method: string, ...args: any[]): void {
+    this.ctx.storage.kv.delete('facade_call_outcome');
+    const facade = this.ctn<AuthFacade>() as any;
+    this.lmz.call('AUTH_FACADE', undefined, facade[method](...args),
+      (this.ctn() as any).recordFacadeCallOutcome(), { newChain: true });
+  }
+
+  /** The handler: an admission refusal answers inside the ack, so it runs here with the Error. */
+  recordFacadeCallOutcome(result?: unknown): void {
+    this.ctx.storage.kv.put('facade_call_outcome', result instanceof Error ? `error: ${result.message}` : 'ok');
+  }
+
+  @mesh(requireDominionHere)
+  facadeCallOutcome(): string | undefined {
+    return this.ctx.storage.kv.get<string>('facade_call_outcome');
   }
 
   /**
    * Test-only: dump the ontology-related KV keys so tests can verify the
-   * single-row invariant (Phase 4 lifecycle checks). Returns the ordered
+   * single-row invariant (the lifecycle checks). Returns the ordered
    * `_index` plus the list of `ontology:<version>` rows actually present.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   inspectOntologyKv(): { index: string[]; rowVersions: string[] } {
     const index = this.ctx.storage.kv.get<string[]>('ontology:_index') ?? [];
     const rowVersions: string[] = [];
@@ -118,76 +256,104 @@ export class StarTest extends Star {
   }
 
   /**
-   * Test-only (smoke/browser harness): compile + install an ontology version
-   * directly on this Star — the post-Phase-4 dev apply path (Decision 9: the
-   * Galaxy lazy-pull was removed, so the validator must be PUSHED via
-   * `setOntology`, never fetched on a cache miss). The browser smoke test's
-   * `HarnessNebulaClient` runs in Node and imports from `@lumenize/nebula/client`,
-   * so it can't call the Worker-only `compileOntologyVersion` itself (the main
-   * entry pulls in `cloudflare:workers`, unimportable in Node). This server-side
-   * method compiles the row and hands it to `setOntology`, mirroring
-   * `NebulaClientTest.callStarApplyOntology` (which compiles client-side from a
-   * pool-workers test). Same admin gate as the real `setOntology`.
+   * Test-only (smoke/browser harness): compile an ontology version and hand it to this Star the
+   * way its Galaxy's answer arrives — `resourcesResults.onOntologyPulled`, the path a production
+   * install takes — so a test pins a Star's ontology without a Galaxy loop. An installed version
+   * is skipped, exactly as a pulled row is. It takes SOURCE and compiles here, in the test Worker,
+   * because the only alternative is a remote entry taking a compiled row — a caller handing a Star
+   * a validator bundle from outside its Galaxy, which
+   * the undecorated `resourcesResults` gate refuses. It is NOT an import limit: `ontology-compile.ts`
+   * loads in plain Node, so the Node-side callers could compile. It does keep the compiler, which
+   * is not browser-safe, out of the chromium lane's bundle (`test/chromium/ontology-admin.ts`).
    */
-  @mesh(requireAdmin)
-  applyOntologyForTest(versionConfig: OntologyVersionConfig): void {
-    this.setOntology(compileOntologyVersion(versionConfig));
+  @mesh(requireDominionHere)
+  applyOntologyForTest(versionConfig: OntologyVersionConfig, holdParseMs?: number): void {
+    const row = compileOntologyVersion(versionConfig);
+    super.resourcesResults.onOntologyPulled(holdParseMs ? holdingParse(row, holdParseMs) : row);
+  }
+
+  /** The answers this Star's ontology asks got while held, in order; `undefined` when not holding. */
+  #heldOntologyAnswers: unknown[] | undefined;
+
+  /**
+   * Test-only: hold the answers this Star's ontology asks get, or release the held ones in order.
+   * While one ask's answer is outstanding, every op that mismatches should wait on it rather than
+   * ask again, and only a held answer keeps it outstanding long enough to count. The answer is held
+   * at this Star's fire-back door, so the Galaxy has already answered and logged the ask.
+   */
+  @mesh(requireDominionHere)
+  holdOntologyAnswersForTest(hold: boolean): void {
+    if (hold) { this.#heldOntologyAnswers ??= []; return; }
+    const held = this.#heldOntologyAnswers ?? [];
+    this.#heldOntologyAnswers = undefined;
+    for (const answer of held) super.resourcesResults.onOntologyPulled(answer);
+  }
+
+  override get resourcesResults(): ResourcesResults {
+    const results = super.resourcesResults;
+    return {
+      ...results,
+      onOntologyPulled: (result?: unknown) => {
+        if (this.#heldOntologyAnswers) this.#heldOntologyAnswers.push(result);
+        else results.onOntologyPulled(result);
+      },
+    };
+  }
+
+  /** Hand `resourcesResults.onOntologyPulled` an answer that is not a row — the Galaxy's `null`
+   *  (no row for this Star) or a delivered Error — the two shapes a real pull can come back as.
+   *  Delivered directly, past any hold {@link holdOntologyAnswersForTest} keeps. */
+  @mesh(requireDominionHere)
+  deliverOntologyAnswerForTest(answer: 'null' | 'error'): void {
+    super.resourcesResults.onOntologyPulled(answer === 'null' ? null : new Error('the pull failed'));
+  }
+
+  /** Re-run `onStart` — a re-initialized DO, whose plane rebuilds every cache from storage. */
+  @mesh(requireDominionHere)
+  reInitForTest(): void {
+    this.onStart();
   }
 
   /**
-   * Test-only: dump the Subscribers table so tests can verify idempotency
-   * and row content. PK-ordered. Admin-gated to avoid client tests leaking
+   * Test-only: dump the resource rows of the `Subscriptions` table so tests can verify
+   * idempotency and row content. PK-ordered. Admin-gated to avoid client tests leaking
    * the registry shape unintentionally.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   inspectSubscribers(): SubscriberRow[] {
-    const rows = this.ctx.storage.sql.exec(
-      `SELECT resourceId, clientId, sub, subscriberBinding, subscribedAt
-       FROM Subscribers ORDER BY resourceId, clientId`,
+    return this.ctx.storage.sql.exec<SubscriberRow>(
+      `SELECT topic AS resourceId, clientAddress, sub, profileId, dominionOverHostAtSubscribe, subscribedAt
+       FROM Subscriptions WHERE kind = 'resource' ORDER BY topic, clientAddress`,
     ).toArray();
-    return rows as unknown as SubscriberRow[];
   }
 
-  /** Test-only: dump the TreeSubscribers table (the dedicated org-tree channel). */
-  @mesh(requireAdmin)
-  inspectTreeSubscribers(): Array<{ clientId: string; subscriberBinding: string; subscribedAt: string }> {
-    const rows = this.ctx.storage.sql.exec(
-      `SELECT clientId, subscriberBinding, subscribedAt FROM TreeSubscribers ORDER BY clientId`,
+  /** Test-only: dump the query rows — idempotency / single-row checks + content.
+   *  PK-ordered. Admin-gated. */
+  @mesh(requireDominionHere)
+  inspectQuerySubscribers(): QuerySubscriberRow[] {
+    return this.ctx.storage.sql.exec<QuerySubscriberRow>(
+      `SELECT topic AS queryHash, query, clientAddress, sub, profileId, dominionOverHostAtSubscribe, subscribedAt
+       FROM Subscriptions WHERE kind = 'query' ORDER BY topic, clientAddress`,
     ).toArray();
-    return rows as unknown as Array<{ clientId: string; subscriberBinding: string; subscribedAt: string }>;
   }
 
-  /** Test-only (Phase 5): dump the ReloadSubscribers table (the dev-preview reload
-   *  channel) — used to assert connect-gated auto-subscribe + preservation across
-   *  resetDevData (Decision 12 / Flow 1d). */
-  @mesh(requireAdmin)
-  inspectReloadSubscribers(): Array<{ clientId: string; subscriberBinding: string }> {
+  /** Test-only: dump the tree rows (the dedicated org-tree channel). */
+  @mesh(requireDominionHere)
+  inspectTreeSubscribers(): Array<{ clientAddress: string; subscribedAt: string }> {
     const rows = this.ctx.storage.sql.exec(
-      `SELECT clientId, subscriberBinding FROM ReloadSubscribers ORDER BY clientId`,
+      `SELECT clientAddress, subscribedAt FROM Subscriptions WHERE kind = 'tree' ORDER BY clientAddress`,
     ).toArray();
-    return rows as unknown as Array<{ clientId: string; subscriberBinding: string }>;
+    return rows as unknown as Array<{ clientAddress: string; subscribedAt: string }>;
   }
 
   /**
-   * Test-only: drop and recreate the Subscribers table. Used by 5.3.4a
-   * reconnect tests to verify that the client's resubscribe walk actually
-   * re-inserts rows. Without this hook, the absence of Phase 5.3.5
-   * (disconnect cleanup) means subscriber rows persist across WS close, so
-   * a missing resubscribe wouldn't be visible. Admin-gated.
+   * Test-only: delete every resource row, so a reconnect test can show that the client's
+   * re-subscribe walk is what re-inserts them — a row that simply survived the socket would
+   * otherwise hide a missing walk. Admin-gated.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   clearSubscribersForTest(): void {
-    this.ctx.storage.sql.exec(`DROP TABLE IF EXISTS Subscribers;`);
-    this.ctx.storage.sql.exec(`
-      CREATE TABLE IF NOT EXISTS Subscribers (
-        resourceId TEXT NOT NULL,
-        clientId TEXT NOT NULL,
-        sub TEXT NOT NULL,
-        subscriberBinding TEXT NOT NULL,
-        subscribedAt TEXT NOT NULL,
-        PRIMARY KEY (resourceId, clientId)
-      ) WITHOUT ROWID;
-    `);
+    this.ctx.storage.sql.exec(`DELETE FROM Subscriptions WHERE kind = 'resource'`);
   }
 
   /**
@@ -198,26 +364,39 @@ export class StarTest extends Star {
    */
   @mesh()
   ping(): void {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
+    const origin = this.lmz.callContext.callChain[0];
+    if (!origin?.instanceName) {
       throw new Error('ping requires a client origin with instanceName in callChain[0]');
     }
-    this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-      (this.ctn() as any).handlePingResult(1));
+    this.lmz.call(origin.bindingName, origin.instanceName,
+      (this.ctn() as any).handlePingResult(1), (this.ctn() as any).recordClientCallOutcome(), { onErrorOnly: true });
   }
 
   /**
-   * Test-only: spike handler for the Phase-0 ws.send flush experiment in
+   * Test-only (cold-start anatomy, 2026-07-22): the PURE mesh round-trip — returns
+   * its argument straight back, touching neither the ontology nor the resources plane. The
+   * 4-arg fire-back delivers the value to the client's `handleResult`. A COLD echo on
+   * a fresh Star therefore isolates fresh-Star cold-wake (placement + onStart schema/
+   * ROOT + onBeforeCall scope-check) from any data-plane operation —
+   * the clean counterpart to `transaction`'s cold path.
+   */
+  @mesh()
+  echo(value: unknown): unknown {
+    return value;
+  }
+
+  /**
+   * Test-only: spike handler for the ws.send flush experiment in
    * `tasks/gateway-hop-benchmark.md`. Forces a known-duration await on the
-   * Star side; the Gateway's invocation is paused at
+   * Star side; the host node's invocation is paused at
    * `await stub.__executeOperation(envelope)` for at least `delayMs`. The
    * spike test pairs this with a `BENCH_MARKER` frame emitted from the
-   * Gateway's `onBeforeCallToMesh` hook (before that await) to measure
+   * host node's `onBeforeCallToMesh` hook (before that await) to measure
    * whether the marker reaches the client mid-invocation (~delayMs ahead
    * of the response) or coincident with it.
    *
    * Returns the delay value directly (rather than via mesh callback) so the
-   * response arrives via the normal CALL_RESPONSE path. Wall-clock billing
+   * response arrives via the normal fire-back path. Wall-clock billing
    * is acceptable in this test-only handler.
    */
   @mesh()
@@ -229,7 +408,7 @@ export class StarTest extends Star {
   /**
    * Test-only: returns the Cloudflare colo this Star DO is running in,
    * via the cdn-cgi/trace endpoint. Used by the cross-region bench
-   * (`tasks/gateway-hop-benchmark.md` Phase 6) to verify same-DC vs
+   * (the gateway-hop benchmark) to verify same-DC vs
    * cross-region placement empirically.
    *
    * Each first call costs one outbound HTTP fetch (~5–50 ms wall-clock);
@@ -248,8 +427,8 @@ export class StarTest extends Star {
 
   #cachedColo?: string;
 
-  // --- Dev-data lifecycle inspection (Phase 4: moved off the deleted DevStarTest).
-  //     resetDevData lives on base Star now, hard-guarded to .dev instances — these
+  // --- Dev-data lifecycle inspection (moved off the deleted DevStarTest).
+  //     The plane's `resetDevData` refuses off `.dev` — these
   //     hooks run against a StarTest at a {u}.{g}.dev instance. ---
 
   /**
@@ -257,7 +436,7 @@ export class StarTest extends Star {
    * `nodeCount` confirm the wipe (Nodes re-seeds ROOT only → 1); `orphanCount`
    * proves no `Snapshots.nodeId → Nodes` FK orphans survive the wipe + re-init.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   inspectReset(): { snapshotCount: number; nodeCount: number; orphanCount: number } {
     const one = (sql: string): number =>
       (this.ctx.storage.sql.exec(sql).toArray()[0] as { c: number }).c;
@@ -269,68 +448,586 @@ export class StarTest extends Star {
       ),
     };
   }
-
-  /**
-   * Test-only (P3 criterion 7, honest test): perform the reset and, in the SAME
-   * invocation, report whether `founderSub` still holds ROOT `admin`. This call's
-   * `onBeforeCall` ran with the latch SET (Star warmed pre-reset) → it did NOT
-   * reseed; `resetDevData` is a DIRECT in-class call, so nothing reseeds the founder
-   * grant. Reading it here observes the brief grantless window. Returns `false`.
-   */
-  @mesh(requireAdmin)
-  async resetAndProbeRootAdmin(founderSub: string): Promise<boolean> {
-    await this.resetDevData();
-    return this.dagTree().getEffectivePermission(ROOT_NODE_ID, founderSub) === 'admin';
-  }
-
-  /** Test-only (P3 criterion 7): does `founderSub` hold ROOT `admin`? Called as the
-   *  "next admin call" — its own `onBeforeCall` reseeds (latch wiped), so a founder
-   *  caller observes `true`, documenting reseed-on-next-touch. */
-  @mesh(requireAdmin)
-  inspectRootAdmin(founderSub: string): boolean {
-    return this.dagTree().getEffectivePermission(ROOT_NODE_ID, founderSub) === 'admin';
-  }
 }
 
-// (DevStarTest deleted in Phase 4 — the DevStar→Star collapse. The dev Star is now a
+// (DevStarTest deleted with the DevStar→Star collapse. The dev Star is now a
 // StarTest at a {u}.{g}.dev instance; its lifecycle inspection hooks moved onto StarTest.)
 
 // ============================================
-// Inert DEV_CONTAINER serving stub (Phase 3.5a — entrypoint M2/M3 gate test).
-//
-// The REAL DevContainer `extends Container` and can't construct under
-// vitest-pool-workers ([[container-no-construct-pool-workers]]), so the baseline
-// binds this inert stand-in to `DEV_CONTAINER`. It only proves the ENTRYPOINT gate
-// routes to the bound DO: it returns a recognizable marker for any request (GET
-// shell/asset OR an HMR WS upgrade), so a test can assert the gate passed the
-// request through (M3 = GET/HEAD serving target; M2 = HMR WS allowed) vs. blocked it
-// (405/404/501). The real fetch() 3-way branch + scope injection is tested as pure
-// helpers in container-node/dev-container.test.ts + the e2e run with `wrangler dev`.
+// Test subclass: GalaxyTest — the GALAXY binding's class. IS-A Galaxy (ontology
+// registry + chat data-plane + codegen seams), plus the protected data-plane seams
+// exposed for tests that can't run the wrangler-dev-only `chat` codegen loop.
 // ============================================
 
-export class DevContainerServeStub extends DurableObject {
-  override async fetch(request: Request): Promise<Response> {
-    const isWs = request.headers.get('upgrade')?.toLowerCase() === 'websocket';
-    return new Response(`DEV_CONTAINER_STUB ${isWs ? 'WS' : request.method}`, { status: 200 });
+/** The keys the test Galaxy keeps its levers under, which a reset leaves. */
+const KV_SCRIPT = 'test:chatScript';
+const KV_SEEN_MESSAGES = 'test:seenMessages:';
+const KV_SEEN_TOOLS = 'test:seenTools:';
+const KV_MODEL_CALLS = 'test:modelCalls';
+const KV_HOLD_MODEL_CALL = 'test:holdModelCall';
+const KV_HOLD_BUILD = 'test:holdBuild';
+const KV_BUILD_FAULTS = 'test:buildFaults';
+const KV_STORE_FAULTS = 'test:storeFaults';
+const KV_DEADLINE = 'test:deadline';
+const KV_LAST_TAB_ANSWER = 'test:lastTabAnswer';
+/** What a probe's model call throws to end an invocation between rounds. */
+const PAUSED = 'paused between rounds (test)';
+
+export class GalaxyTest extends Galaxy {
+  /** What each model request since the last take recorded under `prefix`, oldest first, then cleared. */
+  #takeSeen<T>(prefix: string): T[] {
+    const kv = this.ctx.storage.kv;
+    const entries = [...kv.list<T>({ prefix })];
+    for (const [key] of entries) kv.delete(key);
+    return entries.map(([, seen]) => seen);
+  }
+
+  /** Test-only: a call target that checks nothing past the passage step. */
+  @mesh()
+  admitted(): string {
+    return 'admitted';
+  }
+
+  /** Test-only: call `admitted` at `binding`/`target` on a FRESH chain this node starts, keeping
+   *  the outcome. Driven in-DO through `runInDurableObject`, outside any mesh call. */
+  callFreshChain(binding: string, target: string): void {
+    this.ctx.storage.kv.delete('fresh_chain_outcome');
+    const self = this.ctn() as any;
+    this.lmz.call(binding, target, self.admitted(), self.recordFreshChainOutcome(), { newChain: true });
+  }
+
+  /** The handler: the value `admitted`, or the refusal's message. */
+  recordFreshChainOutcome(result?: unknown): void {
+    this.ctx.storage.kv.put('fresh_chain_outcome', result instanceof Error ? `Error: ${result.message}` : String(result));
+  }
+
+  /** Test-only: the wake, after the fake's `onWake` has run. */
+  @rawRpc()
+  override async orderCertificate(operationId: string): Promise<void> {
+    await certificateFakes.get(this.lmz.instanceName ?? '')?.onWake?.();
+    return super.orderCertificate(operationId);
+  }
+
+  protected override ordersCertificates(): boolean {
+    return certificateFakes.get(this.lmz.instanceName ?? '')?.https ?? super.ordersCertificates();
+  }
+
+  protected override certificateApi(): CertificateApi | undefined {
+    const fake = certificateFakes.get(this.lmz.instanceName ?? '');
+    if (!fake) return super.certificateApi();
+    if (fake.orderWaitMs !== undefined) this.certificateOrderWaitMs = fake.orderWaitMs;
+    return {
+      order: async () => {
+        fake.calls.push('order');
+        const result = await (fake.order?.() ?? Promise.resolve<CertificateResult>({ ok: true, packId: 'p-ordered', status: 'pending_validation' }));
+        fake.calls.push('order-returned');
+        return result;
+      },
+      get: async (id) => {
+        fake.calls.push(`get:${id}`);
+        return fake.get?.(id) ?? { ok: true, packId: id, status: 'pending_validation' };
+      },
+      list: async () => {
+        fake.calls.push('list');
+        if (fake.listDelayMs) await new Promise((r) => setTimeout(r, fake.listDelayMs));
+        return [...fake.packs];
+      },
+      delete: async (id) => {
+        fake.calls.push(`delete:${id}`);
+        if (fake.failDelete) throw new Error('injected delete failure (test)');
+      },
+    };
+  }
+
+  /** Test-only: a directed call from this Galaxy to a client, keeping a refusal by its message. */
+  @mesh(requireDominionHere)
+  callClientReporting(clientAddress: string, clientMethod: string, ...args: any[]): void {
+    const ctn = this.ctn() as any;
+    this.ctx.storage.kv.delete('client_call_outcome');
+    const { bindingName, instanceName } = splitAddress(clientAddress);
+    this.lmz.call(bindingName, instanceName, ctn[clientMethod](...args), ctn.recordClientCallOutcome());
+  }
+
+  /** The handler, at this node's fire-back door. The client's host node fires back a refusal's Error or the
+   *  Client's answer, and this records refusals only. */
+  recordClientCallOutcome(result?: unknown): void {
+    if (result instanceof Error) this.ctx.storage.kv.put('client_call_outcome', result.message);
+  }
+
+  @mesh(requireDominionHere)
+  clientCallOutcome(): string | undefined {
+    return this.ctx.storage.kv.get<string>('client_call_outcome');
+  }
+
+  // Scripted chat support: a fake model script (per-round responses, consumed by the
+  // shared `runModel` router — the loop's every round rides it) + an always-ok build, so the
+  // trigger pipeline is drivable in-lane. A `{ __delayMs }`
+  // entry sleeps then falls through — the lever for spanning a generation across
+  // commits (the single-flight tests). The REAL container drive is the build-box /live
+  // scenario; nothing here reaches ctx.container (absent under vitest-plugin anyway).
+  //
+  // The script, the build faults, the deadline, the holds and the write faults live in
+  // `ctx.storage.kv`, which `ctx.abort()` leaves, so a test resets the Galaxy mid-turn and the
+  // next run reads them. Only a held call's own wait is in memory, which a reset ends.
+  /** Every model call this Galaxy has made, counted across resets. */
+  #modelCalls(): number { return this.ctx.storage.kv.get<number>(KV_MODEL_CALLS) ?? 0; }
+  /** The waits held calls and builds are parked on, each with the model call it holds, released
+   *  by {@link releaseForTest}. */
+  #held: Array<{ call?: number; release: () => void }> = [];
+  protected override async runModel(_model: string, body: Record<string, unknown>): Promise<unknown> {
+    const kv = this.ctx.storage.kv;
+    const n = this.#modelCalls() + 1;
+    kv.put(KV_MODEL_CALLS, n);
+    if (Array.isArray(body.messages)) {
+      const tools = Array.isArray(body.tools) ? body.tools as Array<{ function?: { name?: string } }> : [];
+      const at = String(n).padStart(6, '0');
+      kv.put(`${KV_SEEN_MESSAGES}${at}`, body.messages.map((m) => ({ ...(m as object) })));
+      kv.put(`${KV_SEEN_TOOLS}${at}`, tools.map((t) => t.function?.name ?? '?'));
+    }
+    if (kv.get<number>(KV_HOLD_MODEL_CALL) === n) {
+      debug('nebula.GalaxyTest.hold').info('model call held', { instanceName: this.lmz.instanceName, call: n });
+      await new Promise<void>((resolve) => this.#held.push({ call: n, release: resolve }));
+    }
+    for (;;) {
+      const script = kv.get<unknown[]>(KV_SCRIPT) ?? [];
+      const next = script.shift();
+      kv.put(KV_SCRIPT, script);
+      if (next === undefined) throw new Error('GalaxyTest chat script exhausted');
+      const delay = (next as { __delayMs?: number }).__delayMs;
+      if (typeof delay === 'number') {
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      return next;
+    }
+  }
+  /** The build job, faked as the real one behaves where the Galaxy reads it (`fake-build.ts`),
+   *  so the landing decision and the landing above it run unchanged. A held build waits here,
+   *  as a long build would, until {@link releaseForTest}. */
+  protected override async build(opts: { ontology?: { version: string } } = {}): Promise<BuildReport> {
+    if (this.ctx.storage.kv.get<boolean>(KV_HOLD_BUILD)) {
+      this.ctx.storage.kv.delete(KV_HOLD_BUILD);
+      debug('nebula.GalaxyTest.hold').info('build held', { instanceName: this.lmz.instanceName });
+      await new Promise<void>((resolve) => this.#held.push({ release: resolve }));
+    }
+    return fakeBuildJob(this.workspaceFs(), opts, this.ctx.storage.kv.get<BuildFaults>(KV_BUILD_FAULTS) ?? {});
+  }
+
+  /** What the next builds do wrong, until set again. */
+  @mesh(requireDominionHere)
+  setBuildFaultsForTest(faults: BuildFaults): void {
+    this.ctx.storage.kv.put(KV_BUILD_FAULTS, faults);
+  }
+
+  /** Hold the model call this Galaxy makes `n`th, counted across resets, until released. */
+  @mesh(requireDominionHere)
+  holdModelCallForTest(n: number): void {
+    this.ctx.storage.kv.put(KV_HOLD_MODEL_CALL, n);
+  }
+
+  /** Hold the next build until released. */
+  @mesh(requireDominionHere)
+  holdNextBuildForTest(): void {
+    this.ctx.storage.kv.put(KV_HOLD_BUILD, true);
+  }
+
+  /** Release the held model call this Galaxy made `call`th, or every held call and build. */
+  @mesh(requireDominionHere)
+  releaseForTest(call?: number): void {
+    const released = this.#held.filter((h) => call === undefined || h.call === call);
+    this.#held = this.#held.filter((h) => !released.includes(h));
+    for (const { release } of released) release();
+  }
+
+  /** How many model calls this Galaxy has made, across resets. */
+  @mesh(requireDominionHere)
+  modelCallsForTest(): number {
+    return this.#modelCalls();
+  }
+
+  /** Make a round write or a blob read throw, until set again. */
+  @mesh(requireDominionHere)
+  setStoreFaultsForTest(faults: { roundWrite?: boolean; blobRead?: boolean }): void {
+    this.ctx.storage.kv.put(KV_STORE_FAULTS, faults);
+  }
+
+  /** A turn's round store is what writes through here, so a round write fault fails each of them. */
+  protected override writeAsAgent(ops: Record<string, OperationDescriptor>): Promise<TransactionResult> {
+    if (this.ctx.storage.kv.get<{ roundWrite?: boolean }>(KV_STORE_FAULTS)?.roundWrite) {
+      return Promise.reject(new Error('injected round write failure (test)'));
+    }
+    return super.writeAsAgent(ops);
+  }
+
+  protected override readBlob(oid: string): Promise<string> {
+    if (this.ctx.storage.kv.get<{ blobRead?: boolean }>(KV_STORE_FAULTS)?.blobRead) {
+      return Promise.reject(new Error('injected blob read failure (test)'));
+    }
+    return super.readBlob(oid);
+  }
+
+  /** The running turn's row, as stored. */
+  @mesh(requireDominionHere)
+  turnRowForTest(): ReturnType<Galaxy['turnRow']> {
+    return this.turnRow();
+  }
+
+  /** Every tab answer, kept as its handler was called, so a test can deliver the last one again,
+   *  as a repeated fire-back would. */
+  override async onTabAnswer(...args: Parameters<Galaxy['onTabAnswer']>): Promise<void> {
+    this.ctx.storage.kv.put(KV_LAST_TAB_ANSWER, args);
+    return super.onTabAnswer(...args);
+  }
+
+  /** Deliver the last tab answer to its handler again. */
+  @mesh(requireDominionHere)
+  async replayTabAnswerForTest(): Promise<void> {
+    const args = this.ctx.storage.kv.get<Parameters<Galaxy['onTabAnswer']>>(KV_LAST_TAB_ANSWER);
+    if (!args) throw new Error('no tab has answered yet');
+    await super.onTabAnswer(...args);
+  }
+
+  /** Store a row naming `message`, for the post `post`, as a turn writes one. */
+  @mesh(requireDominionHere)
+  seedTurnRowForTest(message: string, post: MessageSnapshot): void {
+    const initial = assembleCodegenPrompt({ systemBundles: ['sys'], userRequest: 'a seeded turn' });
+    const row: TurnRow = { prompt: [initial.system, initial.user], messageSnapshot: post, message, read: {}, interrupted: [] };
+    this.ctx.storage.kv.put(TURN_ROW_KEY, row);
+  }
+
+
+  /**
+   * Run the loop over this Galaxy's own round store and blob store, with the scripted model and
+   * the real tools under the claims of a post this caller writes: straight through, or as a fresh
+   * invocation per round, each answering one model call and stopping at its next. A row naming
+   * `message` stands in for the one a turn writes, since the store writes only for the turn a row
+   * names, and goes when the run ends. No trigger is involved, so no commit follows.
+   */
+  @mesh(requireDominionHere)
+  async runOverStoreForTest(message: string, request: string, script: unknown[], perRound: boolean): Promise<{ stop: string; invocations: number; params: unknown[] }> {
+    const post = await this.postAsCallerForTest(crypto.randomUUID(), request);
+    this.ctx.storage.kv.put(KV_SCRIPT, script);
+    const initial = assembleCodegenPrompt({ systemBundles: ['sys'], userRequest: request });
+    const row: TurnRow = { prompt: [initial.system, initial.user], messageSnapshot: post, message, read: {}, interrupted: [] };
+    this.ctx.storage.kv.put(TURN_ROW_KEY, row);
+    const entries = this.loopToolDeps();
+    const under = <T>(run: () => T): T => this.actUnder(post, run);
+    const tools: LoopToolDeps = {
+      read_file: (path) => under(() => entries.read_file(path)),
+      write_file: (path, content) => under(() => entries.write_file(path, content)),
+      edit_file: (path, anchor, replacement) => under(() => entries.edit_file(path, anchor, replacement)),
+      build: (opts) => under(() => entries.build(opts)),
+      invite: (email, scopeAdmin) => under(() => entries.invite(email, scopeAdmin)),
+      run_in_tab: (tab, code, at) => under(() => entries.run_in_tab(tab, code, at)),
+    };
+    const params: unknown[] = [];
+    for (let invocations = 1; ; invocations++) {
+      let answered = false;
+      const result = await runCodegenLoop(initial, {
+        rounds: this.roundStore(message),
+        blobs: { write: (content) => this.writeBlob(content), read: (oid) => this.readBlob(oid) },
+        callModel: async (messages, modelParams) => {
+          if (perRound && answered) throw new Error(PAUSED);
+          answered = true;
+          params.push(modelParams);
+          return this.callModel(messages, modelParams);
+        },
+        tools,
+        validateToolArgs: async () => ({ ok: true }),
+      });
+      if (!(result.stop === 'error' && result.detail?.includes(PAUSED))) {
+        this.ctx.storage.kv.delete(TURN_ROW_KEY);
+        return { stop: result.stop, invocations, params };
+      }
+    }
+  }
+
+  /** The deadline a test set, read again after a reset, before `super.onStart()` wakes a turn
+   *  whose run would read it. */
+  override async onStart(): Promise<void> {
+    const deadline = this.ctx.storage.kv.get<number>(KV_DEADLINE);
+    if (deadline !== undefined) this.generationDeadlineMs = deadline;
+    await super.onStart();
+  }
+
+  /** No script seeded → NO turn. Tests that post user Messages without a script assert on
+   *  their own messages alone; until 2026-09-06 an unscripted turn threw script-exhausted
+   *  and died silently, which those tests leaned on without saying so. A failed model call
+   *  now commits an error reply (the controlled `error` stop), so the no-turn is explicit. */
+  protected override async runTriggeredTurn(post: MessageSnapshot, message: string): Promise<void> {
+    if (this.#probePosting) return;
+    if ((this.ctx.storage.kv.get<unknown[]>(KV_SCRIPT) ?? []).length === 0) {
+      debug('nebula.GalaxyTest.trigger').debug('no script seeded — the turn is a no-op', { userMessageId: post.id });
+      return;
+    }
+    await super.runTriggeredTurn(post, message);
+  }
+
+  /** Set while a probe writes a post of its own, so the commit hook starts no turn on it. */
+  #probePosting = false;
+
+  /**
+   * Put a person's post in the chat, at `id`, as this probe's caller, and answer the snapshot a
+   * turn would take up. The probe is called by a real Client, so the post's record is the one the
+   * server stamps from that Client's verified claims, which is what a turn then acts under. A post
+   * already at `id` is taken as it stands.
+   */
+  protected async postAsCallerForTest(id: string, content: string): Promise<MessageSnapshot> {
+    const existing = await Promise.resolve().then(() => this.resources.read(CHAT_MESSAGE_ONTOLOGY_VERSION, id)).catch(() => null);
+    if (existing) return { id, validFrom: (existing as Snapshot).meta.validFrom };
+    this.#probePosting = true;
+    try {
+      const written = await this.resources.transaction(CHAT_MESSAGE_ONTOLOGY_VERSION, {
+        [id]: { op: 'create', typeName: 'Message', nodeId: MESSAGES_NODE_ID, value: { chat: DEFAULT_CHAT_ID, content } },
+      }) as TransactionResult;
+      if (!written.ok) throw new Error(`probe post failed: ${JSON.stringify(written.errors)}`);
+      return { id, validFrom: written.validFrom };
+    } finally {
+      this.#probePosting = false;
+    }
+  }
+
+  /** Run ONE real TRIGGERED turn against the scripted model (the whole pipeline:
+   *  loop → commit → build-completion reload trigger).
+   *  Drives `runTriggeredTurn` — the same runner the commit hook invokes. */
+  @mesh(requireDominionHere)
+  async chatScriptedForTest(userMessageId: string, message: string, script: unknown[]): Promise<void> {
+    // The post is written first, as this caller, so the turn's tools run under the claims the
+    // server recorded for it, as they do for any poster.
+    const post = await this.postAsCallerForTest(userMessageId, message);
+    this.ctx.storage.kv.put(KV_SCRIPT, script);
+    await this.runTriggeredTurn(post, message);
+  }
+
+  /** While set, the next agent commit waits here, after the turn's last look at its post. */
+  #commitGate: { promise: Promise<void>; release: () => void } | undefined;
+
+  /** Hold the next agent commit until `releaseAgentCommitForTest`, so a test can land an edit
+   *  between a turn's comparison at the close and the commit that follows it. Nothing else can
+   *  arrange that order: the window is one validation call wide. */
+  @mesh(requireDominionHere)
+  holdNextAgentCommitForTest(): void {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => { release = resolve; });
+    this.#commitGate = { promise, release };
+  }
+
+  @mesh(requireDominionHere)
+  releaseAgentCommitForTest(): void {
+    this.#commitGate?.release();
+    this.#commitGate = undefined;
+  }
+
+  protected override async commitAgentMessage(...args: Parameters<Galaxy['commitAgentMessage']>): Promise<void> {
+    const gate = this.#commitGate;
+    if (gate) {
+      debug('nebula.GalaxyTest.commit').info('agent commit held', { instanceName: this.lmz.instanceName });
+      await gate.promise;
+    }
+    return super.commitAgentMessage(...args);
+  }
+
+  /** Seed the fake-model script for turns the REAL commit hook will trigger (a
+   *  `postUserMessage` commit fires `#onChatCommitted` in the same isolate, so the
+   *  seeded script is what its generation consumes). Ephemeral by design. */
+  @mesh(requireDominionHere)
+  seedChatScriptForTest(script: unknown[]): void {
+    this.ctx.storage.kv.put(KV_SCRIPT, [...script]);
+  }
+
+  /** Whom the Workspace's newest commit names. */
+  @mesh(requireDominionHere)
+  async headCommitForTest(): Promise<{ oid: string; author: string; committer: string } | undefined> {
+    const head = await this.headCommit();
+    return head && { oid: head.oid, author: head.author.email, committer: head.committer.email };
+  }
+
+  /** The people's posts the Galaxy reads as still waiting for an answer. */
+  @mesh(requireDominionHere)
+  waitingPostsForTest(): string[] {
+    return this.waitingPostIds();
+  }
+
+  /** Shorten the generation deadline, so a scripted hang is cut off within a test. */
+  @mesh(requireDominionHere)
+  setGenerationDeadlineForTest(ms: number): void {
+    this.generationDeadlineMs = ms;
+    this.ctx.storage.kv.put(KV_DEADLINE, ms);
+  }
+
+  /** The prompts the model saw since the last read (one `messages` array per model call),
+   *  then cleared. */
+  @mesh(requireDominionHere)
+  takeSeenMessagesForTest(): unknown[][] {
+    return this.#takeSeen<unknown[]>(KV_SEEN_MESSAGES);
+  }
+
+  /** The tool names each model call carried since the last read, then cleared. */
+  @mesh(requireDominionHere)
+  takeSeenToolNamesForTest(): string[][] {
+    return this.#takeSeen<string[]>(KV_SEEN_TOOLS);
+  }
+
+  /** The row the chat-ontology source answers instead of the platform seed, when a test set one. */
+  #sourceRow: OntologyVersionRow | undefined;
+  protected override ontologySource(): OntologyVersionRow {
+    const row = this.#sourceRow ?? super.ontologySource();
+    const holdMs = heldGalaxyParses.get(this.lmz.instanceName ?? '');
+    return holdMs ? holdingParse(row, holdMs) : row;
+  }
+
+  /** Make the chat-ontology source answer `versionConfig`'s row — the way a newer platform seed
+   *  would arrive — or the platform seed again when none is given. Nothing installs until an op
+   *  finds its pinned version differs. */
+  @mesh(requireDominionHere)
+  setChatSourceForTest(versionConfig?: OntologyVersionConfig): void {
+    this.#sourceRow = versionConfig ? compileOntologyVersion(versionConfig) : undefined;
+  }
+
+  /** Re-run `onStart` — a re-initialized DO, whose plane rebuilds every cache from storage. */
+  @mesh(requireDominionHere)
+  async reInitForTest(): Promise<void> {
+    await this.onStart();
+  }
+
+  /** The installed chat ontology's version, read from the plane. */
+  @mesh(requireDominionHere)
+  installedChatVersionForTest(): string {
+    return this.chatOntology().version;
+  }
+
+  /** Test-only: the address of every query subscriber row, so a test can assert a closed tab's
+   *  row is still there when the code under test reads the rows. */
+  @mesh(requireDominionHere)
+  querySubscriberAddressesForTest(): string[] {
+    return this.ctx.storage.sql.exec<{ clientAddress: string }>(
+      `SELECT clientAddress FROM Subscriptions WHERE kind = 'query' ORDER BY clientAddress`,
+    ).toArray().map((r) => r.clientAddress);
+  }
+
+  /** Test-only: copy one query subscriber's row under another address and `sub`, for a row no
+   *  client of this lane can make: one held by another node's Client under a Galaxy member's `sub`. */
+  @mesh(requireDominionHere)
+  copyQuerySubscriberForTest(fromAddress: string, toAddress: string, toSub: string): number {
+    return this.ctx.storage.sql.exec(
+      `INSERT INTO Subscriptions (kind, topic, clientAddress, subscribedAt, sub, profileId, dominionOverHostAtSubscribe, query)
+       SELECT kind, topic, ?, subscribedAt, ?, profileId, dominionOverHostAtSubscribe, query
+       FROM Subscriptions WHERE kind = 'query' AND clientAddress = ?`, toAddress, toSub, fromAddress,
+    ).rowsWritten;
+  }
+
+  /** Test-only: delete every query row — the reconnect test's server-side amnesia, so the
+   *  client's re-subscribe walk is what restores fanout (without it the walk's absence would
+   *  be invisible: rows would just still exist). */
+  @mesh(requireDominionHere)
+  clearQuerySubscribersForTest(): void {
+    this.ctx.storage.sql.exec(`DELETE FROM Subscriptions WHERE kind = 'query'`);
+  }
+
+  /** Write `ops` as the agent, through the plane's own transaction, as a turn writes its rounds. */
+  @mesh(requireDominionHere)
+  writeAsAgentForTest(ops: Record<string, OperationDescriptor>): Promise<TransactionResult> {
+    return this.writeAsAgent(ops);
+  }
+
+  /** Every stored snapshot of `resourceId`, oldest first, with who wrote it. The plane answers only
+   *  a resource's current snapshot, so a test that needs an earlier one reads storage. */
+  @mesh(requireDominionHere)
+  snapshotRowsForTest(resourceId: string): Array<{ validFrom: string; validTo: string; nodeId: string; sub: string; value: unknown }> {
+    return this.ctx.storage.sql.exec<{ validFrom: string; validTo: string; nodeId: string; recordedClaims: string; value: string }>(
+      'SELECT validFrom, validTo, nodeId, recordedClaims, value FROM Snapshots WHERE resourceId = ? ORDER BY validFrom', resourceId,
+    ).toArray().map((r) => ({
+      validFrom: r.validFrom, validTo: r.validTo, nodeId: r.nodeId,
+      sub: (JSON.parse(r.recordedClaims) as { sub: string }).sub, value: r.value,
+    }));
+  }
+
+  /** The grants `sub` holds in this Galaxy's tree, by node id. */
+  @mesh(requireDominionHere)
+  grantsForTest(sub: string): Array<{ nodeId: string; permission: string }> {
+    return this.ctx.storage.sql.exec<{ nodeId: string; permission: string }>(
+      'SELECT nodeId, permission FROM Permissions WHERE sub = ? ORDER BY nodeId', sub,
+    ).toArray().map((r) => ({ nodeId: r.nodeId, permission: r.permission }));
+  }
+
+  /** The `state` of each `_InviteStatus` row at `nodeId`, read from storage. */
+  @mesh(requireDominionHere)
+  inviteStatesForTest(nodeId: string): string[] {
+    return this.#inviteRowsForTest(nodeId).map((row) => row.state);
+  }
+
+  /** The `error` of each `_InviteStatus` row at `nodeId` that reads `submission-failed`. */
+  @mesh(requireDominionHere)
+  inviteFailuresForTest(nodeId: string): string[] {
+    return this.#inviteRowsForTest(nodeId).filter((row) => row.state === 'submission-failed').map((row) => row.error ?? '');
+  }
+
+  #inviteRowsForTest(nodeId: string): Array<{ state: string; error?: string }> {
+    return this.ctx.storage.sql.exec<{ value: string }>(
+      `SELECT value FROM Snapshots WHERE typeName = '_InviteStatus' AND nodeId = ? AND validTo = ? AND deleted = 0`, nodeId, END_OF_TIME,
+    ).toArray().map((r) => parse(r.value) as { state: string; error?: string });
+  }
+
+  /** The agent's `invite` tool, under this caller's own claims. */
+  @mesh(requireDominionHere)
+  inviteForTest(email: string): ReturnType<Galaxy['invite']> {
+    return this.invite(email);
+  }
+
+  @mesh(requireDominionHere)
+  writeBlobForTest(content: string): Promise<string> {
+    return this.writeBlob(content);
+  }
+
+  @mesh(requireDominionHere)
+  readBlobForTest(oid: string): Promise<string> {
+    return this.readBlob(oid);
+  }
+
+  /** The row count of each of the Workspace's own tables, the `vfs_` ones `@cloudflare/computer` keeps its files and git store in. */
+  @mesh(requireDominionHere)
+  workspaceRowsForTest(): Record<string, number> {
+    const tables = this.ctx.storage.sql.exec<{ name: string }>(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'vfs_*' ORDER BY name`,
+    ).toArray().map((r) => r.name);
+    return Object.fromEntries(tables.map((name) => [name,
+      this.ctx.storage.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM "${name}"`).one().n]));
+  }
+
+  /** Commit the durable agent Message (the completion step), written by the agent as itself
+   *  whoever calls this, and `replyTo`-linked (required on an agent message). */
+  @mesh(requireDominionHere)
+  async commitAgentForTest(chatId: string, messageId: string, content: string, nodeId: string, replyTo: string, codegen?: Record<string, unknown>): Promise<void> {
+    await this.commitAgentMessage(chatId, messageId, content, nodeId, replyTo, { thought: 'synthetic thought', codegen });
   }
 }
 
 // ============================================
-// Test subclass: NebulaClientTest — adds @mesh methods + test initiators
+// Test subclasses: NebulaClientTest and StudioClientTest — add @mesh methods + test initiators
 // ============================================
 
 // Guard for client-side methods
-function requireAdminCaller(instance: NebulaClientTest) {
-  const claims = instance.lmz.callContext.originAuth?.claims as unknown as NebulaJwtPayload;
-  if (!claims?.access?.admin) {
+function requireAdminCaller(instance: NebulaClient) {
+  const claims = instance.lmz.callContext.originAuth?.claims as unknown as AuthClaims;
+  if (!claims?.access?.scopeAdmin) {
     throw new Error('Admin caller required');
   }
 }
 
-export class NebulaClientTest extends NebulaClient {
+/**
+ * The captures and initiators every test client carries, over whichever class the test builds:
+ * `NebulaClient` for the Resources suites, which a generated app's client is, and `StudioClient`
+ * for the files that post to chat.
+ */
+const withClientTestCaptures = <TBase extends new (...args: any[]) => NebulaClient>(Base: TBase) => class extends Base {
   // --- Result storage for test assertions ---
   lastResult: any = undefined;
   lastError: string | undefined = undefined;
+  /** The delivered Error object itself (structured-clone reconstructs it as a plain
+   *  Error with `name` + custom props preserved — `instanceof` does not survive).
+   *  Lets a test assert the *typed* error that crossed the capability's delivery,
+   *  e.g. distinct `NodeNotFoundError` vs `PermissionDeniedError` (review m6). */
+  lastErrorObject: Error | undefined = undefined;
   callCompleted = false;
   lastEchoMessage: string | undefined = undefined;
   lastAdminEchoMessage: string | undefined = undefined;
@@ -338,21 +1035,57 @@ export class NebulaClientTest extends NebulaClient {
   // --- handleResourceUpdate capture (separate from lastResult so multi-arg
   //     payload remains inspectable in subscribe tests) ---
   lastResourceUpdate: { resourceType: string; resourceId: string; snapshot: Snapshot | null } | undefined = undefined;
+  /** The raw `result` of the latest resource push — a snapshot, the denied frame, `null` or an
+   *  Error — so a test can assert a frame exactly, including keys the client drops. */
+  lastResourceResult: Snapshot | ResourceDenied | null | Error | undefined = undefined;
   resourceUpdateCount = 0;
+
+  // --- handleProfileUpdate capture (the DEDICATED global-Profile channel — tasks/nebula-subscriber-lists.md).
+  //     Separate from resourceUpdate so a dev-user `Profile` resource and a platform profile never share a
+  //     counter. CUMULATIVE count. ---
+  lastProfileUpdate: { profileId: string; snapshot: ProfileChannelSnapshot } | undefined = undefined;
+  profileUpdateCount = 0;
 
   // --- handleOrgTreeUpdate capture (the dedicated org-tree channel) ---
   lastOrgTree: unknown = undefined;
   orgTreeUpdateCount = 0;
 
-  // --- handleReload capture (the dev-preview reload channel). CUMULATIVE — NOT
-  //     zeroed by resetResults (it's a channel counter; baseline it before the
-  //     action under test, per testing.md). ---
-  reloadCount = 0;
+  // --- handleQueryUpdate capture (the query channel). Reset explicitly by the
+  //     query initiators (not resetResults). ---
+  lastQueryUpdate: { queryHash: string; result: QueryUpdatePayload } | undefined = undefined;
+  lastQueryError: Error | undefined = undefined;
+  queryUpdateCount = 0;
+
+  // --- handleQuerySubscribersUpdate capture (the STANDALONE subscriber-list roster channel —
+  //     tasks/nebula-subscriber-lists.md). CUMULATIVE count. Server-integration tests assert on THIS
+  //     override (raw push args); a factory test asserts the store landing. `roster` is undefined on the
+  //     fail-closed Error push. ---
+  lastQuerySubscribersUpdate: { queryHash: string; roster?: SubscriberEntry[]; error?: Error } | undefined = undefined;
+  querySubscribersUpdateCount = 0;
+
+  // --- handleStreamChunk capture (the transient progress stream). CUMULATIVE —
+  //     count of chunks received; read `streamingProgress(id)` for the accumulated text. ---
+  lastStreamChunk: { messageId: string; progress: string } | undefined = undefined;
+  streamChunkCount = 0;
+  /** The attribution the last chunk carried — the id of the USER message whose turn is streaming. */
+  lastStreamReplyTo: string | undefined;
+  /** Every push as it arrived: which handler, whose `originAuth.sub` rode it (none when the chain
+   *  started fresh), and the call chain's binding names. CUMULATIVE — the identity probe's surface. */
+  pushOrigins: Array<{ handler: string; originSub?: string; chain: string[] }> = [];
+
+  /** Every refusal the one-way initiators below heard, in order. */
+  callFailures: string[] = [];
+
+  /** The result handler for a one-way initiator, sent `onErrorOnly`: keeps any refusal. */
+  recordCallFailure(result?: unknown): void {
+    if (result instanceof Error) this.callFailures.push(result.message);
+  }
 
   // Handler for call results (no @mesh needed — local chain executor)
   handleResult(value: any): void {
     if (value instanceof Error) {
       this.lastError = value.message;
+      this.lastErrorObject = value;
       this.lastResult = undefined;
     } else {
       this.lastResult = value;
@@ -364,14 +1097,16 @@ export class NebulaClientTest extends NebulaClient {
   resetResults(): void {
     this.lastResult = undefined;
     this.lastError = undefined;
+    this.lastErrorObject = undefined;
     this.callCompleted = false;
     this.lastResourceUpdate = undefined;
+    this.lastResourceResult = undefined;
     this.resourceUpdateCount = 0;
     this.lastOrgTree = undefined;
     this.orgTreeUpdateCount = 0;
   }
 
-  // --- Mesh-callable methods (DOs call these through the Gateway) ---
+  // --- Mesh-callable methods (DOs call these through the client's host node) ---
 
   @mesh()
   echo(message: string): string {
@@ -385,56 +1120,8 @@ export class NebulaClientTest extends NebulaClient {
     return `Admin client echoed: ${message}`;
   }
 
-  /** Phase 5: count reload-channel deliveries from `Star.broadcastReload`. Calls
-   *  `super.handleReload()` so the real `handleReload → #onReload` path still runs
-   *  (in tests `#onReload` is usually unset → a no-op); the counter proves the
-   *  signal reached the client (Decision 12 / Flow 1d). */
-  @mesh()
-  override handleReload(): void {
-    this.reloadCount++;
-    super.handleReload();
-  }
-
   // --- Test initiators (tests call these to trigger outbound mesh calls) ---
   // Uses this.lmz.call() with this.ctn<TargetType>().method(args) continuation pattern
-
-  // --- Resilient chat-turn delivery (resilient-turn-delivery.md) ---
-
-  /** Register a pending turn for a known `turnId` WITHOUT firing a call — lets a test
-   *  hold a pending turn across a forced reconnect, then deliver `onChatResult` to it.
-   *  Reuses the production `trackTurn` (protected) so it exercises the real pending map. */
-  registerPendingTurnForTest(turnId: string): Promise<{ reply: string; thought: string }> {
-    return this.trackTurn(turnId);
-  }
-
-  /** Exercise the real `chat()` shape against a stand-in (`StarTest.runFakeTurn`) rather
-   *  than DEV_STUDIO (absent from this app): register a pending turn, fire the turn with
-   *  this client's *explicit* instanceName, resolve when `onChatResult` echoes back. */
-  chatViaStarForTest(starInstanceName: string, message: string): Promise<{ reply: string; thought: string }> {
-    const turnId = crypto.randomUUID();
-    const clientId = this.lmz.instanceName;
-    const pending = this.trackTurn(turnId);
-    this.lmz.call('STAR', starInstanceName, this.ctn<StarTest>().runFakeTurn(turnId, clientId, message));
-    return pending;
-  }
-
-  /** Exercise `warmPreview`'s fire shape against the StarTest stand-in (DEV_STUDIO is absent
-   *  here): fire with this client's *explicit* instanceName; the stand-in echoes
-   *  `handlePreviewReady` → the `onPreviewReady` hook fires. */
-  warmPreviewViaStarForTest(starInstanceName: string): void {
-    const clientId = this.lmz.instanceName;
-    this.lmz.call('STAR', starInstanceName, this.ctn<StarTest>().runFakePreviewWarm(clientId));
-  }
-
-  /** Fire an `onChatResult` delivery at a client via Star (the DO→client direct-delivery
-   *  path) — used to deliver to a client AFTER a forced reconnect, proving the result
-   *  lands on the *current* socket, not the dead originating one. */
-  triggerOnChatResultForTest(
-    starInstanceName: string, targetClientId: string, turnId: string, reply: string, thought: string,
-  ): void {
-    this.lmz.call('STAR', starInstanceName,
-      this.ctn<StarTest>().callClient(targetClientId, 'onChatResult', turnId, reply, thought));
-  }
 
   callStarWhoAmI(starInstanceName: string): void {
     this.resetResults();
@@ -454,12 +1141,11 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starInstanceName, remote, this.ctn().handleResult(remote));
   }
 
-  /** Phase 3.5c: drive `Star.resetDevData` against the STAR binding (a non-`.dev`
-   *  tenant Star) so the runtime `.dev` guard can be exercised — it must throw +
-   *  wipe nothing. (`resetDevData` lives on base `Star` now; `DevStar` inherits it.) */
+  /** Drive the plane's `resetDevData` through a Star's `resources` door, so its two refusals can
+   *  be exercised: a caller with no dominion, and a Star that is not `.dev`. */
   callStarResetDevData(starInstanceName: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().resetDevData();
+    const remote = this.ctn<Star>().resources.resetDevData();
     this.lmz.call('STAR', starInstanceName, remote, this.ctn().handleResult(remote));
   }
 
@@ -493,138 +1179,214 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('GALAXY', instanceName, remote, this.ctn().handleResult(remote));
   }
 
+  /** Reach `GalaxyTest.admitted`, which checks nothing past the passage step: a positive control
+   *  for "this caller reaches that Galaxy" that reads no stored state. */
+  callGalaxyAdmitted(instanceName: string): void {
+    this.resetResults();
+    const remote = this.ctn<GalaxyTest>().admitted();
+    this.lmz.call('GALAXY', instanceName, remote, this.ctn().handleResult(remote));
+  }
+
   callGalaxySetConfig(instanceName: string, key: string, value: unknown): void {
     this.resetResults();
     const remote = this.ctn<Galaxy>().setGalaxyConfig(key, value);
     this.lmz.call('GALAXY', instanceName, remote, this.ctn().handleResult(remote));
   }
 
-  // --- DagTree test initiators ---
+  // --- OrgTree test initiators ---
 
-  callStarDagTreeGetState(starName: string): void {
+  callStarOrgTreeGetState(starName: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().getState();
+    const remote = this.ctn<Star>().resources.orgTree.getState();
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarCreateNode(starName: string, parentId: number, slug: string, label: string): void {
+  callStarCreateNode(starName: string, parentId: string, slug: string, label: string): void {
+    // The client mints the id, a v4 UUID, as a page does. Use `callStarCreateNodeWithId` when a
+    // test must control the id, to repeat a create or to name starting grants.
+    this.callStarCreateNodeWithId(starName, crypto.randomUUID(), parentId, slug, label);
+  }
+
+  /** What the last `createNode` answered: `'created'`, `'existing'` or `'differs'`. */
+  lastCreateOutcome: string | undefined = undefined;
+
+  callStarCreateNodeWithId(
+    starName: string, nodeId: string, parentId: string, slug: string, label: string,
+    grants?: Array<{ sub: string; tier: 'read' | 'write' | 'admin' }>,
+  ): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().createNode(parentId, slug, label);
+    this.lastCreateOutcome = undefined;
+    const remote = this.ctn<Star>().resources.orgTree.createNode(nodeId, parentId, slug, label, grants);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleCreateNode(nodeId, remote));
+  }
+
+  /** Keeps the id this client minted as `lastResult`, as the tests read it, and the answer beside it. */
+  handleCreateNode(nodeId: string, value: any): void {
+    this.handleResult(value instanceof Error ? value : nodeId);
+    this.lastCreateOutcome = value instanceof Error ? undefined : value?.outcome;
+  }
+
+  /**
+   * Test-only: fire `callAsync` at Star's `delay(delayMs)` with a short `timeoutMs`, so the RESULT
+   * (arriving at ~delayMs) loses the race to `callAsync`'s timeout. Proves the `orgTree.*` mutation
+   * path (which delegates to `callAsync`) rejects on a lost/slow RESULT instead of hanging — on
+   * the timer-free client path, with NO engine-level timer to confound the rejection (m1). Returns the
+   * `callAsync` Promise directly so a test can await/assert its rejection.
+   */
+  callAsyncStarDelay(starName: string, delayMs: number, timeoutMs: number): Promise<number> {
+    return this.lmz.callAsync('STAR', starName, (this.ctn<Star>() as any).delay(delayMs), { timeoutMs });
+  }
+
+  callStarAddEdge(starName: string, parentId: string, childId: string): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().resources.orgTree.addEdge(parentId, childId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarAddEdge(starName: string, parentId: number, childId: number): void {
+  callStarRemoveEdge(starName: string, parentId: string, childId: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().addEdge(parentId, childId);
+    const remote = this.ctn<Star>().resources.orgTree.removeEdge(parentId, childId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarRemoveEdge(starName: string, parentId: number, childId: number): void {
+  callStarReparentNode(starName: string, childId: string, oldParentId: string, newParentId: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().removeEdge(parentId, childId);
+    const remote = this.ctn<Star>().resources.orgTree.reparentNode(childId, oldParentId, newParentId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarReparentNode(starName: string, childId: number, oldParentId: number, newParentId: number): void {
+  callStarDeleteNode(starName: string, nodeId: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().reparentNode(childId, oldParentId, newParentId);
+    const remote = this.ctn<Star>().resources.orgTree.deleteNode(nodeId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarDeleteNode(starName: string, nodeId: number): void {
+  callStarUndeleteNode(starName: string, nodeId: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().deleteNode(nodeId);
+    const remote = this.ctn<Star>().resources.orgTree.undeleteNode(nodeId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarUndeleteNode(starName: string, nodeId: number): void {
+  callStarRenameNode(starName: string, nodeId: string, newSlug: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().undeleteNode(nodeId);
+    const remote = this.ctn<Star>().resources.orgTree.renameNode(nodeId, newSlug);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarRenameNode(starName: string, nodeId: number, newSlug: string): void {
+  callStarRelabelNode(starName: string, nodeId: string, newLabel: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().renameNode(nodeId, newSlug);
+    const remote = this.ctn<Star>().resources.orgTree.relabelNode(nodeId, newLabel);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarRelabelNode(starName: string, nodeId: number, newLabel: string): void {
+  callStarSetPermission(starName: string, nodeId: string, targetSub: string, level: PermissionTier): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().relabelNode(nodeId, newLabel);
+    const remote = this.ctn<Star>().resources.orgTree.setPermission(nodeId, targetSub, level);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarSetPermission(starName: string, nodeId: number, targetSub: string, level: PermissionTier): void {
+  callStarRevokePermission(starName: string, nodeId: string, targetSub: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().setPermission(nodeId, targetSub, level);
+    const remote = this.ctn<Star>().resources.orgTree.revokePermission(nodeId, targetSub);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarRevokePermission(starName: string, nodeId: number, targetSub: string): void {
-    this.resetResults();
-    const remote = this.ctn<Star>().dagTree().revokePermission(nodeId, targetSub);
-    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
-  }
-
-  callStarCheckPermission(starName: string, nodeId: number, tier: PermissionTier, targetSub?: string): void {
+  callStarCheckPermission(starName: string, nodeId: string, tier: PermissionTier, targetSub?: string): void {
     this.resetResults();
     const remote = targetSub
-      ? this.ctn<Star>().dagTree().checkPermission(nodeId, tier, targetSub)
-      : this.ctn<Star>().dagTree().checkPermission(nodeId, tier);
+      ? this.ctn<Star>().resources.orgTree.checkPermission(nodeId, tier, targetSub)
+      : this.ctn<Star>().resources.orgTree.checkPermission(nodeId, tier);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarGetEffectivePermission(starName: string, nodeId: number, targetSub?: string): void {
+  /** Drive the non-throwing batch eval (explicit sub + stored
+   *  hasDominionOverHost). Returns `{ allowed: Set, denied: Set }` — structured-clone
+   *  preserves the Sets across the mesh. */
+  callStarEvaluatePermissions(
+    starName: string, nodeIds: string[], tier: PermissionTier, sub: string, hasDominionOverHost: boolean,
+  ): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().resources.orgTree.evaluatePermissions(nodeIds, tier, sub, hasDominionOverHost);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarGetEffectivePermission(starName: string, nodeId: string, targetSub?: string): void {
     this.resetResults();
     const remote = targetSub
-      ? this.ctn<Star>().dagTree().getEffectivePermission(nodeId, targetSub)
-      : this.ctn<Star>().dagTree().getEffectivePermission(nodeId);
+      ? this.ctn<Star>().resources.orgTree.getEffectivePermission(nodeId, targetSub)
+      : this.ctn<Star>().resources.orgTree.getEffectivePermission(nodeId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarGetNodeAncestors(starName: string, nodeId: number): void {
+  callStarGetNodeAncestors(starName: string, nodeId: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().getNodeAncestors(nodeId);
+    const remote = this.ctn<Star>().resources.orgTree.getNodeAncestors(nodeId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarGetNodeDescendants(starName: string, nodeId: number): void {
+  callStarGetNodeDescendants(starName: string, nodeId: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().getNodeDescendants(nodeId);
+    const remote = this.ctn<Star>().resources.orgTree.getNodeDescendants(nodeId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
   // --- Resources test initiators (fire-and-forget — Star delivers result via callback) ---
 
-  callStarTransaction(
+  async callStarTransaction(
     starName: string,
     ontologyVersion: string,
     ops: Record<string, OperationDescriptor>,
-    newETag?: string,
-  ): void {
+  ): Promise<void> {
     this.resetResults();
-    const txnETag = newETag ?? crypto.randomUUID();
-    this.lastTxnETag = txnETag;
-    this.lmz.call('STAR', starName,
-      this.ctn<Star>().transaction(ontologyVersion, txnETag, ops));
+    // Transactions now return via `callAsync`: a `TransactionResult` on success, an
+    // `OntologyStaleError` as a VALUE on stale, or a rejection on infra error. Capture into the legacy
+    // `lastResult` / `lastError` / `callCompleted` fields the `callStarTransaction` tests assert on.
+    try {
+      const result = await this.lmz.callAsync('STAR', starName,
+        this.ctn<Star>().resources.transaction(ontologyVersion, ops));
+      if (result instanceof Error) {
+        this.lastErrorObject = result;
+        this.lastError = result.message;
+        this.lastResult = undefined;
+      } else {
+        this.lastResult = result;
+        this.lastError = undefined;
+      }
+    } catch (err) {
+      this.lastErrorObject = err instanceof Error ? err : new Error(String(err));
+      this.lastError = this.lastErrorObject.message;
+      this.lastResult = undefined;
+    }
+    this.callCompleted = true;
   }
 
-  /** Last newETag used by `callStarTransaction` — useful for tests that
-   *  need to retry with the same eTag (idempotency probe). */
-  lastTxnETag: string | undefined = undefined;
+  /** Test-only: in-flight `callAsync` count (the transient surface — proves the retired submit-gate
+   *  lets concurrent independent-resource transactions run; a re-added serial gate would keep this 1). */
+  getPendingAsyncCallCount(): number {
+    return this.pendingAsyncCallCount();
+  }
 
-  callStarRead(starName: string, ontologyVersion: string, resourceId: string): void {
+  async callStarRead(starName: string, ontologyVersion: string, resourceId: string): Promise<void> {
     this.resetResults();
-    const requestId = crypto.randomUUID();
-    this.lmz.call('STAR', starName,
-      this.ctn<Star>().read(ontologyVersion, resourceId, requestId));
+    // Reads now return via `callAsync`; capture into the legacy `lastResult` /
+    // `lastError` / `callCompleted` fields that the `callStarRead` tests assert on (via `waitForResult`).
+    try {
+      this.lastResult = await this.lmz.callAsync('STAR', starName,
+        this.ctn<Star>().resources.read(ontologyVersion, resourceId));
+      this.lastError = undefined;
+    } catch (err) {
+      this.lastErrorObject = err instanceof Error ? err : new Error(String(err));
+      this.lastError = this.lastErrorObject.message;
+      this.lastResult = undefined;
+    }
+    this.callCompleted = true;
   }
 
   callStarSubscribe(starName: string, ontologyVersion: string, resourceType: string, resourceId: string): void {
     this.resetResults();
     this.lmz.call('STAR', starName,
-      this.ctn<Star>().subscribe(ontologyVersion, resourceType, resourceId));
+      this.ctn<Star>().resources.subscribe(ontologyVersion, resourceType, resourceId),
+      this.ctn<this>().recordCallFailure(), { onErrorOnly: true });
   }
 
   callStarInspectSubscribers(starName: string): void {
@@ -633,9 +1395,39 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
+  // --- Query subscription initiators (fire-and-forget — host delivers
+  //     via handleQueryUpdate) ---
+
+  callStarSubscribeQuery(starName: string, query: QueryDescriptor): void {
+    this.lastQueryUpdate = undefined;
+    this.lastQueryError = undefined;
+    this.queryUpdateCount = 0;
+    this.lmz.call('STAR', starName, this.ctn<Star>().resources.subscribeQuery(this.requireOntologyVersion('subscribeQuery'), query),
+      this.ctn<this>().recordCallFailure(), { onErrorOnly: true });
+  }
+
+  callStarUnsubscribeQuery(starName: string, queryHash: string): void {
+    this.lmz.call('STAR', starName, this.ctn<Star>().resources.unsubscribeQuery(queryHash),
+      this.ctn<this>().recordCallFailure(), { onErrorOnly: true });
+  }
+
+  /** Commit the durable agent Message (result-handler form to await). */
+  callGalaxyCommitAgent(scope: string, chatId: string, messageId: string, content: string, nodeId: string, replyTo: string, codegen?: Record<string, unknown>): void {
+    this.resetResults();
+    const remote = this.ctn<GalaxyTest>().commitAgentForTest(chatId, messageId, content, nodeId, replyTo, codegen);
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarInspectQuerySubscribers(starName: string): void {
+    this.resetResults();
+    const remote = this.ctn<StarTest>().inspectQuerySubscribers();
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
   callStarSubscribeTree(starName: string): void {
     this.resetResults();
-    this.lmz.call('STAR', starName, this.ctn<Star>().subscribeTree());
+    this.lmz.call('STAR', starName, this.ctn<Star>().resources.subscribeTree(),
+      this.ctn<this>().recordCallFailure(), { onErrorOnly: true });
   }
 
   callStarInspectTreeSubscribers(starName: string): void {
@@ -644,18 +1436,40 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  /** Phase 5: subscribe to the Star's dev-preview reload channel. Result-handler form
-   *  (deterministic) so a test can await registration before triggering a reload. */
-  callStarSubscribeReload(starName: string): void {
+  /** One scripted TRIGGERED turn (fake model + always-ok build — the reload-trigger drive). */
+  callGalaxyChatScripted(scope: string, message: string, script: unknown[], userMessageId = crypto.randomUUID()): void {
     this.resetResults();
-    const remote = this.ctn<Star>().subscribeReload();
-    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+    const remote = this.ctn<GalaxyTest>().chatScriptedForTest(userMessageId, message, script);
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
   }
 
-  callStarInspectReloadSubscribers(starName: string): void {
+  /** Read (and clear) the prompts the GALAXY's scripted model saw — `lastResult` holds them. */
+  callGalaxyTakeSeenMessages(scope: string): void {
     this.resetResults();
-    const remote = this.ctn<StarTest>().inspectReloadSubscribers();
-    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+    const remote = this.ctn<GalaxyTest>().takeSeenMessagesForTest();
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
+  }
+
+  /** Read (and clear) the tool names each model call carried — `lastResult` holds them. */
+  callGalaxyTakeSeenToolNames(scope: string): void {
+    this.resetResults();
+    const remote = this.ctn<GalaxyTest>().takeSeenToolNamesForTest();
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
+  }
+
+  /** Clear the GALAXY's query rows (the reconnect test's server-side amnesia). */
+  callGalaxyClearQuerySubscribers(scope: string): void {
+    this.resetResults();
+    const remote = this.ctn<GalaxyTest>().clearQuerySubscribersForTest();
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
+  }
+
+  /** Seed the fake-model script ahead of a REAL `postUserMessage` (the commit-hook
+   *  trigger consumes it). Result-handler form so a test can await the seed landing. */
+  callGalaxySeedChatScript(scope: string, script: unknown[]): void {
+    this.resetResults();
+    const remote = this.ctn<GalaxyTest>().seedChatScriptForTest(script);
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
   }
 
   callStarClearSubscribersForTest(starName: string): void {
@@ -667,56 +1481,23 @@ export class NebulaClientTest extends NebulaClient {
   // --- Resource result handlers (override base class) ---
 
   @mesh()
-  override handleTransactionResult(result: TransactionResult | Error): void {
-    // Delegate to base so the in-flight transaction queue settles for any
-    // test using `client.resources.transaction()`. The legacy
-    // `callStarTransaction` test initiator doesn't enqueue a transaction
-    // (it's just an lmz.call), so the base's `#inFlightTxn` is null and the
-    // delegation is a no-op for that path. After delegation, capture for
-    // assertion: legacy tests read `lastResult` / `lastError` /
-    // `callCompleted`.
-    super.handleTransactionResult(result);
-
-    if (result instanceof Error) {
-      this.lastError = result.message;
-      this.lastResult = undefined;
-    } else {
-      this.lastResult = result;
-      this.lastError = undefined;
-    }
-    this.callCompleted = true;
-  }
-
-  @mesh()
-  override handleReadResponse(_requestId: string, result: Snapshot | null | Error): void {
-    // Delegate to base for Promise correlation on the new
-    // client.resources.read() path. The base settles the pending entry in
-    // its requestId map. Then capture for assertion on the legacy
-    // `callStarRead` test initiator (which doesn't go through the Promise
-    // path — it sets `lastResult` / `lastError` and `callCompleted`).
-    super.handleReadResponse(_requestId, result);
-
-    if (result instanceof Error) {
-      this.lastError = result.message;
-      this.lastResult = undefined;
-    } else {
-      this.lastResult = result;
-      this.lastError = undefined;
-    }
-    this.callCompleted = true;
-  }
-
-  @mesh()
-  override handleResourceUpdate(resourceType: string, resourceId: string, result: Snapshot | null | Error): void {
+  override handleResourceUpdate(resourceType: string, resourceId: string, result: Snapshot | ResourceDenied | null | Error): void {
     // Delegate to base for Promise correlation + state write-through (5.3.3a).
     // The base no-ops state write when no StateManager is bound, so tests that
     // don't call bindToState still work.
     super.handleResourceUpdate(resourceType, resourceId, result);
+    this.recordPush('handleResourceUpdate');
 
     this.resourceUpdateCount++;
+    this.lastResourceResult = result;
     if (result instanceof Error) {
       this.lastError = result.message;
+      this.lastErrorObject = result;
       this.lastResourceUpdate = undefined;
+    } else if (result !== null && 'deniedNodes' in result) {
+      // A denied frame is not a snapshot: `lastResourceResult` carries it.
+      this.lastResourceUpdate = undefined;
+      this.lastError = undefined;
     } else {
       this.lastResourceUpdate = { resourceType, resourceId, snapshot: result };
       this.lastError = undefined;
@@ -724,42 +1505,95 @@ export class NebulaClientTest extends NebulaClient {
     this.callCompleted = true;
   }
 
+  /** Capture pushes on the DEDICATED global-Profile channel (tasks/nebula-subscriber-lists.md). Delegates
+   *  to base for pending-settle + the factory `#profileListener`, then records the latest snapshot + counts
+   *  pushes. Kept SEPARATE from resourceUpdate so a dev-user `Profile` resource can't inflate this counter. */
   @mesh()
-  override handleOrgTreeUpdate(envelope: { value: unknown }): void {
+  override handleProfileUpdate(profileId: string, result: ProfileChannelSnapshot | Error): void {
+    super.handleProfileUpdate(profileId, result);
+    this.profileUpdateCount++;
+    if (result instanceof Error) {
+      this.lastError = result.message;
+      this.lastErrorObject = result;
+      this.lastProfileUpdate = undefined;
+    } else {
+      this.lastProfileUpdate = { profileId, snapshot: result };
+      this.lastError = undefined;
+    }
+    this.callCompleted = true;
+  }
+
+  @mesh()
+  override handleOrgTreeUpdate(envelope: { value: OrgTreeState }): void {
     // Delegate to base so the factory's listener fires (a no-op headless), then
     // capture the tree state for assertion on the dedicated org-tree channel.
-    super.handleOrgTreeUpdate(envelope as { value: never });
+    super.handleOrgTreeUpdate(envelope);
+    this.recordPush('handleOrgTreeUpdate');
     this.orgTreeUpdateCount++;
     this.lastOrgTree = envelope.value;
   }
 
-  // --- Galaxy test initiators ---
-
-  callGalaxyAppendOntologyVersion(galaxyName: string, versionConfig: OntologyVersionConfig): void {
-    this.resetResults();
-    const remote = this.ctn<Galaxy>().appendOntologyVersion(versionConfig);
-    this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
+  /** Capture query-membership pushes. Delegates to the base, which updates the client's own query
+   *  entry; this override records the latest payload (or error) + counts pushes for assertions. */
+  @mesh()
+  override handleQueryUpdate(queryHash: string, result: QueryUpdatePayload | Error): void {
+    super.handleQueryUpdate(queryHash, result);
+    this.recordPush('handleQueryUpdate');
+    this.queryUpdateCount++;
+    if (result instanceof Error) {
+      this.lastQueryError = result;
+    } else {
+      this.lastQueryUpdate = { queryHash, result };
+    }
   }
 
-  /** Apply an ontology directly to a Star (Phase 4: the Galaxy lazy-pull was retired,
-   *  so tests install the compiled validator via `Star.setOntology` — DevStudio's dev
-   *  apply path). Compiles client-side via the pure `compileOntologyVersion`. */
-  callStarApplyOntology(starName: string, versionConfig: OntologyVersionConfig): void {
+  /** Capture STANDALONE subscriber-list roster pushes (tasks/nebula-subscriber-lists.md). Delegates to
+   *  base so the roster still lands via the factory listener, then records the latest roster/error +
+   *  counts pushes — the server-integration assertion surface (the initiator path bypasses the store). */
+  @mesh()
+  override handleQuerySubscribersUpdate(queryHash: string, result: SubscriberRosterPayload | Error): void {
+    super.handleQuerySubscribersUpdate(queryHash, result);
+    this.recordPush('handleQuerySubscribersUpdate');
+    this.querySubscribersUpdateCount++;
+    this.lastQuerySubscribersUpdate = result instanceof Error
+      ? { queryHash, error: result }
+      : { queryHash, roster: result };
+  }
+
+  /** Capture transient progress chunks. Delegates to base so the ephemeral
+   *  `#streamingMessages` accumulation + reconcile still run (assert via the public
+   *  `streamingProgress(id)` getter); the counter proves a chunk reached this client. */
+  @mesh()
+  override handleStreamChunk(messageId: string, progress: string, replyTo?: string): void {
+    super.handleStreamChunk(messageId, progress, replyTo);
+    this.recordPush('handleStreamChunk');
+    this.lastStreamReplyTo = replyTo;
+    this.streamChunkCount++;
+    this.lastStreamChunk = { messageId, progress };
+  }
+
+  /** Record a push as it arrives, for {@link pushOrigins}. */
+  protected recordPush(handler: string): void {
+    const cc = this.lmz.callContext;
+    this.pushOrigins.push({ handler, originSub: cc.originAuth?.sub, chain: cc.callChain.map((n) => n.bindingName) });
+  }
+
+  // --- Galaxy test initiators ---
+
+  /** Seed a Star with an ontology for a test — via the test subclass's
+   *  `applyOntologyForTest` entry, which compiles server-side (a test Worker may carry
+   *  the compiler; the deployed Worker never does) and hands the row to `resourcesResults.onOntologyPulled`,
+   *  where a Galaxy's answer lands. This initiator exists so a test can pin a Star's ontology
+   *  without a Galaxy loop, and goes through the test-app door rather than any production entry. */
+  callStarInstallOntology(starName: string, versionConfig: OntologyVersionConfig): void {
     this.resetResults();
-    const row: OntologyVersionRow = compileOntologyVersion(versionConfig);
-    const remote = this.ctn<Star>().setOntology(row);
+    const remote = this.ctn<StarTest>().applyOntologyForTest(versionConfig);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callGalaxyGetLatestOntologyVersion(galaxyName: string): void {
+  callGalaxyGetCurrentOntology(galaxyName: string): void {
     this.resetResults();
-    const remote = this.ctn<Galaxy>().getLatestOntologyVersion();
-    this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
-  }
-
-  callGalaxyListOntologyVersions(galaxyName: string): void {
-    this.resetResults();
-    const remote = this.ctn<Galaxy>().listOntologyVersions();
+    const remote = this.ctn<Galaxy>().getCurrentOntology();
     this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
   }
 
@@ -769,9 +1603,9 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  // --- Dev-data lifecycle initiators (Phase 4: the .dev Star is the STAR binding at a
-  //     {u}.{g}.dev instance — resetDevData + these inspect hooks live on base
-  //     Star/StarTest, hard-guarded to .dev at runtime). ---
+  // --- Dev-data lifecycle initiators (the .dev Star is the STAR binding at a
+  //     {u}.{g}.dev instance — these inspect hooks live on StarTest, and the plane's
+  //     `resetDevData` refuses off `.dev` at runtime). ---
 
   callStarInspectReset(starName: string): void {
     this.resetResults();
@@ -779,15 +1613,18 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarResetAndProbeRootAdmin(starName: string, founderSub: string): void {
-    this.resetResults();
-    const remote = this.ctn<StarTest>().resetAndProbeRootAdmin(founderSub);
-    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
-  }
+};
 
-  callStarInspectRootAdmin(starName: string, founderSub: string): void {
-    this.resetResults();
-    const remote = this.ctn<StarTest>().inspectRootAdmin(founderSub);
-    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+/** The Resources suites' client: the class a generated app builds, plus the test captures. */
+export class NebulaClientTest extends withClientTestCaptures(NebulaClient) {
+  constructor(config: NebulaClientConfig) {
+    super(config);
+  }
+}
+
+/** The client for the files that post to chat: Studio's class, plus the captures. */
+export class StudioClientTest extends withClientTestCaptures(StudioClient) {
+  constructor(config: StudioClientConfig) {
+    super(config);
   }
 }

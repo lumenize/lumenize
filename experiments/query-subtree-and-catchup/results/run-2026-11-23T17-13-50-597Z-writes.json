@@ -1,0 +1,507 @@
+{
+ "run": "2026-11-23T17-13-50-597Z",
+ "base": "https://experiment-query-subtree-and-catchup.transformation.workers.dev",
+ "startedAt": "2026-11-23T17:13:50.597Z",
+ "config": {
+  "TARGET_MS": 250,
+  "MAX_REPS": 3000,
+  "ROUNDS": 3,
+  "WRITES": 120000,
+  "PAIRED": false
+ },
+ "noops": [],
+ "records": [],
+ "writes": {
+  "base": {
+   "Deal create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     4
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Deal update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     4
+    ],
+    "read": [
+     2
+    ]
+   },
+   "Contact create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Contact update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     2
+    ]
+   },
+   "Task create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     2
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Task update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     2
+    ],
+    "read": [
+     2
+    ]
+   },
+   "Note create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     2
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Note update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     2
+    ],
+    "read": [
+     2
+    ]
+   }
+  },
+  "node": {
+   "Deal create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     5
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Deal update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     5
+    ],
+    "read": [
+     2
+    ]
+   },
+   "Contact create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     4
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Contact update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     4
+    ],
+    "read": [
+     2
+    ]
+   },
+   "Task create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Task update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     2
+    ]
+   },
+   "Note create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Note update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     2
+    ]
+   }
+  },
+  "tm": {
+   "Deal create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     5
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Deal update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     5
+    ],
+    "read": [
+     2
+    ]
+   },
+   "Contact create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     4
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Contact update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     4
+    ],
+    "read": [
+     2
+    ]
+   },
+   "Task create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Task update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     2
+    ]
+   },
+   "Note create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Note update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     2
+    ]
+   }
+  },
+  "m": {
+   "Deal create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     5
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Deal update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     5
+    ],
+    "read": [
+     2
+    ]
+   },
+   "Contact create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     4
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Contact update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     4
+    ],
+    "read": [
+     2
+    ]
+   },
+   "Task create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Task update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     2
+    ]
+   },
+   "Note create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Note update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     2
+    ]
+   }
+  },
+  "swap": {
+   "Deal create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     4
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Deal update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     4
+    ],
+    "read": [
+     2
+    ]
+   },
+   "Contact create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Contact update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     3
+    ],
+    "read": [
+     2
+    ]
+   },
+   "Task create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     2
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Task update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     2
+    ],
+    "read": [
+     2
+    ]
+   },
+   "Note create": {
+    "n": 10,
+    "closeWritten": [
+     0
+    ],
+    "insertWritten": [
+     2
+    ],
+    "read": [
+     0
+    ]
+   },
+   "Note update": {
+    "n": 10,
+    "closeWritten": [
+     1
+    ],
+    "insertWritten": [
+     2
+    ],
+    "read": [
+     2
+    ]
+   }
+  }
+ },
+ "finishedAt": "2026-11-23T17:13:55.187Z"
+}

@@ -51,12 +51,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Browser } from '@lumenize/testing';
+import { scopeOriginFrom } from '../lib/email-login';
 import { withCommitStamp } from './bench-commit-stamp';
-import { ROOT_NODE_ID } from '@lumenize/nebula/client';
+import { ROOT_NODE_ID } from '@lumenize/resources/client';
 import { ThroughputHarnessClient } from './throughput-harness-client';
-import { bootstrapAdmin } from './auth-bootstrap';
+import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
-const ADMIN_EMAIL = 'test@lumenize.io';
+const ADMIN_EMAIL = 'test@lumenize-test.dev';
 const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
@@ -336,6 +337,11 @@ function buildMarkdown(args: {
 }
 
 describe('Phase 5 throughput comparison: Shape A vs Shape B', () => {
+  // Un-skipped 2026-08-30: the 2026-07-25 blocker — no prod install path from Galaxy to
+  // Star — is gone. The lazy-pull landed (a data op carrying an uncached version fires
+  // the Star's ontology source, asking its parent Galaxy), and this setup was reworked before that
+  // to install per-Star via `callStarInstallOntology` (the test-app door), so the bench
+  // never waits on a pull. Runs only via the explicit `bench:*` scripts, never in CI.
   it('compares peak per-Star throughput', async () => {
     const baseUrl = inject('wranglerBaseUrl');
     const testToken = inject('emailTestToken');
@@ -352,17 +358,11 @@ describe('Phase 5 throughput comparison: Shape A vs Shape B', () => {
     // inline because we need ThroughputHarnessClient instances, not
     // HarnessNebulaClient — refactoring multi-client.ts to be generic over
     // client type is overkill for this single use).
-    await bootstrapAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
+    const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
 
-    const refreshResponse = await browser.fetch(
-      `${baseUrl}/auth/${galaxyScope}/refresh-token`,
-      {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activeScope: galaxyScope }),
-      },
-    );
+    const refreshResponse = await browser.context(scopeOriginFrom(baseUrl, galaxyScope)).fetch(`${baseUrl}/auth/refresh-token`, {
+    method: 'POST', credentials: 'include',
+  });
     if (!refreshResponse.ok) {
       throw new Error(`refresh-token failed ${refreshResponse.status} ${await refreshResponse.text()}`);
     }
@@ -371,14 +371,13 @@ describe('Phase 5 throughput comparison: Shape A vs Shape B', () => {
     const allClients: ThroughputHarnessClient[] = [];
     const allContexts: ReturnType<Browser['context']>[] = [];
     for (let i = 0; i < M_MAX; i++) {
-      const ctx = browser.context(baseUrl);
+      const ctx = browser.context(scopeOriginFrom(baseUrl, galaxyScope));
       const tabId = crypto.randomUUID().slice(0, 8);
       const client = new ThroughputHarnessClient({
-        baseUrl,
-        authScope: galaxyScope,
-        activeScope: galaxyScope,
-        appVersion: 'v1',
-        fetch: browser.fetch,
+        baseUrl: scopeOriginFrom(baseUrl, galaxyScope),
+        platformOrigin: baseUrl,
+        ontologyVersion: 'v1',
+        fetch: ctx.fetch,
         sessionStorage: ctx.sessionStorage,
         BroadcastChannel: ctx.BroadcastChannel,
         accessToken,
@@ -404,9 +403,15 @@ describe('Phase 5 throughput comparison: Shape A vs Shape B', () => {
       );
       console.log(`[multi] all ${M_MAX} clients connected in ${Date.now() - wsStart}ms`);
 
-      // Register ontology + pre-warm bundle. Use clients[0] for both.
-      console.log('[multi] registering ontology + pre-warming bundle');
-      await allClients[0].callGalaxyAppendOntologyVersion(galaxyScope, {
+      // Install the ontology on the Stars this bench drives + pre-warm the bundle.
+      // Use clients[0] for both. (Per-Star installs — the Galaxy test-install path
+      // is deleted.)
+      console.log('[multi] installing ontology + pre-warming bundle');
+      await allClients[0].callStarInstallOntology(`${galaxyScope}.tenant-warmup`, {
+        version: ONTOLOGY_VERSION,
+        types: TEST_TYPES,
+      });
+      await allClients[0].callStarInstallOntology(warmStar, {
         version: ONTOLOGY_VERSION,
         types: TEST_TYPES,
       });

@@ -1,14 +1,14 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { waitForEmail, extractMagicLink } from '../e2e-email/email-test-helpers';
+import { waitForEmail, extractMagicLink, reportEmailLatency, uniqueTestEmail } from '@lumenize/email-test/client';
 
 // Resend e2e smoke test — keeps the Resend transport path exercised alongside
 // the default Cloudflare transport path (see test/e2e-email/).
 //
-// Requires: RESEND_API_KEY and TEST_TOKEN in .dev.vars, test.lumenize.com
+// Requires: RESEND_API_KEY and TEST_TOKEN in .dev.vars, lumenize.io
 // verified as a Resend sending domain, deployed email-test Worker, Cloudflare
-// Email Routing for lumenize.io.
+// Email Routing for lumenize-test.dev.
 describe('Magic link e2e (real email delivery via Resend)', () => {
   let cleanup: (() => void) | undefined;
 
@@ -18,16 +18,17 @@ describe('Magic link e2e (real email delivery via Resend)', () => {
   });
 
   it('sends magic link via Resend, receives via EmailTestDO, completes auth flow', async () => {
-    const testEmail = 'test@lumenize.io';
+    const testEmail = uniqueTestEmail();
     const browser = new Browser();
 
     // 45s email-wait window — wider than the 20s default because Resend's
     // HTTPS delivery is more variable than Cloudflare Email Sending's
     // in-process binding. The vitest project testTimeout is bumped to 60s to
     // hold this plus the click round-trip.
-    const waiter = waitForEmail({ testToken: env.TEST_TOKEN, timeout: 45000 });
+    const waiter = waitForEmail({ testToken: env.TEST_TOKEN, to: testEmail, timeout: 45000 });
     cleanup = waiter.cleanup;
 
+    const requestedAt = Date.now();
     const magicLinkResponse = await browser.fetch('http://localhost/auth/email-magic-link', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -37,9 +38,10 @@ describe('Magic link e2e (real email delivery via Resend)', () => {
     expect(magicLinkResponse.status).toBe(200);
 
     const email = await waiter.emailPromise;
+    reportEmailLatency('resend', 'full-flow', requestedAt, waiter.marks);
     expect(email.subject).toBe('Your login link');
     expect(email.to?.[0]?.address).toBe(testEmail);
-    expect(email.from?.address).toBe('auth@test.lumenize.com');
+    expect(email.from?.address).toBe('test@lumenize.io');
 
     const magicLinkUrl = extractMagicLink(email);
     expect(magicLinkUrl).toContain('one_time_token=');

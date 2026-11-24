@@ -52,8 +52,11 @@ export class TestEndpointsDO extends DurableObject<Env> {
     }
 
     const startTime = new Date();
+    // Clone BEFORE the endpoint runs: /echo reads the body, and a request whose body has been
+    // read cannot be cloned — so the tracker gets this copy, not the original.
+    const requestForTracking = request.clone();
     let response: Response;
-    
+
     try {
       // Process the endpoint
       response = await this.#handleEndpoint(request, url);
@@ -66,7 +69,7 @@ export class TestEndpointsDO extends DurableObject<Env> {
     }
 
     // Track the request/response (if enabled)
-    await this.#trackRequest(request, response, startTime);
+    await this.#trackRequest(requestForTracking, response, startTime);
 
     return response;
   }
@@ -178,9 +181,14 @@ export class TestEndpointsDO extends DurableObject<Env> {
   }
 
   /**
-   * Track request/response in KV storage (if tracking enabled)
+   * Track request/response in KV storage (if tracking enabled). `request` must be a clone taken
+   * before the endpoint ran, since this reads its body.
    */
-  async #trackRequest(request: Request, response: Response, startTime: Date): Promise<void> {
+  async #trackRequest(
+    request: Pick<Request, 'url' | 'method' | 'headers' | 'text'>,
+    response: Response,
+    startTime: Date,
+  ): Promise<void> {
     // Check if tracking is enabled (default: true)
     const enabled = this.ctx.storage.kv.get<boolean>('tracking:enabled');
     if (enabled === false) {
@@ -198,15 +206,14 @@ export class TestEndpointsDO extends DurableObject<Env> {
     }
     this.ctx.storage.kv.put('stats:lastTimestamp', startTime);
 
-    // Store last request/response (need to clone since body can only be read once)
-    // Convert to RequestSync/ResponseSync for structured-clone storage
-    const requestClone = request.clone();
+    // Store last request/response, converted to RequestSync/ResponseSync for structured-clone
+    // storage. The response is cloned here because the caller still returns the original.
     const responseClone = response.clone();
 
-    const requestSync = new RequestSync(requestClone.url, {
-      method: requestClone.method,
-      headers: requestClone.headers,
-      body: await requestClone.text() || null,
+    const requestSync = new RequestSync(request.url, {
+      method: request.method,
+      headers: request.headers,
+      body: await request.text() || null,
     });
 
     const responseSync = new ResponseSync(await responseClone.text() || null, {

@@ -1,0 +1,289 @@
+{
+ "run": "2026-11-24T17-53-32-015Z",
+ "mode": "sizes",
+ "base": "https://experiment-asof-index-cost.transformation.workers.dev",
+ "startedAt": "2026-11-24T17:53:32.018Z",
+ "config": {
+  "TARGET_MS": 250,
+  "MAX_REPS": 3000,
+  "ROUNDS": 5
+ },
+ "noops": [],
+ "records": [
+  {
+   "object": "d1",
+   "databaseSize": 11423744,
+   "indexes": [
+    {
+     "name": "idx_S_A1_current",
+     "sql": "CREATE INDEX idx_S_A1_current ON S_A1(resourceId, validTo) WHERE validTo = '9999-01-01T00:00:00.000Z'"
+    },
+    {
+     "name": "idx_S_A1_q_Deal:stage",
+     "sql": "CREATE INDEX \"idx_S_A1_q_Deal:stage\" ON S_A1(json_extract(value, '$.stage')) WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_B1_current",
+     "sql": "CREATE INDEX idx_S_B1_current ON S_B1(resourceId, validTo) WHERE validTo = '9999-01-01T00:00:00.000Z'"
+    },
+    {
+     "name": "idx_S_B1_q_Deal:stage",
+     "sql": "CREATE INDEX \"idx_S_B1_q_Deal:stage\" ON S_B1(json_extract(value, '$.stage'), validTo) WHERE typeName = 'Deal' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_C1_current",
+     "sql": "CREATE INDEX idx_S_C1_current ON S_C1(resourceId, validTo) WHERE validTo = '9999-01-01T00:00:00.000Z'"
+    },
+    {
+     "name": "idx_S_C1_q_Deal:stage",
+     "sql": "CREATE INDEX \"idx_S_C1_q_Deal:stage\" ON S_C1(json_extract(value, '$.stage')) WHERE typeName = 'Deal' AND deleted = 0"
+    }
+   ],
+   "dbstatError": "500 Error: no such table: dbstat: SQLITE_ERROR",
+   "S_A1": {
+    "n": 4060,
+    "deals": 2020,
+    "valueBytes": 1083777
+   },
+   "S_B1": {
+    "n": 4060,
+    "deals": 2020,
+    "valueBytes": 1083777
+   },
+   "S_C1": {
+    "n": 4060,
+    "deals": 2020,
+    "valueBytes": 1083777
+   }
+  },
+  {
+   "object": "d10",
+   "databaseSize": 323579904,
+   "indexes": [
+    {
+     "name": "idx_S_A1_current",
+     "sql": "CREATE INDEX idx_S_A1_current ON S_A1(resourceId, validTo) WHERE validTo = '9999-01-01T00:00:00.000Z'"
+    },
+    {
+     "name": "idx_S_A1_q_Deal:stage",
+     "sql": "CREATE INDEX \"idx_S_A1_q_Deal:stage\" ON S_A1(json_extract(value, '$.stage')) WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_A3_current",
+     "sql": "CREATE INDEX idx_S_A3_current ON S_A3(resourceId, validTo) WHERE validTo = '9999-01-01T00:00:00.000Z'"
+    },
+    {
+     "name": "idx_S_A3_q_Deal:amount",
+     "sql": "CREATE INDEX \"idx_S_A3_q_Deal:amount\" ON S_A3(json_extract(value, '$.amount')) WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_A3_q_Deal:owner",
+     "sql": "CREATE INDEX \"idx_S_A3_q_Deal:owner\" ON S_A3(json_extract(value, '$.owner')) WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_A3_q_Deal:stage",
+     "sql": "CREATE INDEX \"idx_S_A3_q_Deal:stage\" ON S_A3(json_extract(value, '$.stage')) WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_B1_current",
+     "sql": "CREATE INDEX idx_S_B1_current ON S_B1(resourceId, validTo) WHERE validTo = '9999-01-01T00:00:00.000Z'"
+    },
+    {
+     "name": "idx_S_B1_q_Deal:stage",
+     "sql": "CREATE INDEX \"idx_S_B1_q_Deal:stage\" ON S_B1(json_extract(value, '$.stage'), validTo) WHERE typeName = 'Deal' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_B3_current",
+     "sql": "CREATE INDEX idx_S_B3_current ON S_B3(resourceId, validTo) WHERE validTo = '9999-01-01T00:00:00.000Z'"
+    },
+    {
+     "name": "idx_S_B3_q_Deal:amount",
+     "sql": "CREATE INDEX \"idx_S_B3_q_Deal:amount\" ON S_B3(json_extract(value, '$.amount'), validTo) WHERE typeName = 'Deal' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_B3_q_Deal:owner",
+     "sql": "CREATE INDEX \"idx_S_B3_q_Deal:owner\" ON S_B3(json_extract(value, '$.owner'), validTo) WHERE typeName = 'Deal' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_B3_q_Deal:stage",
+     "sql": "CREATE INDEX \"idx_S_B3_q_Deal:stage\" ON S_B3(json_extract(value, '$.stage'), validTo) WHERE typeName = 'Deal' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_C1_current",
+     "sql": "CREATE INDEX idx_S_C1_current ON S_C1(resourceId, validTo) WHERE validTo = '9999-01-01T00:00:00.000Z'"
+    },
+    {
+     "name": "idx_S_C1_q_Deal:stage",
+     "sql": "CREATE INDEX \"idx_S_C1_q_Deal:stage\" ON S_C1(json_extract(value, '$.stage')) WHERE typeName = 'Deal' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_C3_current",
+     "sql": "CREATE INDEX idx_S_C3_current ON S_C3(resourceId, validTo) WHERE validTo = '9999-01-01T00:00:00.000Z'"
+    },
+    {
+     "name": "idx_S_C3_q_Deal:amount",
+     "sql": "CREATE INDEX \"idx_S_C3_q_Deal:amount\" ON S_C3(json_extract(value, '$.amount')) WHERE typeName = 'Deal' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_C3_q_Deal:owner",
+     "sql": "CREATE INDEX \"idx_S_C3_q_Deal:owner\" ON S_C3(json_extract(value, '$.owner')) WHERE typeName = 'Deal' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_C3_q_Deal:stage",
+     "sql": "CREATE INDEX \"idx_S_C3_q_Deal:stage\" ON S_C3(json_extract(value, '$.stage')) WHERE typeName = 'Deal' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_F1_current",
+     "sql": "CREATE INDEX idx_S_F1_current ON S_F1(resourceId, validTo) WHERE validTo = '9999-01-01T00:00:00.000Z'"
+    },
+    {
+     "name": "idx_S_F1_q_Deal:stage",
+     "sql": "CREATE INDEX \"idx_S_F1_q_Deal:stage\" ON S_F1(typeName, json_extract(value, '$.stage'), validTo)"
+    },
+    {
+     "name": "idx_S_F3_current",
+     "sql": "CREATE INDEX idx_S_F3_current ON S_F3(resourceId, validTo) WHERE validTo = '9999-01-01T00:00:00.000Z'"
+    },
+    {
+     "name": "idx_S_F3_q_Deal:amount",
+     "sql": "CREATE INDEX \"idx_S_F3_q_Deal:amount\" ON S_F3(typeName, json_extract(value, '$.amount'), validTo)"
+    },
+    {
+     "name": "idx_S_F3_q_Deal:owner",
+     "sql": "CREATE INDEX \"idx_S_F3_q_Deal:owner\" ON S_F3(typeName, json_extract(value, '$.owner'), validTo)"
+    },
+    {
+     "name": "idx_S_F3_q_Deal:stage",
+     "sql": "CREATE INDEX \"idx_S_F3_q_Deal:stage\" ON S_F3(typeName, json_extract(value, '$.stage'), validTo)"
+    },
+    {
+     "name": "idx_S_Z0_current",
+     "sql": "CREATE INDEX idx_S_Z0_current ON S_Z0(resourceId, validTo) WHERE validTo = '9999-01-01T00:00:00.000Z'"
+    }
+   ],
+   "dbstatError": "500 Error: no such table: dbstat: SQLITE_ERROR",
+   "built": [
+    {
+     "arm": "A",
+     "ddl": "CREATE INDEX IF NOT EXISTS \"idx_S_Z0_size_A\" ON S_Z0(json_extract(value, '$.stage')) WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0",
+     "bytes": 155648,
+     "rowsRead": 42141,
+     "rowsWritten": 2011
+    },
+    {
+     "arm": "B",
+     "ddl": "CREATE INDEX IF NOT EXISTS \"idx_S_Z0_size_B\" ON S_Z0(json_extract(value, '$.stage'), validTo) WHERE typeName = 'Deal' AND deleted = 0",
+     "bytes": 2007040,
+     "rowsRead": 61210,
+     "rowsWritten": 20198
+    },
+    {
+     "arm": "C",
+     "ddl": "CREATE INDEX IF NOT EXISTS \"idx_S_Z0_size_C\" ON S_Z0(json_extract(value, '$.stage')) WHERE typeName = 'Deal' AND deleted = 0",
+     "bytes": 1499136,
+     "rowsRead": 60970,
+     "rowsWritten": 20198
+    },
+    {
+     "arm": "F",
+     "ddl": "CREATE INDEX IF NOT EXISTS \"idx_S_Z0_size_F\" ON S_Z0(typeName, json_extract(value, '$.stage'), validTo)",
+     "bytes": 4120576,
+     "rowsRead": 82077,
+     "rowsWritten": 40061
+    }
+   ],
+   "S_A1": {
+    "n": 40060,
+    "deals": 20197,
+    "valueBytes": 10732251
+   },
+   "S_B1": {
+    "n": 40060,
+    "deals": 20197,
+    "valueBytes": 10732251
+   },
+   "S_C1": {
+    "n": 40060,
+    "deals": 20197,
+    "valueBytes": 10732251
+   },
+   "S_Z0": {
+    "n": 40060,
+    "deals": 20197,
+    "valueBytes": 10732251
+   },
+   "S_F1": {
+    "n": 40060,
+    "deals": 20197,
+    "valueBytes": 10732251
+   },
+   "S_A3": {
+    "n": 40060,
+    "deals": 20197,
+    "valueBytes": 10732251
+   },
+   "S_B3": {
+    "n": 40060,
+    "deals": 20197,
+    "valueBytes": 10732251
+   },
+   "S_C3": {
+    "n": 40060,
+    "deals": 20197,
+    "valueBytes": 10732251
+   },
+   "S_F3": {
+    "n": 40060,
+    "deals": 20197,
+    "valueBytes": 10732251
+   }
+  },
+  {
+   "object": "d100",
+   "databaseSize": 932216832,
+   "indexes": [
+    {
+     "name": "idx_S_A1_current",
+     "sql": "CREATE INDEX idx_S_A1_current ON S_A1(resourceId, validTo) WHERE validTo = '9999-01-01T00:00:00.000Z'"
+    },
+    {
+     "name": "idx_S_A1_q_Deal:stage",
+     "sql": "CREATE INDEX \"idx_S_A1_q_Deal:stage\" ON S_A1(json_extract(value, '$.stage')) WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_B1_current",
+     "sql": "CREATE INDEX idx_S_B1_current ON S_B1(resourceId, validTo) WHERE validTo = '9999-01-01T00:00:00.000Z'"
+    },
+    {
+     "name": "idx_S_B1_q_Deal:stage",
+     "sql": "CREATE INDEX \"idx_S_B1_q_Deal:stage\" ON S_B1(json_extract(value, '$.stage'), validTo) WHERE typeName = 'Deal' AND deleted = 0"
+    },
+    {
+     "name": "idx_S_C1_current",
+     "sql": "CREATE INDEX idx_S_C1_current ON S_C1(resourceId, validTo) WHERE validTo = '9999-01-01T00:00:00.000Z'"
+    },
+    {
+     "name": "idx_S_C1_q_Deal:stage",
+     "sql": "CREATE INDEX \"idx_S_C1_q_Deal:stage\" ON S_C1(json_extract(value, '$.stage')) WHERE typeName = 'Deal' AND deleted = 0"
+    }
+   ],
+   "dbstatError": "500 Error: no such table: dbstat: SQLITE_ERROR",
+   "S_A1": {
+    "n": 400060,
+    "deals": 200473,
+    "valueBytes": 107202101
+   },
+   "S_B1": {
+    "n": 400060,
+    "deals": 200473,
+    "valueBytes": 107202101
+   },
+   "S_C1": {
+    "n": 400060,
+    "deals": 200473,
+    "valueBytes": 107202101
+   }
+  }
+ ],
+ "finishedAt": "2026-11-24T17:54:19.518Z"
+}

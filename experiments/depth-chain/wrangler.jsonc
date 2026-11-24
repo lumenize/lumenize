@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "experiment-depth-chain",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "durable_objects": {
+    "bindings": [
+      { "name": "HOST", "class_name": "Host" },
+      { "name": "NODE", "class_name": "Node" }
+    ]
+  },
+  "exports": {
+    "Host": { "type": "durable-object", "storage": "sqlite" },
+    "Node": { "type": "durable-object", "storage": "sqlite" }
+  }
+}

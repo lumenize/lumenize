@@ -6,14 +6,14 @@
  * `bindStore`. Each `it` maps to one item of the spec's checklist.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { createNebulaStore } from '../../src/frontend/create-nebula-client';
+import { createNebulaStore } from '../../../../packages/resources/src/frontend/create-nebula-client';
 import { MockClient } from './mock-client';
 
 function setup(value: Record<string, any>) {
   const client = new MockClient({ quietMs: 0 });
   const factory = createNebulaStore(client, {
     initialState: {
-      resources: { doc: { d1: { value, meta: { eTag: 'eTag-v1' } } } },
+      resources: { doc: { d1: { value, meta: { validFrom: 'validFrom-v1' } } } },
     },
   });
   return { client, factory, store: factory.store };
@@ -26,7 +26,7 @@ const flushMicrotasks = async () => {
 describe('Map mutators submit transactions', () => {
   it('Map.set produces exactly one transaction carrying the full post-mutation value, and the commit writes back', async () => {
     const { store, client } = setup({ title: 'doc', tags: new Map([['a', 1]]) });
-    client.txnResponder = () => ({ result: 'committed', eTag: 'eTag-v2' });
+    client.txnResponder = () => ({ result: 'committed', validFrom: 'validFrom-v2' });
 
     store.resources.doc.d1.value.tags.set('b', 2);
     await flushMicrotasks();
@@ -40,7 +40,7 @@ describe('Map mutators submit transactions', () => {
       ['b', 2],
     ]);
     await vi.waitFor(() => {
-      expect(store.resources.doc.d1.meta.eTag).toBe('eTag-v2'); // round-trip writeback
+      expect(store.resources.doc.d1.meta.validFrom).toBe('validFrom-v2'); // round-trip writeback
     });
   });
 
@@ -169,7 +169,7 @@ describe('parity with property writes — abort-capable middleware (the A-over-B
     const { store, factory } = setup({ tags: new Map([['a', 1]]) });
     const seen: Array<{ path: string; oldValue: unknown; newValue: unknown }> = [];
     factory.use(({ path, oldValue, newValue, context }) => {
-      // Only the user-driven mutation — the commit's meta.eTag writeback also
+      // Only the user-driven mutation — the commit's meta.validFrom writeback also
       // flows through middleware (as a 'remote' write), which is not under test.
       if (context.source === 'local') seen.push({ path, oldValue, newValue });
       return undefined;
@@ -200,7 +200,7 @@ describe('no echo', () => {
     const { store, client } = setup({ tags: new Map([['a', 1]]) });
     client.simulateFanout('doc', 'd1', {
       value: { tags: new Map([['from-server', 7]]) },
-      meta: { eTag: 'eTag-v2' },
+      meta: { validFrom: 'validFrom-v2' },
     });
     await flushMicrotasks();
     expect(client.txns).toHaveLength(0);
@@ -283,7 +283,7 @@ describe('rich-type round-trip (the Phase 5 invariant through the factory)', () 
     // Server echoes the committed value back as a fanout.
     client.simulateFanout('doc', 'd1', {
       value: structuredClone(sent),
-      meta: { eTag: 'eTag-v2' },
+      meta: { validFrom: 'validFrom-v2' },
     });
     await flushMicrotasks();
     const after = store.resources.doc.d1.value;

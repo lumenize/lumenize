@@ -14,7 +14,7 @@ import { setupVueStore, loadVue } from '../frontend/vue-harness';
 
 const RT = 'TestResource';
 function seeded(rid: string, title = 'original') {
-  return { resources: { [RT]: { [rid]: { value: { title, status: 'todo' }, meta: { eTag: 'initial-eTag' } } } } };
+  return { resources: { [RT]: { [rid]: { value: { title, status: 'todo' }, meta: { validFrom: 'initial-version' } } } } };
 }
 const txnsFor = (client: { txns: Array<{ rt: string; rid: string }> }, rid: string) =>
   client.txns.filter((t) => t.rt === RT && t.rid === rid);

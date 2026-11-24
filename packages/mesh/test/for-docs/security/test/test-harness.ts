@@ -11,11 +11,14 @@ import { instrumentDOProject } from '@lumenize/testing';
 // Instrument the DOs
 const instrumented = instrumentDOProject({
   sourceModule,
-  doClassNames: ['LumenizeClientGateway', 'UserProfileDO', 'TeamDocDO', 'LumenizeAuth'],
+  doClassNames: ['WorkspaceDO', 'UserProfileDO', 'TeamDocDO', 'GatePairDO'],
 });
 
 // Re-export instrumented DOs for wrangler bindings
-export const { LumenizeClientGateway, UserProfileDO, TeamDocDO, LumenizeAuth } = instrumented.dos;
+export const { WorkspaceDO, UserProfileDO, TeamDocDO, GatePairDO } = instrumented.dos;
+
+// Mesh's auth, which every Client here logs in through, re-exported as it is
+export { AuthRegistry, Profile, AuthFacade } from '../index.js';
 
 // Re-export the instrumented default export (worker handler)
 export default instrumented;

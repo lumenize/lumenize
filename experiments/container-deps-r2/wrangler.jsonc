@@ -1,0 +1,34 @@
+{
+  // SPIKE: where should a Galaxy's node_modules come from — the image, a container snapshot,
+  // an R2 archive, or an R2 FUSE mount? `experiment-`-prefixed per workflow.md § Experiments.
+  "$schema": "../../apps/nebula/node_modules/wrangler/config-schema.json",
+  "name": "experiment-container-deps-r2",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-01",
+
+  "containers": [
+    {
+      "class_name": "Probe",
+      // Snapshots exist only under this policy. Size is chosen per start(), not here.
+      "scheduling_policy": "durable_object",
+      "images": {
+        "plain": { "dockerfile": "./image/Dockerfile", "build_vars": { "VARIANT": "plain" } },
+        "baked": { "dockerfile": "./image/Dockerfile", "build_vars": { "VARIANT": "baked" } },
+        "base": { "dockerfile": "./image/Dockerfile", "build_vars": { "VARIANT": "base" } }
+      }
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [{ "name": "PROBE", "class_name": "Probe" }]
+  },
+  "exports": {
+    "Probe": { "type": "durable-object", "storage": "sqlite" }
+  },
+
+  // The archives and the FUSE tree. Reached from the container only through the Worker's
+  // own entrypoints (interceptOutboundHttp), so no credentials enter the container.
+  "r2_buckets": [{ "binding": "DEPS", "bucket_name": "experiment-container-deps-r2" }],
+
+  "observability": { "enabled": true }
+}

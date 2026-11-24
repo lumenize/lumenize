@@ -15,17 +15,16 @@
  * each labeled step embeds a doc block verbatim and exercises it end-to-end.
  *
  * Capable-of-failing: every transaction asserts a real `committed` outcome (a
- * broken put/create/auto-derive-eTag path would return a non-committed kind),
+ * broken put/create/auto-derive-version path would return a non-committed kind),
  * the computeds assert real derived values off live snapshots, and the orgTree
- * sequence asserts the founder can drive every mutation against the real DAG.
+ * sequence asserts the star-scoped admin can drive every mutation against the real DAG.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID } from '@lumenize/nebula';
-import { createNebulaClient, textMerge } from '@lumenize/nebula/frontend';
+import { ROOT_NODE_ID } from '@lumenize/resources';
+import { createNebulaClient, isPersonSub, textMerge } from '@lumenize/resources/frontend';
 import { computed } from '@vue/reactivity';
-import { browserLogin, createAuthenticatedClient, ORIGIN } from '../../test-helpers';
+import { foundAndLogin, adminClientAt, ORIGIN, ownerOf, pageOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -36,23 +35,19 @@ interface doc { body: string; }
 interface document { body: string; }
 `;
 
-// The ontology type a script-side read is cast to (coding-your-ui § Reading and
-// writing through the store).
-type Todo = { title: string; description: string; status: 'open' | 'done' };
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 function makeFactoryClient(star: string, browser: Browser) {
-  const ctx = browser.context(ORIGIN);
+  const ctx = browser.context(pageOf(star));
   return createNebulaClient({
-    baseUrl: ORIGIN,
-    authScope: star,
-    activeScope: star,
-    appVersion: ONTOLOGY_VERSION,
-    fetch: browser.fetch,
-    WebSocket: browser.WebSocket,
+    baseUrl: pageOf(star),
+    platformOrigin: ORIGIN,
+    ontologyVersion: ONTOLOGY_VERSION,
+    fetch: ctx.fetch,
+    WebSocket: ctx.WebSocket,
     sessionStorage: ctx.sessionStorage,
     BroadcastChannel: ctx.BroadcastChannel,
     onShouldRefreshUI: () => {},
@@ -66,17 +61,17 @@ describe('for-docs runtime examples (real Star)', () => {
   it('factory usage, transactions, subscribe/Disposable, handlers, orgTree, outcomes', async () => {
     const star = uniqueStar();
 
-    // ── Setup: founder installs the ontology, then connects via the factory ──
-    // The first subject to reach a fresh Star becomes the founder (admin on ROOT).
-    const admin = await createAuthenticatedClient(
-      NebulaClientTest, new Browser(), star, star, 'founder@example.com', ONTOLOGY_VERSION,
+    // ── Setup: the star-scoped admin installs the ontology, then connects via the factory ──
+    // The Star's admin passes the DAG through the dominion bypass, holding no grant of its own.
+    const admin = await adminClientAt(
+      NebulaClientTest, new Browser(), star, star, 'scope-admin@example.com', ONTOLOGY_VERSION,
     );
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    admin.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: ONTOLOGY });
+    admin.client.callStarInstallOntology(star, { version: ONTOLOGY_VERSION, types: ONTOLOGY });
     await vi.waitFor(() => { expect(admin.client.callCompleted).toBe(true); });
 
     const browser = new Browser();
-    await browserLogin(browser, star, 'founder@example.com', star);
+    await foundAndLogin(browser, star, ownerOf('scope-admin@example.com'), star);
     const bf = makeFactoryClient(star, browser);
     await bf.ready;
     // Alias to the names the doc snippets use.
@@ -85,13 +80,15 @@ describe('for-docs runtime examples (real Star)', () => {
 
     // The factory auto-subscribes the org tree on connect.
     await vi.waitFor(() => {
-      expect((store.lmz.orgTree.value as { nodes?: Map<number, unknown> } | undefined)?.nodes).toBeInstanceOf(Map);
+      expect((store.lmz.orgTree.value as { nodes?: Map<string, unknown> } | undefined)?.nodes).toBeInstanceOf(Map);
     });
 
     // ── coding-your-ui § Mutating the org/permission tree ──
-    const userAliceNodeId = await client.orgTree.createNode(ROOT_NODE_ID, 'user-alice', 'Alice');
-    const userBobNodeId = await client.orgTree.createNode(ROOT_NODE_ID, 'user-bob', 'Bob');
-    const bobsSub = generateUuid();
+    const userAliceNodeId = crypto.randomUUID();
+    await client.orgTree.createNode(userAliceNodeId, ROOT_NODE_ID, 'user-alice', 'Alice');
+    const userBobNodeId = crypto.randomUUID();
+    await client.orgTree.createNode(userBobNodeId, ROOT_NODE_ID, 'user-bob', 'Bob');
+    const bobsSub = crypto.randomUUID();
     const nodeId = userAliceNodeId;
 
     // @doc coding-your-ui.md § Mutating the org/permission tree
@@ -105,11 +102,11 @@ describe('for-docs runtime examples (real Star)', () => {
     // Revoke. Idempotent — no-op if `sub` has no grant on this node.
     await client.orgTree.revokePermission(nodeId, bobsSub);
 
-    // Create a child node (slug rules and return shape: see API reference).
-    // Caller must hold `write` on `parentNodeId`.
-    const listShoppingId = await client.orgTree.createNode(
-      userAliceNodeId, 'list-shopping', 'Shopping',
-    );
+    // Create a child node — YOU supply the id (a UUID), so you have it immediately
+    // (no round-trip) and a retry with the same id is idempotent. Caller must hold
+    // `write` on `parentNodeId`.
+    const listShoppingId = crypto.randomUUID();
+    await client.orgTree.createNode(listShoppingId, userAliceNodeId, 'list-shopping', 'Shopping');
 
     // Co-ownership sharing — the two-party share-accept flow from Resources §
     // Access control. Step 1, owner offers (runs as Alice): grant Bob admin on
@@ -129,6 +126,37 @@ describe('for-docs runtime examples (real Star)', () => {
     // The list lives on under its other parents.
     await client.orgTree.removeEdge(userBobNodeId, listShoppingId);
     // @end-doc
+
+    // ── access-control § Every box in that tree is a node ──
+    // @doc access-control.md § Every box in that tree is a node
+    // A list someone may share on its own gets a node of its own, under its owner's.
+    const listWorkNodeId = crypto.randomUUID();
+    await client.orgTree.createNode(listWorkNodeId, userAliceNodeId, 'list-work', 'Work');
+
+    // The list, and everything in it, attaches to that node.
+    const listWorkId = crypto.randomUUID();
+    await client.resources.transaction({
+      [listWorkId]: { op: 'create', typeName: 'todoList', nodeId: listWorkNodeId, value: { items: [] } },
+    });
+
+    // Sharing this one list is a grant on its node, which the list's own meta names.
+    const listNodeId = store.resources.todoList[listWorkId].meta.nodeId;
+    await client.orgTree.setPermission(listNodeId, bobsSub, 'read');
+
+    // Who the list is shared with is read back from the tree, never kept in the list's value.
+    // A grant's key is a person's `sub`, or names what holds it, as `agent:lumenize` does.
+    const sharedWith = computed(() =>
+      [...(store.lmz.orgTree.value.permissions.get(listNodeId)?.keys() ?? [])].filter(isPersonSub));
+    // @end-doc
+    expect(listNodeId).toBe(listWorkNodeId);
+    // The node holds a person's grant and the agent's, and the roster lists the person alone.
+    await client.orgTree.setPermission(listNodeId, 'agent:lumenize', 'read');
+    await vi.waitFor(() => {
+      const grants = store.lmz.orgTree.value.permissions.get(listNodeId);
+      expect(grants?.get(bobsSub)).toBe('read');
+      expect(grants?.get('agent:lumenize')).toBe('read');
+    });
+    expect(sharedWith.value).toEqual([bobsSub]);
 
     // ── Setup a 'task-42' todo so the put / subscribe examples have a target ──
     const seed = await client.resources.transaction({
@@ -150,7 +178,7 @@ describe('for-docs runtime examples (real Star)', () => {
       // @doc coding-your-ui.md § Reading and writing through the store
       const title = store.resources.todo[id]?.value?.title;          // reactive read
       store.resources.todo[id].value.title = 'New title';            // optimistic write + debounced transaction
-      const todo = store.resources.todo[id]?.value as Todo | undefined;  // cast to the ontology type for typed script code
+      const todo = store.resources.todo[id]?.value;                  // typed from the ontology already: never cast it
       // @end-doc
       expect(title).toBe('Original');
       expect(todo?.title).toBe('New title');
@@ -163,7 +191,7 @@ describe('for-docs runtime examples (real Star)', () => {
     // ── api-reference § resources.transaction — single resource ──
     {
       // @doc api-reference.md § Example — single resource
-      // eTag auto-derives from store.resources.todo['task-42']?.meta?.eTag.
+      // ifValidFromMatches auto-derives from store.resources.todo['task-42']?.meta?.validFrom.
       const outcome = await client.resources.transaction({
         'task-42': { op: 'put', typeName: 'todo', value: { title: 'New title' } },
       });
@@ -204,16 +232,17 @@ describe('for-docs runtime examples (real Star)', () => {
     client.resources.unsubscribe('todo', 'task-42');                // standalone API
     // @end-doc
 
-    // ── api-reference § Explicit eTag override ──
+    // ── api-reference § Explicit version override ──
     {
-      const currentETag = store.resources.todo['task-42'].meta.eTag;
-      const conflict = { server: { meta: { eTag: currentETag } } };
+      const currentVersion = store.resources.todo['task-42'].meta.validFrom;
+      expect(currentVersion).toMatch(/Z$/); // the stashed baseline is a real version, not undefined
+      const conflict = { server: { meta: { validFrom: currentVersion } } };
       const resolvedValue = { title: 'Resolved', description: '', status: 'open' };
-      // @doc api-reference.md § Explicit eTag override
+      // @doc api-reference.md § Explicit version override
       // Explicit baseline — Bob's resolution submission against the stashed snapshot.
       const outcome = await client.resources.transaction({
         'task-42': { op: 'put', typeName: 'todo',
-                     eTag: conflict.server.meta.eTag,            // ← stashed baseline, not auto-derived
+                     ifValidFromMatches: conflict.server.meta.validFrom,  // ← stashed baseline, not auto-derived
                      value: resolvedValue },
       });
       // @end-doc
@@ -230,10 +259,11 @@ describe('for-docs runtime examples (real Star)', () => {
       });
       // A single-resource create commits iff the top-level outcome is 'committed'
       // (atomicity ⟹ if the batch committed, the create landed). Any failure is NOT
-      // 'committed': permission/validation → 'rejected'; a lost first-create race
-      // ("already exists") → 'infrastructure-error' today (M11 may reclassify it).
-      // Race-safe: when not created, re-read to disambiguate — the list now exists (a
-      // tab won the race, proceed) or it genuinely doesn't (a real failure to surface).
+      // 'committed': permission/validation → 'rejected'. Two tabs of one person racing
+      // the first-create are both told 'committed' (the second create is a repeat of the
+      // first); a create someone else won ("already exists") is NOT 'committed'.
+      // Race-safe: when not created, re-read to disambiguate — the list now exists
+      // (someone won the race, proceed) or it genuinely doesn't (a real failure to surface).
       const created = outcome.kind === 'committed';
       if (!created && await client.resources.read('todoList', sub) === null) {
         throw new Error('Could not create your list — check your connection and reload.');
@@ -257,7 +287,7 @@ describe('for-docs runtime examples (real Star)', () => {
       // @doc api-reference.md § Example — multi-resource atomic batch
       const newId = crypto.randomUUID();
       const outcome = await client.resources.transaction({
-        [newId]: { op: 'create', typeName: 'todo', nodeId: 1,
+        [newId]: { op: 'create', typeName: 'todo', nodeId: ROOT_NODE_ID,
                    value: { title, description: '', status: 'open' } },
         // per-user keying — see Coding your UI § Lists with v-for
         [client.claims.sub]: { op: 'put', typeName: 'todoList',
@@ -276,7 +306,7 @@ describe('for-docs runtime examples (real Star)', () => {
       if (!list) return;   // snapshot not arrived yet — see "Loading and first paint"
 
       // Both ops in one call → atomic. Either both commit or neither does.
-      // eTag for the put auto-derives from store.resources.todoList[...]?.meta?.eTag;
+      // ifValidFromMatches for the put auto-derives from store.resources.todoList[...]?.meta?.validFrom;
       // a missing baseline (resource never subscribed) THROWS synchronously here
       // rather than returning a non-committed outcome — the v-if/snapshot guard above
       // prevents that. The new todo attaches under the same tree node as the list
@@ -314,7 +344,7 @@ describe('for-docs runtime examples (real Star)', () => {
     // ── coding-your-ui § Gating admin-only UI ──
     // @doc coding-your-ui.md § Gating admin-only UI
     const isAppAdmin = computed(() =>
-      client.claims.access.admin ||                                     // Galaxy/Universe scope admin
+      client.claims.access.scopeAdmin ||                                     // Galaxy/Universe scope admin
       store.lmz.orgTree?.value?.permissions
         .get(ROOT_NODE_ID)?.get(client.claims.sub) === 'admin'          // app admin (grant on root)
     );
@@ -388,7 +418,7 @@ describe('for-docs runtime examples (real Star)', () => {
         case 'conflict-pending':
           // Stash the conflict for later review.
           if (!store.app.conflicts) store.app.conflicts = {};
-          store.app.conflicts[resolution.server.meta.eTag] = {
+          store.app.conflicts[resolution.server.meta.validFrom] = {
             resourceType: 'document',
             resourceId: rid,
             local: resolution.local,
@@ -397,10 +427,10 @@ describe('for-docs runtime examples (real Star)', () => {
           return { kind: 'human-in-the-loop' };
         case 'committed':
           // The eventual review-later submission committed — clear this conflict.
-          // (Match by some app-defined key; here we clear all eTags pointing at rid.)
-          for (const eTag of Object.keys(store.app.conflicts ?? {})) {
-            if (store.app.conflicts[eTag].resourceId === rid) {
-              delete store.app.conflicts[eTag];
+          // (Match by some app-defined key; here we clear every entry pointing at rid.)
+          for (const key of Object.keys(store.app.conflicts ?? {})) {
+            if (store.app.conflicts[key].resourceId === rid) {
+              delete store.app.conflicts[key];
             }
           }
           break;
@@ -450,7 +480,7 @@ describe('for-docs runtime examples (real Star)', () => {
         case 'timeout':
         case 'infrastructure-error':
           // Transaction-wide failure; optimistic state rolled back (connection-gated — a mere
-          // disconnect never lands here). An idempotent resubmit (same newETag) can land.
+          // disconnect never lands here). A resubmit of a write that landed is told it committed.
           showToast('Connection problem — retry?');
           if (outcome.kind === 'infrastructure-error') console.error(outcome.error);
           break;
@@ -496,6 +526,25 @@ describe('for-docs runtime examples (real Star)', () => {
       expect(store.app.activeView).toBe('list');
     }
 
+    // ── resources § Subscribe, or read once ──
+    {
+      const doneId = crypto.randomUUID();
+      const created = await client.resources.transaction({
+        [doneId]: { op: 'create', typeName: 'todo', nodeId: ROOT_NODE_ID, value: { title: 'Shipped', status: 'done' } },
+      });
+      expect(created.kind).toBe('committed');
+      // @doc resources.md § Subscribe, or read once
+      const { snapshots, deniedNodes, more } = await client.resources.query({
+        typeName: 'todo', filter: { status: 'done' }, allowScan: true,
+      });
+      const titles = snapshots.map(({ value }) => value.title);   // in the query's order
+      // @end-doc
+      expect(titles).toEqual(['Shipped']);
+      expect(snapshots[0].resourceId).toBe(doneId);
+      expect(deniedNodes).toBeUndefined();
+      expect(more).toBeUndefined();
+    }
+
     await bf.dispose();
     admin.client[Symbol.dispose]();
   });
@@ -506,10 +555,9 @@ describe('for-docs runtime examples (real Star)', () => {
     // fails in the background and is torn down immediately.
     // @doc api-reference.md § createNebulaClient (admin/scripting overrides)
     const { client, store } = createNebulaClient({
-      baseUrl: 'https://my-app.example.com',
-      authScope: 'acme.app.tenant-a',
-      activeScope: 'acme.app.tenant-a',
-      appVersion: 'v42',
+      baseUrl: 'https://tenant-a.app.acme.lumenize.dev',   // the page whose scope the client works in
+      platformOrigin: 'https://platform.lumenize.dev',     // where its session lives
+      ontologyVersion: 'v42',
       onShouldRefreshUI: () => {},    // opt out of auto-reload (null/undefined both KEEP the default reload)
     });
     // @end-doc

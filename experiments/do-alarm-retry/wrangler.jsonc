@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "experiment-do-alarm-retry",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  // Lowered so the `cpu` mode's infinite loop is killed in a second rather than at the 30 s
+  // default. Whether this limit reaches a Durable Object's alarm is itself unknown; the loop is
+  // killed either way.
+  "limits": { "cpu_ms": 1000 },
+  // Workers Logs' invocation records carry each alarm's outcome; Issues shows what the runtime
+  // reports as an error. Neither is the primary record: each attempt writes itself to SQLite.
+  "observability": { "logs": { "enabled": true, "invocation_logs": true }, "issues": { "enabled": true } },
+  "durable_objects": {
+    "bindings": [{ "name": "PROBE", "class_name": "Probe" }]
+  },
+  "exports": {
+    "Probe": { "type": "durable-object", "storage": "sqlite" }
+  }
+}

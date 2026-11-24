@@ -1,0 +1,7 @@
+{
+  "name": "experiment-email-quota-probe",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Which send_email binding sends count against Cloudflare's daily sending quota (2026-10-03). Point-in-time; see RESULTS.md."
+}

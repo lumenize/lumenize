@@ -7,7 +7,7 @@ description: How to build a Nebula front end with Vue 3 SFCs and TypeScript — 
 
 A Nebula front end is Vue 3 Single-File Components (SFCs) written in TypeScript, styled with DaisyUI, rendering resources whose shape you defined in your ontology (a TypeScript `.d.ts`-style file). The framework handles subscribes, transactions, and conflicts.
 
-This page is the narrative reference Nebula Studio's hosted LLM consults when generating UI code in dialog with a user-developer — naming, defaults, and example shape are tuned for that LLM-as-reader audience. For exact signatures see [API reference](./api-reference.md). For the resource data model (addressing, eTags, transactions, conflict resolution) see [Resources](./resources.md). This page is "how to wire it together"; those pages are the contract.
+This page is the narrative reference Nebula Studio's hosted LLM consults when generating UI code in dialog with a user-developer — naming, defaults, and example shape are tuned for that LLM-as-reader audience. For exact signatures see [API reference](./api-reference.md). For the resource data model (addressing, versions, transactions, conflict resolution) see [Resources](./resources.md). This page is "how to wire it together"; those pages are the contract.
 
 ## Resources at a glance
 
@@ -18,7 +18,7 @@ Resources also handle [**access control**](./access-control.md). Every resource 
 Each resource is a JavaScript object (not just JSON, but rather rich types like Map, Date, cycles, etc.) addressed by a `(resourceType, resourceId)` pair, with its shape declared in your ontology. From your UI's perspective:
 
 - `store.resources.<resourceType>[<resourceId>].value` — the resource's current value.
-- `store.resources.<resourceType>[<resourceId>].meta` — server-managed metadata (`eTag`, change metadata, etc.).
+- `store.resources.<resourceType>[<resourceId>].meta` — server-managed metadata (the version, `validFrom`, change metadata, etc.).
 
 The full resource model — addressing, optimistic concurrency, the per-type handler, transaction outcomes — is documented in [Resources](./resources.md), but other than shown in the examples in this document, you will rarely have to deal with them directly.
 
@@ -57,12 +57,12 @@ Read and write the store inline in templates using stock [Vue 3](https://vuejs.o
 <span v-else class="badge">Open</span>
 ```
 
-The same paths work from TypeScript — inside a `computed`, a method, or an event handler. `value` is typed loosely on the store; when script code needs typing, cast it to the ontology type at the read site:
+The same paths work from TypeScript — inside a `computed`, a method, or an event handler. `store.resources` is typed from your ontology, so `value` already has its type and a cast only gets in the way. One difference from the interface you wrote: a field typed as another ontology type is a reference, and reads as the related resource's id, a `string` (`string[]` for a list of them). `Stored<Todo>`, from `@lumenize/resources/frontend`, names that stored form when a variable or parameter needs it.
 
 ```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 const title = store.resources.todo[id]?.value?.title;          // reactive read
 store.resources.todo[id].value.title = 'New title';            // optimistic write + debounced transaction
-const todo = store.resources.todo[id]?.value as Todo | undefined;  // cast to the ontology type for typed script code
+const todo = store.resources.todo[id]?.value;                  // typed from the ontology already: never cast it
 ```
 
 For multi-resource atomic batches, explicit conflict-resolution handlers, programmatic subscriptions, and other operations that don't fit "read or write a single field," use the underlying `client` directly — the canonical case is [Forms: explicit save](#forms-explicit-save) below.
@@ -82,14 +82,14 @@ Optional chaining (`?.`) isn't allowed in a `v-model` expression. Guard the inpu
 
 By default `v-model` listens on `input` (fires every keystroke). The optimistic local update is immediate; the network transaction is **debounced** by the synced-state middleware so per-keystroke `v-model` doesn't pile up server traffic. The middleware coalesces transaction submissions per `(resourceType, resourceId)`:
 
-- **Quiet window**: wait this long after the last write to a resource before submitting (default 500 ms).
-- **Max wait**: submit at least every N ms regardless of continued typing (default 2000 ms).
+- **Quiet window**: wait this long after the last write to a resource before submitting (default 1000 ms).
+- **Max wait**: submit at least every N ms regardless of continued typing (default 3000 ms).
 - **Flush on lifecycle**: a pending write flushes immediately on input blur (a `focusout` on the bound input) and on `client.dispose()`. Component unmount does *not* itself force a flush — but the quiet/max-wait timers above run at the client level (per `(resourceType, resourceId)`, not per component), so a buffered write still submits on schedule after the component is gone; nothing is lost.
-- **Serial per resource**: at most one transaction in flight per resource; subsequent writes buffer and submit using the in-flight transaction's resulting eTag.
+- **Serial per resource**: at most one transaction in flight per resource; subsequent writes buffer and submit using the in-flight transaction's resulting version.
 
 A typical 10-character edit produces ~1 transaction, not 10.
 
-**Write timing and conflict handling have type-derived defaults** — booleans and enums commit immediately, long-form text gets slower debounce plus an auto-registered text-merge resolver, short text uses the 500/2000 ms windows above. The full table and how to override it (`@debounce`, `@longform`) is the canonical reference in [Ontology § Annotations](./ontology.md#annotations). For runtime overrides (rare — A/B testing, dynamic config), `client.resources.transactionDebounce(rt, opts)` is available; see [API reference § resources.transactionDebounce](./api-reference.md#resourcestransactiondebounce).
+**Write timing and conflict handling have type-derived defaults** — booleans and enums commit immediately, long-form text gets a longer maximum wait plus an auto-registered text-merge resolver, short text uses the 1000/3000 ms windows above. The full table and how to override it (`@debounce`, `@longform`) is the canonical reference in [Ontology § Annotations](./ontology.md#annotations). For runtime overrides (rare — A/B testing, dynamic config), `client.resources.transactionDebounce(rt, opts)` is available; see [API reference § resources.transactionDebounce](./api-reference.md#resourcestransactiondebounce).
 
 ### `v-model.lazy` — commit on blur
 
@@ -196,7 +196,7 @@ For richer status UI (color-coded badges, "last connected X minutes ago" tooltip
 
 ## Current user (`client.claims`)
 
-The decoded JWT payload is on `client.claims` — `sub` (subject, the user's stable ID — a bare UUID minted by nebula-auth), `aud` (audience), `access` (the user's scope grant — `{ authScopePattern, admin? }`), and any other claims your auth provider mints. The object is frozen; it is replaced wholesale on each token refresh (the values you key on — `sub`, `aud` — don't change within a session).
+The decoded JWT payload is on `client.claims` — `sub` (subject, the user's stable ID — a bare UUID minted by Mesh's auth layer), `aud` (the scope of this page's host, which is what the token can act from), `access` (the membership the token rests on — `{ authScope, scopeAdmin? }`), and any other claims your auth provider mints. The object is frozen; it is replaced wholesale on each token refresh (the values you key on — `sub`, `aud` — don't change within a session).
 
 `client.claims` is `null` until the client's first token refresh completes, and `client` is not reactive — a `v-if` gated on it never re-evaluates. Studio-generated apps never see that window: the bootstrap top-level-awaits the factory's `ready` promise before the app mounts, so claims are populated before any component renders. That contract is pinned at [API reference § client.claims](./api-reference.md#clientclaims); the examples below rely on it. Outside a Studio bootstrap (admin tools, scripts), guard with `client.claims?.`.
 
@@ -212,17 +212,17 @@ The same `client.claims.sub` keying works in script too — the [Forms](#forms-e
 "Admin" has **two** independent sources, and admin-only UI checks both:
 
 - **App admin** — a user holding `admin` on the relevant org-tree node. App-wide admin is `admin` on the root node; per-area admin is `admin` (directly or cascaded) on that area's node. This lives in the reactive tree at `store.lmz.orgTree`, so the UI tracks grants as they change.
-- **Scope admin** — a Galaxy- or Universe-level operator, carried in the JWT as `client.claims.access.admin`. They have effective admin everywhere in the scope, but — being a scope property, not a node grant — they do **not** appear in the org-tree's `permissions` map (see [the note in Resources](./access-control.md)). So you can't discover them from the tree; you read the claim.
+- **Scope admin** — a Galaxy- or Universe-level operator, carried in the JWT as `client.claims.access.scopeAdmin`. They have effective admin over this page's scope and everything beneath it, but — being a scope property, not a node grant — they do **not** appear in the org-tree's `permissions` map (see [the note in Resources](./access-control.md)). So you can't discover them from the tree; you read the claim.
 
 A `computed` that covers both:
 
 ```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 import { computed } from 'vue';
-import { ROOT_NODE_ID } from '@lumenize/nebula/frontend';
+import { ROOT_NODE_ID } from '@lumenize/resources/frontend';
 import { store, client } from './nebula';
 
 const isAppAdmin = computed(() =>
-  client.claims.access.admin ||                                     // Galaxy/Universe scope admin
+  client.claims.access.scopeAdmin ||                                     // Galaxy/Universe scope admin
   store.lmz.orgTree?.value?.permissions
     .get(ROOT_NODE_ID)?.get(client.claims.sub) === 'admin'          // app admin (grant on root)
 );
@@ -232,9 +232,9 @@ const isAppAdmin = computed(() =>
 <button v-if="isAppAdmin" class="btn">Admin settings</button>
 ```
 
-`isAppAdmin` is a **UI gate, not an authorization boundary.** It reads `store.lmz.orgTree` (client-held, freely mutable in the browser) and `client.claims`, so it only decides what *renders* — it is not a security check. Every privileged operation behind it is re-authorized server-side (`requirePermission` / the org-tree cascade on each transaction; the JWT `aud`-lock on each mesh call). Never let a generated app treat a passing `isAppAdmin` as sufficient to expose an action whose server endpoint lacks its own permission check.
+`isAppAdmin` is a **UI gate, not an authorization boundary.** It reads `store.lmz.orgTree` (client-held, freely mutable in the browser) and `client.claims`, so it only decides what *renders* — it is not a security check. Every privileged operation behind it is re-authorized server-side (`requirePermission` / the org-tree cascade on each transaction; passage and dominion, read from the page's host, on each mesh call). Never let a generated app treat a passing `isAppAdmin` as sufficient to expose an action whose server endpoint lacks its own permission check.
 
-`client.claims` is the client-side counterpart of `originAuth.claims` server-side. See [mesh: LumenizeClient](/docs/mesh/lumenize-client#client-identity-clientclaims) for the surface and [Nebula auth flows](./auth-flows.md) for how the JWT is issued.
+`client.claims` is the client-side counterpart of `originAuth.claims` server-side. See [mesh: the Client](/docs/mesh/lumenize-client#client-identity-clientclaims) for the surface and [Nebula auth flows](./auth-flows.md) for how the JWT is issued.
 
 ## Subscription lifecycle
 
@@ -259,7 +259,7 @@ When a component unmounts, its reference drops. The subscription starts releasin
 
 For non-component cases (warming a cache before navigation, scripting, headless tests), call `client.resources.subscribe(rt, rid)` directly. The returned handle is `Disposable` — use `using` for auto-release on scope exit, or call `client.resources.unsubscribe(rt, rid)` manually if subscribe and unsubscribe happen in different places. See [API reference § resources.subscribe](./api-reference.md#resourcessubscribe).
 
-Two parts of the lifecycle need no UI code: after a dropped connection reconnects, live subscriptions re-subscribe themselves; and deploying a new app version clears server-side subscriptions and triggers a refresh (`onShouldRefreshUI`).
+Two parts of the lifecycle need no UI code: after a dropped connection reconnects, live subscriptions re-subscribe themselves; and when a new version of the app lands, a page Studio frames reloads once on any build, at the URL it was on (`onShouldRefreshUI`), a page in a tab of its own reloads once on a change of types alone, and a page already on the new version subscribes again.
 
 ## Plain Vue state
 
@@ -320,12 +320,12 @@ The container is keyed per user — `('todoList', client.claims.sub)` — so eac
 
 ```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 // nebula.ts (after `await ready`)
-import { ROOT_NODE_ID } from '@lumenize/nebula/frontend';
+import { ROOT_NODE_ID } from '@lumenize/resources/frontend';
 const sub = client.claims.sub;
 
 // Create the list under a node the user can write to. This demo signs in as
-// the Star's founder, who holds `admin` on the root node (granted when the
-// Star was created), so resources attach under ROOT_NODE_ID. In a multi-user
+// the Star's admin, who may write anywhere in the Star's tree without a grant of
+// their own, so resources attach under ROOT_NODE_ID. In a multi-user
 // app, attach under whatever node the user was granted — see "Mutating the
 // org/permission tree" for how access is granted.
 if (await client.resources.read('todoList', sub) === null) {
@@ -335,10 +335,11 @@ if (await client.resources.read('todoList', sub) === null) {
   });
   // A single-resource create commits iff the top-level outcome is 'committed'
   // (atomicity ⟹ if the batch committed, the create landed). Any failure is NOT
-  // 'committed': permission/validation → 'rejected'; a lost first-create race
-  // ("already exists") → 'infrastructure-error' today (M11 may reclassify it).
-  // Race-safe: when not created, re-read to disambiguate — the list now exists (a
-  // tab won the race, proceed) or it genuinely doesn't (a real failure to surface).
+  // 'committed': permission/validation → 'rejected'. Two tabs of one person racing
+  // the first-create are both told 'committed' (the second create is a repeat of the
+  // first); a create someone else won ("already exists") is NOT 'committed'.
+  // Race-safe: when not created, re-read to disambiguate — the list now exists
+  // (someone won the race, proceed) or it genuinely doesn't (a real failure to surface).
   const created = outcome.kind === 'committed';
   if (!created && await client.resources.read('todoList', sub) === null) {
     throw new Error('Could not create your list — check your connection and reload.');
@@ -346,7 +347,7 @@ if (await client.resources.read('todoList', sub) === null) {
 }
 ```
 
-(A node the user can write to is the only prerequisite; the founder gets one — `admin` on root — at Star creation. Other users acquire write on a node by being granted it — see [Mutating the org/permission tree](#mutating-the-orgpermission-tree); who to ask is resolved client-side from the tree (see the [worked example](#worked-example-rendering-the-built-in-tree)).)
+(A node the user can write to is the only prerequisite; the Star's own admin gets one — `admin` on root — on first touch. Other users acquire write on a node by being granted it — see [Mutating the org/permission tree](#mutating-the-orgpermission-tree); who to ask is resolved client-side from the tree (see the [worked example](#worked-example-rendering-the-built-in-tree)).)
 
 By contrast, a field whose elements are **inline objects** — composition *within* this one resource, e.g. a todo's `checklist: { text, done }[]` — iterates the same way but without auto-subscribing per item; the fields are right there in the value. The distinction is by type: a field typed as **another ontology type** (e.g. `assignees: User[]`) is a *relationship*, stored by id and read like `items` above — one auto-subscribe per id — never an embedded object; nesting is for inline composition only (see [Resources](./resources.md)).
 
@@ -364,7 +365,7 @@ async function addTodo(title: string) {
   if (!list) return;   // snapshot not arrived yet — see "Loading and first paint"
 
   // Both ops in one call → atomic. Either both commit or neither does.
-  // eTag for the put auto-derives from store.resources.todoList[...]?.meta?.eTag;
+  // ifValidFromMatches for the put auto-derives from store.resources.todoList[...]?.meta?.validFrom;
   // a missing baseline (resource never subscribed) THROWS synchronously here
   // rather than returning a non-committed outcome — the v-if/snapshot guard above
   // prevents that. The new todo attaches under the same tree node as the list
@@ -378,6 +379,45 @@ async function addTodo(title: string) {
   // error handling on outcome goes here
 }
 ```
+
+
+## Data several people share: query it
+
+A container keyed by the user's own `sub` is that user's alone: nobody else's page knows its id. For data a team shares, such as the Deals every salesperson works, subscribe to a **query** instead. A query finds resources by what they hold, so one person's page finds what another person made.
+
+```typescript @skip-check
+// src/ontology.d.ts
+export interface Deal {
+  title: string;
+  /**
+   * @title Stage
+   * @index
+   */
+  stage: 'lead' | 'open' | 'won';
+  amount?: number;
+}
+```
+
+```typescript @skip-check
+// In a component's <script setup>
+import { onBeforeUnmount, shallowRef } from 'vue';
+import { client, store } from './nebula';
+
+const openDeals = shallowRef<string[]>([]);
+const query = client.resources.subscribeQuery({ typeName: 'Deal', filter: { stage: 'open' } });
+query.onChange(() => { openDeals.value = [...query.resourceIds]; });
+query.ready.then(() => { openDeals.value = [...query.resourceIds]; }, (error) => console.error(error.message));
+onBeforeUnmount(() => query[Symbol.dispose]());
+```
+
+```html @skip-check
+<li v-for="id in openDeals" :key="id">{{ store.resources.Deal[id]?.value?.title }}</li>
+```
+
+- **The query delivers ids.** Reading `store.resources.Deal[id]` in the loop subscribes to each Deal's content, as with a container.
+- **Each person gets their own answer.** The same query returns only the Deals that person may read, and `query.deniedNodes` names the nodes holding ones they may not.
+- **A filter needs an `@index` on a field it looks up by,** or `allowScan: true` for a type that will only ever hold a few resources. [`subscribeQuery`](./api-reference.md#resourcessubscribequery) has the operators and the rule, and [Ontology § Indexes](./ontology.md#indexes) how to declare one.
+- **Create a shared resource under a node the team can read,** not under a node only its author holds.
 
 ## Conditionals with `v-if`
 
@@ -396,7 +436,7 @@ For multi-field forms that should commit together (rather than per-keystroke tra
 
 Form-scoped reactions — clear the draft on commit, surface validation errors next to fields — belong in a **per-call handler** passed to that save's `transaction()` call, NOT in the per-type handler: the per-type handler fires on *every* transaction touching the type (debounced `v-model` edits, other forms, list mutations), so form state wired there gets clobbered by unrelated commits. Keep the per-type handler (registered once in `nebula.ts`) for type-wide policy — conflict verdicts, custom flashes; see [Resources § per-resource handler](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler). Per-call handlers are **keyed by `resourceId`** — `{ 'task-42': handler }` — so each handles only its own resource, and any sibling in the batch falls through to its per-type handler automatically (the per-call entry layers in front of its resource's per-type handler — it does not replace it; see [API reference § Precedence](./api-reference.md#precedence)).
 
-Mount the form only after the resource's snapshot has arrived — the same `v-if` guard from [Loading and first paint](#loading-and-first-paint): `<TodoForm v-if="store.resources.todo['task-42']?.value" />`. Seeding the draft before the snapshot lands would stage blank values that Save then commits over the real data (the eTag auto-derive matches, so no conflict fires to stop it).
+Mount the form only after the resource's snapshot has arrived — the same `v-if` guard from [Loading and first paint](#loading-and-first-paint): `<TodoForm v-if="store.resources.todo['task-42']?.value" />`. Seeding the draft before the snapshot lands would stage blank values that Save then commits over the real data (the version auto-derive matches, so no conflict fires to stop it).
 
 ```vue @skip-check
 <!-- TodoForm.vue — local draft → explicit transaction on submit.
@@ -489,6 +529,8 @@ Mount the recursive component from any parent at a known root id: `<TreeNode :no
 
 The tree itself is mutable through `client.orgTree.*` methods. Each method requires the caller to hold a specific permission on the target node — `admin` for permission grants, `write` for structural changes (create, reparent, delete, rename, relabel; edge ops check the parent). The one hybrid is `addEdge`, which also requires `admin` on the *child*: adding a parent edge widens who has access to the child's subtree, so the child side demands `setPermission`'s tier. Failures reject the returned Promise.
 
+A grant you write is keyed by a person's `sub`, a bare UUID. A grant you read back from the tree can also be keyed by what holds it, as `agent:lumenize` is, so a view asks `isPersonSub` before it treats a key as a person: a roster of who something is shared with keeps the people, and a view of every grant shows any other key as what it names (see [Access control § Permissions table and resolution](./access-control.md#permissions-table-and-resolution)).
+
 ```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 // Grant a permission. `sub` is a JWT subject claim — a bare UUID (the current
 // user's is client.claims.sub; other users' subs come from wherever your app
@@ -500,11 +542,11 @@ await client.orgTree.setPermission(nodeId, bobsSub, 'read');
 // Revoke. Idempotent — no-op if `sub` has no grant on this node.
 await client.orgTree.revokePermission(nodeId, bobsSub);
 
-// Create a child node (slug rules and return shape: see API reference).
-// Caller must hold `write` on `parentNodeId`.
-const listShoppingId = await client.orgTree.createNode(
-  userAliceNodeId, 'list-shopping', 'Shopping',
-);
+// Create a child node — YOU supply the id (a UUID), so you have it immediately
+// (no round-trip) and a retry with the same id is idempotent. Caller must hold
+// `write` on `parentNodeId`.
+const listShoppingId = crypto.randomUUID();
+await client.orgTree.createNode(listShoppingId, userAliceNodeId, 'list-shopping', 'Shopping');
 
 // Co-ownership sharing — the two-party share-accept flow from Resources §
 // Access control. Step 1, owner offers (runs as Alice): grant Bob admin on
@@ -531,11 +573,11 @@ The full surface (`reparentNode`, `deleteNode`, `undeleteNode`, `renameNode`, `r
 
 **Every Nebula app receives the same built-in org/permission tree** — the structure that resources are attached to for permissions and tenancy. Every connected client gets the full tree at `store.lmz.orgTree.value` — structure *and* the full permissions table (opaque-ID-keyed; see [Resources § Access control](./access-control.md) for what that exposes and why). Visibility is intentionally not restricted — the sub-second-RTT permission UX wants every client to know the full shape locally, to grey out inaccessible nodes and resolve who to ask for access. Most apps will surface it somewhere in their UI; rendering it as a tree view is the most common form (others: a flat list of accessible nodes, a breadcrumb selector for the current scope, a permission-grant dialog).
 
-The example pulls together: reading the built-in org tree (delivered on its own channel to `store.lmz.orgTree`), walking the embedded `Map<number, ...>` in a `computed`, recursive Vue components, per-instance state, and `provide` / `inject` to broadcast a derived signal down the tree. It includes multi-parent rendering (the tree allows a node to have more than one parent — see [Resources § Access control](./access-control.md) for why and the tradeoffs), virtual "Deleted" / "Orphaned" branches, and search with match highlighting + auto-expand of ancestors of matches.
+The example pulls together: reading the built-in org tree (delivered on its own channel to `store.lmz.orgTree`), walking the embedded `Map<string, ...>` in a `computed`, recursive Vue components, per-instance state, and `provide` / `inject` to broadcast a derived signal down the tree. It includes multi-parent rendering (the tree allows a node to have more than one parent — see [Resources § Access control](./access-control.md) for why and the tradeoffs), virtual "Deleted" / "Orphaned" branches, and search with match highlighting + auto-expand of ancestors of matches.
 
 ### The tree shape
 
-`store.lmz.orgTree.value` is an [`OrgTreeState`](./api-reference.md#orgtreestate) — `nodes` (a `Map<number, { slug, label, deleted }>`), `edges` (a `Set` of `"parentId:childId"` keys — adjacency lives here, not on the nodes), and `permissions`. For O(1) parent/child lookups while walking, build an `OrgTreeView` with `buildOrgTreeView(orgTree)` (exported from `@lumenize/nebula/frontend`); the `tree.ts` helpers below use it.
+`store.lmz.orgTree.value` is an [`OrgTreeState`](./api-reference.md#orgtreestate) — `nodes` (a `Map<string, { slug, label, deleted }>`, keyed by the node's UUID), `edges` (a `Set` of `"parentId:childId"` keys — adjacency lives here, not on the nodes), and `permissions`. For O(1) parent/child lookups while walking, build an `OrgTreeView` with `buildOrgTreeView(orgTree)` (exported from `@lumenize/resources/frontend`); the `tree.ts` helpers below use it.
 
 The tree is subscribed once on connect and kept current at `store.lmz.orgTree`; every server-side mutation broadcasts a fresh snapshot to all connected clients (the actor included — `client.orgTree.*` has no optimistic local write, so the broadcast echo is what updates your own store). The delivery is tagged `new-in-v3` — see [API reference § OrgTreeState](./api-reference.md#orgtreestate).
 
@@ -543,13 +585,13 @@ The framework reserves the `lmz` resourceType for its own resources (mirrors the
 
 **Multi-parent rendering**: a node with parents `[A, B]` renders once under each. The derivation walks every parent edge; each rendered position is its own `OrgTreeNode` instance with independent per-instance state automatically.
 
-**Virtual branches**: `__deleted__` and `__orphaned__` are IDs in the derived `TreeNodeData` tree. Real tree nodes have integer `nodeId`, so the derived `TreeNodeData.id` — `String(nodeId)` — is all digits for every real node; the underscore-prefixed virtual IDs can't collide with anything real.
+**Virtual branches**: `__deleted__` and `__orphaned__` are IDs in the derived `TreeNodeData` tree. Real tree nodes have a UUID `nodeId`, so the derived `TreeNodeData.id` — `String(nodeId)` — is a hyphenated hex UUID for every real node; the underscore-prefixed virtual IDs can't collide with a UUID.
 
 ### Derivation helpers (`tree.ts`)
 
 ```typescript @skip-check
 // tree.ts — shape + derivation helpers used by App.vue and OrgTreeNode.vue.
-import { ROOT_NODE_ID, buildOrgTreeView, type OrgTreeState } from '@lumenize/nebula/frontend';
+import { ROOT_NODE_ID, buildOrgTreeView, type OrgTreeState } from '@lumenize/resources/frontend';
 
 export interface TreeNodeData {
   id: string;                                       // String(nodeId) for real nodes; '__deleted__' / '__orphaned__' for virtuals
@@ -559,7 +601,7 @@ export interface TreeNodeData {
   children: TreeNodeData[];
 }
 
-// Walks from ROOT_NODE_ID through `dag.nodes`, rendering a node under each of
+// Walks from ROOT_NODE_ID through `orgTree.nodes`, rendering a node under each of
 // its parents. Skips deleted nodes during the main walk; collects them into a
 // __deleted__ subtree. Computes orphaned (nodes not reachable from root via
 // undeleted edges) into __orphaned__. When `query` is non-empty, splits each
@@ -633,7 +675,7 @@ watch(
 <!-- App.vue — search input + tree derivation + provide auto-expand set. -->
 <script setup lang="ts">
 import { computed, provide, onMounted } from 'vue';
-import type { OrgTreeState } from '@lumenize/nebula/frontend';
+import type { OrgTreeState } from '@lumenize/resources/frontend';
 import { store } from './nebula';
 import OrgTreeNode from './OrgTreeNode.vue';
 import { deriveTreeWithVirtuals, walkAndCollectAncestorsOfMatches,

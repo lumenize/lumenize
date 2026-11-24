@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { effect, effectScope } from '@vue/reactivity';
 import { setDebugSink, clearDebugSink, type DebugSink } from '@lumenize/debug';
-import { createNebulaStore } from '../../src/frontend/create-nebula-client';
+import { createNebulaStore } from '../../../../packages/resources/src/frontend/create-nebula-client';
 import { MockClient } from './mock-client';
 
 type Entry = { level: string; namespace: string; message: string; data?: unknown };
@@ -56,7 +56,7 @@ describe('ui/app pre-seed', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────
-// Cleanup: synced-state middleware warns (and drops) when no meta.eTag exists;
+// Cleanup: synced-state middleware warns (and drops) when no meta.validFrom exists;
 // writes to meta.* pass through without submitting.
 // ──────────────────────────────────────────────────────────────────────────
 describe('synced-state middleware edge cases', () => {
@@ -68,24 +68,24 @@ describe('synced-state middleware edge cases', () => {
   const warns = () =>
     entries.filter((e) => e.namespace === 'lumenize.nebula-frontend' && e.level === 'warn');
 
-  it('warns and drops a .value write when the resource has no meta.eTag', async () => {
+  it('warns and drops a .value write when the resource has no meta.validFrom', async () => {
     const { store, client } = setup({
-      resources: { todo: { orphan: { value: { title: 'x' } } } }, // no meta.eTag
+      resources: { todo: { orphan: { value: { title: 'x' } } } }, // no meta.validFrom
     });
     store.resources.todo.orphan.value.title = 'edited';
     await flushMicrotasks();
     expect(client.txns).toHaveLength(0);
-    expect(warns().some((e) => /meta\.eTag/.test(e.message))).toBe(true);
+    expect(warns().some((e) => /meta\.validFrom/.test(e.message))).toBe(true);
   });
 
   it('writes to meta.* pass through without submitting a transaction', async () => {
     const { store, client } = setup({
-      resources: { todo: { t1: { value: { title: 'x' }, meta: { eTag: 'e1' } } } },
+      resources: { todo: { t1: { value: { title: 'x' }, meta: { validFrom: 'e1' } } } },
     });
-    store.resources.todo.t1.meta.eTag = 'user-tampered';
+    store.resources.todo.t1.meta.validFrom = 'user-tampered';
     await flushMicrotasks();
     expect(client.txns).toHaveLength(0); // meta path doesn't match the value regex
-    expect(store.resources.todo.t1.meta.eTag).toBe('user-tampered'); // passes through
+    expect(store.resources.todo.t1.meta.validFrom).toBe('user-tampered'); // passes through
   });
 });
 
@@ -157,8 +157,8 @@ describe('re-entrancy guard', () => {
     const { store, client, factory } = setup({
       resources: {
         todo: {
-          a: { value: { title: 'A' }, meta: { eTag: 'eA' } },
-          b: { value: { title: 'B' }, meta: { eTag: 'eB' } },
+          a: { value: { title: 'A' }, meta: { validFrom: 'eA' } },
+          b: { value: { title: 'B' }, meta: { validFrom: 'eB' } },
         },
       },
     });

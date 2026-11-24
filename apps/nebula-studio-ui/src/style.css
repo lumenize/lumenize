@@ -1,2 +1,22 @@
 @import "tailwindcss";
 @plugin "daisyui";
+
+/* One shared neutral base — a warm greyish beige — that Studio sub-classes with brand color.
+ *
+ * PLACEHOLDER TIER. This is a single palette call, not a design system: the repo's stance is that
+ * design guidance is deliberately deferred, and stock daisyUI is the placeholder everywhere else.
+ * What it buys today is that the auth screens and Studio share one surface color instead of
+ * diverging by accident, and that a warm neutral takes Studio's accent cleanly later.
+ *
+ * Change color HERE, never in markup — `ui-theming.md`. */
+@plugin "daisyui/theme" {
+  name: "nebula";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: oklch(97% 0.006 85);
+  --color-base-200: oklch(94% 0.008 85);
+  --color-base-300: oklch(89% 0.010 85);
+  --color-base-content: oklch(26% 0.012 85);
+}

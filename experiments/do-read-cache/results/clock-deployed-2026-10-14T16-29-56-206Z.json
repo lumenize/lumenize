@@ -1,0 +1,380 @@
+{
+ "mode": "clock",
+ "run": "2026-10-14T16-29-56-206Z",
+ "base": "https://experiment-do-read-cache.transformation.workers.dev",
+ "local": false,
+ "startedAt": "2026-10-14T16:29:56.208Z",
+ "config": {
+  "OBJECTS": 10,
+  "ROUNDS": 3,
+  "CYCLES": 10,
+  "TARGET_READS": 10000,
+  "MAX_ROWS": 18000,
+  "SWEEP_ROWS": [
+   64,
+   128,
+   256,
+   320,
+   384,
+   416,
+   448,
+   480,
+   512,
+   576,
+   640,
+   768,
+   1024,
+   1536,
+   2048,
+   4096,
+   8192,
+   18000
+  ],
+  "ABORT_ROWS": [
+   256,
+   448,
+   4096,
+   18000
+  ]
+ },
+ "objects": [
+  {
+   "instance": "clock-2026-10-14T16-29-56-206Z",
+   "colo": "IAD"
+  }
+ ],
+ "records": [
+  {
+   "arm": "clock",
+   "object": 0,
+   "i": 0,
+   "ping": {
+    "seq": 4,
+    "workerMs": 14,
+    "workerColo": "IAD",
+    "nodeMs": 66.2,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok"
+    }
+   },
+   "clock": {
+    "seq": 5,
+    "workerMs": 260,
+    "workerColo": "IAD",
+    "nodeMs": 318.2,
+    "frozenMs": 0,
+    "timerMs": 0,
+    "ioMs": 38,
+    "reads": 10240,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 253,
+     "cpuMs": 219,
+     "outcome": "ok"
+    }
+   }
+  },
+  {
+   "arm": "clock",
+   "object": 0,
+   "i": 1,
+   "ping": {
+    "seq": 6,
+    "workerMs": 7,
+    "workerColo": "IAD",
+    "nodeMs": 33.3,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok"
+    }
+   },
+   "clock": {
+    "seq": 7,
+    "workerMs": 528,
+    "workerColo": "IAD",
+    "nodeMs": 557.2,
+    "frozenMs": 0,
+    "timerMs": 0,
+    "ioMs": 68,
+    "reads": 10240,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 521,
+     "cpuMs": 479,
+     "outcome": "ok"
+    }
+   }
+  },
+  {
+   "arm": "clock",
+   "object": 0,
+   "i": 2,
+   "ping": {
+    "seq": 8,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "nodeMs": 41.5,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 5,
+     "cpuMs": 0,
+     "outcome": "ok"
+    }
+   },
+   "clock": {
+    "seq": 9,
+    "workerMs": 265,
+    "workerColo": "IAD",
+    "nodeMs": 327.7,
+    "frozenMs": 0,
+    "timerMs": 0,
+    "ioMs": 52,
+    "reads": 10240,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 260,
+     "cpuMs": 222,
+     "outcome": "ok"
+    }
+   }
+  },
+  {
+   "arm": "clock",
+   "object": 0,
+   "i": 3,
+   "ping": {
+    "seq": 10,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "nodeMs": 49,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 11,
+     "cpuMs": 0,
+     "outcome": "ok"
+    }
+   },
+   "clock": {
+    "seq": 11,
+    "workerMs": 293,
+    "workerColo": "IAD",
+    "nodeMs": 345.6,
+    "frozenMs": 0,
+    "timerMs": 0,
+    "ioMs": 105,
+    "reads": 10240,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 290,
+     "cpuMs": 225,
+     "outcome": "ok"
+    }
+   }
+  },
+  {
+   "arm": "clock",
+   "object": 0,
+   "i": 4,
+   "ping": {
+    "seq": 12,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "nodeMs": 88.5,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok"
+    }
+   },
+   "clock": {
+    "seq": 13,
+    "workerMs": 452,
+    "workerColo": "IAD",
+    "nodeMs": 481.1,
+    "frozenMs": 0,
+    "timerMs": 0,
+    "ioMs": 96,
+    "reads": 10240,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 446,
+     "cpuMs": 388,
+     "outcome": "ok"
+    }
+   }
+  },
+  {
+   "arm": "clock",
+   "object": 0,
+   "i": 5,
+   "ping": {
+    "seq": 14,
+    "workerMs": 14,
+    "workerColo": "IAD",
+    "nodeMs": 39.8,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok"
+    }
+   },
+   "clock": {
+    "seq": 15,
+    "workerMs": 362,
+    "workerColo": "IAD",
+    "nodeMs": 467.2,
+    "frozenMs": 0,
+    "timerMs": 0,
+    "ioMs": 173,
+    "reads": 10240,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 354,
+     "cpuMs": 253,
+     "outcome": "ok"
+    }
+   }
+  },
+  {
+   "arm": "clock",
+   "object": 0,
+   "i": 6,
+   "ping": {
+    "seq": 16,
+    "workerMs": 25,
+    "workerColo": "IAD",
+    "nodeMs": 132.8,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 10,
+     "cpuMs": 0,
+     "outcome": "ok"
+    }
+   },
+   "clock": {
+    "seq": 17,
+    "workerMs": 331,
+    "workerColo": "IAD",
+    "nodeMs": 362.2,
+    "frozenMs": 0,
+    "timerMs": 0,
+    "ioMs": 143,
+    "reads": 10240,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 305,
+     "cpuMs": 226,
+     "outcome": "ok"
+    }
+   }
+  },
+  {
+   "arm": "clock",
+   "object": 0,
+   "i": 7,
+   "ping": {
+    "seq": 18,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "nodeMs": 77.5,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok"
+    }
+   },
+   "clock": {
+    "seq": 19,
+    "workerMs": 412,
+    "workerColo": "IAD",
+    "nodeMs": 475.9,
+    "frozenMs": 0,
+    "timerMs": 0,
+    "ioMs": 223,
+    "reads": 10240,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 428,
+     "cpuMs": 270,
+     "outcome": "ok"
+    }
+   }
+  },
+  {
+   "arm": "clock",
+   "object": 0,
+   "i": 8,
+   "ping": {
+    "seq": 20,
+    "workerMs": 38,
+    "workerColo": "IAD",
+    "nodeMs": 120.4,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok"
+    }
+   },
+   "clock": {
+    "seq": 21,
+    "workerMs": 359,
+    "workerColo": "IAD",
+    "nodeMs": 395,
+    "frozenMs": 0,
+    "timerMs": 0,
+    "ioMs": 133,
+    "reads": 10240,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 354,
+     "cpuMs": 276,
+     "outcome": "ok"
+    }
+   }
+  },
+  {
+   "arm": "clock",
+   "object": 0,
+   "i": 9,
+   "ping": {
+    "seq": 22,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "nodeMs": 52.3,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok"
+    }
+   },
+   "clock": {
+    "seq": 23,
+    "workerMs": 322,
+    "workerColo": "IAD",
+    "nodeMs": 354.6,
+    "frozenMs": 0,
+    "timerMs": 0,
+    "ioMs": 134,
+    "reads": 10240,
+    "bootId": "306e867a-9082-426f-8c6b-938cf0ed1479",
+    "logs": {
+     "wallMs": 308,
+     "cpuMs": 239,
+     "outcome": "ok"
+    }
+   }
+  }
+ ],
+ "finishedAt": "2026-10-14T16:30:03.455Z",
+ "logsJoinedAt": "2026-10-14T16:31:14.516Z"
+}

@@ -1,0 +1,17 @@
+{
+  "name": "experiment-query-subtree-and-catchup",
+  "private": true,
+  "type": "module",
+  "//": "How a query reads only its node's subtree, and how a catch-up finds what was written since a moment. See RESULTS.md.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "seed": "node scripts/seed.mjs",
+    "measure": "node scripts/measure.mjs",
+    "logs": "node scripts/logs.mjs",
+    "tables": "node scripts/tables.mjs",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "wrangler": "4.147.0"
+  }
+}

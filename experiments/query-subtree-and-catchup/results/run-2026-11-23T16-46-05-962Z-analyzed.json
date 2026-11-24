@@ -1,0 +1,872 @@
+{
+ "run": "2026-11-23T16-46-05-962Z",
+ "base": "https://experiment-query-subtree-and-catchup.transformation.workers.dev",
+ "startedAt": "2026-11-23T16:46:05.962Z",
+ "config": {
+  "TARGET_MS": 250,
+  "MAX_REPS": 3000,
+  "ROUNDS": 3,
+  "WRITES": 120000,
+  "PAIRED": false
+ },
+ "noops": [
+  {
+   "instance": "node",
+   "seq": 1795452365948001,
+   "workerMs": 58,
+   "workerColo": "DFW"
+  },
+  {
+   "instance": "node",
+   "seq": 1795452365948002,
+   "workerMs": 57,
+   "workerColo": "DFW"
+  },
+  {
+   "instance": "node",
+   "seq": 1795452365948003,
+   "workerMs": 42,
+   "workerColo": "DFW"
+  },
+  {
+   "instance": "node",
+   "seq": 1795452365948004,
+   "workerMs": 44,
+   "workerColo": "DFW"
+  },
+  {
+   "instance": "node",
+   "seq": 1795452365948005,
+   "workerMs": 58,
+   "workerColo": "DFW"
+  }
+ ],
+ "records": [
+  {
+   "id": "q2.whole.stage.n1.b",
+   "q": "Q2",
+   "instance": "node",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n1",
+    "arm": "b",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795452365948030,
+     "round": 0,
+     "reps": 3000,
+     "workerMs": 355,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948045,
+     "round": 1,
+     "reps": 3000,
+     "workerMs": 206,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948060,
+     "round": 2,
+     "reps": 3000,
+     "workerMs": 399,
+     "workerColo": "DFW"
+    }
+   ],
+   "first": {
+    "seq": 1795452365948006,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 8,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 63,
+    "workerColo": "DFW"
+   },
+   "reps": 3000
+  },
+  {
+   "id": "q2.whole.stage.n4.b",
+   "q": "Q2",
+   "instance": "node",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n4",
+    "arm": "b",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795452365948024,
+     "round": 0,
+     "reps": 3000,
+     "workerMs": 312,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948040,
+     "round": 1,
+     "reps": 3000,
+     "workerMs": 281,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948056,
+     "round": 2,
+     "reps": 3000,
+     "workerMs": 254,
+     "workerColo": "DFW"
+    }
+   ],
+   "first": {
+    "seq": 1795452365948007,
+    "rows": 1,
+    "bytes": 492,
+    "rowsRead": 25,
+    "check": 3603911042,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 46,
+    "workerColo": "DFW"
+   },
+   "reps": 3000
+  },
+  {
+   "id": "q2.whole.stage.n41.b",
+   "q": "Q2",
+   "instance": "node",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n41",
+    "arm": "b",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795452365948032,
+     "round": 0,
+     "reps": 560,
+     "workerMs": 810,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948043,
+     "round": 1,
+     "reps": 560,
+     "workerMs": 830,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948063,
+     "round": 2,
+     "reps": 560,
+     "workerMs": 819,
+     "workerColo": "DFW"
+    }
+   ],
+   "first": {
+    "seq": 1795452365948008,
+    "rows": 22,
+    "bytes": 7913,
+    "rowsRead": 258,
+    "check": 1352041750,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 44,
+    "workerColo": "DFW"
+   },
+   "reps": 560
+  },
+  {
+   "id": "q2.whole.stage.n411.b",
+   "q": "Q2",
+   "instance": "node",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n411",
+    "arm": "b",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795452365948035,
+     "round": 0,
+     "reps": 56,
+     "workerMs": 929,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948037,
+     "round": 1,
+     "reps": 56,
+     "workerMs": 1671,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948051,
+     "round": 2,
+     "reps": 56,
+     "workerMs": 1025,
+     "workerColo": "DFW"
+    }
+   ],
+   "first": {
+    "seq": 1795452365948009,
+    "rows": 242,
+    "bytes": 84522,
+    "rowsRead": 2794,
+    "check": 343184595,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 81,
+    "workerColo": "DFW"
+   },
+   "reps": 56
+  },
+  {
+   "id": "q2.whole.stage.n4111.b",
+   "q": "Q2",
+   "instance": "node",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "stage",
+    "subtree": "n4111",
+    "arm": "b",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.stage') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795452365948022,
+     "round": 0,
+     "reps": 6,
+     "workerMs": 907,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948042,
+     "round": 1,
+     "reps": 6,
+     "workerMs": 982,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948052,
+     "round": 2,
+     "reps": 6,
+     "workerMs": 919,
+     "workerColo": "DFW"
+    }
+   ],
+   "first": {
+    "seq": 1795452365948010,
+    "rows": 2416,
+    "bytes": 867136,
+    "rowsRead": 26520,
+    "check": 2004694973,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 228,
+    "workerColo": "DFW"
+   },
+   "reps": 6
+  },
+  {
+   "id": "q2.whole.owner.n1.b",
+   "q": "Q2",
+   "instance": "node",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n1",
+    "arm": "b",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795452365948021,
+     "round": 0,
+     "reps": 2016,
+     "workerMs": 273,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948039,
+     "round": 1,
+     "reps": 2016,
+     "workerMs": 241,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948061,
+     "round": 2,
+     "reps": 2016,
+     "workerMs": 220,
+     "workerColo": "DFW"
+    }
+   ],
+   "first": {
+    "seq": 1795452365948011,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 56,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:owner (<expr>=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 43,
+    "workerColo": "DFW"
+   },
+   "reps": 2016
+  },
+  {
+   "id": "q2.whole.owner.n4.b",
+   "q": "Q2",
+   "instance": "node",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n4",
+    "arm": "b",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795452365948028,
+     "round": 0,
+     "reps": 1946,
+     "workerMs": 254,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948049,
+     "round": 1,
+     "reps": 1946,
+     "workerMs": 242,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948057,
+     "round": 2,
+     "reps": 1946,
+     "workerMs": 253,
+     "workerColo": "DFW"
+    }
+   ],
+   "first": {
+    "seq": 1795452365948012,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 59,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:owner (<expr>=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 51,
+    "workerColo": "DFW"
+   },
+   "reps": 1946
+  },
+  {
+   "id": "q2.whole.owner.n41.b",
+   "q": "Q2",
+   "instance": "node",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n41",
+    "arm": "b",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795452365948027,
+     "round": 0,
+     "reps": 1359,
+     "workerMs": 229,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948038,
+     "round": 1,
+     "reps": 1359,
+     "workerMs": 312,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948058,
+     "round": 2,
+     "reps": 1359,
+     "workerMs": 209,
+     "workerColo": "DFW"
+    }
+   ],
+   "first": {
+    "seq": 1795452365948013,
+    "rows": 0,
+    "bytes": 0,
+    "rowsRead": 96,
+    "check": 0,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:owner (<expr>=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 43,
+    "workerColo": "DFW"
+   },
+   "reps": 1359
+  },
+  {
+   "id": "q2.whole.owner.n411.b",
+   "q": "Q2",
+   "instance": "node",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n411",
+    "arm": "b",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795452365948023,
+     "round": 0,
+     "reps": 332,
+     "workerMs": 114,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948048,
+     "round": 1,
+     "reps": 332,
+     "workerMs": 167,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948053,
+     "round": 2,
+     "reps": 332,
+     "workerMs": 187,
+     "workerColo": "DFW"
+    }
+   ],
+   "first": {
+    "seq": 1795452365948014,
+    "rows": 1,
+    "bytes": 409,
+    "rowsRead": 474,
+    "check": 1710443451,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:owner (<expr>=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 44,
+    "workerColo": "DFW"
+   },
+   "reps": 332
+  },
+  {
+   "id": "q2.whole.owner.n4111.b",
+   "q": "Q2",
+   "instance": "node",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "owner",
+    "subtree": "n4111",
+    "arm": "b",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND json_extract(value, '$.owner') = ? AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795452365948031,
+     "round": 0,
+     "reps": 39,
+     "workerMs": 99,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948044,
+     "round": 1,
+     "reps": 39,
+     "workerMs": 117,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948064,
+     "round": 2,
+     "reps": 39,
+     "workerMs": 101,
+     "workerColo": "DFW"
+    }
+   ],
+   "first": {
+    "seq": 1795452365948015,
+    "rows": 54,
+    "bytes": 20235,
+    "rowsRead": 4166,
+    "check": 1154625749,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_q_Deal:owner (<expr>=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "  CREATE BLOOM FILTER"
+    ],
+    "reps": 1,
+    "workerMs": 57,
+    "workerColo": "DFW"
+   },
+   "reps": 39
+  },
+  {
+   "id": "q2.whole.all.n1.b",
+   "q": "Q2",
+   "instance": "node",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n1",
+    "arm": "b",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795452365948029,
+     "round": 0,
+     "reps": 3000,
+     "workerMs": 158,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948041,
+     "round": 1,
+     "reps": 3000,
+     "workerMs": 135,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948062,
+     "round": 2,
+     "reps": 3000,
+     "workerMs": 130,
+     "workerColo": "DFW"
+    }
+   ],
+   "first": {
+    "seq": 1795452365948016,
+    "rows": 4,
+    "bytes": 1706,
+    "rowsRead": 11,
+    "check": 2210063032,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 59,
+    "workerColo": "DFW"
+   },
+   "reps": 3000
+  },
+  {
+   "id": "q2.whole.all.n4.b",
+   "q": "Q2",
+   "instance": "node",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n4",
+    "arm": "b",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795452365948033,
+     "round": 0,
+     "reps": 2370,
+     "workerMs": 164,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948036,
+     "round": 1,
+     "reps": 2370,
+     "workerMs": 161,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948065,
+     "round": 2,
+     "reps": 2370,
+     "workerMs": 150,
+     "workerColo": "DFW"
+    }
+   ],
+   "first": {
+    "seq": 1795452365948017,
+    "rows": 12,
+    "bytes": 4596,
+    "rowsRead": 36,
+    "check": 2609426427,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 50,
+    "workerColo": "DFW"
+   },
+   "reps": 2370
+  },
+  {
+   "id": "q2.whole.all.n41.b",
+   "q": "Q2",
+   "instance": "node",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n41",
+    "arm": "b",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795452365948025,
+     "round": 0,
+     "reps": 373,
+     "workerMs": 877,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948050,
+     "round": 1,
+     "reps": 373,
+     "workerMs": 591,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948059,
+     "round": 2,
+     "reps": 373,
+     "workerMs": 589,
+     "workerColo": "DFW"
+    }
+   ],
+   "first": {
+    "seq": 1795452365948018,
+    "rows": 116,
+    "bytes": 40788,
+    "rowsRead": 352,
+    "check": 151536629,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 52,
+    "workerColo": "DFW"
+   },
+   "reps": 373
+  },
+  {
+   "id": "q2.whole.all.n411.b",
+   "q": "Q2",
+   "instance": "node",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n411",
+    "arm": "b",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795452365948034,
+     "round": 0,
+     "reps": 36,
+     "workerMs": 686,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948046,
+     "round": 1,
+     "reps": 36,
+     "workerMs": 745,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948054,
+     "round": 2,
+     "reps": 36,
+     "workerMs": 1142,
+     "workerColo": "DFW"
+    }
+   ],
+   "first": {
+    "seq": 1795452365948019,
+    "rows": 1312,
+    "bytes": 467950,
+    "rowsRead": 3864,
+    "check": 71205714,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 72,
+    "workerColo": "DFW"
+   },
+   "reps": 36
+  },
+  {
+   "id": "q2.whole.all.n4111.b",
+   "q": "Q2",
+   "instance": "node",
+   "meta": {
+    "q": "Q2",
+    "shape": "whole",
+    "filter": "all",
+    "subtree": "n4111",
+    "arm": "b",
+    "instance": "node"
+   },
+   "sql": "SELECT resourceId, nodeId, validFrom, value FROM Snapshots WHERE typeName = 'Deal' AND validTo = '9999-01-01T00:00:00.000Z' AND deleted = 0 AND nodeId IN (SELECT value FROM json_each(?)) ORDER BY resourceId",
+   "timed": [
+    {
+     "seq": 1795452365948026,
+     "round": 0,
+     "reps": 4,
+     "workerMs": 753,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948047,
+     "round": 1,
+     "reps": 4,
+     "workerMs": 738,
+     "workerColo": "DFW"
+    },
+    {
+     "seq": 1795452365948055,
+     "round": 2,
+     "reps": 4,
+     "workerMs": 747,
+     "workerColo": "DFW"
+    }
+   ],
+   "first": {
+    "seq": 1795452365948020,
+    "rows": 12000,
+    "bytes": 4336750,
+    "rowsRead": 36104,
+    "check": 1375774002,
+    "statements": 1,
+    "plan": [
+     "SEARCH Snapshots USING INDEX idx_Snapshots_node (nodeId=? AND typeName=?)",
+     "LIST SUBQUERY 1",
+     "  SCAN json_each VIRTUAL TABLE INDEX 1:",
+     "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "reps": 1,
+    "workerMs": 289,
+    "workerColo": "DFW"
+   },
+   "reps": 4
+  }
+ ],
+ "finishedAt": "2026-11-23T16:46:34.619Z"
+}

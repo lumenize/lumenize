@@ -39,4 +39,4 @@ Review output for issues before proceeding.
 ## Rules
 - Always dry run first
 - Never publish with uncommitted changes
-- Flag breaking changes for major version increment (favor breaking changes over technical debt; the next release gets flagged accordingly)
+- Breaking changes are favored over technical debt, and none is listed in the notes while no one we know of builds on a published package (`.claude/rules/workflow.md` § Releases)

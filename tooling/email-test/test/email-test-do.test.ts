@@ -3,8 +3,8 @@ import { env } from 'cloudflare:test';
 import { createMimeMessage } from '../src/simple-mime-message';
 
 describe('EmailTestDO', () => {
-  describe('email parsing and KV storage', () => {
-    it('parses a plain text email and stores it in KV', async () => {
+  describe('email parsing and storage', () => {
+    it('parses a plain text email and stores it', async () => {
       const stub = env.EMAIL_TEST_DO.getByName('parse-text-1');
 
       const mime = createMimeMessage()
@@ -25,7 +25,23 @@ describe('EmailTestDO', () => {
       expect(stored.receivedAt).toBeDefined();
     });
 
-    it('parses an HTML email and stores it in KV', async () => {
+    it('keeps the message as it arrived, byte for byte', async () => {
+      const stub = env.EMAIL_TEST_DO.getByName('raw-1');
+      // A header a parser does not surface, and bytes outside ASCII, both of which must survive.
+      const raw = createMimeMessage()
+        .setSender({ addr: 'auth@lumenize.com' })
+        .setRecipient('gerry--dev.crm.acme@lumenize-test.dev')
+        .setSubject('Invite')
+        .addMessage({ contentType: 'text/plain', data: 'café' })
+        .asRaw().replace('Subject:', 'X-Lumenize-Auth-Link: https://platform.example/auth/magic-link?token=abc\r\nSubject:');
+      const bytes = new TextEncoder().encode(raw);
+      const stored = await stub.receiveEmail(bytes.buffer);
+      const back = Uint8Array.from(atob(stored.raw), (ch) => ch.charCodeAt(0));
+      expect([...back]).toEqual([...bytes]);
+      expect(new TextDecoder().decode(back)).toContain('X-Lumenize-Auth-Link: https://platform.example/auth/magic-link?token=abc');
+    });
+
+    it('parses an HTML email and stores it', async () => {
       const stub = env.EMAIL_TEST_DO.getByName('parse-html-1');
 
       const html = '<h1>Welcome</h1><a href="https://example.com/magic?token=abc123">Sign in</a>';
@@ -44,7 +60,7 @@ describe('EmailTestDO', () => {
       expect(stored.from?.name).toBe('My App');
     });
 
-    it('accumulates multiple emails in KV array', async () => {
+    it('keeps every email, in the order it arrived', async () => {
       const stub = env.EMAIL_TEST_DO.getByName('accumulate-1');
 
       for (let i = 1; i <= 3; i++) {

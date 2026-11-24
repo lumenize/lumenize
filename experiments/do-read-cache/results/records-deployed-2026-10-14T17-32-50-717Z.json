@@ -1,0 +1,6403 @@
+{
+ "mode": "records",
+ "run": "2026-10-14T17-32-50-717Z",
+ "base": "https://experiment-do-read-cache.transformation.workers.dev",
+ "local": false,
+ "startedAt": "2026-10-14T17:32:50.719Z",
+ "config": {
+  "OBJECTS": 10,
+  "ROUNDS": 3,
+  "CYCLES": 10,
+  "TARGET_READS": 10000,
+  "MAX_ROWS": 18000,
+  "SWEEP_ROWS": [
+   64,
+   128,
+   256,
+   320,
+   384,
+   416,
+   448,
+   480,
+   512,
+   576,
+   640,
+   768,
+   1024,
+   1536,
+   2048,
+   4096,
+   8192,
+   18000
+  ],
+  "ABORT_ROWS": [
+   256,
+   448,
+   4096,
+   18000
+  ],
+  "REC_COUNT": 100000,
+  "REC_CONDITIONS": [
+   {
+    "label": "mem, 128 records",
+    "api": "mem",
+    "of": 128,
+    "reads": 2000000
+   },
+   {
+    "label": "mem, 100000 records",
+    "api": "mem",
+    "of": 100000,
+    "reads": 2000000
+   },
+   {
+    "label": "sql, cache hit",
+    "api": "sql",
+    "of": 128,
+    "reads": 20000
+   },
+   {
+    "label": "kv, cache hit",
+    "api": "kv",
+    "of": 128,
+    "reads": 20000
+   },
+   {
+    "label": "sql, cache miss",
+    "api": "sql",
+    "of": 100000,
+    "reads": 20000
+   },
+   {
+    "label": "kv, cache miss",
+    "api": "kv",
+    "of": 100000,
+    "reads": 20000
+   }
+  ]
+ },
+ "objects": [
+  {
+   "instance": "records-2026-10-14T17-32-50-717Z-0",
+   "colo": "ORD",
+   "databaseSize": 35307520,
+   "pageSize": 4096
+  },
+  {
+   "instance": "records-2026-10-14T17-32-50-717Z-1",
+   "colo": "IAD",
+   "databaseSize": 35307520,
+   "pageSize": 4096
+  },
+  {
+   "instance": "records-2026-10-14T17-32-50-717Z-2",
+   "colo": "ATL",
+   "databaseSize": 35307520,
+   "pageSize": 4096
+  },
+  {
+   "instance": "records-2026-10-14T17-32-50-717Z-3",
+   "colo": "IAD",
+   "databaseSize": 35307520,
+   "pageSize": 4096
+  },
+  {
+   "instance": "records-2026-10-14T17-32-50-717Z-4",
+   "colo": "ATL",
+   "databaseSize": 35307520,
+   "pageSize": 4096
+  },
+  {
+   "instance": "records-2026-10-14T17-32-50-717Z-5",
+   "colo": "ORD",
+   "databaseSize": 35307520,
+   "pageSize": 4096
+  },
+  {
+   "instance": "records-2026-10-14T17-32-50-717Z-6",
+   "colo": "EWR",
+   "databaseSize": 35307520,
+   "pageSize": 4096
+  },
+  {
+   "instance": "records-2026-10-14T17-32-50-717Z-7",
+   "colo": "IAD",
+   "databaseSize": 35307520,
+   "pageSize": 4096
+  },
+  {
+   "instance": "records-2026-10-14T17-32-50-717Z-8",
+   "colo": "ORD",
+   "databaseSize": 35307520,
+   "pageSize": 4096
+  },
+  {
+   "instance": "records-2026-10-14T17-32-50-717Z-9",
+   "colo": "EWR",
+   "databaseSize": 35307520,
+   "pageSize": 4096
+  }
+ ],
+ "records": [
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 0,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 25,
+    "workerMs": 327,
+    "workerColo": "IAD",
+    "nodeMs": 360.9,
+    "reads": 20000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 318,
+     "cpuMs": 291,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 23,
+    "workerMs": 34,
+    "workerColo": "IAD",
+    "nodeMs": 67.8,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 0,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 28,
+    "workerMs": 315,
+    "workerColo": "IAD",
+    "nodeMs": 347.3,
+    "reads": 20000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 306,
+     "cpuMs": 277,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 26,
+    "workerMs": 35,
+    "workerColo": "IAD",
+    "nodeMs": 66.9,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 29,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 0,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 31,
+    "workerMs": 439,
+    "workerColo": "IAD",
+    "nodeMs": 469,
+    "reads": 20000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 488,
+     "cpuMs": 398,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 29,
+    "workerMs": 36,
+    "workerColo": "IAD",
+    "nodeMs": 93.8,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 27,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 0,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 34,
+    "workerMs": 938,
+    "workerColo": "IAD",
+    "nodeMs": 973.5,
+    "reads": 2000000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 930,
+     "cpuMs": 855,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 32,
+    "workerMs": 51,
+    "workerColo": "IAD",
+    "nodeMs": 92.4,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 29,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 0,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 37,
+    "workerMs": 215,
+    "workerColo": "IAD",
+    "nodeMs": 242.6,
+    "reads": 20000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 189,
+     "cpuMs": 152,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 35,
+    "workerMs": 32,
+    "workerColo": "IAD",
+    "nodeMs": 60.5,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 29,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 0,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 40,
+    "workerMs": 352,
+    "workerColo": "IAD",
+    "nodeMs": 425.1,
+    "reads": 2000000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 359,
+     "cpuMs": 320,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 38,
+    "workerMs": 36,
+    "workerColo": "IAD",
+    "nodeMs": 64.7,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 26,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 1,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 43,
+    "workerMs": 431,
+    "workerColo": "IAD",
+    "nodeMs": 458.3,
+    "reads": 20000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 436,
+     "cpuMs": 396,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 41,
+    "workerMs": 33,
+    "workerColo": "IAD",
+    "nodeMs": 61.6,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 26,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 1,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 46,
+    "workerMs": 918,
+    "workerColo": "IAD",
+    "nodeMs": 953,
+    "reads": 2000000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 908,
+     "cpuMs": 842,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 44,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "nodeMs": 70.2,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 29,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 1,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 49,
+    "workerMs": 381,
+    "workerColo": "IAD",
+    "nodeMs": 417.5,
+    "reads": 2000000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false
+   },
+   "ping": {
+    "seq": 47,
+    "workerMs": 40,
+    "workerColo": "IAD",
+    "nodeMs": 93.3,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 30,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 1,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 52,
+    "workerMs": 204,
+    "workerColo": "IAD",
+    "nodeMs": 232.1,
+    "reads": 20000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 193,
+     "cpuMs": 165,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 50,
+    "workerMs": 35,
+    "workerColo": "IAD",
+    "nodeMs": 64.9,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 33,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 1,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 55,
+    "workerMs": 301,
+    "workerColo": "IAD",
+    "nodeMs": 330.9,
+    "reads": 20000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false
+   },
+   "ping": {
+    "seq": 53,
+    "workerMs": 34,
+    "workerColo": "IAD",
+    "nodeMs": 62.7,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 1,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 58,
+    "workerMs": 322,
+    "workerColo": "IAD",
+    "nodeMs": 349.1,
+    "reads": 20000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 317,
+     "cpuMs": 287,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 56,
+    "workerMs": 34,
+    "workerColo": "IAD",
+    "nodeMs": 61.6,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 28,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 2,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 61,
+    "workerMs": 543,
+    "workerColo": "IAD",
+    "nodeMs": 574.8,
+    "reads": 20000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 486,
+     "cpuMs": 451,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 59,
+    "workerMs": 37,
+    "workerColo": "IAD",
+    "nodeMs": 64.4,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 31,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 2,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 64,
+    "workerMs": 939,
+    "workerColo": "IAD",
+    "nodeMs": 972.9,
+    "reads": 2000000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 931,
+     "cpuMs": 882,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 62,
+    "workerMs": 45,
+    "workerColo": "IAD",
+    "nodeMs": 75.8,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 26,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 2,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 67,
+    "workerMs": 394,
+    "workerColo": "IAD",
+    "nodeMs": 431,
+    "reads": 20000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 386,
+     "cpuMs": 352,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 65,
+    "workerMs": 33,
+    "workerColo": "IAD",
+    "nodeMs": 67.5,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 28,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 2,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 70,
+    "workerMs": 177,
+    "workerColo": "IAD",
+    "nodeMs": 206.1,
+    "reads": 20000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 171,
+     "cpuMs": 142,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 68,
+    "workerMs": 39,
+    "workerColo": "IAD",
+    "nodeMs": 100.2,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 32,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 2,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 73,
+    "workerMs": 585,
+    "workerColo": "IAD",
+    "nodeMs": 613.5,
+    "reads": 20000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 606,
+     "cpuMs": 538,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 71,
+    "workerMs": 34,
+    "workerColo": "IAD",
+    "nodeMs": 64,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 26,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 0,
+   "round": 2,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 76,
+    "workerMs": 382,
+    "workerColo": "IAD",
+    "nodeMs": 418,
+    "reads": 2000000,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "built": false,
+    "logs": {
+     "wallMs": 377,
+     "cpuMs": 348,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 74,
+    "workerMs": 41,
+    "workerColo": "IAD",
+    "nodeMs": 78.7,
+    "bootId": "ec355b88-bf60-416e-9468-541a03cc6424",
+    "logs": {
+     "wallMs": 26,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 0,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 102,
+    "workerMs": 943,
+    "workerColo": "IAD",
+    "nodeMs": 966.9,
+    "reads": 20000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false
+   },
+   "ping": {
+    "seq": 100,
+    "workerMs": 57,
+    "workerColo": "IAD",
+    "nodeMs": 86.8,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 0,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 105,
+    "workerMs": 712,
+    "workerColo": "IAD",
+    "nodeMs": 746.9,
+    "reads": 20000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false,
+    "logs": {
+     "wallMs": 700,
+     "cpuMs": 663,
+     "outcome": "ok",
+     "via": "gap"
+    }
+   },
+   "ping": {
+    "seq": 103,
+    "workerMs": 32,
+    "workerColo": "IAD",
+    "nodeMs": 68.7,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "logs": {
+     "wallMs": 5,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 0,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 108,
+    "workerMs": 369,
+    "workerColo": "IAD",
+    "nodeMs": 397.4,
+    "reads": 20000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false,
+    "logs": {
+     "wallMs": 347,
+     "cpuMs": 312,
+     "outcome": "ok",
+     "via": "gap"
+    }
+   },
+   "ping": {
+    "seq": 106,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "nodeMs": 60.7,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "logs": {
+     "wallMs": 10,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 0,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 111,
+    "workerMs": 720,
+    "workerColo": "IAD",
+    "nodeMs": 747.5,
+    "reads": 2000000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false
+   },
+   "ping": {
+    "seq": 109,
+    "workerMs": 19,
+    "workerColo": "IAD",
+    "nodeMs": 46,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 0,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 114,
+    "workerMs": 573,
+    "workerColo": "IAD",
+    "nodeMs": 700.2,
+    "reads": 20000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false,
+    "logs": {
+     "wallMs": 556,
+     "cpuMs": 519,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 112,
+    "workerMs": 19,
+    "workerColo": "IAD",
+    "nodeMs": 52.8,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 0,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 117,
+    "workerMs": 3741,
+    "workerColo": "IAD",
+    "nodeMs": 3766.9,
+    "reads": 2000000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false,
+    "logs": {
+     "wallMs": 3993,
+     "cpuMs": 3123,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 115,
+    "workerMs": 19,
+    "workerColo": "IAD",
+    "nodeMs": 48.2,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 1,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 120,
+    "workerMs": 1191,
+    "workerColo": "IAD",
+    "nodeMs": 1259.8,
+    "reads": 20000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false
+   },
+   "ping": {
+    "seq": 118,
+    "workerMs": 235,
+    "workerColo": "IAD",
+    "nodeMs": 266.2,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 1,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 123,
+    "workerMs": 326,
+    "workerColo": "IAD",
+    "nodeMs": 354.7,
+    "reads": 20000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false
+   },
+   "ping": {
+    "seq": 121,
+    "workerMs": 24,
+    "workerColo": "IAD",
+    "nodeMs": 60.2,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 1,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 126,
+    "workerMs": 3689,
+    "workerColo": "IAD",
+    "nodeMs": 3717.6,
+    "reads": 2000000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false,
+    "logs": {
+     "wallMs": 3673,
+     "cpuMs": 3183,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 124,
+    "workerMs": 16,
+    "workerColo": "IAD",
+    "nodeMs": 45.4,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 1,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 129,
+    "workerMs": 747,
+    "workerColo": "IAD",
+    "nodeMs": 777,
+    "reads": 2000000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false,
+    "logs": {
+     "wallMs": 735,
+     "cpuMs": 716,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 127,
+    "workerMs": 68,
+    "workerColo": "IAD",
+    "nodeMs": 94.2,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 1,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 132,
+    "workerMs": 938,
+    "workerColo": "IAD",
+    "nodeMs": 965.7,
+    "reads": 20000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false
+   },
+   "ping": {
+    "seq": 130,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "nodeMs": 47.2,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 1,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 135,
+    "workerMs": 1055,
+    "workerColo": "IAD",
+    "nodeMs": 1080.5,
+    "reads": 20000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false,
+    "logs": {
+     "wallMs": 863,
+     "cpuMs": 792,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 133,
+    "workerMs": 14,
+    "workerColo": "IAD",
+    "nodeMs": 46.8,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "logs": {
+     "wallMs": 10,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 2,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 138,
+    "workerMs": 695,
+    "workerColo": "IAD",
+    "nodeMs": 725.8,
+    "reads": 20000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false,
+    "logs": {
+     "wallMs": 685,
+     "cpuMs": 587,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 136,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "nodeMs": 50.8,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 2,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 141,
+    "workerMs": 1425,
+    "workerColo": "IAD",
+    "nodeMs": 1456.5,
+    "reads": 20000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false,
+    "logs": {
+     "wallMs": 1413,
+     "cpuMs": 1293,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 139,
+    "workerMs": 17,
+    "workerColo": "IAD",
+    "nodeMs": 46.9,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "logs": {
+     "wallMs": 7,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 2,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 144,
+    "workerMs": 663,
+    "workerColo": "IAD",
+    "nodeMs": 700.1,
+    "reads": 20000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false,
+    "logs": {
+     "wallMs": 629,
+     "cpuMs": 611,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 142,
+    "workerMs": 27,
+    "workerColo": "IAD",
+    "nodeMs": 58.6,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 2,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 147,
+    "workerMs": 4259,
+    "workerColo": "IAD",
+    "nodeMs": 4292,
+    "reads": 2000000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false,
+    "logs": {
+     "wallMs": 4224,
+     "cpuMs": 3454,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 145,
+    "workerMs": 93,
+    "workerColo": "IAD",
+    "nodeMs": 121.4,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 2,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 150,
+    "workerMs": 371,
+    "workerColo": "IAD",
+    "nodeMs": 405.1,
+    "reads": 20000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false,
+    "logs": {
+     "wallMs": 633,
+     "cpuMs": 327,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 148,
+    "workerMs": 19,
+    "workerColo": "IAD",
+    "nodeMs": 43.8,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 1,
+   "round": 2,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 153,
+    "workerMs": 708,
+    "workerColo": "IAD",
+    "nodeMs": 736.1,
+    "reads": 2000000,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28",
+    "built": false
+   },
+   "ping": {
+    "seq": 151,
+    "workerMs": 253,
+    "workerColo": "IAD",
+    "nodeMs": 368.5,
+    "bootId": "93cc749b-a89d-46bd-8508-2cc8a0d95b28"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 0,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 179,
+    "workerMs": 452,
+    "workerColo": "IAD",
+    "nodeMs": 488.9,
+    "reads": 20000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false
+   },
+   "ping": {
+    "seq": 177,
+    "workerMs": 33,
+    "workerColo": "IAD",
+    "nodeMs": 59.6,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 0,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 182,
+    "workerMs": 380,
+    "workerColo": "IAD",
+    "nodeMs": 413.9,
+    "reads": 20000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false,
+    "logs": {
+     "wallMs": 360,
+     "cpuMs": 329,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 180,
+    "workerMs": 24,
+    "workerColo": "IAD",
+    "nodeMs": 63.3,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 0,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 185,
+    "workerMs": 312,
+    "workerColo": "IAD",
+    "nodeMs": 339.3,
+    "reads": 20000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false,
+    "logs": {
+     "wallMs": 302,
+     "cpuMs": 266,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 183,
+    "workerMs": 25,
+    "workerColo": "IAD",
+    "nodeMs": 51.7,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 0,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 188,
+    "workerMs": 2077,
+    "workerColo": "IAD",
+    "nodeMs": 2109.1,
+    "reads": 2000000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false,
+    "logs": {
+     "wallMs": 2070,
+     "cpuMs": 1837,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 186,
+    "workerMs": 24,
+    "workerColo": "IAD",
+    "nodeMs": 52.1,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 20,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 0,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 191,
+    "workerMs": 437,
+    "workerColo": "IAD",
+    "nodeMs": 476.8,
+    "reads": 2000000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false
+   },
+   "ping": {
+    "seq": 189,
+    "workerMs": 24,
+    "workerColo": "IAD",
+    "nodeMs": 56.8,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 0,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 194,
+    "workerMs": 187,
+    "workerColo": "IAD",
+    "nodeMs": 217.4,
+    "reads": 20000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false,
+    "logs": {
+     "wallMs": 178,
+     "cpuMs": 159,
+     "outcome": "ok",
+     "via": "gap"
+    }
+   },
+   "ping": {
+    "seq": 192,
+    "workerMs": 87,
+    "workerColo": "IAD",
+    "nodeMs": 114.7,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 1,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 197,
+    "workerMs": 339,
+    "workerColo": "IAD",
+    "nodeMs": 370.3,
+    "reads": 20000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false
+   },
+   "ping": {
+    "seq": 195,
+    "workerMs": 31,
+    "workerColo": "IAD",
+    "nodeMs": 57.1,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 1,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 200,
+    "workerMs": 2100,
+    "workerColo": "IAD",
+    "nodeMs": 2135,
+    "reads": 2000000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false,
+    "logs": {
+     "wallMs": 2184,
+     "cpuMs": 1854,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 198,
+    "workerMs": 23,
+    "workerColo": "IAD",
+    "nodeMs": 49.1,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 16,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 1,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 203,
+    "workerMs": 189,
+    "workerColo": "IAD",
+    "nodeMs": 218.3,
+    "reads": 20000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false,
+    "logs": {
+     "wallMs": 187,
+     "cpuMs": 164,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 201,
+    "workerMs": 84,
+    "workerColo": "IAD",
+    "nodeMs": 111.3,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 1,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 206,
+    "workerMs": 376,
+    "workerColo": "IAD",
+    "nodeMs": 404.3,
+    "reads": 20000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false,
+    "logs": {
+     "wallMs": 369,
+     "cpuMs": 319,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 204,
+    "workerMs": 23,
+    "workerColo": "IAD",
+    "nodeMs": 52.1,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 1,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 209,
+    "workerMs": 566,
+    "workerColo": "IAD",
+    "nodeMs": 601.2,
+    "reads": 20000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false,
+    "logs": {
+     "wallMs": 489,
+     "cpuMs": 464,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 207,
+    "workerMs": 26,
+    "workerColo": "IAD",
+    "nodeMs": 54.3,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 16,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 1,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 212,
+    "workerMs": 454,
+    "workerColo": "IAD",
+    "nodeMs": 484.7,
+    "reads": 2000000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false,
+    "logs": {
+     "wallMs": 452,
+     "cpuMs": 424,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 210,
+    "workerMs": 24,
+    "workerColo": "IAD",
+    "nodeMs": 51.8,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 2,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 215,
+    "workerMs": 2206,
+    "workerColo": "IAD",
+    "nodeMs": 2233.3,
+    "reads": 2000000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false,
+    "logs": {
+     "wallMs": 2196,
+     "cpuMs": 1921,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 213,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "nodeMs": 52.5,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 2,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 218,
+    "workerMs": 306,
+    "workerColo": "IAD",
+    "nodeMs": 394.5,
+    "reads": 20000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false,
+    "logs": {
+     "wallMs": 301,
+     "cpuMs": 269,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 216,
+    "workerMs": 25,
+    "workerColo": "IAD",
+    "nodeMs": 54.3,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 2,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 221,
+    "workerMs": 258,
+    "workerColo": "IAD",
+    "nodeMs": 287.5,
+    "reads": 20000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false,
+    "logs": {
+     "wallMs": 360,
+     "cpuMs": 193,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 219,
+    "workerMs": 24,
+    "workerColo": "IAD",
+    "nodeMs": 52,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 2,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 224,
+    "workerMs": 497,
+    "workerColo": "IAD",
+    "nodeMs": 551.8,
+    "reads": 2000000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false,
+    "logs": {
+     "wallMs": 490,
+     "cpuMs": 461,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 222,
+    "workerMs": 123,
+    "workerColo": "IAD",
+    "nodeMs": 148.8,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 16,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 2,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 227,
+    "workerMs": 440,
+    "workerColo": "IAD",
+    "nodeMs": 515.5,
+    "reads": 20000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false,
+    "logs": {
+     "wallMs": 426,
+     "cpuMs": 396,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 225,
+    "workerMs": 29,
+    "workerColo": "IAD",
+    "nodeMs": 55.2,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 20,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 2,
+   "round": 2,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 230,
+    "workerMs": 440,
+    "workerColo": "IAD",
+    "nodeMs": 468.6,
+    "reads": 20000,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "built": false,
+    "logs": {
+     "wallMs": 429,
+     "cpuMs": 405,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 228,
+    "workerMs": 24,
+    "workerColo": "IAD",
+    "nodeMs": 60.6,
+    "bootId": "ba9f7359-8718-42b7-98f2-d46c8c468ff2",
+    "logs": {
+     "wallMs": 15,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 0,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 256,
+    "workerMs": 880,
+    "workerColo": "IAD",
+    "nodeMs": 950.6,
+    "reads": 2000000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 746,
+     "cpuMs": 728,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 254,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "nodeMs": 52.6,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 0,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 259,
+    "workerMs": 179,
+    "workerColo": "IAD",
+    "nodeMs": 207.3,
+    "reads": 20000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 171,
+     "cpuMs": 163,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 257,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "nodeMs": 41.8,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 0,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 262,
+    "workerMs": 287,
+    "workerColo": "IAD",
+    "nodeMs": 314.9,
+    "reads": 20000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 285,
+     "cpuMs": 274,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 260,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "nodeMs": 40.8,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 5,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 0,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 265,
+    "workerMs": 430,
+    "workerColo": "IAD",
+    "nodeMs": 461.2,
+    "reads": 20000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 418,
+     "cpuMs": 408,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 263,
+    "workerMs": 14,
+    "workerColo": "IAD",
+    "nodeMs": 39.2,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 0,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 268,
+    "workerMs": 1486,
+    "workerColo": "IAD",
+    "nodeMs": 1559.2,
+    "reads": 2000000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 1607,
+     "cpuMs": 1338,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 266,
+    "workerMs": 8,
+    "workerColo": "IAD",
+    "nodeMs": 36.9,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 0,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 271,
+    "workerMs": 348,
+    "workerColo": "IAD",
+    "nodeMs": 378.4,
+    "reads": 20000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 332,
+     "cpuMs": 316,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 269,
+    "workerMs": 58,
+    "workerColo": "IAD",
+    "nodeMs": 90.8,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 1,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 274,
+    "workerMs": 2312,
+    "workerColo": "IAD",
+    "nodeMs": 2343.1,
+    "reads": 2000000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 2303,
+     "cpuMs": 2066,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 272,
+    "workerMs": 23,
+    "workerColo": "IAD",
+    "nodeMs": 52.2,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 7,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 1,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 277,
+    "workerMs": 169,
+    "workerColo": "IAD",
+    "nodeMs": 200.8,
+    "reads": 20000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 159,
+     "cpuMs": 149,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 275,
+    "workerMs": 19,
+    "workerColo": "IAD",
+    "nodeMs": 43,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 1,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 280,
+    "workerMs": 351,
+    "workerColo": "IAD",
+    "nodeMs": 377,
+    "reads": 2000000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 343,
+     "cpuMs": 337,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 278,
+    "workerMs": 10,
+    "workerColo": "IAD",
+    "nodeMs": 37.4,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 1,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 283,
+    "workerMs": 276,
+    "workerColo": "IAD",
+    "nodeMs": 303.1,
+    "reads": 20000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 267,
+     "cpuMs": 260,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 281,
+    "workerMs": 15,
+    "workerColo": "IAD",
+    "nodeMs": 50.8,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 5,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 1,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 286,
+    "workerMs": 425,
+    "workerColo": "IAD",
+    "nodeMs": 452.8,
+    "reads": 20000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 332,
+     "cpuMs": 316,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 284,
+    "workerMs": 15,
+    "workerColo": "IAD",
+    "nodeMs": 47.9,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 1,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 289,
+    "workerMs": 994,
+    "workerColo": "IAD",
+    "nodeMs": 1017.7,
+    "reads": 20000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 984,
+     "cpuMs": 940,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 287,
+    "workerMs": 7,
+    "workerColo": "IAD",
+    "nodeMs": 31.2,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 2,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 292,
+    "workerMs": 314,
+    "workerColo": "IAD",
+    "nodeMs": 342.1,
+    "reads": 20000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 312,
+     "cpuMs": 295,
+     "outcome": "ok",
+     "via": "gap"
+    }
+   },
+   "ping": {
+    "seq": 290,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "nodeMs": 37.9,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 2,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 295,
+    "workerMs": 314,
+    "workerColo": "IAD",
+    "nodeMs": 342.4,
+    "reads": 20000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 304,
+     "cpuMs": 287,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 293,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "nodeMs": 38.6,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 2,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 298,
+    "workerMs": 1016,
+    "workerColo": "IAD",
+    "nodeMs": 1043.6,
+    "reads": 2000000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false
+   },
+   "ping": {
+    "seq": 296,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "nodeMs": 39.9,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 2,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 301,
+    "workerMs": 369,
+    "workerColo": "IAD",
+    "nodeMs": 431.3,
+    "reads": 2000000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 364,
+     "cpuMs": 357,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 299,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "nodeMs": 52.5,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 2,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 304,
+    "workerMs": 558,
+    "workerColo": "IAD",
+    "nodeMs": 589.4,
+    "reads": 20000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 355,
+     "cpuMs": 329,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 302,
+    "workerMs": 33,
+    "workerColo": "IAD",
+    "nodeMs": 63.1,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 3,
+   "round": 2,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 307,
+    "workerMs": 393,
+    "workerColo": "IAD",
+    "nodeMs": 422.8,
+    "reads": 20000,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "built": false,
+    "logs": {
+     "wallMs": 389,
+     "cpuMs": 379,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 305,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "nodeMs": 44.6,
+    "bootId": "fcf699d2-5ee1-4aac-a801-a6cce20443e1",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 0,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 333,
+    "workerMs": 619,
+    "workerColo": "IAD",
+    "nodeMs": 719.1,
+    "reads": 20000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 611,
+     "cpuMs": 583,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 331,
+    "workerMs": 25,
+    "workerColo": "IAD",
+    "nodeMs": 50.4,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "logs": {
+     "wallMs": 19,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 0,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 336,
+    "workerMs": 727,
+    "workerColo": "IAD",
+    "nodeMs": 775.4,
+    "reads": 2000000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 816,
+     "cpuMs": 692,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 334,
+    "workerMs": 34,
+    "workerColo": "IAD",
+    "nodeMs": 66.9,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "logs": {
+     "wallMs": 20,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 0,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 339,
+    "workerMs": 3276,
+    "workerColo": "IAD",
+    "nodeMs": 3310.2,
+    "reads": 2000000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 3272,
+     "cpuMs": 2975,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 337,
+    "workerMs": 77,
+    "workerColo": "IAD",
+    "nodeMs": 113.1,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 0,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 342,
+    "workerMs": 607,
+    "workerColo": "IAD",
+    "nodeMs": 635.4,
+    "reads": 20000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 601,
+     "cpuMs": 562,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 340,
+    "workerMs": 24,
+    "workerColo": "IAD",
+    "nodeMs": 59.7,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "logs": {
+     "wallMs": 16,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 0,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 345,
+    "workerMs": 385,
+    "workerColo": "IAD",
+    "nodeMs": 415.4,
+    "reads": 20000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 494,
+     "cpuMs": 345,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 343,
+    "workerMs": 35,
+    "workerColo": "IAD",
+    "nodeMs": 68.8,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "logs": {
+     "wallMs": 22,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 0,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 348,
+    "workerMs": 875,
+    "workerColo": "IAD",
+    "nodeMs": 903.1,
+    "reads": 20000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 869,
+     "cpuMs": 845,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 346,
+    "workerMs": 99,
+    "workerColo": "IAD",
+    "nodeMs": 141.7,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "logs": {
+     "wallMs": 20,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 1,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 351,
+    "workerMs": 741,
+    "workerColo": "IAD",
+    "nodeMs": 772.4,
+    "reads": 20000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false
+   },
+   "ping": {
+    "seq": 349,
+    "workerMs": 28,
+    "workerColo": "IAD",
+    "nodeMs": 59.1,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 1,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 354,
+    "workerMs": 730,
+    "workerColo": "IAD",
+    "nodeMs": 860.6,
+    "reads": 20000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 718,
+     "cpuMs": 692,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 352,
+    "workerMs": 69,
+    "workerColo": "IAD",
+    "nodeMs": 98.8,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 1,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 357,
+    "workerMs": 567,
+    "workerColo": "IAD",
+    "nodeMs": 601.8,
+    "reads": 2000000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 559,
+     "cpuMs": 541,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 355,
+    "workerMs": 26,
+    "workerColo": "IAD",
+    "nodeMs": 60.1,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 1,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 360,
+    "workerMs": 3466,
+    "workerColo": "IAD",
+    "nodeMs": 3499.4,
+    "reads": 2000000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 3501,
+     "cpuMs": 3008,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 358,
+    "workerMs": 23,
+    "workerColo": "IAD",
+    "nodeMs": 49.8,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 1,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 363,
+    "workerMs": 554,
+    "workerColo": "IAD",
+    "nodeMs": 580.2,
+    "reads": 20000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 574,
+     "cpuMs": 494,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 361,
+    "workerMs": 23,
+    "workerColo": "IAD",
+    "nodeMs": 87.8,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 1,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 366,
+    "workerMs": 357,
+    "workerColo": "IAD",
+    "nodeMs": 513.3,
+    "reads": 20000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 482,
+     "cpuMs": 327,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 364,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "nodeMs": 56.7,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 2,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 369,
+    "workerMs": 737,
+    "workerColo": "IAD",
+    "nodeMs": 767.9,
+    "reads": 20000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 708,
+     "cpuMs": 690,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 367,
+    "workerMs": 20,
+    "workerColo": "IAD",
+    "nodeMs": 51.7,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 2,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 372,
+    "workerMs": 3597,
+    "workerColo": "IAD",
+    "nodeMs": 3626.1,
+    "reads": 2000000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 3592,
+     "cpuMs": 3122,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 370,
+    "workerMs": 28,
+    "workerColo": "IAD",
+    "nodeMs": 58.6,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 2,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 375,
+    "workerMs": 745,
+    "workerColo": "IAD",
+    "nodeMs": 772.8,
+    "reads": 2000000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 689,
+     "cpuMs": 658,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 373,
+    "workerMs": 71,
+    "workerColo": "IAD",
+    "nodeMs": 99.9,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "logs": {
+     "wallMs": 23,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 2,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 378,
+    "workerMs": 571,
+    "workerColo": "IAD",
+    "nodeMs": 615.1,
+    "reads": 20000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 568,
+     "cpuMs": 548,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 376,
+    "workerMs": 46,
+    "workerColo": "IAD",
+    "nodeMs": 73.6,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 2,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 381,
+    "workerMs": 492,
+    "workerColo": "IAD",
+    "nodeMs": 527.5,
+    "reads": 20000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 477,
+     "cpuMs": 455,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 379,
+    "workerMs": 25,
+    "workerColo": "IAD",
+    "nodeMs": 57.2,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 4,
+   "round": 2,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 384,
+    "workerMs": 377,
+    "workerColo": "IAD",
+    "nodeMs": 407.5,
+    "reads": 20000,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "built": false,
+    "logs": {
+     "wallMs": 372,
+     "cpuMs": 351,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 382,
+    "workerMs": 23,
+    "workerColo": "IAD",
+    "nodeMs": 53.9,
+    "bootId": "7cbb030e-f8e4-4c81-a755-380007003b51",
+    "logs": {
+     "wallMs": 18,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 0,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 410,
+    "workerMs": 428,
+    "workerColo": "IAD",
+    "nodeMs": 456.5,
+    "reads": 2000000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 423,
+     "cpuMs": 390,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 408,
+    "workerMs": 32,
+    "workerColo": "IAD",
+    "nodeMs": 72.3,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 29,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 0,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 413,
+    "workerMs": 334,
+    "workerColo": "IAD",
+    "nodeMs": 363.4,
+    "reads": 20000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 303,
+     "cpuMs": 274,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 411,
+    "workerMs": 31,
+    "workerColo": "IAD",
+    "nodeMs": 60.3,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 27,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 0,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 416,
+    "workerMs": 483,
+    "workerColo": "IAD",
+    "nodeMs": 516.6,
+    "reads": 20000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 473,
+     "cpuMs": 434,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 414,
+    "workerMs": 35,
+    "workerColo": "IAD",
+    "nodeMs": 68.4,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 27,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 0,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 419,
+    "workerMs": 2311,
+    "workerColo": "IAD",
+    "nodeMs": 2342.8,
+    "reads": 2000000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 2307,
+     "cpuMs": 2091,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 417,
+    "workerMs": 38,
+    "workerColo": "IAD",
+    "nodeMs": 77.5,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 34,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 0,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 422,
+    "workerMs": 357,
+    "workerColo": "IAD",
+    "nodeMs": 393.1,
+    "reads": 20000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 343,
+     "cpuMs": 305,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 420,
+    "workerMs": 32,
+    "workerColo": "IAD",
+    "nodeMs": 62.7,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 27,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 0,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 425,
+    "workerMs": 227,
+    "workerColo": "IAD",
+    "nodeMs": 253,
+    "reads": 20000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 213,
+     "cpuMs": 175,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 423,
+    "workerMs": 37,
+    "workerColo": "IAD",
+    "nodeMs": 66.6,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 29,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 1,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 428,
+    "workerMs": 452,
+    "workerColo": "IAD",
+    "nodeMs": 484,
+    "reads": 20000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 507,
+     "cpuMs": 413,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 426,
+    "workerMs": 33,
+    "workerColo": "IAD",
+    "nodeMs": 58.5,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 27,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 1,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 431,
+    "workerMs": 324,
+    "workerColo": "IAD",
+    "nodeMs": 352.9,
+    "reads": 20000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 316,
+     "cpuMs": 281,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 429,
+    "workerMs": 56,
+    "workerColo": "IAD",
+    "nodeMs": 92.6,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 29,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 1,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 434,
+    "workerMs": 206,
+    "workerColo": "IAD",
+    "nodeMs": 232.8,
+    "reads": 20000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 201,
+     "cpuMs": 165,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 432,
+    "workerMs": 37,
+    "workerColo": "IAD",
+    "nodeMs": 71.5,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 29,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 1,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 437,
+    "workerMs": 739,
+    "workerColo": "IAD",
+    "nodeMs": 765.1,
+    "reads": 2000000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 844,
+     "cpuMs": 694,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 435,
+    "workerMs": 47,
+    "workerColo": "IAD",
+    "nodeMs": 79,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 29,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 1,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 440,
+    "workerMs": 1953,
+    "workerColo": "IAD",
+    "nodeMs": 1976.5,
+    "reads": 2000000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 1945,
+     "cpuMs": 1740,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 438,
+    "workerMs": 111,
+    "workerColo": "IAD",
+    "nodeMs": 147.2,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 28,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 1,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 443,
+    "workerMs": 379,
+    "workerColo": "IAD",
+    "nodeMs": 413.4,
+    "reads": 20000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 375,
+     "cpuMs": 336,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 441,
+    "workerMs": 34,
+    "workerColo": "IAD",
+    "nodeMs": 62.4,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 28,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 2,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 446,
+    "workerMs": 337,
+    "workerColo": "IAD",
+    "nodeMs": 369.8,
+    "reads": 20000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 424,
+     "cpuMs": 286,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 444,
+    "workerMs": 35,
+    "workerColo": "IAD",
+    "nodeMs": 66.5,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 30,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 2,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 449,
+    "workerMs": 391,
+    "workerColo": "IAD",
+    "nodeMs": 419.5,
+    "reads": 20000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 384,
+     "cpuMs": 337,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 447,
+    "workerMs": 102,
+    "workerColo": "IAD",
+    "nodeMs": 135.5,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 30,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 2,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 452,
+    "workerMs": 760,
+    "workerColo": "IAD",
+    "nodeMs": 795.6,
+    "reads": 20000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 830,
+     "cpuMs": 710,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 450,
+    "workerMs": 38,
+    "workerColo": "IAD",
+    "nodeMs": 72.1,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 31,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 2,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 455,
+    "workerMs": 1731,
+    "workerColo": "IAD",
+    "nodeMs": 1759.6,
+    "reads": 2000000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 1728,
+     "cpuMs": 1579,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 453,
+    "workerMs": 69,
+    "workerColo": "IAD",
+    "nodeMs": 103.8,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 27,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 2,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 458,
+    "workerMs": 436,
+    "workerColo": "IAD",
+    "nodeMs": 470.6,
+    "reads": 2000000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 422,
+     "cpuMs": 386,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 456,
+    "workerMs": 32,
+    "workerColo": "IAD",
+    "nodeMs": 67.7,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 28,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 5,
+   "round": 2,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 461,
+    "workerMs": 331,
+    "workerColo": "IAD",
+    "nodeMs": 362.5,
+    "reads": 20000,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "built": false,
+    "logs": {
+     "wallMs": 340,
+     "cpuMs": 292,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 459,
+    "workerMs": 33,
+    "workerColo": "IAD",
+    "nodeMs": 70.8,
+    "bootId": "d4382b53-56cd-4bf1-82be-5508581ec2e2",
+    "logs": {
+     "wallMs": 27,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 0,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 487,
+    "workerMs": 528,
+    "workerColo": "IAD",
+    "nodeMs": 554.6,
+    "reads": 2000000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 511,
+     "cpuMs": 491,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 485,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "nodeMs": 56.1,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 11,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 0,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 490,
+    "workerMs": 430,
+    "workerColo": "IAD",
+    "nodeMs": 457,
+    "reads": 20000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 421,
+     "cpuMs": 398,
+     "outcome": "ok",
+     "via": "gap"
+    }
+   },
+   "ping": {
+    "seq": 488,
+    "workerMs": 23,
+    "workerColo": "IAD",
+    "nodeMs": 55.4,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 12,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 0,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 493,
+    "workerMs": 2038,
+    "workerColo": "IAD",
+    "nodeMs": 2120.4,
+    "reads": 2000000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 2066,
+     "cpuMs": 1744,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 491,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "nodeMs": 57.3,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 0,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 496,
+    "workerMs": 370,
+    "workerColo": "IAD",
+    "nodeMs": 406.1,
+    "reads": 20000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 395,
+     "cpuMs": 341,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 494,
+    "workerMs": 28,
+    "workerColo": "IAD",
+    "nodeMs": 103.5,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 13,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 0,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 499,
+    "workerMs": 196,
+    "workerColo": "IAD",
+    "nodeMs": 226.2,
+    "reads": 20000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 181,
+     "cpuMs": 161,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 497,
+    "workerMs": 19,
+    "workerColo": "IAD",
+    "nodeMs": 55.2,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 14,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 0,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 502,
+    "workerMs": 608,
+    "workerColo": "IAD",
+    "nodeMs": 672.8,
+    "reads": 20000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 586,
+     "cpuMs": 537,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 500,
+    "workerMs": 19,
+    "workerColo": "IAD",
+    "nodeMs": 53.8,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 11,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "gap"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 1,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 505,
+    "workerMs": 223,
+    "workerColo": "IAD",
+    "nodeMs": 251,
+    "reads": 20000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 203,
+     "cpuMs": 165,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 503,
+    "workerMs": 33,
+    "workerColo": "IAD",
+    "nodeMs": 60.7,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 16,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 1,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 508,
+    "workerMs": 535,
+    "workerColo": "IAD",
+    "nodeMs": 562.2,
+    "reads": 2000000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 587,
+     "cpuMs": 503,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 506,
+    "workerMs": 25,
+    "workerColo": "IAD",
+    "nodeMs": 75.6,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 13,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 1,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 511,
+    "workerMs": 2524,
+    "workerColo": "IAD",
+    "nodeMs": 2613.4,
+    "reads": 2000000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 2511,
+     "cpuMs": 1925,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 509,
+    "workerMs": 51,
+    "workerColo": "IAD",
+    "nodeMs": 76.6,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 10,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 1,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 514,
+    "workerMs": 549,
+    "workerColo": "IAD",
+    "nodeMs": 577.6,
+    "reads": 20000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 562,
+     "cpuMs": 512,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 512,
+    "workerMs": 29,
+    "workerColo": "IAD",
+    "nodeMs": 60.1,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 14,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 1,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 517,
+    "workerMs": 395,
+    "workerColo": "IAD",
+    "nodeMs": 425.5,
+    "reads": 20000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 420,
+     "cpuMs": 345,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 515,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "nodeMs": 52.2,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 10,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 1,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 520,
+    "workerMs": 411,
+    "workerColo": "IAD",
+    "nodeMs": 445.5,
+    "reads": 20000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 439,
+     "cpuMs": 377,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 518,
+    "workerMs": 25,
+    "workerColo": "IAD",
+    "nodeMs": 52.2,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 10,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 2,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 523,
+    "workerMs": 298,
+    "workerColo": "IAD",
+    "nodeMs": 335.1,
+    "reads": 20000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 313,
+     "cpuMs": 261,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 521,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "nodeMs": 49.1,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 2,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 526,
+    "workerMs": 411,
+    "workerColo": "IAD",
+    "nodeMs": 450.9,
+    "reads": 20000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false
+   },
+   "ping": {
+    "seq": 524,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "nodeMs": 78,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 13,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 2,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 529,
+    "workerMs": 351,
+    "workerColo": "IAD",
+    "nodeMs": 384.9,
+    "reads": 20000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false
+   },
+   "ping": {
+    "seq": 527,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "nodeMs": 52.4,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 10,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 2,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 532,
+    "workerMs": 175,
+    "workerColo": "IAD",
+    "nodeMs": 206.6,
+    "reads": 20000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 170,
+     "cpuMs": 153,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 530,
+    "workerMs": 35,
+    "workerColo": "IAD",
+    "nodeMs": 80.1,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 2,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 535,
+    "workerMs": 2143,
+    "workerColo": "IAD",
+    "nodeMs": 2174.8,
+    "reads": 2000000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 2173,
+     "cpuMs": 1855,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 533,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "nodeMs": 59,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 14,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 6,
+   "round": 2,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 538,
+    "workerMs": 458,
+    "workerColo": "IAD",
+    "nodeMs": 532.2,
+    "reads": 2000000,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "built": false,
+    "logs": {
+     "wallMs": 452,
+     "cpuMs": 437,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 536,
+    "workerMs": 23,
+    "workerColo": "IAD",
+    "nodeMs": 51,
+    "bootId": "fda482cd-60ce-4e78-8fc2-2d6780ecccfd",
+    "logs": {
+     "wallMs": 11,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 0,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 564,
+    "workerMs": 247,
+    "workerColo": "IAD",
+    "nodeMs": 280.6,
+    "reads": 20000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 182,
+     "cpuMs": 175,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 562,
+    "workerMs": 63,
+    "workerColo": "IAD",
+    "nodeMs": 97.3,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 37,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 0,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 567,
+    "workerMs": 3324,
+    "workerColo": "IAD",
+    "nodeMs": 3359.5,
+    "reads": 2000000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 3320,
+     "cpuMs": 2475,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 565,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "nodeMs": 47.6,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 5,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 0,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 570,
+    "workerMs": 557,
+    "workerColo": "IAD",
+    "nodeMs": 588.6,
+    "reads": 20000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 551,
+     "cpuMs": 515,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 568,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "nodeMs": 38.4,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 7,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 0,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 573,
+    "workerMs": 451,
+    "workerColo": "IAD",
+    "nodeMs": 481.4,
+    "reads": 2000000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 511,
+     "cpuMs": 421,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 571,
+    "workerMs": 24,
+    "workerColo": "IAD",
+    "nodeMs": 66.6,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 9,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 0,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 576,
+    "workerMs": 476,
+    "workerColo": "IAD",
+    "nodeMs": 503.2,
+    "reads": 20000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 456,
+     "cpuMs": 424,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 574,
+    "workerMs": 40,
+    "workerColo": "IAD",
+    "nodeMs": 70.3,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 5,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 0,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 579,
+    "workerMs": 476,
+    "workerColo": "IAD",
+    "nodeMs": 655,
+    "reads": 20000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 613,
+     "cpuMs": 362,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 577,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "nodeMs": 47.4,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 1,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 582,
+    "workerMs": 1985,
+    "workerColo": "IAD",
+    "nodeMs": 2012.5,
+    "reads": 2000000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 1980,
+     "cpuMs": 1642,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 580,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "nodeMs": 45,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 1,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 585,
+    "workerMs": 779,
+    "workerColo": "IAD",
+    "nodeMs": 808.6,
+    "reads": 20000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 771,
+     "cpuMs": 732,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 583,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "nodeMs": 53.2,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 1,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 588,
+    "workerMs": 468,
+    "workerColo": "IAD",
+    "nodeMs": 504.2,
+    "reads": 2000000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 499,
+     "cpuMs": 443,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 586,
+    "workerMs": 12,
+    "workerColo": "IAD",
+    "nodeMs": 39.4,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 1,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 591,
+    "workerMs": 373,
+    "workerColo": "IAD",
+    "nodeMs": 404.8,
+    "reads": 20000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 364,
+     "cpuMs": 346,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 589,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "nodeMs": 42.9,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 1,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 594,
+    "workerMs": 186,
+    "workerColo": "IAD",
+    "nodeMs": 214.6,
+    "reads": 20000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 159,
+     "cpuMs": 154,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 592,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "nodeMs": 39,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 1,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 597,
+    "workerMs": 311,
+    "workerColo": "IAD",
+    "nodeMs": 339.4,
+    "reads": 20000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 303,
+     "cpuMs": 292,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 595,
+    "workerMs": 15,
+    "workerColo": "IAD",
+    "nodeMs": 43.4,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 2,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 600,
+    "workerMs": 424,
+    "workerColo": "IAD",
+    "nodeMs": 457.2,
+    "reads": 2000000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 479,
+     "cpuMs": 407,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 598,
+    "workerMs": 9,
+    "workerColo": "IAD",
+    "nodeMs": 36.8,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 6,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 2,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 603,
+    "workerMs": 203,
+    "workerColo": "IAD",
+    "nodeMs": 228.7,
+    "reads": 20000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 195,
+     "cpuMs": 188,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 601,
+    "workerMs": 42,
+    "workerColo": "IAD",
+    "nodeMs": 70.9,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 11,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 2,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 606,
+    "workerMs": 1567,
+    "workerColo": "IAD",
+    "nodeMs": 1594.9,
+    "reads": 2000000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 1562,
+     "cpuMs": 1460,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 604,
+    "workerMs": 11,
+    "workerColo": "IAD",
+    "nodeMs": 40.6,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 7,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 2,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 609,
+    "workerMs": 331,
+    "workerColo": "IAD",
+    "nodeMs": 359.8,
+    "reads": 20000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 284,
+     "cpuMs": 271,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 607,
+    "workerMs": 13,
+    "workerColo": "IAD",
+    "nodeMs": 38.7,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 2,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 612,
+    "workerMs": 484,
+    "workerColo": "IAD",
+    "nodeMs": 588.4,
+    "reads": 20000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 479,
+     "cpuMs": 451,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 610,
+    "workerMs": 14,
+    "workerColo": "IAD",
+    "nodeMs": 40.9,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 4,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 7,
+   "round": 2,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 615,
+    "workerMs": 448,
+    "workerColo": "IAD",
+    "nodeMs": 476.9,
+    "reads": 20000,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "built": false,
+    "logs": {
+     "wallMs": 397,
+     "cpuMs": 358,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 613,
+    "workerMs": 10,
+    "workerColo": "IAD",
+    "nodeMs": 40.9,
+    "bootId": "e5c453c1-c6f5-4bb4-9246-05e0415f56b9",
+    "logs": {
+     "wallMs": 3,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 0,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 641,
+    "workerMs": 574,
+    "workerColo": "IAD",
+    "nodeMs": 606.7,
+    "reads": 20000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 570,
+     "cpuMs": 521,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 639,
+    "workerMs": 32,
+    "workerColo": "IAD",
+    "nodeMs": 67.7,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 29,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 0,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 644,
+    "workerMs": 338,
+    "workerColo": "IAD",
+    "nodeMs": 369,
+    "reads": 20000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 331,
+     "cpuMs": 298,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 642,
+    "workerMs": 31,
+    "workerColo": "IAD",
+    "nodeMs": 62.7,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 27,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 0,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 647,
+    "workerMs": 925,
+    "workerColo": "IAD",
+    "nodeMs": 963.9,
+    "reads": 20000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 911,
+     "cpuMs": 876,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 645,
+    "workerMs": 34,
+    "workerColo": "IAD",
+    "nodeMs": 60,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 26,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 0,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 650,
+    "workerMs": 3780,
+    "workerColo": "IAD",
+    "nodeMs": 3824.5,
+    "reads": 2000000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 3775,
+     "cpuMs": 3325,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 648,
+    "workerMs": 32,
+    "workerColo": "IAD",
+    "nodeMs": 70.1,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 28,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 0,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 653,
+    "workerMs": 759,
+    "workerColo": "IAD",
+    "nodeMs": 784.6,
+    "reads": 20000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 614,
+     "cpuMs": 583,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 651,
+    "workerMs": 35,
+    "workerColo": "IAD",
+    "nodeMs": 64.5,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 29,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 0,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 656,
+    "workerMs": 684,
+    "workerColo": "IAD",
+    "nodeMs": 712,
+    "reads": 2000000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 678,
+     "cpuMs": 650,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 654,
+    "workerMs": 36,
+    "workerColo": "IAD",
+    "nodeMs": 66.7,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 30,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 1,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 659,
+    "workerMs": 3460,
+    "workerColo": "IAD",
+    "nodeMs": 3525.3,
+    "reads": 2000000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 3457,
+     "cpuMs": 3102,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 657,
+    "workerMs": 39,
+    "workerColo": "IAD",
+    "nodeMs": 72.9,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 28,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "gap"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 1,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 662,
+    "workerMs": 647,
+    "workerColo": "IAD",
+    "nodeMs": 677.8,
+    "reads": 2000000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 639,
+     "cpuMs": 604,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 660,
+    "workerMs": 37,
+    "workerColo": "IAD",
+    "nodeMs": 66.5,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 30,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 1,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 665,
+    "workerMs": 928,
+    "workerColo": "IAD",
+    "nodeMs": 958.4,
+    "reads": 20000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 927,
+     "cpuMs": 888,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 663,
+    "workerMs": 34,
+    "workerColo": "IAD",
+    "nodeMs": 88,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 27,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 1,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 668,
+    "workerMs": 884,
+    "workerColo": "IAD",
+    "nodeMs": 911.3,
+    "reads": 20000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 1010,
+     "cpuMs": 841,
+     "outcome": "ok",
+     "via": "gap"
+    }
+   },
+   "ping": {
+    "seq": 666,
+    "workerMs": 37,
+    "workerColo": "IAD",
+    "nodeMs": 69.5,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 29,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 1,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 671,
+    "workerMs": 586,
+    "workerColo": "IAD",
+    "nodeMs": 622.5,
+    "reads": 20000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 578,
+     "cpuMs": 520,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 669,
+    "workerMs": 136,
+    "workerColo": "IAD",
+    "nodeMs": 163.6,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 35,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 1,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 674,
+    "workerMs": 337,
+    "workerColo": "IAD",
+    "nodeMs": 377.2,
+    "reads": 20000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 332,
+     "cpuMs": 294,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 672,
+    "workerMs": 34,
+    "workerColo": "IAD",
+    "nodeMs": 62.4,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 2,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 677,
+    "workerMs": 565,
+    "workerColo": "IAD",
+    "nodeMs": 595.7,
+    "reads": 20000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 693,
+     "cpuMs": 518,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 675,
+    "workerMs": 32,
+    "workerColo": "IAD",
+    "nodeMs": 74.4,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 27,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 2,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 680,
+    "workerMs": 1430,
+    "workerColo": "IAD",
+    "nodeMs": 1499.2,
+    "reads": 20000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 1424,
+     "cpuMs": 1301,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 678,
+    "workerMs": 135,
+    "workerColo": "IAD",
+    "nodeMs": 169.7,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 28,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 2,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 683,
+    "workerMs": 1204,
+    "workerColo": "IAD",
+    "nodeMs": 1234.8,
+    "reads": 2000000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 1202,
+     "cpuMs": 1107,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 681,
+    "workerMs": 36,
+    "workerColo": "IAD",
+    "nodeMs": 69.4,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 27,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 2,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 686,
+    "workerMs": 682,
+    "workerColo": "IAD",
+    "nodeMs": 707.2,
+    "reads": 20000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 676,
+     "cpuMs": 638,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 684,
+    "workerMs": 49,
+    "workerColo": "IAD",
+    "nodeMs": 83.3,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 32,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 2,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 689,
+    "workerMs": 309,
+    "workerColo": "IAD",
+    "nodeMs": 342.1,
+    "reads": 20000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 474,
+     "cpuMs": 270,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 687,
+    "workerMs": 33,
+    "workerColo": "IAD",
+    "nodeMs": 60.7,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 27,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 8,
+   "round": 2,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 692,
+    "workerMs": 4698,
+    "workerColo": "IAD",
+    "nodeMs": 4783.7,
+    "reads": 2000000,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "built": false,
+    "logs": {
+     "wallMs": 4697,
+     "cpuMs": 3813,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 690,
+    "workerMs": 168,
+    "workerColo": "IAD",
+    "nodeMs": 201.1,
+    "bootId": "d71adc56-2d67-4575-9884-a9e8f0424070",
+    "logs": {
+     "wallMs": 30,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 0,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 718,
+    "workerMs": 2232,
+    "workerColo": "IAD",
+    "nodeMs": 2272.7,
+    "reads": 2000000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false,
+    "logs": {
+     "wallMs": 2179,
+     "cpuMs": 1915,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 716,
+    "workerMs": 21,
+    "workerColo": "IAD",
+    "nodeMs": 87.6,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "logs": {
+     "wallMs": 13,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 0,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 721,
+    "workerMs": 608,
+    "workerColo": "IAD",
+    "nodeMs": 635.2,
+    "reads": 20000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false,
+    "logs": {
+     "wallMs": 603,
+     "cpuMs": 545,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 719,
+    "workerMs": 29,
+    "workerColo": "IAD",
+    "nodeMs": 64.5,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "logs": {
+     "wallMs": 17,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 0,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 724,
+    "workerMs": 503,
+    "workerColo": "IAD",
+    "nodeMs": 534.3,
+    "reads": 2000000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false,
+    "logs": {
+     "wallMs": 541,
+     "cpuMs": 474,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 722,
+    "workerMs": 23,
+    "workerColo": "IAD",
+    "nodeMs": 56.1,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "logs": {
+     "wallMs": 12,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 0,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 727,
+    "workerMs": 189,
+    "workerColo": "IAD",
+    "nodeMs": 217.6,
+    "reads": 20000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false,
+    "logs": {
+     "wallMs": 183,
+     "cpuMs": 170,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 725,
+    "workerMs": 28,
+    "workerColo": "IAD",
+    "nodeMs": 58,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "logs": {
+     "wallMs": 8,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 0,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 730,
+    "workerMs": 297,
+    "workerColo": "IAD",
+    "nodeMs": 321.4,
+    "reads": 20000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false,
+    "logs": {
+     "wallMs": 290,
+     "cpuMs": 275,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 728,
+    "workerMs": 28,
+    "workerColo": "IAD",
+    "nodeMs": 53.8,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "logs": {
+     "wallMs": 10,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 0,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 733,
+    "workerMs": 359,
+    "workerColo": "IAD",
+    "nodeMs": 385.2,
+    "reads": 20000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false,
+    "logs": {
+     "wallMs": 395,
+     "cpuMs": 331,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 731,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "nodeMs": 48.2,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "logs": {
+     "wallMs": 11,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 1,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 736,
+    "workerMs": 358,
+    "workerColo": "IAD",
+    "nodeMs": 386.2,
+    "reads": 20000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false,
+    "logs": {
+     "wallMs": 347,
+     "cpuMs": 323,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 734,
+    "workerMs": 28,
+    "workerColo": "IAD",
+    "nodeMs": 56.5,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 1,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 739,
+    "workerMs": 2192,
+    "workerColo": "IAD",
+    "nodeMs": 2222.3,
+    "reads": 2000000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false,
+    "logs": {
+     "wallMs": 2223,
+     "cpuMs": 1877,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 737,
+    "workerMs": 17,
+    "workerColo": "IAD",
+    "nodeMs": 47.1,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "logs": {
+     "wallMs": 10,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 1,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 742,
+    "workerMs": 374,
+    "workerColo": "IAD",
+    "nodeMs": 403.3,
+    "reads": 2000000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false,
+    "logs": {
+     "wallMs": 361,
+     "cpuMs": 348,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 740,
+    "workerMs": 30,
+    "workerColo": "IAD",
+    "nodeMs": 61.7,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "logs": {
+     "wallMs": 43,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 1,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 745,
+    "workerMs": 361,
+    "workerColo": "IAD",
+    "nodeMs": 397.1,
+    "reads": 20000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false,
+    "logs": {
+     "wallMs": 350,
+     "cpuMs": 330,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 743,
+    "workerMs": 17,
+    "workerColo": "IAD",
+    "nodeMs": 48.2,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "logs": {
+     "wallMs": 10,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 1,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 748,
+    "workerMs": 536,
+    "workerColo": "IAD",
+    "nodeMs": 564.8,
+    "reads": 20000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false,
+    "logs": {
+     "wallMs": 537,
+     "cpuMs": 494,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 746,
+    "workerMs": 34,
+    "workerColo": "IAD",
+    "nodeMs": 65.8,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "logs": {
+     "wallMs": 15,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 1,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 751,
+    "workerMs": 208,
+    "workerColo": "IAD",
+    "nodeMs": 238.7,
+    "reads": 20000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false,
+    "logs": {
+     "wallMs": 201,
+     "cpuMs": 184,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 749,
+    "workerMs": 18,
+    "workerColo": "IAD",
+    "nodeMs": 42.3,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "logs": {
+     "wallMs": 10,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 2,
+   "label": "kv, cache miss",
+   "api": "kv",
+   "of": 100000,
+   "read": {
+    "seq": 754,
+    "workerMs": 308,
+    "workerColo": "IAD",
+    "nodeMs": 335.8,
+    "reads": 20000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false,
+    "logs": {
+     "wallMs": 295,
+     "cpuMs": 279,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 752,
+    "workerMs": 23,
+    "workerColo": "IAD",
+    "nodeMs": 54.3,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "logs": {
+     "wallMs": 12,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 2,
+   "label": "sql, cache miss",
+   "api": "sql",
+   "of": 100000,
+   "read": {
+    "seq": 757,
+    "workerMs": 565,
+    "workerColo": "IAD",
+    "nodeMs": 591.7,
+    "reads": 20000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false
+   },
+   "ping": {
+    "seq": 755,
+    "workerMs": 14,
+    "workerColo": "IAD",
+    "nodeMs": 49.8,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "logs": {
+     "wallMs": 10,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 2,
+   "label": "mem, 100000 records",
+   "api": "mem",
+   "of": 100000,
+   "read": {
+    "seq": 760,
+    "workerMs": 1587,
+    "workerColo": "IAD",
+    "nodeMs": 1619.5,
+    "reads": 2000000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false
+   },
+   "ping": {
+    "seq": 758,
+    "workerMs": 56,
+    "workerColo": "IAD",
+    "nodeMs": 162.9,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 2,
+   "label": "mem, 128 records",
+   "api": "mem",
+   "of": 128,
+   "read": {
+    "seq": 763,
+    "workerMs": 483,
+    "workerColo": "IAD",
+    "nodeMs": 525.4,
+    "reads": 2000000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false
+   },
+   "ping": {
+    "seq": 761,
+    "workerMs": 22,
+    "workerColo": "IAD",
+    "nodeMs": 65.5,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988"
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 2,
+   "label": "sql, cache hit",
+   "api": "sql",
+   "of": 128,
+   "read": {
+    "seq": 766,
+    "workerMs": 320,
+    "workerColo": "IAD",
+    "nodeMs": 352.3,
+    "reads": 20000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false,
+    "logs": {
+     "wallMs": 328,
+     "cpuMs": 302,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 764,
+    "workerMs": 32,
+    "workerColo": "IAD",
+    "nodeMs": 70.7,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "logs": {
+     "wallMs": 11,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  },
+  {
+   "arm": "records",
+   "object": 9,
+   "round": 2,
+   "label": "kv, cache hit",
+   "api": "kv",
+   "of": 128,
+   "read": {
+    "seq": 769,
+    "workerMs": 182,
+    "workerColo": "IAD",
+    "nodeMs": 211.8,
+    "reads": 20000,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "built": false,
+    "logs": {
+     "wallMs": 171,
+     "cpuMs": 154,
+     "outcome": "ok",
+     "via": "line"
+    }
+   },
+   "ping": {
+    "seq": 767,
+    "workerMs": 23,
+    "workerColo": "IAD",
+    "nodeMs": 54.3,
+    "bootId": "54e38d09-b5e3-4d08-ba5b-0bc9fb0fe988",
+    "logs": {
+     "wallMs": 16,
+     "cpuMs": 0,
+     "outcome": "ok",
+     "via": "line"
+    }
+   }
+  }
+ ],
+ "finishedAt": "2026-10-14T17:38:03.510Z",
+ "logsJoinedAt": "2026-10-14T17:43:22.047Z"
+}

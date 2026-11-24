@@ -1,15 +1,15 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { waitForEmail, extractMagicLink } from '../e2e-email/email-test-helpers';
+import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 
 // Real email delivery e2e test — same flow as e2e-email but routed through Hono.
-// Requires: TEST_TOKEN in .dev.vars, deployed email-test Worker, Cloudflare
-// Email Routing + Email Sending onboarded for lumenize.io.
+// Requires: TEST_TOKEN and RESEND_API_KEY in .dev.vars, deployed email-test Worker,
+// lumenize.io verified as a Resend sender, and Email Routing for lumenize-test.dev.
 //
 // Uses Browser (cookie-aware fetch) → SELF.fetch → Hono app → createAuthRoutes →
 // routeDORequest → LumenizeAuth DO (in-process).
-describe('Hono integration (real email delivery via Cloudflare)', () => {
+describe('Hono integration (real email delivery)', () => {
   let cleanup: (() => void) | undefined;
 
   afterEach(() => {
@@ -18,13 +18,17 @@ describe('Hono integration (real email delivery via Cloudflare)', () => {
   });
 
   it('sends magic link via Hono-routed auth, completes auth flow, then connects WebSocket', async () => {
-    const testEmail = 'test@lumenize.io';
+    // A DEDICATED address rather than uniqueTestEmail(): this lane's bootstrap-admin
+    // binding (LUMENIZE_AUTH_BOOTSTRAP_EMAIL, set in vitest.config.js) must match the
+    // login email, and a miniflare binding can't be minted inside the test. Distinct
+    // from the other lanes' addresses is all this needs to run alongside them.
+    const testEmail = 'hono@lumenize-test.dev';
 
     // Browser with cookie jar — uses SELF.fetch (the Hono test-harness Worker)
     const browser = new Browser();
 
     // 1. Set up WebSocket listener BEFORE triggering the email
-    const waiter = waitForEmail({ testToken: env.TEST_TOKEN });
+    const waiter = waitForEmail({ testToken: env.TEST_TOKEN, to: testEmail });
     cleanup = waiter.cleanup;
 
     // 2. Request magic link through Hono middleware
@@ -89,7 +93,7 @@ describe('Hono integration (real email delivery via Cloudflare)', () => {
     const accessToken = tokenBody.access_token;
     const ws = new browser.WebSocket(
       'ws://localhost/ws/echo-test',
-      ['lmz', `lmz.access-token.${accessToken}`],
+      ['lmz.2', `lmz.access-token.${accessToken}`],
     );
 
     // Wait for connection to open
@@ -118,7 +122,7 @@ describe('Hono integration (real email delivery via Cloudflare)', () => {
     const response = await SELF.fetch('http://localhost/ws/echo-test', {
       headers: {
         'Upgrade': 'websocket',
-        'Sec-WebSocket-Protocol': 'lmz',
+        'Sec-WebSocket-Protocol': 'lmz.2',
       },
     });
 

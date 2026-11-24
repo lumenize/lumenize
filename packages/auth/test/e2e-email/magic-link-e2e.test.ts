@@ -1,11 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { waitForEmail, extractMagicLink } from './email-test-helpers';
+import { waitForEmail, extractMagicLink, reportEmailLatency, uniqueTestEmail } from '@lumenize/email-test/client';
 
 // Real email delivery e2e test.
 // Requires: TEST_TOKEN in .dev.vars, deployed email-test Worker, Cloudflare
-// Email Routing + Email Sending onboarded for lumenize.io.
+// Email Sending onboarded for lumenize.io, and Email Routing for lumenize-test.dev.
 //
 // Uses Browser (cookie-aware fetch) → SELF.fetch → test-harness Worker →
 // createAuthRoutes → routeDORequest → LumenizeAuth DO (in-process).
@@ -19,16 +19,19 @@ describe('Magic link e2e (real email delivery via Cloudflare)', () => {
   });
 
   it('sends magic link via Cloudflare, receives via EmailTestDO, completes auth flow', async () => {
-    const testEmail = 'test@lumenize.io';
+    // Unique recipient per test — the isolation that lets these lanes run
+    // concurrently instead of being serialized by a shared mailbox.
+    const testEmail = uniqueTestEmail();
 
     // Browser with cookie jar — uses SELF.fetch (the test-harness Worker)
     const browser = new Browser();
 
     // 1. Set up WebSocket listener BEFORE triggering the email
-    const waiter = waitForEmail({ testToken: env.TEST_TOKEN });
+    const waiter = waitForEmail({ testToken: env.TEST_TOKEN, to: testEmail });
     cleanup = waiter.cleanup;
 
     // 2. Request magic link (NOT test mode — real email sent via Cloudflare Email Sending)
+    const requestedAt = Date.now();
     const magicLinkResponse = await browser.fetch('http://localhost/auth/email-magic-link', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -42,6 +45,7 @@ describe('Magic link e2e (real email delivery via Cloudflare)', () => {
 
     // 3. Wait for the email to arrive at the deployed EmailTestDO
     const email = await waiter.emailPromise;
+    reportEmailLatency('cloudflare', 'full-flow', requestedAt, waiter.marks);
 
     expect(email.subject).toBe('Your login link');
     expect(email.to?.[0]?.address).toBe(testEmail);
@@ -93,13 +97,16 @@ describe('Magic link e2e (real email delivery via Cloudflare)', () => {
   });
 
   it('magic link is single-use', async () => {
-    const testEmail = 'test@lumenize.io';
+    // Unique recipient per test — the isolation that lets these lanes run
+    // concurrently instead of being serialized by a shared mailbox.
+    const testEmail = uniqueTestEmail();
     const browser = new Browser();
 
     // 1. Set up WebSocket listener and request magic link
-    const waiter = waitForEmail({ testToken: env.TEST_TOKEN });
+    const waiter = waitForEmail({ testToken: env.TEST_TOKEN, to: testEmail });
     cleanup = waiter.cleanup;
 
+    const requestedAt = Date.now();
     await browser.fetch('http://localhost/auth/email-magic-link', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -108,6 +115,7 @@ describe('Magic link e2e (real email delivery via Cloudflare)', () => {
 
     // 2. Wait for email and extract link
     const email = await waiter.emailPromise;
+    reportEmailLatency('cloudflare', 'single-use', requestedAt, waiter.marks);
     const magicLinkUrl = extractMagicLink(email);
 
     // 3. First click — should succeed, cookie captured

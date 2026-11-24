@@ -1,0 +1,21 @@
+{
+  "name": "experiment-vue-vapor-autosubscribe",
+  "private": true,
+  "type": "module",
+  "//": "Spike: does the store factory's effectScope auto-subscribe work inside Vue 3.6 Vapor components? See RESULTS.md. STANDALONE on purpose (not a root workspace): every Vue-ecosystem peer range (plugin-vue ^3.2.25, lucide >=3.0.1) excludes prereleases, so listing it in workspaces makes the ROOT npm install fail ERESOLVE. The local .npmrc sets legacy-peer-deps for this experiment only.",
+  "scripts": {
+    "test": "vitest --run",
+    "test:revisit": "REVISIT=1 vitest --run",
+    "test:revisit:35": "vitest --run --config vitest.config.35.js"
+  },
+  "dependencies": {
+    "vue": "3.6.0-rc.10"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.13.5",
+    "@vitejs/plugin-vue": "6.0.9",
+    "jsdom": "^25.0.1",
+    "unplugin-swc": "^1.5.10",
+    "vitest": "4.1.10"
+  }
+}
