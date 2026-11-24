@@ -265,7 +265,7 @@ Built already:
   - **An entry stays in the store while something reads it or a live query holds it.** A list of 5,000 deals keeps 5,000 entries though the screen shows 30. One that nothing reads and no query holds goes after today's quiet period, `unsubscribeGraceMs`.
   - **A subscription's snapshot rides the tab's message** (DI15). The docs need no rule about subscribing to what a query holds, since a page's reads never do.
   - **The org tree arrives on a channel of its own,** so a change to the tree and the patches it causes are separate steps. Item 14 is where that channel changes (§ *Relationships*).
-- **DI20. Our own lists hold their whole result, a long chat's thread included.** The Galaxy's `#thread()` is the exception to DI18's bound on the host's memory, until the chat is compacted (D10). Studio's landed build is the `ServedBuild` with the latest write among those it holds, so C5's stall goes with the cap. Studio's thread holds the whole chat (D8), the Galaxy's `#thread()` reads the whole chat too (D10), and C4's stall goes with the cap.
+- **DI20. Our own lists hold their whole result, a long chat's thread included.** The Galaxy's `#thread()` is the exception to DI18's bound on the host's memory, until the chat is compacted (D10, fast-follow's Item 26). Studio's landed build is the `ServedBuild` with the latest write among those it holds, so C5's stall goes with the cap. Studio's thread holds the whole chat (D8), the Galaxy's `#thread()` reads the whole chat too (D10), and C4's stall goes with the cap.
 - **DI22. An app's own nodes exist in every Star before a page's first query, with ids its pages import as constants (D9, D12).** [nebula-app-lifecycle-hooks.md](nebula-app-lifecycle-hooks.md) builds that, after this task. The ids are exported from `src/ontology/index.ts`, and the app's `onNewOntologyVersion` creates the nodes when a Star installs a version. Its § *Design intent* says how that code runs, what a failure does, and what it leaves as an admin left it.
   - **Until it lands, the `define-the-cast` skill creates the app's nodes** with `client.orgTree.createNode`, as it does today, and the docs teach that.
   - **After it lands, the skill creates only nodes for one person or one record,** such as Pat's list. The app's own nodes, such as `lists`, come from the hook.
@@ -348,7 +348,7 @@ Claims the design rests on:
 - **A resource subscription could name a moment too**, and answer "unchanged" when the client holds the current version. Item 14's read with a version is that.
 - **Item 24's visitors** read a node granted `anyone`, which the one check passes like any grant.
 - **A query that asks for its newest page needs a paradigm of its own (D8).** A reader holding only part of a result needs whole snapshots for what it lacks, or a server that knows what each reader holds.
-- **Compacting the chat is a task of its own (D8).** Older posts become a summary the model reads in their place. GLM-5.3's 1,048,576-token context, shared with the guidance, the source and the tool results, fills long before a chat nears a size the plane minds.
+- **Compacting the chat is [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 26: A long chat is compacted*** (D8, D10). Older posts become a summary the model reads in their place, which retires the `#thread()` exception (DI20).
 
 ## Decisions
 

@@ -19,7 +19,7 @@
 | At the first invite | 19 The feedback loop · 20 Data-bound generation · 22 The model reports what misled it · 23 The preview's error channel |
 | When a user wants to show their app to someone | 4 The prod ontology install path · 5 The published tier |
 | When Jennifer's app needs a reader who never logs in | 24 Visitors read what anyone may |
-| When users ask, or a problem shows | 1 Media storage · 2 An app-branded assistant · 3 Outside-world connectivity · 6 Steering a turn mid-generation · 10 Studio drives the preview · 13 A person with no name · 14 Merge patches on the wire · 15 The wake check · 16 Replies, not edits · 18 The superuser join scenario · 25 The build checks templates |
+| When users ask, or a problem shows | 1 Media storage · 2 An app-branded assistant · 3 Outside-world connectivity · 6 Steering a turn mid-generation · 10 Studio drives the preview · 13 A person with no name · 14 Merge patches on the wire · 15 The wake check · 16 Replies, not edits · 18 The superuser join scenario · 25 The build checks templates · 26 A long chat is compacted |
 
 ## Item 1: User-app media storage (photos/blobs)
 
@@ -450,6 +450,20 @@ On 2026-11-20 a copy of the scaffold got these mistakes: `{{ name.toUpperCas() }
 - **A false finding holds back a correct app.** A build with type findings stays off `.dev` unless the model passes `{ "preview": true }`, so what the docs and the platform skills teach the model to write goes through the new check before it lands.
 - **It replaces Pass 2 rather than running beside it.** What Pass 1's template compile is still for, once `vue-tsc` reads templates, is part of the work.
 - **It changes the image.** The tooling goes in `apps/nebula/container/compiler/package.json`, which the image installs, so the change ends with a deployed pass (`live.md`).
+
+## Item 26: A long chat is compacted
+
+**Goal:** older posts of a chat become a summary the model reads in their place, so a chat of any length fits the model's context and the Galaxy's memory. Split out of [nebula-query-upgrade.md](nebula-query-upgrade.md) on 2026-11-24, whose D8 and D10 wait on it.
+
+**Trigger:** a chat nears the model's context. GLM-5.3's 1,048,576 tokens, shared with the guidance, the source and the tool results, fill at about 4 MB of English, roughly two thousand posts of 2 KB.
+
+**What it builds on.** After the query upgrade the whole chat reaches the agent, where today a chat past 1,000 messages stops reaching it. The Galaxy's `#thread()` then reads the whole chat into memory, the query upgrade's one named exception to its bound on what a host holds, and Studio's tab holds the whole chat too.
+
+**What it has to answer:**
+
+- **What a turn does today when the thread passes the model's context.** `codegen-loop.ts` has no history budget, and what the model call answers then has not been checked (2026-11-24).
+- **What it retires.** `#thread()` reads a page at a time once the summary stands in for older posts, and the exception goes.
+- **Whether Studio's thread still holds every post,** or shows the summary with older posts read on request.
 
 ## Item 20: Data-bound generation
 
