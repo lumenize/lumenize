@@ -175,6 +175,9 @@ export function waitForEmail(options: WaitForEmailOptions, transport: EmailTestT
   const startedAt = Date.now();
   let ws: WebSocket | undefined;
   let settled = false;
+  // Set by `cleanup()`. A wait that resolved keeps its socket until then, since a caller may read
+  // `deliveryEvents` afterwards: Resend's `delivered` often follows the mail itself.
+  let closed = false;
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const later = (run: () => void, ms: number): ReturnType<typeof setTimeout> => {
     const timer = setTimeout(() => { timers.delete(timer); run(); }, ms);
@@ -183,7 +186,11 @@ export function waitForEmail(options: WaitForEmailOptions, transport: EmailTestT
   };
   let settle: (outcome: { email: StoredEmail } | { error: Error }) => void = () => {};
 
-  const cleanup = () => settle({ error: new Error('The wait was cleaned up before an email arrived') });
+  const cleanup = () => {
+    settle({ error: new Error('The wait was cleaned up before an email arrived') });
+    closed = true;
+    try { ws?.close(); } catch { /* ignore */ }
+  };
 
   const emailPromise = new Promise<StoredEmail>((resolve, reject) => {
     // What the socket went through, for the timeout's message: a wait that never held a socket
@@ -197,8 +204,9 @@ export function waitForEmail(options: WaitForEmailOptions, transport: EmailTestT
       settled = true;
       for (const timer of timers) clearTimeout(timer);
       timers.clear();
+      if ('email' in outcome) { resolve(outcome.email); return; }
       try { ws?.close(); } catch { /* ignore */ }
-      if ('email' in outcome) resolve(outcome.email); else reject(outcome.error);
+      reject(outcome.error);
     };
 
     later(() => settle({
@@ -237,7 +245,7 @@ export function waitForEmail(options: WaitForEmailOptions, transport: EmailTestT
       }), REPLAY_ANSWER_MS);
 
       socket.addEventListener('message', (event) => {
-        if (settled) return;
+        if (closed) return;
         const parsed = JSON.parse(event.data as string) as StoredEmail | DeliveryEventMessage | ReplayedMessage;
         if ('kind' in parsed && parsed.kind === 'replayed') {
           clearTimeout(noReplay);
@@ -260,7 +268,7 @@ export function waitForEmail(options: WaitForEmailOptions, transport: EmailTestT
         }
         // Another test's email on the shared socket — keep waiting, don't
         // resolve with it and don't consume our timer.
-        if (!matchesRecipient(parsed)) return;
+        if (settled || !matchesRecipient(parsed)) return;
         marks.receivedAt = Date.now();
         settle({ email: parsed });
       });

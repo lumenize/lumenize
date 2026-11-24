@@ -38,6 +38,7 @@ const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 function transportTo(before: (attempt: number, socket?: undefined) => Promise<void> | void = () => {}, deaf = false) {
   const opens: string[] = [];
+  const sockets: WebSocket[] = [];
   const transport: EmailTestTransport = {
     open: async (query) => {
       opens.push(query);
@@ -47,11 +48,12 @@ function transportTo(before: (attempt: number, socket?: undefined) => Promise<vo
       ws.accept();
       // A Worker deployed before the replay ignores what a socket sends, which `deaf` stands in for.
       if (deaf) ws.send = () => {};
+      sockets.push(ws);
       return ws;
     },
     clear: async () => {},
   };
-  return { transport, opens };
+  return { transport, opens, sockets };
 }
 
 describe('a mail waiter whose socket drops', () => {
@@ -88,6 +90,27 @@ describe('a mail waiter whose socket drops', () => {
     } finally {
       waiter.cleanup();
     }
+  });
+
+  it('goes on collecting what Resend reports after the mail has arrived, until it is cleaned up', async () => {
+    const to = address();
+    const { transport, sockets } = transportTo();
+    const waiter = waitForEmail({ testToken: env.TEST_TOKEN, to, timeout: 4000 }, transport);
+    try {
+      await vi.waitFor(() => expect(waiter.marks.wsOpenAt).toBeDefined());
+      await deliver(to, 'the mail');
+      await waiter.emailPromise;
+      expect(sockets[0].readyState).toBe(WebSocket.OPEN);
+      await inbox().receiveDeliveryEvent(`msg_${crypto.randomUUID()}`, {
+        type: 'email.delivered', created_at: new Date().toISOString(),
+        data: { email_id: 'send-1', to: [to], subject: 'the mail' },
+      });
+      await vi.waitFor(() => expect(waiter.deliveryEvents.map((e) => e.emailId)).toEqual(['send-1']));
+    } finally {
+      waiter.cleanup();
+    }
+    // The socket a resolved wait kept is the one a leaked waiter would hang the process on.
+    expect(sockets[0].readyState).not.toBe(WebSocket.OPEN);
   });
 
   it('retries a first socket that fails to open, and still hears mail sent before one did', async () => {
