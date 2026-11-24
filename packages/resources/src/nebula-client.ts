@@ -169,8 +169,8 @@ export class NebulaClient extends MeshClient<AuthClaims> {
   /**
    * Register a runtime listener for org-tree updates, which the factory mirrors into
    * `store.lmz.orgTree.value`. Single-handler; replaces. Registering one also opts this client
-   * into subscribing the tree on connect, so register it before the first connection: one set on
-   * a connected client hears nothing until its next reconnect.
+   * into subscribing the tree on connect, and one set on a connected client is sent the current
+   * tree at once.
    */
   onOrgTreeUpdate(handler: ((state: OrgTreeState) => void) | null): void {
     this.#resources.setOrgTreeListener(handler);

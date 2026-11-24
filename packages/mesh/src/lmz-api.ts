@@ -190,12 +190,15 @@ function kindOf(context: CallContext | undefined): ContextKind | undefined {
   return (context as (CallContext & { [CONTEXT_KIND]?: ContextKind }) | undefined)?.[CONTEXT_KIND];
 }
 
-const AGENT_SUB_SHAPE = /^agent:.+/;
+// The name follows a scope slug's grammar (`SLUG_RE` in `auth/parse-id.ts`).
+const AGENT_SUB_SHAPE = /^agent:[a-z0-9][a-z0-9-]*$/;
 
 /**
  * The prefix of a `sub` says which kind of principal it is (ADR-025), so an agent principal's is
  * `agent:` and a name. That refuses a person's random id, and `system:acme.crm`, which only
- * `asSystemPrincipal` builds.
+ * `asSystemPrincipal` builds. The name is a slug, as in `agent:lumenize`: a grant's key is matched
+ * by exact equality, so `agent:Lumenize` would be a second key that reads as the first, and a
+ * second colon is kept free for a longer form.
  */
 function requireAgentPrincipalName(principal: string): void {
   if (typeof principal !== 'string' || !AGENT_SUB_SHAPE.test(principal)) {
@@ -906,10 +909,11 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
         `A DO instance cannot change its name.`);
   }
 
-  // A node's first construction runs before any call has stamped a name, and `onStart` runs
-  // there. The name the Durable Object was addressed by is the same name a stamp would write, so a
-  // block that acts as one of the node's principals reads it from `ctx.id.name` until then.
-  const nodeName = (): string | undefined => stored()?.instanceName ?? heldInstanceName ?? ctx.id.name;
+  // A block that acts as one of the node's principals is named from `ctx.id.name`, the name the
+  // namespace addressed this object by. No envelope or header can write it, and it is there at a
+  // node's first construction, where `onStart` runs before any call has stamped a name. Only an
+  // object made without a name falls back to the stamp.
+  const nodeName = (): string | undefined => ctx.id.name ?? stored()?.instanceName ?? heldInstanceName;
 
   return {
     // --- Getters (all readonly) ---

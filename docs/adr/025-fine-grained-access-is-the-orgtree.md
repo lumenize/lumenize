@@ -55,7 +55,7 @@ These things follow:
 These things follow:
 
 - **It passes the orgTree check as an admin of its scope does**, through dominion's bypass, so no grant is written for it and none can be revoked.
-- **It is for work no person asked for.** A block run as the system principal never does work a caller's call asked for, or work whose result is shown as someone's; that work runs under the caller's claims or an agent principal's.
+- **It is for work no person asked for.** A block run as the system principal never does work a caller's call asked for, or work whose result is shown as someone's; that work runs under the caller's claims or an agent principal's. It may finish a record a caller began when the caller chooses nothing in the write, as when an invite's status row is flipped for an inviter who has since lost `write` at the node.
 - **A call made under its claims starts a fresh chain**, as one made under an agent principal's does.
 - **A node with no scope of its own has none**: a Worker, an unscoped node, the platform root.
 

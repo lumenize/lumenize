@@ -174,13 +174,16 @@ describe('NebulaClient re-subscribes when something was lost', () => {
     const { client } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     let trees = 0;
     client.onOrgTreeUpdate(() => { trees += 1; });
+    // A listener set on a connected client is sent the tree at once. MUTATION: only store the
+    // handler, and no tree arrives until the reconnect below.
+    await vi.waitFor(() => expect(trees).toBe(1));
 
     // This project's grace period is 100 ms, so a reconnect after the 1 s backoff is told
     // `subscriptionRequired: true`. MUTATION: leave the tree out of the walk, and none arrives.
     await closeFromHost(client, 4000);
     await vi.waitFor(() => expect(client.connectionState).toBe('reconnecting'));
     await vi.waitFor(() => expect(client.connectionState).toBe('connected'), { timeout: 10_000 });
-    await vi.waitFor(() => expect(trees).toBe(1));
+    await vi.waitFor(() => expect(trees).toBe(2));
 
     // A rotation opens a new socket that supersedes the old one, and is told `false`.
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -192,8 +195,8 @@ describe('NebulaClient re-subscribes when something was lost', () => {
     } finally {
       vi.useRealTimers();
     }
-    // MUTATION: restore the blanket re-subscribe on reconnect, and the rotation brings a second tree.
-    expect(trees).toBe(1);
+    // MUTATION: restore the blanket re-subscribe on reconnect, and the rotation brings a third tree.
+    expect(trees).toBe(2);
     client[Symbol.dispose]();
   }, 60_000);
 });

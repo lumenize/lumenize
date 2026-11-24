@@ -58,6 +58,18 @@ async function starWithOntology(star: string) {
 
 /** The current _InviteStatus rows at `nodeId`, as { email → { state, tier, error? } } — read
  *  through the PUBLIC query + read path (what the members panel does). */
+/** The `sub` recorded on the current write of each `_InviteStatus` row at `nodeId`. */
+async function statusWriters(client: NebulaClient, nodeId: string): Promise<string[]> {
+  using sub = client.resources.subscribeQuery({ typeName: '_InviteStatus', filter: { node: nodeId } });
+  await sub.ready;
+  const writers: string[] = [];
+  for (const id of sub.resourceIds) {
+    const snapshot = await client.resources.read('_InviteStatus', id);
+    if (snapshot) writers.push(snapshot.meta.recordedClaims.sub);
+  }
+  return writers;
+}
+
 async function inviteStatuses(
   client: NebulaClient, nodeId: string,
 ): Promise<Record<string, { state: string; tier: string; error?: string }>> {
@@ -423,8 +435,9 @@ describe('Star.resources.invite — one invite names every grant it gives', () =
 
   // The inviter gives up `admin` at the second node on the same socket, right behind the invite.
   // The invite's door has passed by then, and its facade call has not gone out, so the answer
-  // finds the grant gone. MUTATIONS: let a refused grant end the handler, or let a row that
-  // cannot be flipped end the flips, and the `kept` row stays `pending`.
+  // finds the grant gone. MUTATIONS: let a refused grant end the handler, and the `kept` row stays
+  // `pending`. Flip only under the inviter's claims, and the `lost` row stays `pending`. Flip
+  // every row as the Star, and the `kept` row's record names the Star.
   it('writes the grants it can when the inviter loses admin at one node before the facade answers', async () => {
     const star = uniqueStar();
     const { browser, client: admin, accessToken } = await starWithOntology(star);
@@ -442,9 +455,14 @@ describe('Star.resources.invite — one invite names every grant it gives', () =
       await vi.waitFor(async () => {
         expect((await inviteStatuses(admin, kept))[invitee]).toEqual({ state: 'sent', tier: 'read' });
       });
-      // The inviter holds nothing at `lost` now, so the flip of its row, made under their claims,
-      // is refused too, and the row stays as the invite left it.
-      expect((await inviteStatuses(admin, lost))[invitee]).toEqual({ state: 'pending', tier: 'read' });
+      // The inviter holds nothing at `lost` now and could not write its row, so the Star flips
+      // it as its own system principal, and the row's record names the Star, not the inviter.
+      await vi.waitFor(async () => {
+        expect((await inviteStatuses(admin, lost))[invitee]?.state).toBe('submission-failed');
+      });
+      expect((await inviteStatuses(admin, lost))[invitee]?.error).toMatch(/admin/);
+      expect(await statusWriters(admin, lost)).toEqual([`system:${star}`]);
+      expect(await statusWriters(admin, kept)).toEqual([inviter.sub]);
       expect(await grantsOf(admin, await mintedAt(admin, kept, [inviter.sub]))).toEqual({ [kept]: 'read' });
       expect(warned.filter((e) => e.namespace === 'nebula.Resources.invite' && e.message === 'a node invite grant was refused')
         .map((e) => e.data?.nodeId)).toEqual([lost]);

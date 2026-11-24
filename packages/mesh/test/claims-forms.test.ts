@@ -184,13 +184,19 @@ describe('lmz.asAgentPrincipal — an agent principal acts as itself', () => {
   });
 
   // Mutations: skip the name check in `asAgentPrincipalShared`, and every row runs. Accept any
-  // `kind:name`, and the `system:` and `webhook:` rows run.
+  // `kind:name`, and the `system:` and `webhook:` rows run. Accept any name after `agent:`, and
+  // the capital, space, second-colon, leading-hyphen and trailing-newline rows run.
   it.each([
     ['a node\'s own system principal', 'system:acme.crm'],
     ['another kind of principal', 'webhook:stripe'],
     ['a name with no prefix', 'lumenize'],
     ['the prefix with no name', 'agent:'],
     ['the empty string', ''],
+    ['a name with a capital', 'agent:Lumenize'],
+    ['a name with a space', 'agent:my agent'],
+    ['a name with a second colon', 'agent:acme:helper'],
+    ['a name that starts with a hyphen', 'agent:-helper'],
+    ['a name with a trailing newline', 'agent:lumenize\n'],
     ['a person\'s id', '7c1e2f3a-4b5c-4d6e-8f70-112233445566'],
   ])('refuses %s as an agent principal', async (_what, principal) => {
     const outcome = await env.TEST_DO.getByName('agent_principal_names').tryAgentPrincipalName(principal);
@@ -200,6 +206,7 @@ describe('lmz.asAgentPrincipal — an agent principal acts as itself', () => {
 
   it('runs a block for a sub of the form agent:name', async () => {
     expect(await env.TEST_DO.getByName('agent_principal_names').tryAgentPrincipalName('agent:lumenize')).toBe('ran');
+    expect(await env.TEST_DO.getByName('agent_principal_names').tryAgentPrincipalName('agent:build-bot-2')).toBe('ran');
   });
 });
 
@@ -246,6 +253,21 @@ describe('lmz.asSystemPrincipal — a scoped node acts as itself', () => {
       { sub: 'system:beta.shop', profileId: 'system:beta.shop', aud: 'beta.shop', access: { authScope: 'beta.shop', scopeAdmin: true } });
     expect(await node.kept('onstart_agent')).toEqual(
       { sub: 'agent:test', profileId: 'agent:test', aud: 'beta.shop', access: { authScope: 'beta.shop' } });
+  });
+
+  // The headers stand in for a forward that stamps the wrong name. It can only be built here,
+  // below the Worker: every real stamper derives the stub from the name it stamps.
+  // Mutation: read the stamped name ahead of `ctx.id.name`, and the principal is `system:beta.shop`.
+  it('names the principal from the name the namespace gave the node, whatever a stamp says', async () => {
+    const node = env.CLIENT_HOST_DO.getByName('acme.misnamed');
+    await node.fetch('https://node.test/nowhere', { headers: {
+      'x-lumenize-do-binding-name': 'CLIENT_HOST_DO',
+      'x-lumenize-do-instance-name-or-id': 'beta.shop',
+    } });
+    const seen = await node.runAsSystemPrincipal('system_callee_3', ['acme.misnamed', 'beta.shop']) as any;
+    expect(seen.originAuth.sub).toBe('system:acme.misnamed');
+    expect(seen.originAuth.claims.aud).toBe('acme.misnamed');
+    expect(seen.dominion).toEqual({ 'acme.misnamed': true, 'beta.shop': false });
   });
 
   // Mutations: decide the refusal by what the name parses as, and the unscoped node named

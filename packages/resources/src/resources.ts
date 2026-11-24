@@ -985,34 +985,48 @@ export class Resources {
    *  a single stale version (a concurrent re-invite converging that address mid-flight) void the
    *  SIBLING invitees' flips, stranding them at `pending` with only a warn to show for it. A row
    *  that vanished or moved on (converged by a newer writer) is skipped: that writer owns its
-   *  state. Each flip is caught by itself for the same reason. */
+   *  state. Each flip is caught by itself for the same reason.
+   *
+   *  A flip runs under the inviter's claims while they can still write at the node. One who has
+   *  lost that since the door cannot, and their row would read `pending` for good, so the node
+   *  finishes it as its own system principal. That is within what a system principal may do
+   *  (ADR-025) only because the inviter chooses nothing in the write: the row is one they wrote
+   *  while they could, and the state and the error come from this code. */
   async #flipInviteStatuses(
     flips: Array<{ nodeId: string; email: string; state: 'sent' | 'submission-failed'; error?: string }>,
   ): Promise<void> {
+    const log = debug('nebula.Resources.invite');
+    const flipRow = async (flip: (typeof flips)[number]): Promise<void> => {
+      const existing = this.#findInviteStatus(flip.nodeId, flip.email);
+      if (!existing) return;
+      const value = {
+        ...(existing.value as Record<string, unknown>),
+        state: flip.state,
+        ...(flip.error !== undefined ? { error: flip.error } : {}),
+      };
+      if (flip.error === undefined) delete (value as Record<string, unknown>).error;
+      const written = await this.doTransaction({
+        [existing.resourceId]: { op: 'put', ifValidFromMatches: existing.meta.validFrom, value },
+      }, '');
+      if (!written.ok) {
+        log.warn('an _InviteStatus flip did not apply (a newer writer owns the row)', {
+          nodeId: flip.nodeId, resourceId: existing.resourceId,
+        });
+      }
+    };
     for (const flip of flips) {
       const { nodeId } = flip;
       try {
-        const existing = this.#findInviteStatus(nodeId, flip.email);
-        if (!existing) continue;
-        const value = {
-          ...(existing.value as Record<string, unknown>),
-          state: flip.state,
-          ...(flip.error !== undefined ? { error: flip.error } : {}),
-        };
-        if (flip.error === undefined) delete (value as Record<string, unknown>).error;
-        const written = await this.doTransaction({
-          [existing.resourceId]: { op: 'put', ifValidFromMatches: existing.meta.validFrom, value },
-        }, '');
-        if (!written.ok) {
-          debug('nebula.Resources.invite').warn('an _InviteStatus flip did not apply (a newer writer owns the row)', {
-            nodeId, resourceId: existing.resourceId,
-          });
+        let inviterMayWrite = true;
+        try { this.#orgTree.requirePermission(nodeId, 'write'); } catch { inviterMayWrite = false; }
+        if (inviterMayWrite) {
+          await flipRow(flip);
+        } else {
+          await this.#lmz().asSystemPrincipal(() => flipRow(flip));
+          log.info('an _InviteStatus row was flipped as the node itself', { nodeId, state: flip.state });
         }
       } catch (err) {
-        // The flips run under the inviter's claims, so one who has lost every grant at a node
-        // since the door can no longer read or write its row there. That row stays `pending`,
-        // and the rest go on.
-        debug('nebula.Resources.invite').warn('an _InviteStatus row could not be flipped', { nodeId, error: err });
+        log.warn('an _InviteStatus row could not be flipped', { nodeId, error: err });
       }
     }
   }

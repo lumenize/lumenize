@@ -360,9 +360,8 @@ export async function connectDriver<C extends NebulaClient = NebulaClient>(
      */
     session?: { accessToken: string; sub: string };
     /**
-     * Hears every org tree the host pushes. It is registered before the first connection, as a
-     * page's store registers its own, because a Client subscribes the tree only at a connection
-     * made while a listener is set: one set later hears nothing.
+     * Hears every org tree the host pushes, from the first connection's own tree on. It is
+     * registered before that connection, as a page's store registers its own.
      */
     onTree?: (tree: OrgTreeState) => void;
   },

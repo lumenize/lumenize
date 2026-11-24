@@ -622,10 +622,12 @@ export class ClientResources {
   /**
    * The factory's org-tree listener, which mirrors the tree into `store.lmz.orgTree.value`.
    * Single-handler; a later call replaces it. Registering one also opts this Client into
-   * subscribing the tree on every restore.
+   * subscribing the tree on every restore, and subscribes at once when the Client is already
+   * connected, so the listener hears the current tree whenever it is set.
    */
   setOrgTreeListener(handler: ((state: OrgTreeState) => void) | null): void {
     this.#orgTreeListener = handler;
+    if (handler && this.#client.connectionState === 'connected') this.#subscribeTree();
   }
 
   /**
