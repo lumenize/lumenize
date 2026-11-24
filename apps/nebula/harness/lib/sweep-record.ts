@@ -15,6 +15,8 @@ import { dirname, join } from 'node:path';
 /** The harness's own code: everything it runs but the scenarios, and what it imports from outside. */
 export const HARNESS_PATHS = [
   'apps/nebula/harness/drive.ts', 'apps/nebula/harness/lib', 'apps/nebula/test/lib', 'apps/nebula/scripts',
+  // The mail waiter every login goes through. A change to it changed no hash until 2026-11-24.
+  'tooling/email-test/src',
 ];
 
 /**
