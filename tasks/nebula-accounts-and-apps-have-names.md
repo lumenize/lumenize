@@ -42,7 +42,7 @@ What stands in the way today:
 
 ## Relationships
 
-- **After [nebula-galaxy-builds-its-tree.md](nebula-galaxy-builds-its-tree.md), whose D3 and D11 this file's design follows.** The platform's own nodes come from each host's own code, never a seed, so the `meta` node and its grant to `anyone` come from each host's `onStart`, which creates them through `createNode` as the host's system principal. That file built it for the Galaxy's `chat`, `messages` and `rounds`, and removed the seed.
+- **After [nebula-galaxy-builds-its-tree.md](archive/nebula-galaxy-builds-its-tree.md), whose D3 and D11 this file's design follows.** The platform's own nodes come from each host's own code, never a seed, so the `meta` node and its grant to `anyone` come from each host's `onStart`, which creates them through `createNode` as the host's system principal. That file built it for the Galaxy's `chat`, `messages` and `rounds`, and removed the seed.
 - **After [archive/nebula-turn-stored-round-by-round.md](archive/nebula-turn-stored-round-by-round.md)**, built and archived on 2026-11-19. It edited `galaxy.ts` too; this one adds a type to the chat ontology and deletes the config pair there.
 - **Before [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 24: Visitors read what anyone may*.** The `anyone` grantee lands here, and Item 24 widens who it covers.
 - **[nebula-pre-alpha.md](nebula-pre-alpha.md) § *Shared pages*** carries this as a `deploy` row, and its § *Scope full names* points here.

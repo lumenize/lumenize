@@ -5,6 +5,7 @@
  *   npx tsx apps/nebula/harness/drive.ts all          # sweep EVERY scenario, one boot each
  *   npx tsx apps/nebula/harness/drive.ts all --fast   # …skipping the ones that need Docker
  *   npx tsx apps/nebula/harness/drive.ts all --rerun  # …only those without a pass on this tree
+ *   npx tsx apps/nebula/harness/drive.ts a b c        # sweep only the scenarios named
  *   HARNESS_DEBUG=1 npx tsx apps/nebula/harness/drive.ts   # stream wrangler-dev stdio
  *   HARNESS_LOG_WAIT_MS=60000 …                           # give up on a missing log line sooner
  *
@@ -29,6 +30,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bootDevStack, HAS_DOCKER, readDevVar, type DevStack } from './lib/harness';
 import { stopOrphanedContainers } from './lib/containers';
+import { hostSleptLine, HOST_SLEPT_MARK, watchForHostSleep } from './lib/host-sleep';
 import { HARNESS_PATHS, LOCAL_STACK_EXTRA_PATHS, hashPaths, isFlake, namesToRerun, readRecord, scenarioPath, writeRecord } from './lib/sweep-record';
 import type { ScenarioVerdict, SweepRecord } from './lib/sweep-record';
 import { hostOrigin } from '@lumenize/mesh/client';
@@ -311,8 +313,16 @@ const SCENARIOS: Record<string, Scenario> = {
  * stopped part way resumes where it stopped. Any edit to the code or the harness changes the tree,
  * and a rerun then runs everything. A scenario that failed on a tree and passes when run again on it
  * is reported as a flake, never as a fix.
+ *
+ * NAMING TWO OR MORE SCENARIOS SWEEPS ONLY THOSE (`only`), into the same record, so a deployed
+ * pass of the scenarios a build touched can be resumed with `--rerun` as a full sweep can. A
+ * parked scenario named that way runs, as it does when named alone.
+ *
+ * A FAILURE THE HOST SLEPT UNDER IS NOT RECORDED. The scenario's own run says so (`lib/host-sleep.ts`),
+ * and its verdict is evidence of nothing, as a stopped one's is: a rerun runs it again, and a pass
+ * there is not called a flake.
  */
-async function sweep(fast: boolean, concurrency: number, rerun: boolean): Promise<void> {
+async function sweep(fast: boolean, concurrency: number, rerun: boolean, only?: string[]): Promise<void> {
   const deployed = Boolean(process.env.HARNESS_TARGET_URL);
   if (concurrency > 1 && !deployed) {
     console.error('[harness] --concurrency needs HARNESS_TARGET_URL: a local sweep boots a wrangler dev per scenario and clears workerd between them');
@@ -327,12 +337,12 @@ async function sweep(fast: boolean, concurrency: number, rerun: boolean): Promis
   const { mkdirSync, writeFileSync, readdirSync, readFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join, resolve, dirname } = await import('node:path');
-  const registered = Object.keys(SCENARIOS)
+  const registered = (only ?? Object.keys(SCENARIOS))
     .filter((n) => !fast || (SCENARIOS[n].needsContainer ?? true) === false);
   // PARKED scenarios are reported, never omitted — a limb held back by absence is a limb nobody
   // can see. They are listed before the run so the count at the top is the count that will print.
-  const parked = registered.filter((n) => SCENARIOS[n].skip !== undefined);
-  const names = registered.filter((n) => SCENARIOS[n].skip === undefined);
+  const parked = only ? [] : registered.filter((n) => SCENARIOS[n].skip !== undefined);
+  const names = only ? registered : registered.filter((n) => SCENARIOS[n].skip === undefined);
   const durationsFile = join(tmpdir(), 'lumenize-sweep', `durations-${deployed ? 'deployed' : 'local'}.json`);
   let durations: Record<string, number> = {};
   try { durations = JSON.parse(readFileSync(durationsFile, 'utf8')) as Record<string, number>; } catch { /* first sweep on this venue */ }
@@ -454,11 +464,13 @@ async function sweep(fast: boolean, concurrency: number, rerun: boolean): Promis
     if (child.pid !== undefined) running.delete(child.pid);
     writeFileSync(join(logDir, `${name}.log`), out);
     const ok = status === 0;
-    const detail = ok ? '' : (/^(?:AssertionError|\w*Error):.*$/m.exec(out)?.[0] ?? '(see the kept output)').slice(0, 120);
+    const slept = !ok && out.includes(HOST_SLEPT_MARK);
+    const detail = ok ? '' : `${slept ? '(the host slept under it) ' : ''}`
+      + (/^(?:AssertionError|\w*Error):.*$/m.exec(out)?.[0] ?? '(see the kept output)').slice(0, 120);
     checkTree(name); // an edit DURING this scenario taints it too
     const tainted = taintedFrom !== undefined;
     // A scenario that ends after a stop was cut short by it, so its result is evidence of nothing.
-    if (!tainted && stoppedBy === undefined && tree.id !== undefined) {
+    if (!tainted && !slept && stoppedBy === undefined && tree.id !== undefined) {
       const file = fileHashOf(name);
       if (isFlake(verdicts[name], file, ok)) flakes.push(name);
       verdicts[name] = { ok, file, at: new Date().toISOString() };
@@ -517,7 +529,7 @@ async function sweep(fast: boolean, concurrency: number, rerun: boolean): Promis
   }
   if (failed.length > 0 || taintedFrom !== undefined) process.exitCode = 1;
   if (stoppedBy !== undefined) {
-    console.log(`\n🛑 the sweep was stopped by ${stoppedBy}: ${toRun.length - results.length} scenario(s) never started; \`all --rerun\` resumes it`);
+    console.log(`\n🛑 the sweep was stopped by ${stoppedBy}: ${toRun.length - results.length} scenario(s) never started; the same command with \`--rerun\` resumes it`);
     process.exitCode = 130;
   }
 }
@@ -651,8 +663,17 @@ installLocalhostLookup();
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
-  const name = argv.find((a) => !a.startsWith('-')) ?? 'message-roundtrip';
-  if (name === 'all') {
+  const named = argv.filter((a) => !a.startsWith('-'));
+  const name = named[0] ?? 'message-roundtrip';
+  const unknown = named.filter((n) => n !== 'all' && !SCENARIOS[n]);
+  if (named.length > 1 && (named.includes('all') || unknown.length > 0)) {
+    console.error(named.includes('all')
+      ? '[harness] "all" takes no scenario names beside it'
+      : `[harness] unknown scenario(s): ${unknown.join(', ')}`);
+    process.exitCode = 2;
+    return;
+  }
+  if (name === 'all' || named.length > 1) {
     const flag = argv.find((a) => a.startsWith('--concurrency'));
     const concurrency = flag === undefined ? 1 : Number(/^--concurrency=(\d+)$/.exec(flag)?.[1]);
     if (!Number.isInteger(concurrency) || concurrency < 1) {
@@ -660,7 +681,8 @@ async function main(): Promise<void> {
       process.exitCode = 2;
       return;
     }
-    return sweep(argv.includes('--fast'), concurrency, argv.includes('--rerun'));
+    return sweep(argv.includes('--fast'), concurrency, argv.includes('--rerun'),
+      name === 'all' ? undefined : [...new Set(named)]);
   }
 
   const scenario = SCENARIOS[name];
@@ -713,6 +735,7 @@ async function main(): Promise<void> {
     : await bootDevStack({ withContainer: needsContainer, vars: scenario.bootVars });
   const t0 = Date.now();
   const secs = () => ((Date.now() - t0) / 1000).toFixed(1);
+  const hostSleep = watchForHostSleep();
   // The Worker's own side of the story, kept with the red: the last of the dev stack's
   // stdio (its debug markers under the booted `DEBUG` namespaces). A red that only
   // quotes the scenario's assertion cannot be attributed — 2026-09-06's `build-box` 404
@@ -770,6 +793,7 @@ async function main(): Promise<void> {
     if (stoppedBy !== undefined) return;
     console.error(`❌ harness scenario "${name}" FAILED after ${secs()}s:`);
     console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
+    for (const gap of hostSleep.gaps()) console.error(hostSleptLine(gap));
     // A deployed capture delivers an invocation's lines when it ends; give the ones in flight a
     // moment, since the line a limb missed is often among them.
     if (target) await new Promise((r) => setTimeout(r, 10_000));

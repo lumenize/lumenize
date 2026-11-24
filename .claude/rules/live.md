@@ -47,11 +47,12 @@ tainted sweep exits non-zero instead of reading as a real one.
 sweep.** It runs only the scenarios with no pass on the tree in front of it, so it resumes a
 stopped sweep and reruns everything after an edit to the code or the harness. A rerun therefore
 counts at a closing gate exactly as a full sweep does. `harness/lib/sweep-record.ts` says what
-the tree is, and `drive.ts` says what it is deployed.
+the tree is, and `drive.ts` says what it is deployed. Naming two or more scenarios, `drive.ts a b c`, sweeps only those into the same record, so a deployed pass of a build's own scenarios resumes with `--rerun` too.
 
 - **A scenario that fails, then passes on a rerun with nothing changed, is a flake, and the rerun
   names it.** It MUST be reported as a flake where the sweep's result is reported, and MUST NOT be
   read as a pass that cancels the failure: retrying a red away is how a quiet failure survives.
+- **A failure the host slept under is neither.** A run notices a gap of a minute or more in its own clock and prints `💤 the host slept` with the failure. The sweep records no verdict for it, so the rerun runs it again and a pass there is not a flake.
 
 ## `/live` is the DEFAULT tier for behavioural coverage (2026-07-30)
 

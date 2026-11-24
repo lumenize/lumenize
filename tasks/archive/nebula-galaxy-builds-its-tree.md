@@ -1,6 +1,6 @@
 # The Galaxy builds its own tree in `onStart`, and the tree seed goes
 
-**Status:** Pass 1, drafted 2026-11-21, split from [nebula-app-lifecycle-hooks.md](nebula-app-lifecycle-hooks.md) on 2026-11-22, and reshaped the same day by two `/review-task` Stage 1 passes. Larry read Pass 1 in full on 2026-11-23, the phases were written that day, and `/review-task` Stage 2 then raised Q17 to Q19, which Larry answered that day as D19 to D21. Routed task-file-first, though `/task-management`'s question, whether this changes how a developer uses the package, answers yes (D10, D12, D13): the signatures are pinned here with their alternatives weighed, and the docs that carry them change in the phase that builds each. It comes before nebula-query-upgrade.md, and nebula-app-lifecycle-hooks.md gives an app its hooks after that task (§ *Relationships*).
+**Status:** Pass 1, drafted 2026-11-21, split from [nebula-app-lifecycle-hooks.md](../nebula-app-lifecycle-hooks.md) on 2026-11-22, and reshaped the same day by two `/review-task` Stage 1 passes. Larry read Pass 1 in full on 2026-11-23, the phases were written that day, and `/review-task` Stage 2 then raised Q17 to Q19, which Larry answered that day as D19 to D21. Routed task-file-first, though `/task-management`'s question, whether this changes how a developer uses the package, answers yes (D10, D12, D13): the signatures are pinned here with their alternatives weighed, and the docs that carry them change in the phase that builds each. It comes before nebula-query-upgrade.md, and nebula-app-lifecycle-hooks.md gives an app its hooks after that task (§ *Relationships*).
 
 ## Conventions
 
@@ -83,10 +83,10 @@ The sections that follow say what changes, the claims it rests on, and the decis
 
 ## Relationships
 
-- **Before [nebula-query-upgrade.md](nebula-query-upgrade.md)** (Larry, 2026-11-22), so our Galaxy drops its seed before that task is built, and nothing more is built on the seed. Its claims that describe the seed, a protected grant or `createNode`'s throw are rewritten when this file closes.
-- **Before [nebula-app-lifecycle-hooks.md](nebula-app-lifecycle-hooks.md)**, which comes after nebula-query-upgrade.md and gives an app `onStart` and `onNewOntologyVersion` exports, run in a facet. It builds on D4, D6, D8 and D9 here, and defines the object an app's hook receives, which its DI4 cites from this file today. That file is rewritten to say so when this file closes. It confirms who an app's code runs as, and D17 expects its Galaxy's `system:{scope}`, with dominion over every tenant Star, which Larry accepts as asking for diligence in that code. It is also where such a principal first writes a record a page could show, so a Profile is due there (D13).
-- **Changes [nebula-accounts-and-apps-have-names.md](nebula-accounts-and-apps-have-names.md)**, whose `meta` node and its grant to `anyone` come from every scope's seed in its design. Under D3 and D11 each host's `onStart` creates them, and that file is rewritten to say so when this file closes. Its `anyone` is a grantee key that is neither a person's nor an agent principal's (D15), and no principal can be named `anyone`, since each builder accepts only its own prefix (D21).
-- **Changes [tasks/on-hold/nebula-request-access.md](on-hold/nebula-request-access.md)**, which is rewritten when this file closes: a climb and its count of admins consider only a person's grant (DI16). A node's own principal acts through the dominion bypass as a person's admin does, so it adds nothing to the tree a climb reads.
+- **Before [nebula-query-upgrade.md](../nebula-query-upgrade.md)** (Larry, 2026-11-22), so our Galaxy drops its seed before that task is built, and nothing more is built on the seed. Its claims that describe the seed, a protected grant or `createNode`'s throw are rewritten when this file closes.
+- **Before [nebula-app-lifecycle-hooks.md](../nebula-app-lifecycle-hooks.md)**, which comes after nebula-query-upgrade.md and gives an app `onStart` and `onNewOntologyVersion` exports, run in a facet. It builds on D4, D6, D8 and D9 here, and defines the object an app's hook receives, which its DI4 cites from this file today. That file is rewritten to say so when this file closes. It confirms who an app's code runs as, and D17 expects its Galaxy's `system:{scope}`, with dominion over every tenant Star, which Larry accepts as asking for diligence in that code. It is also where such a principal first writes a record a page could show, so a Profile is due there (D13).
+- **Changes [nebula-accounts-and-apps-have-names.md](../nebula-accounts-and-apps-have-names.md)**, whose `meta` node and its grant to `anyone` come from every scope's seed in its design. Under D3 and D11 each host's `onStart` creates them, and that file is rewritten to say so when this file closes. Its `anyone` is a grantee key that is neither a person's nor an agent principal's (D15), and no principal can be named `anyone`, since each builder accepts only its own prefix (D21).
+- **Changes [tasks/on-hold/nebula-request-access.md](../on-hold/nebula-request-access.md)**, which is rewritten when this file closes: a climb and its count of admins consider only a person's grant (DI16). A node's own principal acts through the dominion bypass as a person's admin does, so it adds nothing to the tree a climb reads.
 - **Settles `tasks/backlog.md`'s row on a create answered wrong on repeat, for `createNode`** (D12). Whether creating and deleting a scope repeat the same way stays open there.
 
 ## Current state
@@ -187,9 +187,9 @@ Claims the design rests on:
 
 ## Constraints
 
-- **[ADR-007](../docs/adr/007-shared-node-security-core.md)**: Mesh derives every node's own principal, so the Galaxy and the Star each have one by composition, with nothing written.
-- **[ADR-015](../docs/adr/015-passage-and-dominion.md)** and **[ADR-025](../docs/adr/025-fine-grained-access-is-the-orgtree.md)**: dominion runs downward and can revoke any grant. ADR-025 is amended so a node's own principal holds dominion over its scope, while an agent principal such as `agent:lumenize` still holds grants in one tree and no membership (D17).
-- **[ADR-016](../docs/adr/016-record-the-acting-principal.md)**: only the restore logs a record (D14). Every other tree write records no claims until the tree keeps history (C28).
+- **[ADR-007](../../docs/adr/007-shared-node-security-core.md)**: Mesh derives every node's own principal, so the Galaxy and the Star each have one by composition, with nothing written.
+- **[ADR-015](../../docs/adr/015-passage-and-dominion.md)** and **[ADR-025](../../docs/adr/025-fine-grained-access-is-the-orgtree.md)**: dominion runs downward and can revoke any grant. ADR-025 is amended so a node's own principal holds dominion over its scope, while an agent principal such as `agent:lumenize` still holds grants in one tree and no membership (D17).
+- **[ADR-016](../../docs/adr/016-record-the-acting-principal.md)**: only the restore logs a record (D14). Every other tree write records no claims until the tree keeps history (C28).
 - **`mesh.md`** § *Nebula reaches its resources the way an app does*: our own code reaches the plane only as an app can (D3). § *Nebula platform code never drops to raw primitives* asks why no existing lifecycle method does a new hook's job, and D11 adds no hook.
 - **`security.md`**: `lmz.asSystemPrincipal` joins the claims Mesh alone builds, and no other code writes `originAuth`.
 - **`durable-objects.md`**: a start after the first writes nothing when every node and grant is in place, and nothing depends on the Galaxy staying awake.
@@ -700,14 +700,14 @@ Then the whole registry runs locally, since this phase and § *Phase 3* change w
 
 - **A Client asked for the tree only at a connection made while a listener was set.** The scenario's limb 4 waited for a push that never came, and the first fix worked around it in the harness. D25 removed the gap in the Client instead.
 - **`ctx.id.name` is there at a node's first construction, and the stamped name is not.** `onStart` runs before any call has stamped one, so a node's own principals read the namespace's name first (D24).
-- **The protected grant had no lane test.** Removing it reddened only the `/live` scenario, so the restore at each start now has lane cases of its own.
+- **The protected grant, which this build removed, had no lane test.** Removing it reddened only the `/live` scenario. The restore that replaced it has lane cases of its own.
 - **SQLite triggers count what a start writes.** An `INSERT OR IGNORE` that finds its row fires none, so a count of zero means no write, with no proxy around `ctx`.
 - **A deployed run that fails far past its budget, with its log silent for the gap, is the Mac asleep.** `pmset -g log` showed a sleep covering the whole sixteen minutes of the one closing failure.
 
 **What did we struggle with?**
 
 - **The signature changes reached many callers.** `createNode` had thirty-one and `invite` twenty-one that a script could rewrite, and the type-checker named the rest. Neither was hard, and both were most of their phase's time.
-- **The deployed venue failed often.** In § *Phase 6*'s pass five of twelve scenarios failed on first try, and four of those were a lost mail, a dropped socket or a late log line.
+- **The deployed venue failed often.** In § *Phase 6*'s pass five of twelve scenarios failed on first try, and four of those were the venue: a call or a turn that timed out, a line missing from Workers Logs, and a page that never showed its confirmation. The local sweeps' flakes were a different kind, a lost mail or the mail waiter's own socket closing.
 
 **Did any tests fail unexpectedly?**
 

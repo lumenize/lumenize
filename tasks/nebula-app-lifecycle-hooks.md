@@ -1,6 +1,6 @@
 # An app's own code creates its nodes when a Star moves onto a new ontology version
 
-**Status:** Pass 1, split from [nebula-galaxy-builds-its-tree.md](nebula-galaxy-builds-its-tree.md) on 2026-11-22; phases are not written. It is reviewed once [nebula-query-upgrade.md](nebula-query-upgrade.md) has landed, since that task changes the `query` an app's hooks call, and once an experiment has measured C3. It builds the hook nebula-query-upgrade.md's D12 decided, delivers that task's DI22, and lands before the first invite (§ *Relationships*).
+**Status:** Pass 1, split from [nebula-galaxy-builds-its-tree.md](archive/nebula-galaxy-builds-its-tree.md) on 2026-11-22; phases are not written. It is reviewed once [nebula-query-upgrade.md](nebula-query-upgrade.md) has landed, since that task changes the `query` an app's hooks call, and once an experiment has measured C3. It builds the hook nebula-query-upgrade.md's D12 decided, delivers that task's DI22, and lands before the first invite (§ *Relationships*).
 
 ## Conventions
 
@@ -64,7 +64,7 @@ The sections that follow say what the install step becomes for an app, the claim
 
 ## Relationships
 
-- **After [nebula-galaxy-builds-its-tree.md](nebula-galaxy-builds-its-tree.md)**, whose D4, D6, D8, D9 and D17 this builds on: the principal and its dominion, the create, the restore at each start, and our Galaxy's in-process form of the same work.
+- **After [nebula-galaxy-builds-its-tree.md](archive/nebula-galaxy-builds-its-tree.md)**, whose D4, D6, D8, D9 and D17 this builds on: the principal and its dominion, the create, the restore at each start, and our Galaxy's in-process form of the same work.
 - **After [nebula-query-upgrade.md](nebula-query-upgrade.md)** (Larry, 2026-11-22). The `query` this file hands an app's code takes the descriptor that task changes. This file delivers that task's DI22, which has every Star create an app's nodes at install. Until it lands, a generated app has no node of its own to name in a query, which costs only our own scenarios, since nobody else builds apps before the first invite.
 - **Before the first invite in [nebula-pre-alpha.md](nebula-pre-alpha.md).** Moving `src/ontology.d.ts` into `src/ontology/` breaks every Workspace that holds it, and before the invite no Workspace belongs to anyone but us.
 
